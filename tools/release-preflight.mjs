@@ -77,10 +77,10 @@ try {
   }
   assertFresh(status);
 
-  if (versionState.manifest.name === 'MY_CUSTOM_CODEX') {
+  if (String(readJson('package.json').name ?? '') === 'my-custom-codex') {
     runNode('tools/verify-public-boundary.mjs', ['--strict']);
   } else {
-    console.warn('release-preflight: public-boundary strict gate deferred until neutral core identity');
+    console.warn('release-preflight: public-boundary strict gate skipped for non-core package');
   }
 
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
