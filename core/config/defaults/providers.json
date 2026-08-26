@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "kind": "openai_compatible",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "default_model": "qwen2.5:latest",
+      "wire_api": "chat_completions",
+      "local_only_ok": true,
+      "note": "로컬 또는 사용자가 관리하는 OpenAI 호환 endpoint를 모델 탭에서 설정합니다."
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "kind": "openai_compatible",
+      "base_url": "https://api.minimaxi.com/v1",
+      "default_model": "MiniMax-M2.1",
+      "wire_api": "chat_completions",
+      "docs_url": "https://platform.minimaxi.com/document"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "kind": "openai_compatible",
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "gpt-5.6-terra-pro",
+      "wire_api": "responses"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "kind": "openai_compatible",
+      "base_url": "https://api.anthropic.com/v1",
+      "default_model": "claude-opus-4-8",
+      "wire_api": "messages",
+      "note": "Anthropic native Messages API"
+    },
+    {
+      "id": "google",
+      "name": "Google Gemini",
+      "kind": "openai_compatible",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "default_model": "gemini-3.1-pro-preview",
+      "wire_api": "chat_completions"
+    },
+    {
+      "id": "custom",
+      "name": "OpenRouter",
+      "kind": "openai_compatible",
+      "base_url": "https://openrouter.ai/api/v1",
+      "default_model": "anthropic/claude-opus-4.8",
+      "wire_api": "responses",
+      "custom": true,
+      "docs_url": "https://openrouter.ai/docs/api/api-reference/responses/create-responses",
+      "note": "API 키는 이 PC에서 직접 입력해 암호화 저장합니다. 엔드포인트와 Responses 전송 방식은 고정됩니다."
+    }
+  ]
+}

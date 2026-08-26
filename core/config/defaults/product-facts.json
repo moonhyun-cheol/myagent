@@ -1,0 +1,417 @@
+{
+  "version": 1,
+  "generated_at": "2026-08-26T07:34:27.192Z",
+  "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
+  "layout": {
+    "primary_ui": "ui/workspace",
+    "shell": "shell/CqrPa.Shell",
+    "core_src": "core/src",
+    "api_dispatch": "core/src/routes/dispatch.ts",
+    "rulebook": "rulebook/docs",
+    "agents_md": "AGENTS.md",
+    "ui_facts": "core/config/defaults/ui-facts.json"
+  },
+  "memory_files": [
+    "AGENTS.md"
+  ],
+  "api": {
+    "source": "core/src/routes/dispatch.ts",
+    "roots": [
+      "/chat",
+      "/sessions",
+      "/models",
+      "/license",
+      "/config",
+      "/providers",
+      "/attachments",
+      "/skills",
+      "/agent-plugins",
+      "/mcp",
+      "/generate",
+      "/outputs",
+      "/admin",
+      "/health",
+      "/fs",
+      "/setup",
+      "/browser",
+      "/automaton",
+      "/projects",
+      "/workspace",
+      "/error-report",
+      "/assets/"
+    ],
+    "route_count": 74,
+    "routes": [
+      {
+        "method": "GET",
+        "path": "/",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/admin/diagnostics",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/agent-plugins",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/agent-plugins",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/agent-plugins/purge-lab-smoke",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/agent-plugins/templates",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/attachments",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/browser/navigate",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/browser/screenshot",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/chat",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/chat/stream",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/chat/tool-approval",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/agent-autopilot",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/agent-execution-preset",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/agent-reasoning",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/approval-delegation",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/dev-workspace",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/error-report",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/error-report",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/config/error-report/test",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/local-only",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/nas-consent",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/nas-consent",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/workspace-capabilities",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/error-report/preferences",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/error-report/send",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/error-report/status",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/fs/browse",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/fs/open-workspace-path",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/fs/open-workspace-root",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/fs/run-terminal",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/fs/run-terminal/cancel",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/fs/run-terminal/jobs",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/fs/workspace-file",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/fs/workspace-file",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/fs/workspace-file/rename",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/fs/workspace-tree",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/generate/image",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/health",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/index.html",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/license/features",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/license/status",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/mcp/servers",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/mcp/servers",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/mcp/servers/test",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/models",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/models/company-selection",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/models/default",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/models/picker",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/models/runtime",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/models/scan",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/models/upload",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/projects",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/projects",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/providers",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/providers/default",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/providers/user",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/research",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/runtime/llm-status",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/sessions",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/sessions",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/setup/activate",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/setup/import-bundle",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/setup/import-license",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/setup/machine-id",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/setup/status",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/setup/windows-user",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/skills",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/skills",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/skills/import",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace/checkpoint/preview",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/workspace/checkpoint/rollback",
+        "match": "exact"
+      }
+    ]
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "note": "All absolute/host paths used by FPV live prompts MUST appear here. Missing key → env-red (not product-red).",
+  "aliases": {
+    "host.bowling": {
+      "legacy": "C:\\\\ExampleWorkspace\\\\bowling",
+      "fixture": "tools/fpv/fixtures/bowling",
+      "required": true
+    },
+    "host.goodapp_docx": {
+      "legacy": "C:\\\\ExampleApp\\\\Files\\\\Download\\\\strategy.docx",
+      "fixture": "tools/fpv/fixtures/docs/strategy.docx",
+      "required": true
+    },
+    "docs.strategy_docx": {
+      "fixture": "tools/fpv/fixtures/docs/strategy.docx",
+      "required": true
+    },
+    "docs.strategy_txt": {
+      "fixture": "tools/fpv/fixtures/docs/strategy.txt",
+      "required": true
+    },
+    "media.sample_png": {
+      "fixture": "tools/fpv/fixtures/media/fpv-sample.png",
+      "required": true
+    },
+    "fs.bowling": {
+      "fixture": "tools/fpv/fixtures/bowling",
+      "required": true
+    },
+    "toy.root": {
+      "fixture": "tools/lab/fixtures/toy-workbench",
+      "required": true
+    },
+    "toy.counter": {
+      "fixture": "tools/lab/fixtures/toy-workbench/src/counter.js",
+      "required": true
+    },
+    "ui.chat_pane": {
+      "fixture": "ui/workspace/src/components/ChatPane.tsx",
+      "required": true
+    },
+    "ui.confirm_modal": {
+      "fixture": "ui/workspace/src/components/ConfirmModal.tsx",
+      "required": true
+    },
+    "shell.main_window": {
+      "fixture": "shell/CqrPa.Shell/MainWindow.xaml",
+      "required": true
+    }
+  },
+  "promptRewrites": [
+    {
+      "id": "P101_bowling_folder",
+      "find": "C:\\\\ExampleWorkspace\\\\bowling",
+      "replaceWithAlias": "fs.bowling"
+    },
+    {
+      "id": "P102_docx_attach",
+      "find": "C:\\\\ExampleApp\\\\Files\\\\Download\\\\strategy.docx",
+      "replaceWithAlias": "docs.strategy_docx"
+    }
+  ]
+}

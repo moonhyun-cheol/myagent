@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "generated_at": "2026-08-26T07:34:27.133Z",
+  "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
+  "shell": {
+    "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
+    "title": "MY Agent",
+    "window_style": "None",
+    "has_window_chrome": true,
+    "caption_height": "36",
+    "title_bar_background": "#f4f5f2",
+    "title_bar_label": "MY Agent",
+    "accent_bar": "#0f8f83",
+    "custom_caption": true
+  },
+  "workspace": {
+    "chat_pane": "ui/workspace/src/components/ChatPane.tsx",
+    "confirm_modal": "ui/workspace/src/components/ConfirmModal.tsx",
+    "confirm_dialog_helper": "ui/workspace/src/lib/confirmDialog.ts",
+    "nav_sidebar": "ui/workspace/src/components/GeminiNavSidebar.tsx",
+    "projects_tree": "ui/workspace/src/components/ProjectsTree.tsx",
+    "nav_uses_confirm_dialog": true,
+    "nav_uses_window_confirm": false,
+    "tree_uses_confirm_dialog": true
+  },
+  "targets": {
+    "title_bar": [
+      "shell/CqrPa.Shell/MainWindow.xaml",
+      "shell/CqrPa.Shell/DarkTitleBar.cs",
+      "shell/CqrPa.Shell/MainWindow.xaml.cs"
+    ],
+    "delete_confirm": [
+      "ui/workspace/src/components/ConfirmModal.tsx",
+      "ui/workspace/src/lib/confirmDialog.ts",
+      "ui/workspace/src/components/GeminiNavSidebar.tsx",
+      "ui/workspace/src/components/ProjectsTree.tsx"
+    ],
+    "composer": [
+      "ui/workspace/src/components/ChatPane.tsx",
+      "ui/workspace/src/store/workspaceStore.ts"
+    ]
+  }
+}

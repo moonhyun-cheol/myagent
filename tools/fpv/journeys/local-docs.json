@@ -1,0 +1,55 @@
+{
+  "id": "J_local_docs",
+  "title": "로컬 폴더 → docx 요약 → HITL 설명",
+  "priority": "P1",
+  "sessionContinuous": true,
+  "fixtureAliases": ["fs.bowling", "docs.strategy_docx", "docs.strategy_txt"],
+  "steps": [
+    {
+      "id": "S1_folder",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "다음 폴더를 봐봐. 수정 금지. {{fs.bowling}}",
+      "expect": {
+        "minLen": 40,
+        "mustMatch": ["bowling|볼링|파일|폴더|README|py|js"],
+        "forbid": ["edit_file을 호출", "적용했습니다"]
+      }
+    },
+    {
+      "id": "S2_docx",
+      "mode": "chat",
+      "plane": "knowledge",
+      "attachAlias": "docs.strategy_txt",
+      "text": "첨부한 전략 문서 핵심만 요약해. 수정 금지.",
+      "expect": {
+        "minLen": 40,
+        "mustMatch": ["Purpose|채널|Amazon|DTC|시장|전략|Priorit"],
+        "forbid": [
+          "edit_file을 호출",
+          "요약할 수 없",
+          "바이너리 원문만",
+          "신뢰성 있게 요약할 수 없",
+          "not_found"
+        ]
+      }
+    },
+    {
+      "id": "S3_hitl",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "방금 요약한 문서 기준으로 다음 액션 3개만 bullet. 코드/파일 수정 금지.",
+      "expect": {
+        "minLen": 30,
+        "mustMatch": ["[-*]|1[.)]"],
+        "forbid": ["apply_patch", "워크스페이스에 반영"]
+      }
+    }
+  ],
+  "oracles": {
+    "requireSameSession": ["S1_folder", "S2_docx", "S3_hitl"],
+    "forbidMutate": true,
+    "envRedIfFixtureMissing": true,
+    "attDocx": "IMP-ATT-01: docs.strategy_docx fixture required; live summary uses txt twin (binary extract may env-fail)"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "base_url": "http://127.0.0.1:8790",
+  "token": "PASTE_ADAPTER_TOKEN_HERE",
+  "_comment": "Optional local example. Production endpoints and tokens must come from device-local configuration or a signed organization module."
+}

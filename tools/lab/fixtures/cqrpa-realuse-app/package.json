@@ -1,0 +1,12 @@
+{
+  "name": "cqrpa-realuse-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MY Agent real-use exercise app — open as workspace for manual/agent QA",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node test/smoke.mjs",
+    "check": "node test/smoke.mjs"
+  }
+}

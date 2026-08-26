@@ -1,0 +1,326 @@
+{
+  "version": 5,
+  "max_models": 12,
+  "matrix_only": true,
+  "openrouter_prefix": "",
+  "hard_exclude": [
+    "--",
+    "1-----"
+  ],
+  "exclude_patterns": [
+    "kling-",
+    "seedance",
+    "sora-",
+    "hailuo-",
+    "grok-imagine",
+    "utility$",
+    "embed",
+    "whisper",
+    "rerank",
+    "gemma-",
+    "llama-4",
+    "gpt-oss",
+    "seed-2",
+    "gpt-chat-latest",
+    "claude-fable",
+    "deepseek-v4-flash",
+    "solar-pro",
+    "gemini-3.5-flash",
+    "flux",
+    "recraft",
+    "seedream",
+    "wan-",
+    "riverflow",
+    "gpt-.*-image",
+    "gemini-3.1-flash-image",
+    "gemini-3.1-flash-lite-image",
+    "opus-4.8-fast",
+    "claude-sonnet",
+    "claude-haiku",
+    "claude-opus-4\\.[0-7]",
+    "gpt-5\\.[0-5]",
+    "gpt-5\\.3",
+    "gpt-4",
+    "o1-",
+    "o3-",
+    "o4-",
+    "cogito",
+    "nova-",
+    "flash-lite",
+    "-mini",
+    "-nano",
+    "sonar-pro(?!-)",
+    "sonar-reasoning",
+    "grok-4\\.20$"
+  ],
+  "pinned_suffixes": [
+    "openai.gpt-5.6-terra-pro",
+    "openai.gpt-5.6-sol-pro",
+    "openai.gpt-5.6-luna-pro",
+    "anthropic.claude-opus-4.8",
+    "google.gemini-3.1-pro-preview",
+    "qwen.qwen3.7-max",
+    "moonshotai.kimi-k2.7-code",
+    "deepseek.deepseek-v4-pro",
+    "perplexity.sonar-deep-research",
+    "x-ai.grok-4.20-multi-agent",
+    "google.gemini-3-pro-image",
+    "google.veo-3.1"
+  ],
+  "mode_models": {
+    "web_dev": {
+      "primary": "openai.gpt-5.6-terra-pro",
+      "fallbacks": [
+        "moonshotai.kimi-k2.7-code",
+        "qwen.qwen3.7-max",
+        "deepseek.deepseek-v4-pro",
+        "anthropic.claude-opus-4.8"
+      ]
+    },
+    "web_landing": {
+      "primary": "openai.gpt-5.6-terra-pro",
+      "fallbacks": [
+        "moonshotai.kimi-k2.7-code",
+        "qwen.qwen3.7-max",
+        "anthropic.claude-opus-4.8"
+      ]
+    },
+    "prompt_master": {
+      "primary": "openai.gpt-5.6-luna-pro",
+      "fallbacks": [
+        "anthropic.claude-opus-4.8",
+        "qwen.qwen3.7-max",
+        "google.gemini-3.1-pro-preview"
+      ]
+    },
+    "deep_research": {
+      "primary": "perplexity.sonar-deep-research",
+      "fallbacks": [
+        "x-ai.grok-4.20-multi-agent",
+        "openai.gpt-5.6-sol-pro",
+        "google.gemini-3.1-pro-preview"
+      ]
+    },
+    "image_gen": {
+      "primary": "google.gemini-3-pro-image",
+      "fallbacks": [
+        "google.veo-3.1"
+      ]
+    },
+    "chat": {
+      "primary": "openai.gpt-5.6-luna-pro",
+      "fallbacks": [
+        "anthropic.claude-opus-4.8",
+        "qwen.qwen3.7-max",
+        "google.gemini-3.1-pro-preview"
+      ]
+    },
+    "browser_automation": {
+      "primary": "openai.gpt-5.6-terra-pro",
+      "fallbacks": [
+        "anthropic.claude-opus-4.8",
+        "qwen.qwen3.7-max"
+      ]
+    },
+    "browser_agent": {
+      "primary": "openai.gpt-5.6-terra-pro",
+      "fallbacks": [
+        "google.gemini-3.1-pro-preview",
+        "anthropic.claude-opus-4.8"
+      ]
+    },
+    "web_crawl": {
+      "primary": "openai.gpt-5.6-sol-pro",
+      "fallbacks": [
+        "perplexity.sonar-deep-research",
+        "openai.gpt-5.6-luna-pro"
+      ]
+    }
+  },
+  "model_families": [
+    {
+      "match": [
+        "gpt-5.6-terra-pro",
+        "gpt-5.6-sol-pro",
+        "gpt-5.6-luna-pro"
+      ],
+      "max_keep": 3
+    },
+    {
+      "match": [
+        "claude-opus-4.8"
+      ],
+      "max_keep": 1,
+      "prefer_drop": [
+        "-fast"
+      ]
+    },
+    {
+      "match": [
+        "gemini-3-pro-image",
+        "gemini-3-pro-image-preview"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "gemini-3.1-pro-preview"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "qwen3.7-max"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "deepseek-v4-pro"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "grok-4.20-multi-agent"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "sonar-deep-research"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "kimi-k2.7-code"
+      ],
+      "max_keep": 1
+    },
+    {
+      "match": [
+        "veo-3.1"
+      ],
+      "max_keep": 1
+    }
+  ],
+  "categories": {
+    "image": {
+      "patterns": [
+        "gemini-3-pro-image",
+        "veo-"
+      ]
+    },
+    "coding": {
+      "patterns": [
+        "kimi-k2.*-code",
+        "coder",
+        "qwen3.7-max",
+        "gpt-5.6-terra",
+        "deepseek-v4-pro"
+      ]
+    },
+    "reasoning": {
+      "patterns": [
+        "sonar-deep-research",
+        "deepseek-v4-pro",
+        "opus-4",
+        "grok-4",
+        "multi-agent",
+        "gpt-5.6-sol"
+      ]
+    },
+    "longctx": {
+      "patterns": [
+        "opus-4",
+        "gemini-3.1-pro",
+        "qwen3.7-max",
+        "gpt-5.6-luna"
+      ]
+    },
+    "fast": {
+      "patterns": [
+        "__none__"
+      ]
+    },
+    "general": {
+      "patterns": [
+        ".*"
+      ]
+    }
+  },
+  "category_priority": [
+    "image",
+    "coding",
+    "reasoning",
+    "longctx",
+    "general"
+  ],
+  "category_quotas": {
+    "general": 1,
+    "coding": 4,
+    "reasoning": 3,
+    "image": 2,
+    "fast": 0,
+    "longctx": 2
+  },
+  "tier_patterns": {
+    "general": {
+      "S": [
+        "gpt-5.6-luna-pro",
+        "claude-opus-4.8",
+        "qwen3.7-max",
+        "gemini-3.1-pro-preview"
+      ]
+    },
+    "coding": {
+      "S": [
+        "gpt-5.6-terra-pro",
+        "kimi-k2.7-code",
+        "qwen3.7-max",
+        "deepseek-v4-pro",
+        "claude-opus-4.8"
+      ]
+    },
+    "reasoning": {
+      "S": [
+        "sonar-deep-research",
+        "grok-4.20-multi-agent",
+        "gpt-5.6-sol-pro",
+        "claude-opus-4.8"
+      ]
+    },
+    "image": {
+      "S": [
+        "gemini-3-pro-image",
+        "veo-3.1"
+      ]
+    },
+    "longctx": {
+      "S": [
+        "gpt-5.6-luna-pro",
+        "qwen3.7-max",
+        "claude-opus-4.8",
+        "gemini-3.1-pro-preview"
+      ]
+    }
+  },
+  "mode_defaults": {
+    "chat": "general",
+    "cqr_concept": "general",
+    "cqr_market": "reasoning",
+    "web_dev": "coding",
+    "web_landing": "coding",
+    "prompt_master": "general",
+    "deep_research": "reasoning",
+    "image_gen": "image"
+  },
+  "default_model_suffix": "anthropic.claude-opus-4.8",
+  "default_model_suffix_fallbacks": [
+    "openai.gpt-5.6-terra-pro",
+    "moonshotai.kimi-k2.7-code",
+    "qwen.qwen3.7-max",
+    "google.gemini-3.1-pro-preview"
+  ]
+}

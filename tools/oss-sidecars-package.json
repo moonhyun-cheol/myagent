@@ -1,0 +1,9 @@
+{
+  "name": "cqr-pa-oss-sidecars",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Portable Node CLI sidecars. Installed under runtime/oss-sidecars/ (token-free only).",
+  "dependencies": {
+    "repomix": "^1.0.0"
+  }
+}

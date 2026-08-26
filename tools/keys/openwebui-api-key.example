@@ -1,0 +1,6 @@
+# Open WebUI API Key (one line, no quotes)
+# Copy to openwebui-api-key.txt before publish:
+#   copy tools\keys\openwebui-api-key.example tools\keys\openwebui-api-key.txt
+# Or set environment variable: CQR_OPENWEBUI_API_KEY
+#
+# Publish / bundle generation requires this key (Ollama와 동급 필수 프로바이더).

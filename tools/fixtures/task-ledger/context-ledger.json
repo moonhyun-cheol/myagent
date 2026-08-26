@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "taskId": "fixture-context-ledger",
+  "sessionId": "fixture-session",
+  "title": "Separate active context from task history",
+  "request": "Keep active context compact and retrieve one archived task section only when needed.",
+  "summary": "Store bounded task cards separately from chat transcripts and use staged retrieval.",
+  "status": "completed",
+  "workspaceRoots": [
+    "workspace"
+  ],
+  "readPaths": [
+    "core/src/chat/history-budget.ts"
+  ],
+  "mutatedPaths": [
+    "core/src/agent/task-ledger.ts"
+  ],
+  "symbols": [
+    "searchTaskLedger",
+    "getTaskLedgerDetail"
+  ],
+  "keywords": [
+    "task history",
+    "context",
+    "retrieval"
+  ],
+  "decisions": [
+    "Search returns compact cards and detail retrieval returns one selected section."
+  ],
+  "failures": [],
+  "verification": [
+    "Fixture search and selected-section retrieval pass."
+  ],
+  "executionNotes": [
+    "Use a compact context manifest before loading archived details."
+  ],
+  "startedAt": "2026-01-01T00:00:00.000Z",
+  "completedAt": "2026-01-01T00:10:00.000Z"
+}

@@ -1,0 +1,40 @@
+{
+  "id": "J_vision_attach",
+  "title": "이미지 첨부 업로드 → 설명 (mutate 금지) + vision debit",
+  "priority": "P2",
+  "sessionContinuous": true,
+  "fixtureAliases": ["media.sample_png"],
+  "steps": [
+    {
+      "id": "S1_describe",
+      "mode": "chat",
+      "plane": "knowledge",
+      "attachAlias": "media.sample_png",
+      "text": "첨부 이미지 한 줄로 묘사해. 파일 수정 금지.",
+      "expect": {
+        "minLen": 8,
+        "forbid": ["apply_patch", "edit_file을 호출", "워크스페이스에 반영"]
+      }
+    },
+    {
+      "id": "S2_debit_note",
+      "kind": "npm",
+      "npm": "verify:history-compress",
+      "note": "IMP-ATT-03: vision/attach debit covered by history-compress + resolveContextBudgets debit goldens"
+    },
+    {
+      "id": "S0_route",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "이 이미지 설명해. 수정 금지.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      }
+    }
+  ],
+  "oracles": {
+    "forbidMutate": true,
+    "visionDebit": "verify:history-compress / harness debit"
+  }
+}

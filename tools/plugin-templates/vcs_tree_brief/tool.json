@@ -1,0 +1,11 @@
+{
+  "name": "plugin_vcs_tree_brief",
+  "description": "Read-only brief of git branch + porcelain status + unstaged diff --stat for CQR_WORKSPACE_ROOT (does not pull/push).",
+  "parameters": {
+    "type": "object",
+    "properties": {}
+  },
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 30000 },
+  "risk": "read",
+  "enabled": true
+}

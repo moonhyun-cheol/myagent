@@ -1,0 +1,28 @@
+{
+
+  "name": "plugin_workspace_ls",
+
+  "description": "List workspace root entries (read-only, max 40 names). Local gap filler for directory peek.",
+
+  "parameters": {
+
+    "type": "object",
+
+    "properties": {
+
+      "path": { "type": "string", "description": "Relative path (default .)" },
+
+      "max": { "type": "number", "description": "Max names (default 40)" }
+
+    }
+
+  },
+
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 15000 },
+
+  "risk": "read",
+
+  "enabled": true
+
+}
+

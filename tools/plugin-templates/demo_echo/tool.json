@@ -1,0 +1,13 @@
+{
+  "name": "plugin_demo_echo",
+  "description": "Echo tool arguments (smoke test for local agent plugins).",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "message": { "type": "string", "description": "Message to echo" }
+    }
+  },
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 30000 },
+  "risk": "read",
+  "enabled": true
+}

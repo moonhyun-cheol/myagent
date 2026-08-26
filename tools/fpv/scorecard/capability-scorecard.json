@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "id": "cqrpa-capability-scorecard",
+  "generated_for": "2026-08-13",
+  "headlinePolicy": "honest-v1",
+  "rubric": {
+    "routing": 20,
+    "execution": 30,
+    "gates": 25,
+    "regression": 15,
+    "ux_ops": 10,
+    "total": 100
+  },
+  "bands": [
+    { "min": 90, "label": "core_solid" },
+    { "min": 80, "label": "ops_ok" },
+    { "min": 70, "label": "env_or_quality_risk" },
+    { "min": 0, "label": "backlog_or_skip" }
+  ],
+  "items": [
+    {
+      "id": "market.research",
+      "label": "시장조사 (cqr_market)",
+      "domain": "market",
+      "baseline": 92,
+      "priority": "P0",
+      "evidence": {
+        "journeys": ["J_market_process"],
+        "verifies": ["verify:market-fidelity", "verify:skills"],
+        "fpvNodes": ["market.pipeline"],
+        "fixtures": ["market.seed_queries", "market.brand_root"]
+      },
+      "hardFailIf": ["journey_red"],
+      "improveIds": ["IMP-MKT-01", "IMP-MKT-02"]
+    },
+    {
+      "id": "market.report_quality",
+      "label": "시장 보고서 완성도",
+      "domain": "market",
+      "baseline": 88,
+      "priority": "P0",
+      "humanRubric": {
+        "scale": 3,
+        "note": "출판 품질 주관 평가(1=초안, 2=업무용, 3=대외 가능). productMean에 미포함 — lab 노트 전용."
+      },
+      "evidence": {
+        "journeys": ["J_market_process"],
+        "verifies": ["verify:market-fidelity"],
+        "fpvNodes": ["market.pipeline", "market.concept"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-MKT-03", "IMP-MKT-04"]
+    },
+    {
+      "id": "market.concept",
+      "label": "브랜드 컨셉 (cqr_concept)",
+      "domain": "market",
+      "baseline": 90,
+      "priority": "P1",
+      "evidence": {
+        "journeys": ["J_market_process"],
+        "verifies": ["verify:capability-policy"],
+        "fpvNodes": ["market.concept"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-MKT-05"]
+    },
+    {
+      "id": "plane.knowledge",
+      "label": "지식 평면 (설명/리포)",
+      "domain": "planes",
+      "baseline": 93,
+      "priority": "P1",
+      "evidence": {
+        "journeys": ["J_repo_inspect"],
+        "verifies": ["verify:capability-policy", "verify:turn-decision"],
+        "fpvNodes": ["plane.knowledge"],
+        "lab": ["lab:pattern-chain:offline"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-KNW-01"]
+    },
+    {
+      "id": "plane.coding",
+      "label": "코딩 에이전트 (mutate)",
+      "domain": "planes",
+      "baseline": 91,
+      "priority": "P0",
+      "evidence": {
+        "journeys": ["J_mutate_verify"],
+        "verifies": [
+          "verify:coding-iq",
+          "verify:turn-decision",
+          "verify:post-mutate-syntax",
+          "verify:agent-outcome-gate"
+        ],
+        "fpvNodes": ["plane.coding", "agent.code"]
+      },
+      "hardFailIf": ["journey_red", "verify_red"],
+      "improveIds": ["IMP-COD-01", "IMP-COD-02"]
+    },
+    {
+      "id": "agent.outcome_gate",
+      "label": "완료/Outcome 게이트",
+      "domain": "agent",
+      "baseline": 94,
+      "priority": "P0",
+      "evidence": {
+        "verifies": ["verify:agent-outcome-gate", "verify:failure-plane"],
+        "fpvNodes": ["agent.code"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-AGT-01"]
+    },
+    {
+      "id": "agent.grounding",
+      "label": "Retrieval / grounding",
+      "domain": "agent",
+      "baseline": 90,
+      "priority": "P0",
+      "evidence": {
+        "journeys": ["J_context_recall"],
+        "verifies": ["verify:agent-outcome-gate", "verify:history-compress"],
+        "fpvNodes": ["memory.context_compress"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-AGT-02", "IMP-MEM-01"]
+    },
+    {
+      "id": "attach.docs",
+      "label": "첨부 문서 (docx/txt)",
+      "domain": "attachments",
+      "baseline": 92,
+      "priority": "P1",
+      "evidence": {
+        "journeys": ["J_local_docs"],
+        "fixtures": ["docs.strategy_txt", "docs.strategy_docx"],
+        "fpvNodes": ["attachments.media"]
+      },
+      "hardFailIf": ["journey_red"],
+      "improveIds": ["IMP-ATT-01", "IMP-ATT-02"]
+    },
+    {
+      "id": "attach.vision",
+      "label": "비전/영상 키프레임",
+      "domain": "attachments",
+      "baseline": 85,
+      "priority": "P2",
+      "evidence": {
+        "journeys": ["J_vision_attach"],
+        "fixtures": ["media.sample_png"],
+        "fpvNodes": ["attachments.media"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-ATT-03"]
+    },
+    {
+      "id": "chat.sse_session",
+      "label": "Chat SSE·세션",
+      "domain": "api",
+      "baseline": 95,
+      "priority": "P0",
+      "evidence": {
+        "verifies": ["verify:session-continuity"],
+        "fpvNodes": ["api.core"],
+        "httpHealth": true
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-API-01"]
+    },
+    {
+      "id": "ui.workspace",
+      "label": "Workspace UI / ChatPane",
+      "domain": "ui",
+      "baseline": 90,
+      "priority": "P1",
+      "evidence": {
+        "fpvNodes": ["ui.workspace"],
+        "pathChecks": ["ui/workspace/src/components/ChatPane.tsx"],
+        "markers": ["context-budget-gauge"]
+      },
+      "hardFailIf": ["path_missing"],
+      "improveIds": ["IMP-UI-01", "IMP-UI-02"]
+    },
+    {
+      "id": "shell.inapp_browser",
+      "label": "셸 타이틀 / 인앱 브라우저",
+      "domain": "shell",
+      "baseline": 88,
+      "priority": "P1",
+      "evidence": {
+        "fpvNodes": ["shell.wpf"],
+        "pathChecks": [
+          "shell/CqrPa.Shell/MainWindow.xaml",
+          "shell/CqrPa.Shell/MainWindow.xaml.cs"
+        ]
+      },
+      "hardFailIf": ["path_missing"],
+      "improveIds": ["IMP-SHL-01"]
+    },
+    {
+      "id": "skills.user",
+      "label": "스킬 탭 / 사용자 스킬",
+      "domain": "plugins",
+      "baseline": 82,
+      "priority": "P2",
+      "evidence": {
+        "verifies": ["verify:skills"],
+        "fpvNodes": ["plugins.skills"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-SKL-01"]
+    },
+    {
+      "id": "plugins.agent",
+      "label": "에이전트 플러그인",
+      "domain": "plugins",
+      "baseline": 84,
+      "priority": "P2",
+      "evidence": {
+        "journeys": ["J_plugin_invoke"],
+        "verifies": ["verify:agent-plugins"],
+        "fpvNodes": ["plugins.skills"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-PLG-01"]
+    },
+    {
+      "id": "browser.playwright",
+      "label": "브라우저/Playwright",
+      "domain": "browser",
+      "baseline": 80,
+      "priority": "P2",
+      "evidence": {
+        "verifies": ["verify:capability-policy"],
+        "fpvNodes": ["api.core"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-BRW-01"]
+    },
+    {
+      "id": "remote.mcp",
+      "label": "MCP / Automaton / OpenClaw",
+      "domain": "remote",
+      "baseline": 72,
+      "priority": "P2",
+      "evidence": {
+        "journeys": ["J_mcp_remote"],
+        "fpvNodes": ["remote.mcp"],
+        "skipUnless": "secrets.openclaw_or_mcp"
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-RMT-01"]
+    },
+    {
+      "id": "image.generate",
+      "label": "이미지 생성",
+      "domain": "image",
+      "baseline": 78,
+      "priority": "P2",
+      "evidence": {
+        "verifies": ["verify:image-gen-retry"],
+        "fpvNodes": ["api.core"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-IMG-01"]
+    },
+    {
+      "id": "license.gate",
+      "label": "라이선스·기능 게이트",
+      "domain": "license",
+      "baseline": 90,
+      "priority": "P1",
+      "evidence": {
+        "verifies": ["verify:license"],
+        "httpHealth": true
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-LIC-01"]
+    },
+    {
+      "id": "deploy.parity",
+      "label": "배포·델타·NAS 경로",
+      "domain": "deploy",
+      "baseline": 86,
+      "priority": "P1",
+      "evidence": {
+        "journeys": ["J_deploy"],
+        "verifies": ["verify:parity", "verify:nas"],
+        "fpvNodes": ["deploy.output"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-DEP-01"]
+    },
+    {
+      "id": "memory.context",
+      "label": "컨텍스트 압축·headroom",
+      "domain": "memory",
+      "baseline": 93,
+      "priority": "P0",
+      "evidence": {
+        "journeys": ["J_context_recall"],
+        "verifies": ["verify:history-compress", "verify:harness-policy"],
+        "fpvNodes": ["memory.context_compress"]
+      },
+      "hardFailIf": ["verify_red"],
+      "improveIds": ["IMP-MEM-02"]
+    },
+    {
+      "id": "agent.embeddings",
+      "label": "임베딩/리포맵 검색",
+      "domain": "agent",
+      "baseline": 83,
+      "priority": "P2",
+      "evidence": {
+        "verifies": ["verify:embedding-cold", "verify:agent-eval"],
+        "fpvNodes": ["plane.coding"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-EMB-01"]
+    },
+    {
+      "id": "plane.secretary",
+      "label": "비서 평면 (짧은 업무)",
+      "domain": "planes",
+      "baseline": 85,
+      "priority": "P2",
+      "evidence": {
+        "journeys": ["J_secretary_brief"],
+        "verifies": ["verify:capability-policy"],
+        "fpvNodes": ["plane.secretary"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-SEC-01"]
+    },
+    {
+      "id": "agent.git_checkpoint",
+      "label": "Git 도구 / 체크포인트",
+      "domain": "agent",
+      "baseline": 87,
+      "priority": "P2",
+      "evidence": {
+        "verifies": ["verify:git-tools", "verify:checkpoint-sweep"],
+        "fpvNodes": ["agent.code"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-GIT-01"]
+    },
+    {
+      "id": "admin.diagnostics",
+      "label": "관리자 diagnostics",
+      "domain": "admin",
+      "baseline": 88,
+      "priority": "P2",
+      "evidence": {
+        "pathChecks": ["core/src/routes/dispatch.ts"],
+        "markers": ["context_budget", "/admin/diagnostics"],
+        "httpHealth": true,
+        "verifies": ["verify:harness-policy"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-ADM-01"]
+    },
+    {
+      "id": "support.error_report",
+      "label": "에러 리포트 / 지원",
+      "domain": "support",
+      "baseline": 75,
+      "priority": "P3",
+      "evidence": {
+        "pathChecks": ["ui/workspace/src/components/ErrorReportMenu.tsx"],
+        "verifies": ["verify:error-report-dry"]
+      },
+      "hardFailIf": [],
+      "improveIds": ["IMP-SUP-01"]
+    }
+  ]
+}

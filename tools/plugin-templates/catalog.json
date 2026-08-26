@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "Same-experience plugin templates. product_seed auto-installs on API boot. lab_only + superseded are hidden from the Plugins install UI.",
+  "product_seed": [],
+  "lab_only": ["demo_echo", "env_probe"],
+  "superseded": {
+    "json_read": "builtin:read_file",
+    "git_history_tree": "builtin:git_history_tree",
+    "workspace_ls": "builtin:list_directory",
+    "vcs_tree_brief": "builtin:git_status"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "note": "No bundled MCP recommendations. Users may add trusted stdio servers explicitly.",
+  "servers": []
+}

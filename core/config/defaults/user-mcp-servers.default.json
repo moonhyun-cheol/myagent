@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "note": "No MCP server is enabled by default. Add trusted servers explicitly in Manager settings.",
+  "servers": []
+}

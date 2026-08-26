@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "name": "cqrpa-fpv",
+  "description": "Full-Product Verifier capability graph. Edges: A claims B only with B oracle in same run.",
+  "nodes": [
+    {
+      "id": "api.core",
+      "domain": "api",
+      "label": "Core API roots",
+      "productFacts": "api.roots",
+      "proves": ["http.health", "http.sessions", "http.chat"],
+      "requires": [],
+      "l0": ["verify:harness-policy"],
+      "l1": { "probeRoots": true },
+      "adapters": ["tools/lab/lab-live-http.mjs"]
+    },
+    {
+      "id": "plane.coding",
+      "domain": "planes",
+      "label": "Coding plane",
+      "proves": ["surface.coding", "ide.mutate"],
+      "requires": ["api.core"],
+      "l0": ["verify:turn-decision", "verify:work-mode-loop", "verify:coding-iq", "verify:agent-outcome-gate"],
+      "adapters": ["tools/lab/cursor-query-backtest.mjs"]
+    },
+    {
+      "id": "plane.knowledge",
+      "domain": "planes",
+      "label": "Knowledge plane",
+      "proves": ["surface.knowledge", "noIdeForce"],
+      "requires": ["api.core"],
+      "l0": ["verify:capability-policy", "verify:skills"],
+      "adapters": ["tools/lab/pattern-chain-backtest.mjs"]
+    },
+    {
+      "id": "plane.secretary",
+      "domain": "planes",
+      "label": "Secretary plane",
+      "proves": ["surface.secretary"],
+      "requires": ["api.core"],
+      "l0": ["verify:capability-policy"],
+      "journeys": ["J_secretary_brief"],
+      "adapters": ["tools/lab/daily-smoke.mjs"]
+    },
+    {
+      "id": "market.pipeline",
+      "domain": "market",
+      "label": "cqr_market → process → concept",
+      "proves": ["mode.cqr_market", "session.continuity", "mutate.zero"],
+      "requires": ["plane.knowledge", "fixture.market"],
+      "l0": ["verify:skills", "verify:capability-policy", "verify:market-fidelity"],
+      "journeys": ["J_market_process"],
+      "pathMapKeys": ["market.brand_root", "market.run_ps1", "market.pipeline_venv"]
+    },
+    {
+      "id": "market.concept",
+      "domain": "market",
+      "label": "cqr_concept / brand follow-up",
+      "proves": ["mode.cqr_concept_or_knowledge"],
+      "requires": ["market.pipeline"],
+      "l0": ["verify:capability-policy"],
+      "journeys": ["J_market_process"]
+    },
+    {
+      "id": "agent.code",
+      "domain": "agent",
+      "label": "Code agent mutate → syntax → outcome → openGate",
+      "proves": ["mutate.disk", "syntax.gate", "outcome.gate"],
+      "requires": ["plane.coding", "fixture.toy"],
+      "l0": [
+        "verify:agent-outcome-gate",
+        "verify:post-mutate-syntax",
+        "verify:failure-plane",
+        "verify:session-continuity",
+        "verify:artifact-contract"
+      ],
+      "journeys": ["J_mutate_verify"]
+    },
+    {
+      "id": "ui.workspace",
+      "domain": "ui",
+      "label": "Product UI ChatPane (not titlebar)",
+      "proves": ["ui.chat_pane.exists"],
+      "requires": [],
+      "l0": ["sync:ui-facts-check"],
+      "l3": { "uiFactsPaths": true },
+      "adapters": ["tools/lab/product-browser-smoke.mjs"],
+      "pathMapKeys": ["ui.chat_pane", "ui.confirm_modal"]
+    },
+    {
+      "id": "shell.wpf",
+      "domain": "shell",
+      "label": "WPF title chrome / in-app browser",
+      "proves": ["shell.main_window.exists"],
+      "requires": [],
+      "l3": { "shellFactsPaths": true },
+      "adapters": ["tools/lab/agent-only-desktop.mjs"],
+      "pathMapKeys": ["shell.main_window"]
+    },
+    {
+      "id": "plugins.skills",
+      "domain": "plugins",
+      "label": "Agent plugins + skills install/invoke",
+      "proves": ["plugins.list", "skills.verify"],
+      "requires": ["api.core"],
+      "l0": ["verify:agent-plugins", "verify:skills"],
+      "adapters": ["tools/lab/owui-plugin-smoke.mjs", "tools/lab/skill-tool-lab.mjs"]
+    },
+    {
+      "id": "attachments.media",
+      "domain": "attachments",
+      "label": "docx/image/video attachments",
+      "proves": ["attach.upload", "docx.read"],
+      "requires": ["api.core", "fixture.docs"],
+      "journeys": ["J_local_docs"],
+      "pathMapKeys": ["docs.strategy_docx", "host.goodapp_docx"]
+    },
+    {
+      "id": "remote.mcp",
+      "domain": "remote",
+      "label": "MCP / automaton / OpenClaw",
+      "proves": ["mcp.route"],
+      "requires": ["api.core"],
+      "l1": { "get": ["/mcp"] },
+      "skipUnless": "secrets.openclaw_or_mcp",
+      "skipPolicy": "IMP-RMT-01: missing secrets → explicit_skip / env-red, not product-red",
+      "adapters": []
+    },
+    {
+      "id": "deploy.output",
+      "domain": "deploy",
+      "label": "Build → deploy/output evidence",
+      "proves": ["deploy.parity", "output.probe"],
+      "requires": ["api.core"],
+      "l0": ["verify:parity", "verify:nas"],
+      "journeys": ["J_deploy"],
+      "adapters": []
+    },
+    {
+      "id": "memory.facts",
+      "domain": "memory",
+      "label": "product-facts / ui-facts sync",
+      "proves": ["facts.on_disk"],
+      "requires": [],
+      "l0": ["sync:product-facts-check", "sync:ui-facts-check"]
+    },
+    {
+      "id": "memory.context_compress",
+      "domain": "memory",
+      "label": "Pinned facts + deterministic history compress recall",
+      "proves": ["history.pin_survives", "history.compress_telemetry"],
+      "requires": ["api.core"],
+      "l0": ["verify:history-compress", "verify:harness-policy"],
+      "journeys": ["J_context_recall"]
+    },
+    {
+      "id": "fixture.market",
+      "domain": "fixtures",
+      "label": "Market seeds + brand pipeline paths",
+      "proves": ["fixture.seed_queries"],
+      "requires": [],
+      "pathMapKeys": ["market.seed_queries", "market.brand_root", "market.run_ps1"]
+    },
+    {
+      "id": "fixture.docs",
+      "domain": "fixtures",
+      "label": "Repo-mirrored docx + bowling sample",
+      "proves": ["fixture.docx", "fixture.bowling"],
+      "requires": [],
+      "pathMapKeys": ["docs.strategy_docx", "fs.bowling"]
+    },
+    {
+      "id": "fixture.toy",
+      "domain": "fixtures",
+      "label": "Toy workbench mutate sandbox",
+      "proves": ["fixture.toy_counter"],
+      "requires": [],
+      "pathMapKeys": ["toy.root", "toy.counter"]
+    }
+  ],
+  "edges": [
+    { "from": "market.pipeline", "to": "market.concept", "kind": "requires" },
+    { "from": "market.pipeline", "to": "fixture.market", "kind": "requires" },
+    { "from": "agent.code", "to": "plane.coding", "kind": "requires" },
+    { "from": "attachments.media", "to": "fixture.docs", "kind": "requires" },
+    { "from": "plane.coding", "to": "api.core", "kind": "requires" },
+    { "from": "plane.knowledge", "to": "api.core", "kind": "requires" },
+    { "from": "J_market_process", "to": "market.pipeline", "kind": "proves" },
+    { "from": "J_local_docs", "to": "attachments.media", "kind": "proves" },
+    { "from": "J_mutate_verify", "to": "agent.code", "kind": "proves" },
+    { "from": "J_deploy", "to": "deploy.output", "kind": "proves" },
+    { "from": "J_repo_inspect", "to": "plane.knowledge", "kind": "proves" },
+    { "from": "J_plugin_invoke", "to": "plugins.skills", "kind": "proves" },
+    { "from": "J_vision_attach", "to": "attachments.media", "kind": "proves" },
+    { "from": "J_mcp_remote", "to": "remote.mcp", "kind": "proves" },
+    { "from": "J_context_recall", "to": "memory.context_compress", "kind": "proves" },
+    { "from": "J_secretary_brief", "to": "plane.secretary", "kind": "proves" },
+    { "from": "memory.context_compress", "to": "api.core", "kind": "requires" }
+  ],
+  "journeys": [
+    {
+      "id": "J_market_process",
+      "priority": "P0",
+      "file": "journeys/market-process.json",
+      "runner": "runners/journey-market.mjs",
+      "nodes": ["market.pipeline", "market.concept", "plane.knowledge"]
+    },
+    {
+      "id": "J_context_recall",
+      "priority": "P1",
+      "file": "journeys/context-recall.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["memory.context_compress"]
+    },
+    {
+      "id": "J_secretary_brief",
+      "priority": "P2",
+      "file": "journeys/secretary-brief.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["plane.secretary"]
+    },
+    {
+      "id": "J_local_docs",
+      "priority": "P1",
+      "file": "journeys/local-docs.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["attachments.media", "fixture.docs", "plane.knowledge"]
+    },
+    {
+      "id": "J_mutate_verify",
+      "priority": "P1",
+      "file": "journeys/mutate-verify.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["agent.code", "fixture.toy", "plane.coding"]
+    },
+    {
+      "id": "J_repo_inspect",
+      "priority": "P1",
+      "file": "journeys/repo-inspect.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["plane.knowledge"]
+    },
+    {
+      "id": "J_deploy",
+      "priority": "P2",
+      "file": "journeys/deploy.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["deploy.output", "plane.secretary"]
+    },
+    {
+      "id": "J_plugin_invoke",
+      "priority": "P2",
+      "file": "journeys/plugin-invoke.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["plugins.skills"]
+    },
+    {
+      "id": "J_vision_attach",
+      "priority": "P2",
+      "file": "journeys/vision-attach.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["attachments.media"]
+    },
+    {
+      "id": "J_mcp_remote",
+      "priority": "P2",
+      "file": "journeys/mcp-remote.json",
+      "runner": "runners/journey-generic.mjs",
+      "nodes": ["remote.mcp"]
+    }
+  ],
+  "l0Scripts": [
+    { "id": "verify:capability-policy", "npm": "verify:capability-policy" },
+    { "id": "verify:agent-outcome-gate", "npm": "verify:agent-outcome-gate" },
+    { "id": "verify:turn-decision", "npm": "verify:turn-decision" },
+    { "id": "verify:work-mode-loop", "npm": "verify:work-mode-loop" },
+    { "id": "verify:failure-plane", "npm": "verify:failure-plane" },
+    { "id": "verify:harness-policy", "npm": "verify:harness-policy" },
+    { "id": "verify:history-compress", "npm": "verify:history-compress" },
+    { "id": "verify:capability-scorecard", "npm": "verify:capability-scorecard" },
+    { "id": "verify:harness-goldens", "npm": "verify:harness-goldens" },
+    { "id": "verify:coding-iq", "npm": "verify:coding-iq" },
+    { "id": "verify:session-continuity", "npm": "verify:session-continuity" },
+    { "id": "verify:artifact-contract", "npm": "verify:artifact-contract" },
+    { "id": "verify:skills", "npm": "verify:skills" },
+    { "id": "verify:market-fidelity", "npm": "verify:market-fidelity" },
+    { "id": "verify:post-mutate-syntax", "npm": "verify:post-mutate-syntax" },
+    { "id": "verify:run-terminal-sanitize", "npm": "verify:run-terminal-sanitize" },
+    { "id": "verify:parity", "npm": "verify:parity" },
+    { "id": "verify:nas", "npm": "verify:nas" },
+    { "id": "verify:agent-plugins", "npm": "verify:agent-plugins" },
+    { "id": "lab:pattern-chain:offline", "node": "tools/lab/pattern-chain-backtest.mjs" },
+    { "id": "fpv:fixture-contract", "node": "tools/fpv/runners/fixture-check.mjs" }
+  ],
+  "scoring": {
+    "headline": "honest-v1",
+    "reference": "cold-v3",
+    "maturityAdapter": "tools/lab/maturity-scorecard.mjs"
+  }
+}

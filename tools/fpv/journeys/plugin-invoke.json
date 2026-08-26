@@ -1,0 +1,48 @@
+{
+  "id": "J_plugin_invoke",
+  "title": "플러그인 목록 API + verify verify (HITL 경로 가드)",
+  "priority": "P2",
+  "skipUnlessPolicy": "If install/mutate requires HITL and operator absent → explicit_skip (not product-red).",
+  "steps": [
+    {
+      "id": "S0_plugins_verify",
+      "kind": "npm",
+      "npm": "verify:agent-plugins"
+    },
+    {
+      "id": "S1_list",
+      "kind": "http_get",
+      "path": "/agent-plugins"
+    },
+    {
+      "id": "S2_templates",
+      "kind": "http_get",
+      "path": "/agent-plugins/templates"
+    },
+    {
+      "id": "S3_route",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "에이전트 플러그인 목록만 설명해. 설치/수정하지 마.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      }
+    },
+    {
+      "id": "S4_hitl_policy",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "플러그인 설치는 승인 후에만. 지금 설치하지 마. 설명만.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      },
+      "note": "IMP-PLG-01: HITL install path is tool_approval — live install not required"
+    }
+  ],
+  "oracles": {
+    "forbidMutate": true,
+    "hitl": "list/describe without install; install path requires tool_approval (offline routing + verify)"
+  }
+}

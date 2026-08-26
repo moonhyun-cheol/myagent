@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Toy Workbench</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Toy Workbench</h1>
+      <p id="hint">Lab fixture — coding / knowledge / secretary chains</p>
+      <button id="btn" type="button">bump</button>
+      <pre id="out">count=0</pre>
+    </main>
+    <script type="module">
+      import { label } from '../src/counter.js';
+      let n = 0;
+      const out = document.getElementById('out');
+      document.getElementById('btn').onclick = () => {
+        n += 1;
+        out.textContent = label(n - 1);
+      };
+    </script>
+  </body>
+</html>

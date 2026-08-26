@@ -1,0 +1,13 @@
+{
+  "name": "plugin_git_history_tree",
+  "description": "Read-only git history ASCII graph + oneline log for CQR_WORKSPACE_ROOT (max 25). Not a substitute for builtin git_history_tree when present.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "max": { "type": "number", "description": "Max commits (default 25)" }
+    }
+  },
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 30000 },
+  "risk": "read",
+  "enabled": true
+}

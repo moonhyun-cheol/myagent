@@ -1,0 +1,242 @@
+{
+  "version": 3,
+  "tools": [
+    {
+      "id": "file_upload",
+      "anchors_ko": [
+        "파일",
+        "첨부",
+        "업로드",
+        "문서 분석"
+      ],
+      "anchors_en": [
+        "attach",
+        "upload file",
+        "document"
+      ]
+    },
+    {
+      "id": "web_dev",
+      "anchors_ko": [
+        "코드 에이전트",
+        "에이전트",
+        "코드",
+        "코딩",
+        "코드에이전트",
+        "프로그래밍",
+        "웹개발",
+        "javascript",
+        "react",
+        "api",
+        "배포",
+        "iis",
+        "webview",
+        "코드 수정",
+        "파일 수정",
+        "파일 만들",
+        "파일 생성",
+        "매크로",
+        "익스텐션",
+        "익스탠션",
+        "확장 프로그램",
+        "chrome extension",
+        "크롬 확장",
+        "python",
+        "파이썬",
+        "스크립트",
+        "config",
+        "프로젝트 폴더",
+        "개발폴더",
+        "리팩터",
+        "버그 수정",
+        "코드베이스"
+      ],
+      "anchors_en": [
+        "coding",
+        "code agent",
+        "programming",
+        "web dev",
+        "frontend",
+        "backend",
+        "deploy",
+        "responsive",
+        "edit file",
+        "fix bug",
+        "refactor",
+        "codebase",
+        "workspace folder"
+      ]
+    },
+    {
+      "id": "web_landing",
+      "anchors_ko": [
+        "웹 랜딩",
+        "랜딩",
+        "랜딩페이지",
+        "랜딩 페이지",
+        "히어로",
+        "가격페이지",
+        "프라이싱",
+        "전환율",
+        "cta",
+        "마케팅 페이지",
+        "홍보페이지",
+        "tailwind",
+        "랜딩 제작"
+      ],
+      "anchors_en": [
+        "landing page",
+        "hero section",
+        "pricing page",
+        "conversion",
+        "marketing page",
+        "tailwind landing"
+      ]
+    },
+    {
+      "id": "prompt_master",
+      "anchors_ko": [
+        "프롬프트 마스터",
+        "프롬프트",
+        "마스터",
+        "프롬프트 작성",
+        "프롬프트 고쳐",
+        "프롬프트 수정",
+        "프롬프트 개선",
+        "프롬프트 만들",
+        "프롬프트 생성",
+        "프롬프트 엔지니어링",
+        "슈퍼프롬프트",
+        "미드저니 프롬프트",
+        "이미지 프롬프트",
+        "달리 프롬프트",
+        "dalle 프롬",
+        "스테이블 디퓨전",
+        "sd 프롬",
+        "씨드림",
+        "seedream",
+        "네거티브 프롬",
+        "커서 프롬프트",
+        "클로드 프롬프트",
+        "gpt 프롬프트"
+      ],
+      "anchors_en": [
+        "write a prompt",
+        "fix this prompt",
+        "improve prompt",
+        "prompt engineering",
+        "superprompt",
+        "midjourney prompt",
+        "dalle prompt",
+        "stable diffusion prompt",
+        "seedream prompt",
+        "negative prompt",
+        "cursor prompt",
+        "adapt prompt"
+      ]
+    },
+    {
+      "id": "browser_automation",
+      "anchors_ko": [
+        "브라우저",
+        "스크린샷",
+        "웹페이지 캡처",
+        "사이트 캡쳐",
+        "사이트 캡처",
+        "캡쳐",
+        "캡처",
+        "페이지 열어",
+        "사이트 열어",
+        "url 열어",
+        "headless",
+        "playwright"
+      ],
+      "anchors_en": [
+        "browser automation",
+        "screenshot",
+        "capture page",
+        "site capture",
+        "page capture",
+        "open url",
+        "open website",
+        "headless browser"
+      ]
+    },
+    {
+      "id": "browser_agent",
+      "anchors_ko": [
+        "브라우저 에이전트",
+        "비전 에이전트",
+        "버튼 클릭",
+        "클릭해서",
+        "로그인해서",
+        "로그인 후",
+        "폼 입력",
+        "입력란",
+        "폼 작성",
+        "버튼 눌러",
+        "자동화 에이전트"
+      ],
+      "anchors_en": [
+        "browser agent",
+        "vision agent",
+        "click button",
+        "fill form",
+        "log in and",
+        "browser interaction"
+      ]
+    },
+    {
+      "id": "web_crawl",
+      "anchors_ko": [
+        "크롤",
+        "크롤링",
+        "웹 크롤",
+        "사이트 전체",
+        "링크 수집",
+        "여러 페이지",
+        "사이트맵"
+      ],
+      "anchors_en": [
+        "web crawl",
+        "crawl site",
+        "spider",
+        "sitemap",
+        "collect links"
+      ]
+    },
+    {
+      "id": "image_gen",
+      "anchors_ko": [
+        "그려",
+        "이미지",
+        "일러스트",
+        "로고",
+        "디자인"
+      ],
+      "anchors_en": [
+        "draw",
+        "image",
+        "illustration",
+        "logo",
+        "generate image"
+      ]
+    },
+    {
+      "id": "deep_research",
+      "anchors_ko": [
+        "조사",
+        "리서치",
+        "심층",
+        "분석해",
+        "출처"
+      ],
+      "anchors_en": [
+        "research",
+        "deep research",
+        "investigate",
+        "sources"
+      ]
+    }
+  ]
+}

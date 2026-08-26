@@ -1,0 +1,9 @@
+{
+  "name": "blackjack-web-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "브라우저에서 실행되는 단일 플레이어 블랙잭 게임",
+  "scripts": {
+    "check": "node --check app.js"
+  }
+}

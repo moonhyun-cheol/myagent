@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CQRPA Realuse</title>
+    <link rel="stylesheet" href="/public/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <h1 id="title">CQRPA Realuse</h1>
+      <p id="status" class="status">boot…</p>
+      <section class="panel">
+        <label for="a">a</label>
+        <input id="a" type="number" value="2" />
+        <label for="b">b</label>
+        <input id="b" type="number" value="3" />
+        <button id="calc" type="button">sum</button>
+        <p id="result" data-testid="sum-result">—</p>
+      </section>
+    </main>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{
+
+  "name": "plugin_json_read",
+
+  "description": "Read a small JSON file from the workspace and return top-level keys (read-only).",
+
+  "parameters": {
+
+    "type": "object",
+
+    "properties": {
+
+      "path": { "type": "string", "description": "Relative .json path" }
+
+    },
+
+    "required": ["path"]
+
+  },
+
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 10000 },
+
+  "risk": "read",
+
+  "enabled": true
+
+}
+

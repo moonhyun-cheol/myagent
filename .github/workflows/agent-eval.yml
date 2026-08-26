@@ -1,0 +1,29 @@
+# Agent eval gate (F)
+name: Agent Eval
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+jobs:
+  agent-eval:
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install dependencies
+        run: npm ci
+      - name: Build core (facts sync + tsc)
+        run: npm run build
+      - name: Agent grounding + eval gate
+        run: npm run verify:agent
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: agent-eval-metrics
+          path: data/_agent_eval/metrics.json
+          retention-days: 14
+          if-no-files-found: ignore

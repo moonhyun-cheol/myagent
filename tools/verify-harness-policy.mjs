@@ -1,0 +1,523 @@
+#!/usr/bin/env node
+/**
+ * Harness policy + chat completion body extras (OWUI IQ redesign).
+ */
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const stepLoopSource = readFileSync(
+  new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url),
+  'utf8',
+);
+
+assert.doesNotMatch(
+  stepLoopSource,
+  /PROSE_FORCED_TOOL_RETRY/,
+  'prose-pattern tool forcing must stay retired',
+);
+assert.match(stepLoopSource, /toolChoice: 'auto' as const/, 'native tools stay model-selected');
+assert.doesNotMatch(
+  stepLoopSource,
+  /toolChoice:\s*\(preferToolsFirst\s*\?\s*'required'/,
+  'first code turn must not force tool_choice=required',
+);
+assert.doesNotMatch(stepLoopSource, /· 도구 재요청/, 'no prose-driven tool retry round trip');
+
+const {
+  loadHarnessPolicy,
+  resolveReasoningEffort,
+  resolveCodeReasoningEffort,
+  resolveCodeReasoningEffortForModel,
+  resolveOwuiProtocolMode,
+  resolveCodeOwuiProtocolMode,
+  owuiPrefersClientToolProtocol,
+  harnessCompletionExtras,
+  modelRejectsReasoningEffort,
+  ollamaAllowedForCodeAgent,
+  ollamaEmergencyFallbackEnabled,
+} = await import('../core/dist/providers/harness-policy.js');
+const {
+  buildChatCompletionBody,
+  shouldFallbackToClientToolProtocol,
+} = await import('../core/dist/providers/openai-compatible.js');
+const { formatExitGateToolNudge } = await import('../core/dist/agent/agent-claim-gates.js');
+const { getHistoryTurns, applyHistoryContentBudget } = await import(
+  '../core/dist/chat/history-budget.js',
+);
+const { prefersClientToolProtocol } = await import('../core/dist/agent/agent-tool-protocol.js');
+
+function withEnv(patch, fn) {
+  const prev = {};
+  for (const k of Object.keys(patch)) {
+    prev[k] = process.env[k];
+    const v = patch[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const k of Object.keys(patch)) {
+      if (prev[k] === undefined) delete process.env[k];
+      else process.env[k] = prev[k];
+    }
+  }
+}
+
+// defaults
+{
+  withEnv(
+    {
+      MY_AGENT_REASONING_EFFORT: undefined,
+      MY_AGENT_HISTORY_TURNS: undefined,
+      MY_AGENT_MAR_LIGHT: undefined,
+      MY_AGENT_OWUI_PROTOCOL: undefined,
+      MY_AGENT_OWUI_TEXT_TOOLS: undefined,
+    },
+    () => {
+      assert.equal(resolveReasoningEffort(), 'high');
+      assert.equal(
+        resolveCodeReasoningEffort({}, { simpleEdit: true }),
+        'low',
+        'simple code edit defaults to low reasoning',
+      );
+      assert.equal(
+        resolveCodeReasoningEffort({}, { simpleEdit: false }),
+        'medium',
+        'interactive code agent defaults to medium reasoning',
+      );
+      assert.equal(
+        resolveCodeReasoningEffortForModel({}, { modelId: 'gpt-5.6-sol-pro', simpleTask: true }),
+        null,
+        'pro-labelled endpoints own their reasoning budget unless explicitly overridden',
+      );
+      assert.equal(
+        resolveCodeReasoningEffortForModel(
+          { MY_AGENT_REASONING_EFFORT: 'high' },
+          { modelId: 'gpt-5.6-sol-pro', simpleTask: true },
+        ),
+        'high',
+        'explicit operator effort still wins for pro endpoints',
+      );
+      assert.equal(
+        resolveCodeReasoningEffort({ MY_AGENT_REASONING_EFFORT: 'high' }, { simpleEdit: true }),
+        'high',
+        'explicit env wins over simple-edit medium',
+      );
+      assert.equal(getHistoryTurns(), 40);
+      assert.equal(loadHarnessPolicy().marLight, true);
+      assert.equal(resolveOwuiProtocolMode(), 'text');
+      assert.equal(resolveCodeOwuiProtocolMode(), 'api', 'code OWUI default native tools');
+      assert.equal(
+        owuiPrefersClientToolProtocol('custom', { custom: true }),
+        true,
+        'OWUI global default TEXT',
+      );
+      assert.equal(
+        owuiPrefersClientToolProtocol('custom', { custom: true }, process.env, true),
+        false,
+        'OWUI code path starts native tools by default',
+      );
+      assert.equal(
+        prefersClientToolProtocol('custom', { kind: 'openai_compatible', custom: true }),
+        false,
+        'code-agent OWUI starts native tools',
+      );
+      assert.equal(
+        prefersClientToolProtocol('custom', { kind: 'openai_compatible', custom: true }, {
+          forCodeAgent: false,
+        }),
+        true,
+        'non-code OWUI still TEXT',
+      );
+      assert.equal(
+        prefersClientToolProtocol('openai', { kind: 'openai_compatible' }),
+        false,
+      );
+    },
+  );
+}
+
+// code OWUI: native default; Safe TEXT remains an explicit compatibility override
+{
+  withEnv(
+    {
+      MY_AGENT_CODE_OWUI_PROTOCOL: 'probe',
+      MY_AGENT_OWUI_PROTOCOL: 'probe',
+      MY_AGENT_CODE_ALLOW_OWUI_NATIVE_TOOLS: undefined,
+    },
+    () => {
+      assert.equal(resolveCodeOwuiProtocolMode(), 'probe', 'probe opt-in');
+      assert.equal(
+        owuiPrefersClientToolProtocol('custom', { custom: true }, process.env, true),
+        false,
+      );
+    },
+  );
+  withEnv(
+    {
+      MY_AGENT_CODE_ALLOW_OWUI_NATIVE_TOOLS: '0',
+      MY_AGENT_CODE_OWUI_PROTOCOL: 'probe',
+      MY_AGENT_OWUI_TEXT_TOOLS: undefined,
+    },
+    () => {
+      assert.equal(resolveCodeOwuiProtocolMode(), 'text', 'ALLOW=0 forces TEXT');
+      assert.equal(
+        owuiPrefersClientToolProtocol('custom', { custom: true }, process.env, true),
+        true,
+      );
+    },
+  );
+  withEnv(
+    {
+      MY_AGENT_CODE_OWUI_PROTOCOL: 'text',
+      MY_AGENT_CODE_ALLOW_OWUI_NATIVE_TOOLS: '1',
+    },
+    () => {
+      assert.equal(resolveCodeOwuiProtocolMode(), 'text', 'explicit PROTOCOL=text');
+    },
+  );
+}
+
+// reasoning off
+{
+  withEnv({ MY_AGENT_REASONING_EFFORT: 'off' }, () => {
+    assert.equal(resolveReasoningEffort(), null);
+    assert.deepEqual(harnessCompletionExtras(), {});
+  });
+}
+
+// omit reasoning_effort for ollama / qwen2.5
+{
+  withEnv({ MY_AGENT_REASONING_EFFORT: 'high' }, () => {
+    assert.equal(modelRejectsReasoningEffort('qwen2.5:7b'), true);
+    assert.equal(modelRejectsReasoningEffort('qwen2.5-thinking'), false);
+    assert.deepEqual(harnessCompletionExtras(process.env, { providerId: 'ollama', modelId: 'llama3' }), {});
+    assert.deepEqual(
+      harnessCompletionExtras(process.env, { providerId: 'custom', modelId: 'qwen2.5:7b' }),
+      {},
+    );
+    assert.deepEqual(
+      harnessCompletionExtras(process.env, { providerId: 'openai', modelId: 'gpt-5' }),
+      { reasoningEffort: 'high' },
+    );
+  });
+}
+
+// Ollama coding + emergency fallback off by default
+{
+  withEnv(
+    {
+      MY_AGENT_ALLOW_OLLAMA_CODE: undefined,
+      MY_AGENT_OLLAMA_FALLBACK: undefined,
+    },
+    () => {
+      assert.equal(ollamaAllowedForCodeAgent(), false);
+      assert.equal(ollamaAllowedForCodeAgent(process.env, { localOnly: true }), true);
+      assert.equal(ollamaEmergencyFallbackEnabled(), false);
+    },
+  );
+  withEnv({ MY_AGENT_ALLOW_OLLAMA_CODE: '1', MY_AGENT_OLLAMA_FALLBACK: '1' }, () => {
+    assert.equal(ollamaAllowedForCodeAgent(), true);
+    assert.equal(ollamaEmergencyFallbackEnabled(), true);
+  });
+}
+
+// OWUI probe/api
+{
+  withEnv({ MY_AGENT_OWUI_PROTOCOL: 'probe' }, () => {
+    assert.equal(resolveOwuiProtocolMode(), 'probe');
+    assert.equal(owuiPrefersClientToolProtocol('custom', { custom: true }), false);
+  });
+  withEnv({ MY_AGENT_OWUI_PROTOCOL: 'api', MY_AGENT_OWUI_TEXT_TOOLS: '1' }, () => {
+    assert.equal(resolveOwuiProtocolMode(), 'text', 'TEXT_TOOLS forces text');
+  });
+}
+
+// body merge
+{
+  const body = buildChatCompletionBody(
+    { model: 'm', messages: [], stream: false },
+    { reasoningEffort: 'high', extraBody: { temperature: 0.2 } },
+  );
+  assert.equal(body.reasoning_effort, 'high');
+  assert.equal(body.temperature, 0.2);
+  assert.equal(body.model, 'm');
+}
+
+// history content budget
+{
+  withEnv({ MY_AGENT_HISTORY_ASSISTANT_MAX_CHARS: '500' }, () => {
+    const out = applyHistoryContentBudget([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'x'.repeat(800) },
+    ]);
+    assert.equal(out[0].content, 'hi');
+    assert.ok(out[1].content.startsWith('x'.repeat(500)));
+    assert.match(out[1].content, /history truncated/);
+    assert.ok(out[1].content.length > 500);
+  });
+}
+
+// probe timeout → TEXT fallback
+assert.equal(shouldFallbackToClientToolProtocol('AbortError: timed out'), true);
+assert.equal(shouldFallbackToClientToolProtocol('headers timeout'), true);
+assert.equal(shouldFallbackToClientToolProtocol('Tool not found'), true);
+assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
+
+// code OWUI native default; probe compatibility mode; Safe TEXT via ALLOW=0
+{
+  assert.equal(resolveCodeOwuiProtocolMode({}), 'api');
+  assert.equal(
+    resolveCodeOwuiProtocolMode({ MY_AGENT_CODE_OWUI_PROTOCOL: 'probe' }),
+    'probe',
+    'probe is opt-in native path',
+  );
+  assert.equal(
+    resolveCodeOwuiProtocolMode({
+      MY_AGENT_CODE_ALLOW_OWUI_NATIVE_TOOLS: '0',
+      MY_AGENT_CODE_OWUI_PROTOCOL: 'probe',
+    }),
+    'text',
+  );
+}
+
+// exit-gate nudge shape
+{
+  const n = formatExitGateToolNudge({
+    gate: 'diagnostics pass',
+    toolName: 'run_diagnostics',
+    args: {},
+  });
+  assert.match(n, /EXIT_GATE/);
+  assert.match(n, /TOOL_CALL:/);
+  assert.match(n, /run_diagnostics/);
+}
+
+// Autopilot default off; env on
+{
+  withEnv({ MY_AGENT_AUTOPILOT: undefined }, () => {
+    assert.equal(loadHarnessPolicy().autopilot, false);
+  });
+  withEnv({ MY_AGENT_AUTOPILOT: '1' }, () => {
+    assert.equal(loadHarnessPolicy().autopilot, true);
+  });
+}
+
+{
+  const {
+    looksLikeAutopilotContinue,
+    resolveAutopilotEnabled,
+    shouldOrInContinuityAutopilot,
+    autopilotMaxSteps,
+  } = await import('../core/dist/agent/agent-autopilot.js');
+  const { formatAcceptanceScenarioSystemNote } = await import(
+    '../core/dist/agent/agent-planner.js'
+  );
+  assert.equal(looksLikeAutopilotContinue('다음 조치 실행'), true);
+  assert.equal(looksLikeAutopilotContinue('니가 알아서 다음 단계 실행'), true);
+  assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, true), true, 'user override wins');
+  assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, false), false);
+  assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, null), true);
+  assert.equal(autopilotMaxSteps(30, true), 45);
+  assert.equal(
+    resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, null, '인앱 브라우저 ChatPane 링크 연결 구현'),
+    false,
+    'message wording must not enable autopilot',
+  );
+  assert.equal(
+    resolveAutopilotEnabled(
+      { MY_AGENT_AUTOPILOT: '0' },
+      null,
+      'app.js에 주석 한 줄 추가해줘',
+      { codeSession: true },
+    ),
+    false,
+    'code-session wording must not enable autopilot',
+  );
+  assert.equal(
+    resolveAutopilotEnabled(
+      { MY_AGENT_AUTOPILOT: '0' },
+      null,
+      'app.js에 주석 한 줄 추가해줘',
+      { codeSession: false },
+    ),
+    false,
+    'non-codeSession does not enable CODE autopilot',
+  );
+  assert.equal(
+    resolveAutopilotEnabled(
+      { MY_AGENT_AUTOPILOT: '0' },
+      null,
+      '이 코드 구조 설명해줘',
+      { codeSession: true },
+    ),
+    false,
+    'explain/report tasks stay off CODE autopilot',
+  );
+  const { buildTaskChecklist, isTaskChecklistComplete } = await import(
+    '../core/dist/agent/agent-task-checklist.js'
+  );
+  {
+    const cl = buildTaskChecklist('처음부터 public/a.js public/b.js 만들어줘');
+    assert.equal(
+      isTaskChecklistComplete({
+        checklist: cl,
+        workspaceRoot: process.cwd(),
+        mutatedPaths: ['public/a.js'],
+        toolsUsed: ['write_file'],
+      }),
+      false,
+      'incomplete multi-path',
+    );
+  }
+  const { contentLooksLikeToolNotFoundPoison, sanitizeToolNotFoundPoison } = await import(
+    '../core/dist/agent/tool-content-guards.js'
+  );
+  assert.equal(contentLooksLikeToolNotFoundPoison('Tool not found: read_file'), true);
+  assert.equal(sanitizeToolNotFoundPoison('Tool not found: read_file'), null);
+  assert.equal(
+    shouldOrInContinuityAutopilot({
+      currentlyEnabled: false,
+      mutationsAllowed: true,
+      openGate: true,
+      sessionContinuity: false,
+      optsAutopilot: undefined,
+      env: { MY_AGENT_CODE_AUTOPILOT: undefined },
+    }),
+    true,
+    'openGate OR-in CODE autopilot',
+  );
+  assert.equal(
+    shouldOrInContinuityAutopilot({
+      currentlyEnabled: false,
+      mutationsAllowed: true,
+      openGate: false,
+      sessionContinuity: true,
+      optsAutopilot: false,
+      env: {},
+    }),
+    false,
+    'Manager Safe lock blocks OR-in',
+  );
+  assert.match(formatAcceptanceScenarioSystemNote(), /Acceptance scenario/);
+  assert.match(formatAcceptanceScenarioSystemNote(), /inAppBrowser\.open/);
+  const { formatAgenticLoopSystemNote, formatPatchFormatConstraints } = await import(
+    '../core/dist/agent/agent-planner.js'
+  );
+  assert.match(formatAgenticLoopSystemNote(), /Planner|Executor|Verify/i);
+  assert.ok(formatAgenticLoopSystemNote().length < 900, 'agentic loop note must stay lean');
+  assert.match(formatPatchFormatConstraints(), /Begin Patch|atomic/i);
+}
+
+// history compress + model context budgets
+{
+  const { applyHistoryContextCompress, applyHistoryContentBudget, getHistoryTurns } = await import(
+    '../core/dist/chat/history-budget.js',
+  );
+  const {
+    resolveModelContextLength,
+    resolveContextBudgets,
+    usedContextLimitsFallback,
+    getContextLimitMismatch,
+    rememberRemoteModelContext,
+    DEFAULT_CONTEXT_LENGTH,
+    DEFAULT_RESERVE_TOKENS,
+    clearRemoteModelContextCache,
+  } = await import('../core/dist/providers/model-context-limits.js');
+  const { parseRemoteModels } = await import('../core/dist/providers/openai-compatible.js');
+  const { truncateToolResultForLlm } = await import('../core/dist/agent/agent-run-helpers.js');
+  const { softRpmLimit, softStepLatencyWarnMs } = await import(
+    '../core/dist/providers/harness-policy.js'
+  );
+
+  withEnv(
+    {
+      MY_AGENT_HISTORY_KEEP_RECENT: '4',
+      MY_AGENT_HISTORY_COMPRESS_CHARS: '800',
+    },
+    () => {
+      const policy = loadHarnessPolicy();
+      assert.equal(policy.historyKeepRecent, 4);
+      assert.equal(policy.historyCompressChars, 800);
+    },
+  );
+
+  clearRemoteModelContextCache();
+  assert.equal(resolveModelContextLength('openai/gpt-5.6-sol'), 1_000_000);
+  assert.equal(
+    resolveModelContextLength('open_webui_openrouter_integration.openai.gpt-5.6-sol-pro'),
+    1_000_000,
+  );
+  assert.equal(resolveModelContextLength('totally-unknown-model-xyz'), DEFAULT_CONTEXT_LENGTH);
+  assert.equal(usedContextLimitsFallback('totally-unknown-model-xyz'), true);
+  assert.equal(usedContextLimitsFallback('openai/gpt-5.6-sol'), false);
+
+  const sol = resolveContextBudgets('openai/gpt-5.6-sol');
+  const base = resolveContextBudgets(null);
+  assert.ok(sol.reserveTokens >= DEFAULT_RESERVE_TOKENS);
+  assert.equal(sol.effectiveContextLength, sol.contextLength - sol.reserveTokens);
+  assert.equal(sol.limitsFallback, false);
+  assert.equal(base.limitsFallback, true);
+  assert.ok(sol.historyTurns > base.historyTurns, 'sol should scale turns above 128k baseline');
+  assert.ok(sol.toolResultMaxChars > base.toolResultMaxChars);
+  assert.equal(getHistoryTurns(process.env, { modelId: 'openai/gpt-5.6-sol' }), sol.historyTurns);
+  assert.equal(getHistoryTurns(), 40);
+
+  const debited = resolveContextBudgets('openai/gpt-5.6-sol', process.env, {
+    visionImageCount: 3,
+    attachmentChars: 5_000,
+  });
+  assert.ok(
+    debited.historyCompressChars < sol.historyCompressChars,
+    'vision/attach debit must shrink compress budget',
+  );
+
+  rememberRemoteModelContext('openai/gpt-5.6-sol', 200_000);
+  const mismatch = getContextLimitMismatch('openai/gpt-5.6-sol');
+  assert.ok(mismatch && /context_limit_mismatch/.test(mismatch.note));
+  clearRemoteModelContextCache();
+
+  withEnv({ MY_AGENT_SOFT_RPM: '30', MY_AGENT_SOFT_STEP_LATENCY_MS: '90000' }, () => {
+    assert.equal(softRpmLimit(), 30);
+    assert.equal(softStepLatencyWarnMs(), 90_000);
+  });
+  assert.equal(softRpmLimit({}), null);
+
+  const longHist = [];
+  for (let i = 0; i < 12; i++) {
+    longHist.push({ role: 'user', content: `u${i} ${'질문내용입니다 '.repeat(20)}` });
+    longHist.push({ role: 'assistant', content: `a${i} ${'답변내용입니다 '.repeat(20)}` });
+  }
+  const compressed = applyHistoryContextCompress(longHist, {
+    MY_AGENT_HISTORY_KEEP_RECENT: '4',
+    MY_AGENT_HISTORY_COMPRESS_CHARS: '500',
+  });
+  assert.ok(compressed.length < longHist.length, 'compress folds older turns');
+  assert.match(compressed[0].content, /history compress/);
+  assert.equal(compressed[compressed.length - 1].role, 'assistant');
+
+  const budgeted = applyHistoryContentBudget(
+    [{ role: 'assistant', content: 'x'.repeat(900) }],
+    { MY_AGENT_HISTORY_ASSISTANT_MAX_CHARS: '500' },
+  );
+  assert.match(budgeted[0].content, /history truncated/);
+
+  const parsed = parseRemoteModels({
+    data: [
+      { id: 'openai/gpt-5.6-sol', context_length: 1_000_000 },
+      { id: 'other', meta: { context_window: 200_000 } },
+    ],
+  });
+  assert.equal(parsed.find((m) => m.id === 'openai/gpt-5.6-sol')?.context_length, 1_000_000);
+  assert.equal(parsed.find((m) => m.id === 'other')?.context_length, 200_000);
+
+  const inspectDump =
+    '[read_file meta] path=styles.css lines=168\n' + ':root { color: red; }\n'.repeat(400);
+  const truncated = truncateToolResultForLlm(inspectDump, 'read_file');
+  assert.match(truncated, /read_file summary/);
+  assert.match(truncated, /styles\.css/);
+  assert.ok(truncated.length < 4_000, 'inspect dump must shrink well below 48k');
+}
+
+console.log('verify-harness-policy: ok');

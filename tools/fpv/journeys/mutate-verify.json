@@ -1,0 +1,44 @@
+{
+  "id": "J_mutate_verify",
+  "title": "toy mutate → verify marker on disk",
+  "priority": "P1",
+  "sessionContinuous": true,
+  "fixtureAliases": ["toy.root", "toy.counter"],
+  "bindWorkspace": "{{toy.root}}",
+  "steps": [
+    {
+      "id": "S1_note",
+      "mode": "web_dev",
+      "plane": "coding",
+      "text": "notes/fpv-ok.md 파일을 만들고 한 줄만 써: # fpv-mutate-ok",
+      "expect": {
+        "minLen": 20,
+        "diskProbe": {
+          "relativeToAlias": "toy.root",
+          "file": "notes/fpv-ok.md",
+          "includes": "# fpv-mutate-ok"
+        }
+      }
+    },
+    {
+      "id": "S2_confirm",
+      "mode": "web_dev",
+      "plane": "coding",
+      "text": "notes/fpv-ok.md 내용 확인해서 마커 문자열을 그대로 한 줄로만 출력해. 추가 수정 없이.",
+      "expect": {
+        "minLen": 8,
+        "mustMatch": ["fpv-mutate-ok"],
+        "diskProbe": {
+          "relativeToAlias": "toy.root",
+          "file": "notes/fpv-ok.md",
+          "includes": ["# fpv-mutate-ok"]
+        }
+      }
+    }
+  ],
+  "oracles": {
+    "requireSameSession": ["S1_note", "S2_confirm"],
+    "requireDiskProbe": true,
+    "uiNote": "IMP-GIT-01: Accept/Reject (pendingMutateReview) is ChatPane UI after mutate — manual click once per release; diskProbe is automated evidence."
+  }
+}

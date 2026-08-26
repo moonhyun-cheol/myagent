@@ -1,0 +1,1409 @@
+import {
+  ArrowClockwise,
+  ArrowUUpLeft,
+  CircleNotch,
+  File as FileIcon,
+  FilmStrip,
+  Paperclip,
+  PaperPlaneTilt,
+  Browser,
+  X,
+  Image as ImageIcon,
+  Stop,
+} from '@phosphor-icons/react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react';
+import type { ChatTurn } from '../types';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import {
+  fetchLicense,
+  fetchSession,
+  fetchWorkspaceTree,
+  getStoredSessionId,
+  summarizeSession,
+  type ApprovalLevel,
+  type ReasoningLevel,
+} from '../api/myAgentClient';
+import {
+  filesFromClipboard,
+  filesFromClipboardApi,
+  filesFromDataTransfer,
+} from '../lib/clipboardImages';
+import {
+  copyImageToClipboard,
+  copyImageUrl,
+  copyText,
+  downloadImageUrl,
+  guessImageFilename,
+} from '../lib/mediaActions';
+import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
+import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
+
+const MODEL_PREF_KEY = 'my-agent-workspace-model';
+
+const reasoningLabel = (value: string | null | undefined) =>
+  value === 'auto' ? '자동' : value === 'low' ? '낮음' : value === 'medium' ? '중간' : value === 'high' ? '높음' : value ? value : '모델 관리';
+const approvalLabel = (value: ApprovalLevel) =>
+  value === 'autopilot' ? 'Autopilot' : value === 'delegate' ? '나 대신 승인' : '승인 요청';
+
+function isImageAttachment(mime?: string, name?: string): boolean {
+  if (mime?.startsWith('image/')) return true;
+  if (!name) return false;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name);
+}
+
+function isVideoAttachment(mime?: string, name?: string): boolean {
+  if (mime?.startsWith('video/')) return true;
+  if (!name) return false;
+  return /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg)$/i.test(name);
+}
+
+/** http(s) URLs, or bare www./amazon. hosts commonly pasted into chat. */
+const EXTERNAL_URL_RE =
+  /(?:https?:\/\/|www\.)[^\s<>"'`）】)\]]+/gi;
+const URL_TRAILING_PUNCTUATION_RE = /[.,!?;:`'"”’）】)\]>]+$/;
+
+type ChromeWebViewHost = {
+  postMessage: (message: unknown) => void;
+};
+
+function getChromeWebView(): ChromeWebViewHost | null {
+  const chrome = (window as unknown as { chrome?: { webview?: ChromeWebViewHost } }).chrome;
+  return chrome?.webview ?? null;
+}
+
+/** Open http(s) in the WPF shell right-side BrowserWebView (not the system browser). */
+function openInAppBrowser(rawUrl: string): boolean {
+  const href = normalizeExternalHref(rawUrl);
+  if (!href) return false;
+  const webview = getChromeWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.open', url: href });
+  return true;
+}
+
+/** Prefer shell in-app browser; otherwise Preview「웹」pane — never navigate the workspace away. */
+function openExternalUrl(rawUrl: string): boolean {
+  const href = normalizeExternalHref(rawUrl);
+  if (!href) return false;
+  if (openInAppBrowser(href)) return true;
+  const store = useWorkspaceStore.getState();
+  store.setPreviewPaneOpen(true);
+  store.setMode('browser');
+  store.navigateBrowser(href);
+  return true;
+}
+
+function normalizeExternalHref(rawUrl: string): string | null {
+  let value = rawUrl.trim().replace(URL_TRAILING_PUNCTUATION_RE, '');
+  if (!value) return null;
+  if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
+  try {
+    const uri = new URL(value);
+    if (uri.protocol !== 'http:' && uri.protocol !== 'https:') return null;
+    return uri.href;
+  } catch {
+    return null;
+  }
+}
+
+function renderMessageText(text: string): ReactNode {
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(EXTERNAL_URL_RE)) {
+    const rawUrl = match[0];
+    const start = match.index ?? cursor;
+    const cleaned = rawUrl.replace(URL_TRAILING_PUNCTUATION_RE, '');
+    const url = normalizeExternalHref(cleaned);
+
+    if (!url) continue;
+    if (start > cursor) parts.push(text.slice(cursor, start));
+
+    parts.push(
+      <a
+        key={`${start}-${url}`}
+        href={url}
+        className="cursor-pointer break-all text-accent underline decoration-accent underline-offset-2 hover:text-accent/80"
+        title="앱 안에서 열기 (셸 인앱 브라우저 또는 Preview 웹)"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openExternalUrl(url);
+        }}
+      >
+        {url}
+      </a>,
+    );
+
+    const trailing = rawUrl.slice(cleaned.length);
+    if (trailing) parts.push(trailing);
+    cursor = start + rawUrl.length;
+  }
+
+  if (cursor === 0) return text;
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
+
+export function ChatPane() {
+  const chat = useWorkspaceStore((s) => s.chat);
+  const busy = useWorkspaceStore((s) => s.busy);
+  const statusText = useWorkspaceStore((s) => s.statusText);
+  const progressSteps = useMemo(() => {
+    const activeAssistant = [...chat].reverse().find((turn) => turn.role === 'assistant');
+    return activeAssistant?.progressSteps?.length
+      ? activeAssistant.progressSteps
+      : statusText
+        ? [statusText]
+        : [];
+  }, [chat, statusText]);
+  const contextBudget = useWorkspaceStore((s) => s.contextBudget);
+  const openGateText = useWorkspaceStore((s) => s.openGateText);
+  const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
+  const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
+  const undoLastTurn = useWorkspaceStore((s) => s.undoLastTurn);
+  const canUndo = useWorkspaceStore((s) => s.canUndo);
+
+  const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
+  const activeProjectId = useWorkspaceStore((s) => s.activeProjectId);
+  const activeWorkspaceProjectId = useWorkspaceStore((s) => s.activeWorkspaceProjectId);
+  const setSessionWorkspaceProject = useWorkspaceStore((s) => s.setSessionWorkspaceProject);
+  const setSessionProject = useWorkspaceStore((s) => s.setSessionProject);
+  const selectedModel = useWorkspaceStore((s) => s.selectedModel);
+  const setSelectedModel = useWorkspaceStore((s) => s.setSelectedModel);
+  const modelOptions = useWorkspaceStore((s) => s.modelOptions);
+  const refreshModelPicker = useWorkspaceStore((s) => s.refreshModelPicker);
+  const activeExecutionPolicy = useWorkspaceStore((s) => s.activeExecutionPolicy);
+  const effectiveExecutionPolicy = useWorkspaceStore((s) => s.effectiveExecutionPolicy);
+  const setExecutionPolicy = useWorkspaceStore((s) => s.setExecutionPolicy);
+  const apiError = useWorkspaceStore((s) => s.apiError);
+  const setApiStatus = useWorkspaceStore((s) => s.setApiStatus);
+  const setLicenseMode = useWorkspaceStore((s) => s.setLicenseMode);
+  const licenseMode = useWorkspaceStore((s) => s.licenseMode);
+  const pendingAttachments = useWorkspaceStore((s) => s.pendingAttachments);
+  const removePendingAttachment = useWorkspaceStore((s) => s.removePendingAttachment);
+  const pendingContextPaths = useWorkspaceStore((s) => s.pendingContextPaths);
+  const addContextPath = useWorkspaceStore((s) => s.addContextPath);
+  const removeContextPath = useWorkspaceStore((s) => s.removeContextPath);
+  const previewPaneOpen = useWorkspaceStore((s) => s.previewPaneOpen);
+  const setPreviewPaneOpen = useWorkspaceStore((s) => s.setPreviewPaneOpen);
+  const activeFileId = useWorkspaceStore((s) => s.activeFileId);
+  const files = useWorkspaceStore((s) => s.files);
+  const uploadFiles = useWorkspaceStore((s) => s.uploadFiles);
+  const skillMode = useWorkspaceStore((s) => s.skillMode);
+  const skillLabel = useWorkspaceStore((s) => s.skillLabel);
+  const setSkillMode = useWorkspaceStore((s) => s.setSkillMode);
+  const loadChatSession = useWorkspaceStore((s) => s.loadChatSession);
+  const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
+  const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
+  const [draft, setDraft] = useState('');
+  const [pasteHint, setPasteHint] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; title: string; path: string }>>([]);
+  const [projectOptions, setProjectOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [workspaceTreeProjectIds, setWorkspaceTreeProjectIds] = useState<string[]>([]);
+  const [sessionActionBusy, setSessionActionBusy] = useState(false);
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspacePromptText, setWorkspacePromptText] = useState<string | null>(null);
+  const contextFiles = useMemo(
+    () => flattenWorkspaceFiles(files, { includeFolders: true }),
+    [files],
+  );
+  const byokModels = useMemo(
+    () => modelOptions.filter((model) => model.access_mode === 'byok'),
+    [modelOptions],
+  );
+  const managedModels = useMemo(() => {
+    const explicit = modelOptions.filter(
+      (model) => model.access_mode !== 'byok' && model.access_mode !== 'auto' && model.id !== 'auto',
+    );
+    return explicit.length
+      ? explicit
+      : modelOptions.filter((model) => model.access_mode !== 'byok');
+  }, [modelOptions]);
+  const pickerModels = useMemo(
+    () => [...managedModels, ...byokModels],
+    [managedModels, byokModels],
+  );
+
+  useEffect(() => {
+    if (pickerModels.some((model) => model.id === selectedModel)) return;
+    const next = pickerModels[0]?.id;
+    if (!next) return;
+    setSelectedModel(next);
+    localStorage.setItem(MODEL_PREF_KEY, next);
+  }, [selectedModel, setSelectedModel, pickerModels]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchWorkspaceTree()
+      .then((tree) => {
+        if (cancelled) return;
+        const scopedIds: string[] = [];
+        const collectIds = (node: (typeof tree.workspace_trees)[number]) => {
+          scopedIds.push(node.id);
+          for (const child of node.children ?? []) collectIds(child);
+        };
+        for (const node of tree.workspace_trees ?? []) collectIds(node);
+        setWorkspaceTreeProjectIds(scopedIds);
+        setWorkspaceOptions(
+          (tree.workspace_trees ?? [])
+            .filter((node) => node.kind === 'workspace_root' && node.folder_path)
+            .map((node) => ({ id: node.id, title: node.title, path: node.folder_path || node.title })),
+        );
+        setProjectOptions(
+          (tree.projects ?? [])
+            .filter((project) => project.kind === 'project' || !project.kind)
+            .map((project) => ({ id: project.id, title: project.title })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setWorkspaceOptions([]);
+          setProjectOptions([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, activeProjectId]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const openedSessionRef = useRef<string | null>(null);
+  const turnAnchorRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const wasBusyRef = useRef(false);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const workspacePromptBypassRef = useRef<string | null>(null);
+  const { menu, openAt, close } = useContextMenu();
+
+  const latestUserTurnId = [...chat].reverse().find((t) => t.role === 'user')?.id ?? null;
+  const latestAssistantTurnId =
+    [...chat].reverse().find((t) => t.role === 'assistant')?.id ?? null;
+
+  const pinTurnNearTop = useCallback((turnId: string | null) => {
+    if (!turnId) return;
+    const scroller = scrollRef.current;
+    const anchor = turnAnchorRefs.current.get(turnId);
+    if (!scroller || !anchor) return;
+    // Place the turn just under the top of the viewport (Cursor-style), not at absolute bottom.
+    const top = anchor.offsetTop - 12;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }, []);
+
+  // Opening or switching to a saved conversation starts at its latest turn.
+  // Do not repeat this on message/stream updates: users must be able to read upward.
+  useLayoutEffect(() => {
+    if (!activeSessionId || chat.length === 0 || openedSessionRef.current === activeSessionId) return;
+    openedSessionRef.current = activeSessionId;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTop = scroller.scrollHeight;
+    const frame = window.requestAnimationFrame(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSessionId, chat.length]);
+
+  const flashPasteHint = useCallback((msg: string) => {
+    setPasteHint(msg);
+    window.setTimeout(() => setPasteHint(null), 3500);
+  }, []);
+
+  const openSessionMenu = (e: ReactMouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-chat-bubble="true"]')) return;
+
+    const runSessionAction = async (action: () => Promise<void>) => {
+      if (sessionActionBusy) return;
+      setSessionActionBusy(true);
+      try {
+        await action();
+      } catch (error) {
+        flashPasteHint(error instanceof Error ? error.message : '세션 작업에 실패했습니다.');
+      } finally {
+        setSessionActionBusy(false);
+      }
+    };
+
+    const workspaceChildren: ContextMenuItem[] = workspaceOptions.map((workspace) => ({
+      id: `workspace-${workspace.id}`,
+      label: workspace.title,
+      disabled: workspace.id === activeWorkspaceProjectId,
+      onSelect: () => runSessionAction(async () => {
+        await setSessionProject(workspace.id);
+        await setSessionWorkspaceProject(workspace.id);
+        window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
+        flashPasteHint(`대화를 작업폴더 “${workspace.title}”로 이전했습니다.`);
+      }),
+    }));
+    const projectChildren: ContextMenuItem[] = projectOptions.map((project) => ({
+      id: `project-${project.id}`,
+      label: project.title,
+      disabled: project.id === activeProjectId,
+      onSelect: () => runSessionAction(async () => {
+        await setSessionWorkspaceProject(null);
+        await setSessionProject(project.id);
+        window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
+        flashPasteHint(`대화를 프로젝트 “${project.title}”로 이전했습니다.`);
+      }),
+    }));
+
+    openAt(e, [
+      {
+        id: 'summarize-new-chat',
+        label: '내용 요약 후 새대화로 열기',
+        disabled: !activeSessionId || !chat.length || busy || sessionActionBusy,
+        onSelect: () => runSessionAction(async () => {
+          const result = await summarizeSession(activeSessionId!, { createSession: true, model: selectedModel });
+          if (!result.session_id) throw new Error('요약 세션을 만들지 못했습니다.');
+          await loadChatSession(result.session_id);
+          flashPasteHint('대화 내용을 압축해 새 대화로 열었습니다.');
+        }),
+      },
+      {
+        id: 'move-workspace',
+        label: '작업폴더로 대화 이전',
+        disabled: !activeSessionId || !workspaceChildren.length || busy || sessionActionBusy,
+        children: workspaceChildren,
+      },
+      {
+        id: 'move-project',
+        label: '프로젝트로 대화 이전',
+        disabled: !activeSessionId || !projectChildren.length || busy || sessionActionBusy,
+        children: projectChildren,
+      },
+      {
+        id: 'copy-summary',
+        label: '요약해서 복사하기',
+        disabled: !activeSessionId || !chat.length || busy || sessionActionBusy,
+        onSelect: () => runSessionAction(async () => {
+          const result = await summarizeSession(activeSessionId!, { model: selectedModel });
+          await copyText(result.summary);
+          flashPasteHint('대화 요약을 클립보드에 복사했습니다.');
+        }),
+      },
+      {
+        id: 'export-session',
+        label: '대화 세션 출력',
+        disabled: !activeSessionId || busy || sessionActionBusy,
+        onSelect: () => runSessionAction(async () => {
+          const session = await fetchSession(activeSessionId!);
+          const payload = {
+            format: 'cqr-pa-conversation-session',
+            version: 1,
+            exported_at: new Date().toISOString(),
+            conversation: {
+              id: session.id,
+              title: session.title,
+              created_at: session.created_at,
+              updated_at: session.updated_at,
+              project_id: session.project_id ?? null,
+              workspace_project_id: session.workspace_project_id ?? null,
+              messages: session.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+                at: message.at,
+                ...(message.model ? { model: message.model } : {}),
+                ...(message.mode ? { mode: message.mode } : {}),
+                ...(message.image_urls?.length ? { image_urls: message.image_urls } : {}),
+              })),
+            },
+          };
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = `${session.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'conversation'}.cqr-session.json`;
+          anchor.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 0);
+          flashPasteHint('호환 가능한 JSON 세션 파일로 출력했습니다.');
+        }),
+      },
+    ]);
+  };
+
+  const openMessageMenu = useCallback(
+    (e: ReactMouseEvent, turn: ChatTurn) => {
+      const items: ContextMenuItem[] = [
+        {
+          id: 'copy-text',
+          label: '메시지 복사',
+          disabled: !turn.text?.trim(),
+          onSelect: async () => {
+            await copyText(turn.text || '');
+            flashPasteHint('메시지를 복사했습니다.');
+          },
+        },
+      ];
+      if (turn.imageUrls?.length) {
+        const first = turn.imageUrls[0];
+        items.push(
+          {
+            id: 'preview',
+            label: '이미지 크게 보기',
+            onSelect: () =>
+              openImagePreview({
+                src: first,
+                title: turn.text?.slice(0, 48) || '생성 이미지',
+                prompt: turn.text || '',
+              }),
+          },
+          {
+            id: 'copy-url',
+            label: '이미지 주소 복사',
+            onSelect: async () => {
+              await copyImageUrl(first);
+              flashPasteHint('이미지 주소를 복사했습니다.');
+            },
+          },
+        );
+      }
+      openAt(e, items);
+    },
+    [flashPasteHint, openAt, openImagePreview],
+  );
+
+  const openImageMenu = useCallback(
+    (e: ReactMouseEvent, url: string, title: string, prompt: string) => {
+      openAt(e, [
+        {
+          id: 'preview',
+          label: '크게 보기',
+          onSelect: () => openImagePreview({ src: url, title, prompt }),
+        },
+        {
+          id: 'copy-url',
+          label: '이미지 주소 복사',
+          onSelect: async () => {
+            await copyImageUrl(url);
+            flashPasteHint('이미지 주소를 복사했습니다.');
+          },
+        },
+        {
+          id: 'copy-image',
+          label: '이미지 복사',
+          onSelect: async () => {
+            const kind = await copyImageToClipboard(url);
+            flashPasteHint(kind === 'image' ? '이미지를 복사했습니다.' : '이미지 주소를 복사했습니다.');
+          },
+        },
+        {
+          id: 'save',
+          label: '이미지 저장',
+          onSelect: () => downloadImageUrl(url, guessImageFilename(title, url)),
+        },
+      ]);
+    },
+    [flashPasteHint, openAt, openImagePreview],
+  );
+
+  // On answer start: jump to the new turn / thinking log (near top), never chase absolute bottom.
+  // Streaming updates no longer force-scroll, so a scrolled-up view stays put.
+  useEffect(() => {
+    const started = busy && !wasBusyRef.current;
+    wasBusyRef.current = busy;
+    if (!started) return;
+    const pinId = latestUserTurnId ?? latestAssistantTurnId;
+    // Wait a frame so the new DOM nodes exist.
+    const raf = window.requestAnimationFrame(() => pinTurnNearTop(pinId));
+    return () => window.cancelAnimationFrame(raf);
+  }, [busy, latestAssistantTurnId, latestUserTurnId, pinTurnNearTop]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyPicker = async () => {
+      setPickerBusy(true);
+      try {
+        await refreshModelPicker(false);
+      } catch {
+        /* keep fallback auto option */
+      } finally {
+        if (!cancelled) setPickerBusy(false);
+      }
+    };
+
+    (async () => {
+      try {
+        const lic = await fetchLicense();
+        if (cancelled) return;
+        setLicenseMode(lic.mode ?? null);
+        setApiStatus(true, lic.mode === 'read_only' ? '읽기 전용 라이선스 — 채팅이 제한될 수 있습니다' : null);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setApiStatus(false, `${message} · API 실행 필요`);
+      }
+
+      void applyPicker();
+
+      try {
+        const existing = getStoredSessionId();
+        if (existing) {
+          await loadChatSession(existing);
+        }
+        // No auto-create: empty state is valid; send / 「새 채팅」이 세션을 만듦.
+      } catch {
+        if (cancelled) return;
+        clearActiveChat();
+      }
+    })();
+
+    const onFocus = () => {
+      if (useWorkspaceStore.getState().modelOptions.length <= 1) {
+        void applyPicker();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
+
+  const ingestFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+      if (licenseMode && licenseMode !== 'full') {
+        flashPasteHint('라이선스 필요');
+        return;
+      }
+      setPasting(true);
+      try {
+        await uploadFiles(files);
+      } catch (err) {
+        flashPasteHint(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPasting(false);
+      }
+    },
+    [flashPasteHint, licenseMode, uploadFiles],
+  );
+
+  const handlePaste = useCallback(
+    (e: ReactClipboardEvent | ClipboardEvent) => {
+      const anyFiles = filesFromDataTransfer(e.clipboardData);
+      if (licenseMode && licenseMode !== 'full') {
+        const sync = filesFromClipboard(e.clipboardData);
+        const items = [...(e.clipboardData?.items ?? [])];
+        const maybeFile =
+          anyFiles.length > 0 ||
+          sync.length > 0 ||
+          items.some((i) => i.type.startsWith('image/') || (i.kind === 'file' && !i.type));
+        if (maybeFile) {
+          e.preventDefault();
+          flashPasteHint('라이선스 필요');
+        }
+        return;
+      }
+
+      // Explorer / OS file paste — any format
+      if (anyFiles.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        void ingestFiles(anyFiles);
+        return;
+      }
+
+      const syncImages = filesFromClipboard(e.clipboardData);
+      if (syncImages.length) {
+        e.preventDefault();
+        e.stopPropagation();
+        void ingestFiles(syncImages);
+        return;
+      }
+
+      const items = [...(e.clipboardData?.items ?? [])];
+      const maybeImage = items.some(
+        (i) => i.type.startsWith('image/') || (i.kind === 'file' && !i.type),
+      );
+      if (!maybeImage) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      void (async () => {
+        try {
+          if (!navigator.clipboard?.read) {
+            flashPasteHint('클립보드 이미지를 못 읽었습니다');
+            return;
+          }
+          const images = await filesFromClipboardApi();
+          if (!images.length) {
+            flashPasteHint('다시 캡처해 주세요');
+            return;
+          }
+          await ingestFiles(images);
+        } catch (err) {
+          flashPasteHint(err instanceof Error ? err.message : String(err));
+        }
+      })();
+    },
+    [flashPasteHint, ingestFiles, licenseMode],
+  );
+
+  useEffect(() => {
+    const onDocPaste = (e: ClipboardEvent) => {
+      const t = e.target as Node | null;
+      if (!composerRef.current?.contains(t)) return;
+      handlePaste(e);
+    };
+    document.addEventListener('paste', onDocPaste, true);
+    return () => document.removeEventListener('paste', onDocPaste, true);
+  }, [handlePaste]);
+
+  const onComposerDragEnter = useCallback((e: ReactDragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  }, []);
+
+  const onComposerDragLeave = useCallback((e: ReactDragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  }, []);
+
+  const onComposerDragOver = useCallback((e: ReactDragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if ([...e.dataTransfer.types].includes('Files')) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  const onComposerDrop = useCallback(
+    (e: ReactDragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragDepthRef.current = 0;
+      setDragActive(false);
+      const files = filesFromDataTransfer(e.dataTransfer);
+      void ingestFiles(files);
+    },
+    [ingestFiles],
+  );
+
+  const attachDisabled =
+    pasting || busy || Boolean(licenseMode && licenseMode !== 'full');
+
+  const canSend = (!!draft.trim() || pendingAttachments.length > 0) && !busy && !pasting;
+
+  const showUndo = canUndo && !busy && licenseMode === 'full';
+
+  const submit = () => {
+    if (!canSend) return;
+    const t = draft;
+    const promptKey = activeSessionId ?? (activeProjectId ? `project:${activeProjectId}` : null);
+    const projectInWorkspaceTree = Boolean(
+      activeProjectId && workspaceTreeProjectIds.includes(activeProjectId),
+    );
+    if (
+      promptKey
+      && activeProjectId
+      && !activeWorkspaceProjectId
+      && !projectInWorkspaceTree
+      && workspaceOptions.length > 0
+      && workspacePromptBypassRef.current !== promptKey
+    ) {
+      setWorkspacePromptText(t);
+      return;
+    }
+    setDraft('');
+    void sendAiMessage(t);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+        if (draft) return;
+      }
+      if (!showUndo) return;
+      e.preventDefault();
+      void undoLastTurn().then((text) => {
+        if (text) setDraft(text);
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showUndo, undoLastTurn, draft]);
+
+  return (
+    <section
+      className="relative flex h-full flex-col bg-ink"
+      onDragEnter={onComposerDragEnter}
+      onDragLeave={onComposerDragLeave}
+      onDragOver={onComposerDragOver}
+      onDrop={onComposerDrop}
+    >
+      {dragActive ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-ink/75 text-sm font-medium text-accent">
+          파일을 여기에 놓으세요 (형식 제한 없음)
+        </div>
+      ) : null}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          void ingestFiles(files);
+        }}
+      />
+      {workspacePromptText !== null ? (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/35 px-6 backdrop-blur-[2px]">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="작업폴더 권한 연결"
+            data-testid="workspace-access-dialog"
+            className="w-full max-w-md rounded-2xl border border-line bg-panel p-5 shadow-2xl"
+          >
+            <p className="text-base font-semibold text-text">이 채팅에 작업폴더를 연결할까요?</p>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              파일을 읽거나 수정하려면 등록된 작업폴더를 이 채팅에 명시적으로 연결해야 합니다.
+              선택한 권한은 다른 채팅에 적용되지 않습니다.
+            </p>
+            <div className="mt-4 space-y-2">
+              {workspaceOptions.map((workspace) => (
+                <button
+                  key={workspace.id}
+                  type="button"
+                  disabled={workspaceSaving}
+                  onClick={() => {
+                    const pendingText = workspacePromptText;
+                    setWorkspaceSaving(true);
+                    void setSessionWorkspaceProject(workspace.id)
+                      .then(() => {
+                        setWorkspacePromptText(null);
+                        setDraft('');
+                        void sendAiMessage(pendingText);
+                      })
+                      .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
+                      .finally(() => setWorkspaceSaving(false));
+                  }}
+                  className="w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2.5 text-left text-sm text-text hover:border-accent/60 disabled:opacity-50"
+                >
+                  <span className="block font-medium">{workspace.title}</span>
+                  <span className="mt-0.5 block truncate font-mono text-[11px] text-muted">{workspace.path}</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={workspaceSaving}
+                onClick={() => {
+                  const pendingText = workspacePromptText;
+                  workspacePromptBypassRef.current = activeSessionId ?? (activeProjectId ? `project:${activeProjectId}` : null);
+                  setWorkspacePromptText(null);
+                  setDraft('');
+                  void sendAiMessage(pendingText);
+                }}
+                className="rounded-xl border border-line px-3 py-2 text-xs text-muted hover:text-text"
+              >
+                작업폴더 없이 대화
+              </button>
+              <button
+                type="button"
+                disabled={workspaceSaving}
+                onClick={() => setWorkspacePromptText(null)}
+                className="rounded-xl bg-panel-2 px-3 py-2 text-xs text-text"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div className="relative flex h-10 shrink-0 items-center gap-1.5 border-b border-line px-3">
+        <select
+          value={pickerModels.some((model) => model.id === selectedModel) ? selectedModel : ''}
+          onChange={(e) => {
+            setSelectedModel(e.target.value);
+            localStorage.setItem(MODEL_PREF_KEY, e.target.value);
+          }}
+          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent"
+          title="모델"
+        >
+          {pickerModels.length === 0 ? (
+            <option value="" disabled>
+              모델 없음 · 왼쪽 모델에서 키 등록
+            </option>
+          ) : null}
+          {managedModels.length > 0 ? (
+            <optgroup label="제공">
+              {managedModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+          {byokModels.length > 0 ? (
+            <optgroup label="개인 키">
+              {byokModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
+        </select>
+        <button
+          type="button"
+          data-testid="chat-workspace-button"
+          onClick={() => setPolicyOpen(true)}
+          className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] ${
+            activeWorkspaceProjectId
+              ? 'border-accent/50 bg-accent/10 text-accent'
+              : 'border-line bg-panel text-muted hover:border-accent/50 hover:text-text'
+          }`}
+          title="이 채팅에 등록 작업폴더 연결"
+        >
+          {activeWorkspaceProjectId ? '작업폴더 연결됨' : '작업폴더 연결'}
+        </button>
+        <button
+          type="button"
+          data-testid="chat-execution-policy"
+          aria-expanded={policyOpen}
+          onClick={() => setPolicyOpen((open) => !open)}
+          className="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-text"
+          title="현재 채팅의 추론 수준과 작업 권한"
+        >
+          추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
+          {' · '}{approvalLabel(activeExecutionPolicy.approval)}
+        </button>
+        {policyOpen ? (
+          <div
+            role="dialog"
+            aria-label="채팅 실행 정책"
+            className="absolute right-12 top-9 z-50 w-72 rounded-2xl border border-line bg-panel p-4 shadow-xl"
+          >
+            <p className="text-sm font-semibold text-text">현재 채팅 실행 정책</p>
+            <p className="mt-1 text-[11px] leading-5 text-muted">변경값은 이 채팅에만 저장되며 실행 중인 작업에는 영향을 주지 않습니다.</p>
+            <label className="mt-4 block text-xs font-medium text-text">
+              추론 수준
+              <select
+                data-testid="chat-reasoning-level"
+                value={activeExecutionPolicy.reasoning}
+                disabled={busy}
+                onChange={(event) => void setExecutionPolicy({
+                  reasoning: event.target.value as ReasoningLevel,
+                })}
+                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+              >
+                <option value="auto">자동</option>
+                <option value="low">낮음</option>
+                <option value="medium">중간</option>
+                <option value="high">높음</option>
+              </select>
+            </label>
+            <label className="mt-3 block text-xs font-medium text-text">
+              작업 권한
+              <select
+                data-testid="chat-approval-level"
+                value={activeExecutionPolicy.approval}
+                disabled={busy}
+                onChange={(event) => {
+                  const approval = event.target.value as ApprovalLevel;
+                  void setExecutionPolicy({
+                    approval,
+                    autopilot: approval === 'autopilot' ? 'on' : approval === 'delegate' ? 'auto' : 'off',
+                  });
+                }}
+                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+              >
+                <option value="autopilot">Autopilot — 안전 범위 완전 위임</option>
+                <option value="delegate">나 대신 승인 — Luna가 위험 판단</option>
+                <option value="ask">작업 시 승인 요청</option>
+              </select>
+            </label>
+            <label className="mt-3 block text-xs font-medium text-text">
+              이 채팅의 임시 작업폴더
+              <select
+                data-testid="chat-workspace-binding"
+                value={activeWorkspaceProjectId ?? ''}
+                disabled={busy || workspaceSaving}
+                onChange={(event) => {
+                  const workspaceProjectId = event.target.value || null;
+                  setWorkspaceSaving(true);
+                  void setSessionWorkspaceProject(workspaceProjectId)
+                    .then(() => flashPasteHint(workspaceProjectId ? '이 채팅에 작업폴더를 연결했습니다.' : '임시 작업폴더 연결을 해제했습니다.'))
+                    .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
+                    .finally(() => setWorkspaceSaving(false));
+                }}
+                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+              >
+                <option value="">프로젝트 기준 / 연결 안 함</option>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.title} · {workspace.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-1 text-[11px] leading-5 text-muted">
+              등록된 작업폴더만 선택할 수 있으며 이 채팅에만 적용됩니다.
+            </p>
+            <p className="mt-2 text-[11px] leading-5 text-muted">
+              외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 Luna에 위임하지 않고 사용자에게 확인합니다.
+            </p>
+            {effectiveExecutionPolicy ? (
+              <p className="mt-3 rounded-lg bg-ink px-3 py-2 text-[11px] text-muted">
+                최근 적용: 추론 {reasoningLabel(effectiveExecutionPolicy.reasoning)} · {approvalLabel(effectiveExecutionPolicy.approval)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="rounded-md p-1 text-muted hover:bg-panel hover:text-text disabled:opacity-40"
+          title="모델 목록 새로고침"
+          disabled={pickerBusy}
+          onClick={() => {
+            setPickerBusy(true);
+            void refreshModelPicker(true)
+              .catch(() => undefined)
+              .finally(() => setPickerBusy(false));
+          }}
+        >
+          <ArrowClockwise size={14} className={pickerBusy ? 'animate-spin' : undefined} />
+        </button>
+        <button
+          type="button"
+          aria-pressed={previewPaneOpen}
+          title={previewPaneOpen ? 'Preview 닫기' : 'Preview 열기'}
+          onClick={() => setPreviewPaneOpen(!previewPaneOpen)}
+          className={`rounded-md p-1 ${
+            previewPaneOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-panel hover:text-text'
+          }`}
+        >
+          <Browser size={16} weight={previewPaneOpen ? 'bold' : 'regular'} />
+        </button>
+      </div>
+      {apiError ? (
+        <div className="border-b border-line bg-red-950/40 px-5 py-2 text-[12px] text-red-300">
+          {apiError}
+        </div>
+      ) : null}
+
+      {skillMode && skillLabel ? (
+        <div className="flex items-center justify-between border-b border-line bg-accent/10 px-5 py-1.5 text-[11px] text-accent">
+          <span>스킬 적용 중: {skillLabel}</span>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent/20"
+            onClick={() => setSkillMode(null)}
+          >
+            <X size={12} />
+            해제
+          </button>
+        </div>
+      ) : null}
+
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto px-5 py-6"
+        onContextMenu={openSessionMenu}
+      >
+        <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
+          {chat.length === 0 && !busy ? (
+            <div className="py-16 text-center">
+              <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
+            </div>
+          ) : null}
+          {chat.map((turn) => (
+            <div
+              key={turn.id}
+              ref={(el) => {
+                if (el) turnAnchorRefs.current.set(turn.id, el);
+                else turnAnchorRefs.current.delete(turn.id);
+              }}
+              className={`flex w-full min-w-0 flex-col gap-1 ${turn.role === 'user' ? 'items-end' : 'items-start'}`}
+            >
+              <span className="text-[10px] uppercase tracking-[0.14em] text-muted">
+                {turn.role === 'user'
+                  ? 'You'
+                  : String(modelOptions.find((option) => option.id === turn.model)?.label ?? turn.model ?? 'Assistant')
+                      .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
+              </span>
+              <div
+                data-chat-bubble="true"
+                className={`min-w-0 max-w-[92%] overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
+                  turn.role === 'user'
+                    ? 'bg-panel-2 text-text'
+                    : 'border border-line bg-panel text-text/90'
+                }`}
+                onContextMenu={(e) => openMessageMenu(e, turn)}
+              >
+                {turn.thought ? (
+                  <details className="mb-3 rounded-xl border border-line/80 bg-ink/40 px-3 py-2" open={busy && turn.role === 'assistant'}>
+                    <summary className="cursor-pointer select-none text-[11px] tracking-[0.04em] text-muted">
+                      {busy && turn.role === 'assistant' && statusText
+                        ? `진행 · ${statusText.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}`
+                        : '생각 로그'}
+                    </summary>
+                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[11px] leading-relaxed text-muted">
+                      {turn.thought}
+                    </pre>
+                  </details>
+                ) : null}
+                {turn.streamPreview?.trim() ? (
+                  <details
+                    className="mb-3 rounded-xl border border-dashed border-line/70 bg-ink/25 px-3 py-2"
+                    open={busy && turn.role === 'assistant'}
+                  >
+                    <summary className="cursor-pointer select-none text-[11px] tracking-[0.04em] text-muted">
+                      스트림 미리보기 · 공식 답 아님
+                      {busy && turn.role === 'assistant' ? ' · 생성 중' : ''}
+                    </summary>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[11px] leading-relaxed text-muted/90">
+                      {turn.streamPreview}
+                    </pre>
+                  </details>
+                ) : null}
+                {turn.attachmentNames?.length ? (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {turn.attachmentNames.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 rounded-lg border border-line/70 bg-ink/30 px-2 py-0.5 text-[11px] text-muted"
+                      >
+                        {isImageAttachment(undefined, name) ? (
+                          <ImageIcon size={12} />
+                        ) : (
+                          <FileIcon size={12} />
+                        )}
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {turn.imageUrls?.length ? (
+                  <div className={`flex flex-col gap-2 ${turn.text ? 'mb-3' : ''}`}>
+                    {turn.imageUrls.map((url) => (
+                      <button
+                        key={url}
+                        type="button"
+                        className="block overflow-hidden rounded-xl border border-line/70 bg-ink/40 text-left"
+                        onClick={() =>
+                          openImagePreview({
+                            src: url,
+                            title: turn.text?.slice(0, 48) || '생성 이미지',
+                            prompt: turn.text || '',
+                          })
+                        }
+                        onContextMenu={(e) =>
+                          openImageMenu(
+                            e,
+                            url,
+                            turn.text?.slice(0, 48) || '생성 이미지',
+                            turn.text || '',
+                          )
+                        }
+                      >
+                        <img
+                          src={url}
+                          alt=""
+                          className="max-h-80 w-full object-contain"
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {turn.text
+                  ? renderMessageText(turn.text)
+                  : busy && turn.role === 'assistant' && !turn.imageUrls?.length
+                    ? '…'
+                    : ''}
+              </div>
+            </div>
+          ))}
+          {openGateText && !busy ? (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-100/90">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-amber-200/80">
+                  Exit Gate · 1
+                </p>
+                <p className="mt-0.5 leading-snug">{openGateText}</p>
+                <p className="mt-1 text-[11px] text-muted">다음 턴은 이 게이트만 닫으면 됩니다.</p>
+              </div>
+            </div>
+          ) : null}
+          {busy ? (
+            <div className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2.5 text-sm text-accent">
+              <CircleNotch size={16} className="mt-0.5 shrink-0 animate-spin" />
+              <div className="min-w-0">
+                <div className="space-y-1.5">
+                  {(progressSteps.length ? progressSteps : ['생각 중…']).map((step, index) => (
+                    <div key={`${index}-${step}`} className="flex items-start gap-2 leading-snug">
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                          index === progressSteps.length - 1 ? 'bg-teal-400' : 'bg-zinc-600'
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span className={index === progressSteps.length - 1 ? 'font-medium text-text' : 'text-muted'}>
+                        {step.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {openGateText ? (
+                  <p className="mt-0.5 text-[11px] text-amber-200/80">Exit Gate: {openGateText}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <ContextMenuPortal menu={menu} onClose={close} />
+
+      <div className="border-t border-line bg-panel/65 px-5 py-4 backdrop-blur-xl">
+        <div className="mx-auto max-w-2xl">
+          {contextBudget && contextBudget.budgetChars > 0 ? (
+            <p
+              className={`mb-2 text-[10px] tabular-nums text-muted ${
+                contextBudget.usedChars / contextBudget.budgetChars < 0.7 &&
+                !contextBudget.compressed
+                  ? 'sr-only'
+                  : ''
+              }`}
+              data-testid="context-budget-gauge"
+              title={
+                contextBudget.fallback128k
+                  ? 'model context seed miss → 128k fallback'
+                  : undefined
+              }
+            >
+              ctx {Math.round((contextBudget.usedChars / contextBudget.budgetChars) * 100)}% ·{' '}
+              {(contextBudget.usedChars / 1000).toFixed(1)}k/
+              {(contextBudget.budgetChars / 1000).toFixed(1)}k
+              {contextBudget.compressed ? ' · compressed' : ''}
+              {contextBudget.fallback128k ? ' · fallback128k' : ''}
+            </p>
+          ) : null}
+          {pasteHint ? (
+            <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>
+          ) : null}
+          <div
+            ref={composerRef}
+            className={`overflow-hidden rounded-2xl border bg-ink/90 shadow-[0_8px_28px_rgba(0,0,0,0.16)] transition-colors focus-within:border-accent/70 focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_8px_28px_rgba(0,0,0,0.2)] ${
+              dragActive
+                ? 'border-accent bg-accent/5 shadow-[0_0_0_1px_rgba(45,212,191,0.35)]'
+                : 'border-line'
+            }`}
+          >
+            {pendingAttachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2 border-b border-line/60 px-3 pt-3">
+                {pendingAttachments.map((a) => (
+                  <div
+                    key={a.id}
+                    className="group relative flex items-center gap-2 rounded-xl border border-line bg-panel-2 px-2 py-1.5"
+                  >
+                    {a.previewUrl && isImageAttachment(a.mime, a.name) ? (
+                      <img src={a.previewUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
+                    ) : isVideoAttachment(a.mime, a.name) ? (
+                      <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-accent">
+                        <FilmStrip size={16} weight="bold" />
+                      </span>
+                    ) : (
+                      <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-muted">
+                        <FileIcon size={16} />
+                      </span>
+                    )}
+                    <span className="max-w-[120px] truncate text-[11px] text-muted" title={a.name}>
+                      {a.name}
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded p-0.5 text-muted hover:bg-ink hover:text-text"
+                      aria-label="첨부 제거"
+                      onClick={() => void removePendingAttachment(a.id)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {pendingContextPaths.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-3 pt-2 pb-2">
+                {pendingContextPaths.map((p) => {
+                  const label = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p;
+                  return (
+                    <div
+                      key={p}
+                      className="inline-flex max-w-full items-center gap-1 rounded-lg border border-accent/25 bg-accent/5 px-2 py-1 text-[11px] text-accent"
+                      title={p}
+                    >
+                      <span className="shrink-0 opacity-70">@</span>
+                      <span className="truncate">{label}</span>
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-muted hover:bg-ink hover:text-text"
+                        aria-label="@ 컨텍스트 제거"
+                        onClick={() => removeContextPath(p)}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            <textarea
+              value={draft}
+              onChange={(e) => {
+                const next = e.target.value;
+                const prev = draft;
+                setDraft(next);
+                // Bare trailing @ opens file picker for context chips (code mode preferred).
+                if (
+                  next.length === prev.length + 1 &&
+                  next.endsWith('@') &&
+                  (prev === '' || /[\s\n]$/.test(prev) || prev.endsWith('@'))
+                ) {
+                  setContextPickerOpen(true);
+                }
+              }}
+              rows={3}
+              placeholder="할 일 입력… (@ 또는 피커로 파일 컨텍스트)"
+              className="w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-muted/50"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <div className="flex items-center justify-between gap-3 px-3 pb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  title="파일 추가"
+                  disabled={attachDisabled}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text disabled:opacity-40"
+                >
+                  <Paperclip size={14} weight="bold" />
+                </button>
+                <button
+                  type="button"
+                  title="@ 컨텍스트 파일 검색 (현재 파일은 Shift+클릭)"
+                  data-testid="context-at-button"
+                  onClick={(e) => {
+                    if (
+                      e.shiftKey &&
+                      activeFileId &&
+                      !/^buffer\.(tsx|ts|jsx|js)$/i.test(activeFileId)
+                    ) {
+                      addContextPath(activeFileId);
+                      flashPasteHint(`@ ${activeFileId}`);
+                      return;
+                    }
+                    if (!files.length) {
+                      flashPasteHint('작업 폴더 파일을 불러온 뒤 @ 피커를 사용하세요.');
+                      return;
+                    }
+                    setContextPickerOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text"
+                >
+                  @
+                </button>
+                {pasting ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted">
+                    <CircleNotch size={12} className="animate-spin" />
+                    업로드 중…
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {showUndo ? (
+                  <button
+                    type="button"
+                    title="마지막 턴 되돌리기 (Ctrl+Z)"
+                    onClick={() =>
+                      void undoLastTurn().then((text) => {
+                        if (text) setDraft(text);
+                      })
+                    }
+                    className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text"
+                  >
+                    <ArrowUUpLeft size={14} weight="bold" />
+                    Undo
+                  </button>
+                ) : null}
+                {busy ? (
+                  <button
+                    type="button"
+                    onClick={() => stopAiMessage()}
+                    title="생성 중지"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-panel-2/70 px-3 py-1.5 text-xs font-semibold text-text transition-colors hover:border-red-400/50 hover:bg-red-950/20 hover:text-red-300"
+                  >
+                    <Stop size={14} weight="fill" />
+                    중지
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!canSend || licenseMode === 'read_only'}
+                    onClick={submit}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
+                  >
+                    <PaperPlaneTilt size={14} weight="fill" />
+                    전송
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {contextPickerOpen ? (
+        <QuickOpenModal
+          files={contextFiles}
+          title="@ 컨텍스트 추가"
+          placeholder="파일·폴더 검색… (Enter 추가, Esc 닫기)"
+          selectedPaths={pendingContextPaths}
+          keepOpenOnSelect
+          onClose={() => setContextPickerOpen(false)}
+          onOpen={(path) => {
+            addContextPath(path);
+            // Strip a lone trailing @ left by the trigger key.
+            setDraft((d) => (d.endsWith('@') ? d.slice(0, -1) : d));
+            flashPasteHint(`@ ${path}`);
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="브라우저에서 즐기는 블랙잭 게임" />
+  <title>블랙잭 테이블</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="game-shell" aria-labelledby="game-title">
+    <header class="game-header">
+      <div>
+        <p class="eyebrow">CASINO TABLE · SINGLE PLAYER</p>
+        <h1 id="game-title">블랙잭</h1>
+      </div>
+      <button id="new-game-button" class="button button-secondary" type="button">새 게임</button>
+    </header>
+
+    <section class="score-strip" aria-label="게임 전적">
+      <div><span>승</span><strong id="wins-count">0</strong></div>
+      <div><span>패</span><strong id="losses-count">0</strong></div>
+      <div><span>무승부</span><strong id="draws-count">0</strong></div>
+    </section>
+
+    <section class="table" aria-live="polite">
+      <section class="hand-area dealer-area" aria-labelledby="dealer-title">
+        <div class="hand-heading">
+          <h2 id="dealer-title">딜러</h2>
+          <p id="dealer-score">점수: ?</p>
+        </div>
+        <div id="dealer-cards" class="cards" aria-label="딜러 카드"></div>
+      </section>
+
+      <div class="table-center">
+        <p id="status-message" class="status-message">새 게임을 시작해 주세요.</p>
+        <div class="controls" aria-label="게임 조작">
+          <button id="start-button" class="button button-primary" type="button">게임 시작</button>
+          <button id="hit-button" class="button button-primary" type="button" disabled>히트</button>
+          <button id="stand-button" class="button button-secondary" type="button" disabled>스탠드</button>
+        </div>
+      </div>
+
+      <section class="hand-area player-area" aria-labelledby="player-title">
+        <div class="hand-heading">
+          <h2 id="player-title">플레이어</h2>
+          <p id="player-score">점수: 0</p>
+        </div>
+        <div id="player-cards" class="cards" aria-label="플레이어 카드"></div>
+      </section>
+    </section>
+
+    <aside class="rules" aria-label="게임 규칙">
+      <strong>규칙</strong>
+      <span>21에 가깝게 만들되 넘기면 버스트입니다. 딜러는 17 이상이 될 때까지 카드를 받습니다.</span>
+    </aside>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

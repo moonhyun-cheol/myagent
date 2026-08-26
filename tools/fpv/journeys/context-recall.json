@@ -1,0 +1,50 @@
+{
+  "id": "J_context_recall",
+  "title": "세션 pin + history compress 회수 (offline 우선)",
+  "priority": "P1",
+  "sessionContinuous": true,
+  "steps": [
+    {
+      "id": "S0_verify_compress",
+      "kind": "npm",
+      "npm": "verify:history-compress",
+      "expect": { "ok": true }
+    },
+    {
+      "id": "S1_route",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "방금 pin한 core/src/chat/history-budget.ts 경로만 다시 말해. 수정 금지.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      }
+    },
+    {
+      "id": "S2_live_recall",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "이 세션에서 중요한 경로로 core/src/chat/history-budget.ts 와 숫자 budgetScale=7.8125 를 기억해. 수정 금지. 확인만 한 줄.",
+      "expect": {
+        "minLen": 10,
+        "mustMatch": ["history-budget|7\\.8125|기억|확인|pin"],
+        "forbid": ["apply_patch", "edit_file을 호출", "워크스페이스에 반영"]
+      }
+    },
+    {
+      "id": "S3_live_cite",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "방금 기억한 경로와 숫자만 다시 인용해. 코드 수정 금지.",
+      "expect": {
+        "minLen": 10,
+        "mustMatch": ["history-budget\\.ts", "7\\.8125"],
+        "forbid": ["apply_patch", "확인 불가"]
+      }
+    }
+  ],
+  "oracles": {
+    "requireSameSession": ["S2_live_recall", "S3_live_cite"],
+    "forbidMutate": true
+  }
+}

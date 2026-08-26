@@ -1,0 +1,21 @@
+{
+  "ollama_base_url": "http://127.0.0.1:11434/v1",
+  "ollama_default_model": "qwen2.5:latest",
+  "openrouter_base_url": "https://openrouter.ai/api/v1",
+  "openrouter_default_model": "",
+  "activation_server_url": "",
+  "activation_token": "",
+  "openclaw_adapter_base_url": "",
+  "openclaw_adapter_token": "",
+  "openclaw_gate_signing_private_key": "",
+  "openclaw_actor_id": "my-agent",
+  "openclaw_fallback_local": false,
+  "web_search_auto": false,
+  "audit_ship": {
+    "enabled": false,
+    "endpoint": "",
+    "batch_size": 50,
+    "note": "Optional audit transport. Never include file contents or credentials."
+  },
+  "note": "Neutral local defaults. Configure remote providers, activation, adapters, and organization modules outside the public core."
+}

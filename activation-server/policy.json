@@ -1,0 +1,17 @@
+{
+  "org_id": "myorg",
+  "license_days": null,
+  "require_allowlist": false,
+  "features": [
+    "chat",
+    "manager",
+    "local_models",
+    "image_generation",
+    "deep_research",
+    "local_image",
+    "web_dev",
+    "browser_automation",
+    "web_search"
+  ],
+  "allowed_users": []
+}

@@ -1,0 +1,22 @@
+{
+
+  "name": "plugin_env_probe",
+
+  "description": "Report Node runtime + CQR plugin env (read-only probe for local diagnosis).",
+
+  "parameters": {
+
+    "type": "object",
+
+    "properties": {}
+
+  },
+
+  "runner": { "kind": "node", "entry": "run.mjs", "timeout_ms": 10000 },
+
+  "risk": "read",
+
+  "enabled": true
+
+}
+

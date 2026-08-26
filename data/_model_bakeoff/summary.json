@@ -1,0 +1,71 @@
+{
+  "at": "2026-07-27T01:23:25.412Z",
+  "command": "tools.ts에서 CODE_AGENT_TOOLS 정의를 agent-tool-definitions.ts로 분리해. tools.ts는 re-export façade만 남겨. 반드시 write_file 또는 apply_patch로 디스크에 반영하고, query_repo_map으로 구조 확인 후 run_diagnostics까지 돌려. 부분만 했으면 부분 반영이라고 말하고, 없으면 완료라고 하지 마.",
+  "forceClient": true,
+  "winner": "open_webui_openrouter_integration.anthropic.claude-opus-4.8",
+  "ranking": [
+    {
+      "model": "openai.gpt-5.6-terra-pro",
+      "score": 105,
+      "hasDefs": true,
+      "isFacade": true,
+      "ms": 147967,
+      "detail": [
+        "+defs",
+        "+facade",
+        "+retrieval",
+        "+mutate",
+        "+diag",
+        "+honest"
+      ],
+      "wall_ms": 147967,
+      "protocol": "client"
+    },
+    {
+      "model": "openai.gpt-5.5-pro",
+      "score": -100,
+      "hasDefs": false,
+      "isFacade": false,
+      "ms": 181024,
+      "detail": [
+        "error:timeout 180000ms"
+      ],
+      "wall_ms": 181024,
+      "protocol": "client"
+    },
+    {
+      "model": "anthropic.claude-opus-4.8",
+      "score": 105,
+      "hasDefs": true,
+      "isFacade": true,
+      "ms": 112414,
+      "detail": [
+        "+defs",
+        "+facade",
+        "+retrieval",
+        "+mutate",
+        "+diag",
+        "+honest"
+      ],
+      "wall_ms": 112414,
+      "protocol": "client"
+    }
+  ],
+  "winner_note": "Tie score 105; chose faster model (opus 112s vs terra-pro 148s)",
+  "applied_at": "2026-07-27T01:29:45.164Z",
+  "env": {
+    "os": "win32",
+    "arch": "x64",
+    "release": "10.0.26200",
+    "cpuModel": "AMD Ryzen 7 5700X 8-Core Processor",
+    "cpuCores": 16,
+    "totalMemMb": 32691,
+    "freeMemMb": 13549,
+    "node": "v24.15.0",
+    "modelId": "open_webui_openrouter_integration.anthropic.claude-opus-4.8",
+    "protocol": "client"
+  },
+  "protocol": "client",
+  "wall_ms": 441405,
+  "perf_enriched_at": "2026-07-27T02:30:16.049Z"
+}

@@ -1,0 +1,6 @@
+# Example Product Strategy (FPV plain-text fixture)
+
+Purpose: build a reliable local AI workspace.
+Channels: desktop application and signed updates.
+Priorities: grounded research, user-provided brand context, and no code mutation on knowledge-only tasks.
+Key risks: missing fixtures, session context loss, and ambiguous product inputs.

@@ -1,0 +1,35 @@
+{
+  "id": "J_deploy",
+  "title": "배포/패리티 오프라인 + 비서면 짧은 지시 라우팅",
+  "priority": "P2",
+  "offlineGates": ["verify:parity", "verify:nas"],
+  "sessionContinuous": true,
+  "steps": [
+    {
+      "id": "S0_parity",
+      "kind": "npm",
+      "npm": "verify:parity"
+    },
+    {
+      "id": "S0_nas",
+      "kind": "npm",
+      "npm": "verify:nas"
+    },
+    {
+      "id": "S1_short",
+      "mode": "chat",
+      "plane": "secretary",
+      "text": "배포 검증 결과만 한 줄로. 코드 수정 금지.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": {
+          "notSurface": "coding",
+          "noIdeForce": true
+        }
+      }
+    }
+  ],
+  "oracles": {
+    "forbidMutate": true
+  }
+}

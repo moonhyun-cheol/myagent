@@ -1,0 +1,58 @@
+{
+  "id": "J_market_process",
+  "title": "시장조사 → 공백요약 → 표 가공 → 브리프 → no-mutate → concept",
+  "priority": "P0",
+  "seedFile": "fixtures/market/seed-queries.json",
+  "specializedRunner": "run-journey-market.mjs",
+  "sessionContinuous": true,
+  "steps": [
+    { "id": "S0_capability", "kind": "capability", "note": "brand_missing → env-red (not product-red)" },
+    {
+      "id": "S1_market",
+      "mode": "cqr_market",
+      "plane": "knowledge",
+      "seed": "s1",
+      "oracle": "sections≥2 of 경쟁|수요|가격|채널"
+    },
+    {
+      "id": "S2_gaps",
+      "mode": "cqr_market",
+      "plane": "knowledge",
+      "seed": "s2",
+      "oracle": "no lost_prior_context · gap language"
+    },
+    {
+      "id": "S3_process_table",
+      "mode": "chat",
+      "plane": "knowledge",
+      "seed": "s3",
+      "oracle": "markdown table · 채널|기회|리스크|우선"
+    },
+    {
+      "id": "S4_brief",
+      "mode": "chat",
+      "plane": "knowledge",
+      "seed": "s4",
+      "oracle": "고객|포지셔닝|다음 액션"
+    },
+    {
+      "id": "S5_no_mutate",
+      "mode": "cqr_market",
+      "plane": "knowledge",
+      "seed": "s5",
+      "oracle": "no polite-suffix product · no mutate"
+    },
+    {
+      "id": "S6_concept",
+      "mode": "cqr_concept",
+      "plane": "knowledge",
+      "seed": "s6",
+      "oracle": "concept/mood · surface≠coding · no mutate"
+    }
+  ],
+  "oracles": {
+    "requireSameSession": ["S1_market", "S2_gaps", "S3_process_table", "S4_brief", "S6_concept"],
+    "forbidMutate": true,
+    "reportSections": ["채널", "경쟁/갭", "다음액션", "컨셉"]
+  }
+}

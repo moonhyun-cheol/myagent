@@ -1,0 +1,45 @@
+{
+  "id": "J_repo_inspect",
+  "title": "공개 repo 설명 → README 요약 (mutate 금지)",
+  "priority": "P1",
+  "sessionContinuous": true,
+  "steps": [
+    {
+      "id": "S1_explain",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "https://github.com/sindresorhus/is-plain-obj 이 레포 한 줄 목적만. 수정 금지.",
+      "expect": {
+        "minLen": 20,
+        "mustMatch": ["plain|object|체크|유틸|라이브러|repo|패키지"],
+        "forbid": ["apply_patch", "edit_file을 호출", "워크스페이스에 반영"]
+      },
+      "offlineRoutingOnly": false
+    },
+    {
+      "id": "S2_readme",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "방금 기준으로 README 핵심 bullet 3개만. 코드 수정 금지.",
+      "expect": {
+        "minLen": 20,
+        "mustMatch": ["[-*]|1[.)]"],
+        "forbid": ["apply_patch", "파일을 수정"]
+      }
+    },
+    {
+      "id": "S0_route",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "https://github.com/sindresorhus/is-plain-obj 설명만. 수정 금지.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      }
+    }
+  ],
+  "oracles": {
+    "requireSameSession": ["S1_explain", "S2_readme"],
+    "forbidMutate": true
+  }
+}

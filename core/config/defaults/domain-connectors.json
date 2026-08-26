@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "connectors": [],
+  "deliveryProfiles": [
+    {
+      "id": "discord_webhook",
+      "artifactKinds": ["discord_bot", "scheduled_job"],
+      "requiredSecrets": ["DISCORD_WEBHOOK_URL"],
+      "preferUnless": ["Bot Token", "DISCORD_BOT_TOKEN", "discord.js", "게이트웨이 봇", "봇 토큰"],
+      "preferIf": ["webhook", "웹훅", "웹후크", "DISCORD_WEBHOOK_URL", "Incoming Webhook"]
+    },
+    {
+      "id": "discord_bot_token",
+      "artifactKinds": ["discord_bot"],
+      "requiredSecrets": ["DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID"],
+      "requireAny": ["Bot Token", "DISCORD_BOT_TOKEN", "discord.js", "게이트웨이 봇", "봇 토큰"],
+      "forbidIf": ["webhook", "웹훅", "웹후크", "DISCORD_WEBHOOK_URL"]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "host": "0.0.0.0",
+  "port": 10201,
+  "admin_token": "CHANGE_ME_ADMIN",
+  "activation_token": "",
+  "include_keys_bundle": true,
+  "openclaw_adapter": {
+    "base_url": "http://127.0.0.1:8790",
+    "token": "PASTE_OPENCLAW_MAIN_API_TOKEN"
+  },
+  "note": "openclaw_adapter.token = OpenClaw MAIN_API_TOKEN (Discord Gate와 동일). 직원 PC는 활성화/기동 시 자동으로 vault에 저장. 이 파일은 gitignore."
+}

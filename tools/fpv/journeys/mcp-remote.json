@@ -1,0 +1,24 @@
+{
+  "id": "J_mcp_remote",
+  "title": "MCP servers 목록; OpenClaw 시크릿 없으면 explicit_skip",
+  "priority": "P2",
+  "skipUnlessSecret": "MY_AGENT_OPENCLAW_ADAPTER_TOKEN",
+  "skipUnlessFile": "data/vault/openclaw-adapter.json",
+  "steps": [
+    {
+      "id": "S1_mcp_servers",
+      "kind": "http_get",
+      "path": "/mcp/servers"
+    },
+    {
+      "id": "S2_route",
+      "mode": "chat",
+      "plane": "knowledge",
+      "text": "연결된 MCP 서버 목록만. 수정 금지.",
+      "offlineRoutingOnly": true,
+      "expect": {
+        "routing": { "notSurface": "coding", "noIdeForce": true }
+      }
+    }
+  ]
+}

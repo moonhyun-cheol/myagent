@@ -1,0 +1,78 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --color-ink: #dde1de;
+  --color-panel: #f4f5f2;
+  --color-panel-2: #d3dad6;
+  --color-line: #adb9b4;
+  --color-muted: #4f5d57;
+  --color-text: #17211d;
+  --color-accent: #0f8f83;
+  --color-accent-dim: #0b7068;
+}
+
+/* The full product uses one matte light palette; this scope only announces
+   native light controls inside the modal. */
+.model-manager-light {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-ink);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #98a6a0;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.react-flow__background {
+  background: #dde1de !important;
+}
+
+/* Cursor-style blink when an agent run finishes (bottom terminal chrome). */
+@keyframes terminal-attention-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+    filter: brightness(1);
+  }
+  25%,
+  75% {
+    box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.55);
+    filter: brightness(1.18);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.9);
+    filter: brightness(1.35);
+  }
+}
+
+.animate-terminal-attention {
+  animation: terminal-attention-pulse 0.85s ease-in-out 3;
+}
