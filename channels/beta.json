@@ -1,0 +1,21 @@
+{
+  "algorithm": "RSA-PSS-SHA256",
+  "document": {
+    "schema": "cqr-pa-update-feed/v1",
+    "update_sequence": 1,
+    "minimum_supported_sequence": 1,
+    "version": "1.4.0-beta.1",
+    "channel": "beta",
+    "published_at": "2026-08-26T08:03:56.416Z",
+    "asset": {
+      "repository": "moonhyun-cheol/MY_CUSTOM_CODEX",
+      "release_tag": "update-1",
+      "name": "MYAgent-v1.4.0-beta.1-delta.zip",
+      "size": 193869572,
+      "sha256": "a777aebf85801632e0e344376464249aee942f40bcbe8e6637c5e8ac7b0f320d"
+    },
+    "payload_manifest_sha256": "358d72b2949cdaaefe66e3923d4323f71705e4a0b46d2cc0bdfe8f92419dcfa7",
+    "release_notes": ""
+  },
+  "signature": "Nk/bQBveqCRTXx9LmRMYb3/QIyjobkbFtITG0UTX7T9tcVKApR53pURau8xfB2xpPlQptw64f33ZOs2NxDJFtxNDaJKB2790k6x6uW8theorozD6oU08h9C/IExCot7Ow0Ff1YI8r1dFBcK8OLm6hwXogeYDABbawVfd6mUt8m1OR19aQJmgr94U4mZxlo60xSpzcUcAH9Rbk05rGj9gEZQeGE84uvLUx2c9nxHorgTlxsBPzzJ2wHBJUix0Dpfo4nSC0K95P//t6xDTCbq/YU+7bnMKKH/gUlyhoTTjhn6RTQZdVEMisYjfDPW8kqy2hhuxQmirlB+awbH0nHftdDABhJKqidYWRR1ftZ6vU3V5PhuuYM35aUmQTA4K2rzfHAihduH62lPs9J9nIQlqH/THTIKaSLEjbVncFgIYJLtaQjl54p40uANV9cIyJjSKd6pMC7Ya9Wyyrd6esef7SQtRi3KiHNCvIQ6TnM4OBQKS3Qe2/qBuq0ETMKtikquM"
+}
