@@ -31,10 +31,9 @@ tools/
 | Full verify | `npm run verify` |
 | Agent verify | `npm run verify:agent` |
 | E2E smoke | `npm run test:e2e` |
-| Publish full | `npm run publish` or `tools\commands\publish-full.bat` |
-| Publish delta | `npm run publish:delta` or `tools\commands\publish-delta.bat` |
-| Market venv | `npm run market:bootstrap` |
-| Market dry-run | `npm run market:dry-run` |
+| Publish full install zip | `npm run publish` or `tools\commands\publish-full.bat` |
+| Publish signed core update | `npm run publish:update` |
+| Publish core update to GitHub | `npm run publish:update:github -- --confirm` |
 | Lab full surface | `npm run lab:full-surface` |
 | FPV offline | `npm run fpv:full -- --offline` |
 

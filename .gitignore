@@ -1,5 +1,7 @@
 # ===== 민감한 키 / 자격증명 =====
 data/vault/
+!data/vault/.gitkeep
+!data/vault/license.ocx.example
 activation-server/keys-bundle.enc
 activation-server/activation.log
 activation-server/config.json

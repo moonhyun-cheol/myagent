@@ -130,7 +130,7 @@ $defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAUL
 
 if (Test-IsElevated) {
   Write-Host 'ERROR: Do not run install.bat as administrator.'
-  Write-Host 'Right-click install.bat and run it as the employee Windows user so data\vault stays writable.'
+  Write-Host 'Right-click install.bat and run it as the Windows user so data\vault stays writable.'
   exit 1
 }
 

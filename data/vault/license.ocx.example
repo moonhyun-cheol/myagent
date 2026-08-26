@@ -1,0 +1,22 @@
+{
+  "payload": {
+    "v": 1,
+    "org_id": "dev",
+    "features": [
+      "chat",
+      "manager",
+      "local_models",
+      "image_generation",
+      "deep_research",
+      "local_image",
+      "web_dev",
+      "browser_automation"
+    ],
+    "issued_at": "2026-08-26T06:48:30.429Z",
+    "expires_at": "2036-08-23T06:48:30.429Z",
+    "machine_hint": null,
+    "user_hint": null,
+    "nonce": "60704753-ec3e-405a-b124-b05104158d60"
+  },
+  "sig": "A/7lRpqyPE9/eg/WPzqYmhpdC5Xz8b/a0aKRxeQbVjg9DqHV2jJuK/+N64TuqDTnjQPKo6DHd1GzkmkR9BK+BA=="
+}

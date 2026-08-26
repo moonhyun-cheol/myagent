@@ -1,4 +1,4 @@
-MY Agent 설치·실행 안내 (v1.3.9)
+MY Agent 설치·실행 안내 (v1.4.0-beta.1)
 ====================
 
 1. install.bat — 관리자 권한 없이 %LOCALAPPDATA%\Programs\MY Agent 에 설치

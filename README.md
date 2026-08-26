@@ -20,6 +20,17 @@ Windows 온프렘 **코딩 에이전트 워크벤치**. Cursor 대체 IDE가 아
 
 코딩 에이전트용 메모는 [AGENTS.md](AGENTS.md)입니다. 사람 인수인계는 이 README와 STRUCTURE를 먼저 보세요.
 
+## 운영 위치
+
+이 저장소가 중립 코어의 작업·배포 기준입니다. 조직 모듈은 별도 저장소에서 독립 서명·업데이트합니다.
+
+| 역할 | 위치 |
+|------|------|
+| 코어 소스·코어 업데이트 | 이 저장소 (`MY_CUSTOM_CODEX`) |
+| 조직 모듈 계약·모듈 업데이트 | `MY_CUSTOM_CODEX-COMPANY` |
+| 사용자 설치 폴더 | `%LOCALAPPDATA%\Programs\MY Agent` |
+| 사용자 시작점 | `MYAgent.exe` |
+
 ## 로컬 실행
 
 필요: Node 22+, Windows, WebView2. 클론만으로는 라이선스·빌드 산출물이 없습니다.
@@ -40,17 +51,16 @@ node core\dist\main.js
 # http://127.0.0.1:10200
 ```
 
-설치 zip / 직원 PC는 [README-설치.txt](README-설치.txt) · [명령어-모음](rulebook/docs/ops/명령어-모음.md) · [deploy-guide](rulebook/docs/ops/deploy-guide.md).
+설치 zip은 [README-설치.txt](README-설치.txt) · [명령어-모음](rulebook/docs/ops/명령어-모음.md) · [deploy-guide](rulebook/docs/ops/deploy-guide.md).
 
 ## 자주 쓰는 명령
 
 | 목적 | 명령 |
 |------|------|
 | 검증 | `npm run verify` |
-| 시장조사 venv | `npm run market:bootstrap` |
-| 시장조사 dry-run | `npm run market:dry-run` |
-| 전체 zip | `npm run publish` |
-| 델타 zip | `npm run publish:delta` |
+| 전체 설치 zip | `npm run publish` |
+| 서명 코어 업데이트 zip | `npm run publish:update` |
+| GitHub 코어 업데이트 게시 | `npm run publish:update:github -- --confirm` |
 | 델타 적용 | `UPDATE.bat` |
 | 진단 | `tools\commands\diagnostics.bat` |
 | 유지보수 BAT | `tools\commands\` |
