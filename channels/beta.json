@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 1,
+    "update_sequence": 2,
     "minimum_supported_sequence": 1,
-    "version": "1.4.0-beta.1",
+    "version": "1.0.0-beta.1",
     "channel": "beta",
-    "published_at": "2026-08-26T08:03:56.416Z",
+    "published_at": "2026-08-27T03:03:55.974Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-1",
-      "name": "MYAgent-v1.4.0-beta.1-delta.zip",
-      "size": 193869572,
-      "sha256": "a777aebf85801632e0e344376464249aee942f40bcbe8e6637c5e8ac7b0f320d"
+      "release_tag": "update-2",
+      "name": "MYAgent-v1.0.0-beta.1-delta.zip",
+      "size": 193891421,
+      "sha256": "f89876351e549d2ba807ff1fc3d50827df13b74a39e716877fb1883ce82bdd6d"
     },
-    "payload_manifest_sha256": "358d72b2949cdaaefe66e3923d4323f71705e4a0b46d2cc0bdfe8f92419dcfa7",
-    "release_notes": ""
+    "payload_manifest_sha256": "f7734e48c9aebbf6c4471e5fc79ae3d38ba8b6313db06c3db648690855a7cf72",
+    "release_notes": "1.0.0-beta.1 seq 2: install.bat path quoting fix."
   },
-  "signature": "aYDWVGJ2dackL+3dnNWrpW1tJlzr7cKnd2tr/R5YvSdHdz3G9KO30dZngMH7SfWKDTECrUoF//SwhG+0b5F03W+3RIpuu96JYaKL5wuvCIaTUVQ7q6DtVaVPJkwDDfw/bKTGzpXPLCa26KS70+r+CqYninPXVJtgC+/TB515oDdPVZARsA71AASFM04zeCKyCtv2lfuBJf06M81QoePO2Po8BJB5vlkd84hkuyQHnus03vW2y+0k3VBprgBRAK3CriPJPfvzrbpbLnPJc7xPAY4ECBmcIvDnuy80C71PFtG/IJAqCaSEVjniLvWLsD0BtOO5/z2VfTop4Z/y4uhL22avqpbqevjBel9tzmABtjU5Lpai1PZlxp3nnVdx2TSH4Im9TcEDTawJ64Jw6Puf31USkR0+rBuX7MX4FGPEJqvhwi4Md8mYUuesEQXEkUdWrRKDIXHf5lYVi2Lp8CyPd6KVanaJoCHT1N80Thc0wxriZTW6AAdIRSaZiO6SgX5j"
+  "signature": "kU2kjviu4d5RDh+D3CkBoA5RTNs3Q4IgZXCcDEO848kt+yI9lRrV0ZJO9QeTH//a67MiAoJZLgG4b8aV3NWkkpiNwHwII73w1Mcqcod4WoZ11yB9pW13/y6laf38uj1Sl4DkRcJO8KPhADuZbEgsZwGJGkSpx1fgMZdZv3jyqFn2I5o5NuC3SkC3PWuSY+vRWbqIO18/AFvZmgF/y+khunDHByt6JgbDjYebtPMkqBq7H9Azyk36m1H5OCC1JUO120K4osM+ryaBkNdcDYWV0eeBkR7Ixs+UhFq17KqSUmHb6C2uYbD1VDfBfwZ76VYWz2z4mNWGAMyaRfYkhKEQNdJ/u+mxbaPni8jPrUiZO074VyfwfTCnBwrSccgBCEnHIdHm+oHT0MofzvlT2qLAUsgVPOph99ewsMQPwiAoaIyogaqe9R7YxNS/Qln9wqKrOyEVQxNMLR5W5jVJ1uf9vaxgAdlWsGljwUpog4SOSsfrJ8bVHSyjlHJWre0P4sS2"
 }
