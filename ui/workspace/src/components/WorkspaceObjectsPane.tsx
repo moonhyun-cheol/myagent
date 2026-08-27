@@ -17,7 +17,18 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 import { AssetExplorer } from './AssetExplorer';
 import { AssetGallery } from './AssetGallery';
 
-type ObjectView = 'recent' | 'all' | 'files';
+type ObjectView = 'recent' | 'all' | 'files' | 'todo';
+
+const PINNED_INSTRUCTIONS_KEY = 'my-agent-pinned-instructions-v1';
+
+function loadPinnedInstructions(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(PINNED_INSTRUCTIONS_KEY) ?? '[]');
+    return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 function AssetIcon({ asset }: { asset: WorkspaceAsset }) {
   if (asset.kind === 'image') return <ImageIcon size={16} weight="duotone" className="text-accent" />;
@@ -50,10 +61,11 @@ function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-text" title={asset.title}>{asset.title}</p>
-        <p className="hidden">
-          {asset.kind === 'image' ? '이미지 · 캔버스' : isCanvasAsset(asset) ? '워크플로 · 캔버스' : `${asset.language || '텍스트'} · 에디터`}
-        </p>
+          <p className="truncate text-xs font-medium text-text" title={asset.sourcePath || asset.title}>{asset.title}</p>
+          <p className="truncate text-[10px] text-muted" title={asset.sourcePath}>
+            {asset.sourcePath || (asset.kind === 'image' ? '생성 이미지' : asset.language || '결과물')}
+            {(asset.modificationCount ?? 0) > 1 ? ` · 수정 ${asset.modificationCount}회` : ''}
+          </p>
         </div>
       </div>
       <div className="flex shrink-0 gap-1">
@@ -70,7 +82,13 @@ function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent/60 hover:text-text"
-            onClick={() => void openWorkspaceFileWithConfiguredApp(asset.id, asset.title)}
+            onClick={() => {
+              if (asset.sourcePath) {
+                void openWorkspaceFileWithConfiguredApp(asset.sourcePath, asset.title);
+                return;
+              }
+              useWorkspaceStore.getState().openAssetInEditor(asset.id);
+            }}
           >
             <ArrowSquareOut size={12} />
             에디터
@@ -98,7 +116,14 @@ function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
 export function WorkspaceObjectsPane() {
   const [view, setView] = useState<ObjectView>('recent');
   const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
+  const [instructionDraft, setInstructionDraft] = useState('');
+  const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
   const assets = useWorkspaceStore((s) => s.assets);
+  const busy = useWorkspaceStore((s) => s.busy);
+  const statusText = useWorkspaceStore((s) => s.statusText);
+  const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
+  const messageQueue = useWorkspaceStore((s) => s.messageQueue);
+  const activeQueue = messageQueue.filter((item) => item.sessionId === activeSessionId);
   const browserHistory = useWorkspaceStore((s) => s.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
@@ -124,6 +149,46 @@ export function WorkspaceObjectsPane() {
 
   const recentAssets = assets.slice(0, 6);
   const references = browserHistory.slice().reverse().slice(0, 6);
+
+  const savePinnedInstructions = (next: string[]) => {
+    setPinnedInstructions(next);
+    localStorage.setItem(PINNED_INSTRUCTIONS_KEY, JSON.stringify(next));
+  };
+
+  if (view === 'todo') {
+    return (
+      <section className="flex h-full min-h-0 flex-col bg-panel" aria-label="To-do와 고정지침">
+        <div className="flex shrink-0 gap-1 border-b border-line px-2 py-2">
+          <button type="button" className="rounded-md px-2 py-1 text-[11px] text-muted hover:bg-ink" onClick={() => setView('recent')}>최근 작업물</button>
+          <button type="button" className="rounded-md px-2 py-1 text-[11px] text-muted hover:bg-ink" onClick={() => setView('files')}>파일</button>
+          <button type="button" className="rounded-md bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent">To-do</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-3">
+          <h3 className="text-xs font-semibold text-text">현재 작업</h3>
+          <div className="mt-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]">
+            <p className="font-medium text-text">{busy ? statusText || '모델 작업 진행 중' : '진행 중인 작업 없음'}</p>
+            {activeQueue.length ? <p className="mt-1 text-muted">대기 작업 {activeQueue.length}개</p> : null}
+          </div>
+          {activeQueue.map((item, index) => (
+            <div key={item.id} className="mt-1 flex gap-2 rounded-md border border-line/70 px-2 py-1.5 text-[11px] text-muted">
+              <span>{index + 1}</span><span className="truncate">{item.text || item.attachmentNames.join(', ')}</span>
+            </div>
+          ))}
+          <h3 className="mt-5 text-xs font-semibold text-text">고정지침</h3>
+          <div className="mt-2 flex gap-1">
+            <input value={instructionDraft} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="현재 작업 폴더에 기억할 지침" className="min-w-0 flex-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent" />
+            <button type="button" className="rounded-md bg-accent px-2 text-[11px] font-semibold text-ink disabled:opacity-40" disabled={!instructionDraft.trim()} onClick={() => { savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); }}>고정</button>
+          </div>
+          {pinnedInstructions.map((instruction, index) => (
+            <div key={`${instruction}-${index}`} className="mt-2 flex items-start gap-2 rounded-md border border-line px-2 py-2 text-[11px] text-text">
+              <span className="min-w-0 flex-1">{instruction}</span>
+              <button type="button" className="text-muted hover:text-red-300" onClick={() => savePinnedInstructions(pinnedInstructions.filter((_, i) => i !== index))}>해제</button>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   if (view === 'all') {
     return (
@@ -241,6 +306,7 @@ export function WorkspaceObjectsPane() {
         >
           파일
         </button>
+        <button type="button" className="rounded-md px-2.5 py-1 text-[11px] text-muted hover:bg-ink hover:text-text" onClick={() => setView('todo')}>To-do</button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">

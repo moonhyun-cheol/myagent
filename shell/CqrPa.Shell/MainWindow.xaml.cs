@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace CqrPa.Shell;
 
@@ -86,6 +87,7 @@ public partial class MainWindow : Window
         await BrowserWebView.EnsureCoreWebView2Async(env);
         _browserCore = BrowserWebView.CoreWebView2;
         _browserCore.Settings.AreDevToolsEnabled = false;
+        _browserCore.Settings.AreBrowserAcceleratorKeysEnabled = false;
         _browserCore.Settings.IsStatusBarEnabled = false;
         _browserCore.NavigationStarting += OnBrowserNavigationStarting;
         _browserCore.NavigationCompleted += (_, _) => UpdateBrowserState("탐색 완료");
@@ -202,12 +204,49 @@ public partial class MainWindow : Window
                         () => OpenWorkspaceFilePicker(pickerRequest),
                         System.Windows.Threading.DispatcherPriority.Background);
                     break;
+                case "preview.detach":
+                    var previewMode = root.TryGetProperty("mode", out var modeProperty)
+                        ? modeProperty.GetString()
+                        : "objects";
+                    _ = OpenDetachedPreviewAsync(previewMode);
+                    break;
             }
         }
         catch (JsonException)
         {
             // Ignore malformed messages from the workspace surface.
         }
+    }
+
+    private async Task OpenDetachedPreviewAsync(string? mode)
+    {
+        var allowedModes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "objects", "canvas", "media", "browser",
+        };
+        var safeMode = mode is not null && allowedModes.Contains(mode) ? mode : "objects";
+        var preview = new Window
+        {
+            Title = $"MY Agent · {safeMode} 프리뷰",
+            Width = 960,
+            Height = 720,
+            MinWidth = 480,
+            MinHeight = 320,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+        };
+        var webView = new WebView2();
+        preview.Content = webView;
+        preview.Show();
+
+        var userData = Path.Combine(_cqrRoot, "data", "webview-preview-user-data");
+        Directory.CreateDirectory(userData);
+        var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
+        await webView.EnsureCoreWebView2Async(env);
+        webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+        webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+        webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        webView.CoreWebView2.Navigate($"http://127.0.0.1:{_port}/?preview={Uri.EscapeDataString(safeMode)}");
     }
 
     private void OnBrowserNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -402,6 +441,7 @@ public partial class MainWindow : Window
                 var initializedCore = WebView.CoreWebView2
                     ?? throw new InvalidOperationException("WebView2 코어를 만들지 못했습니다.");
                 initializedCore.Settings.AreDevToolsEnabled = true;
+                initializedCore.Settings.AreBrowserAcceleratorKeysEnabled = false;
                 initializedCore.Settings.IsStatusBarEnabled = false;
                 initializedCore.WebMessageReceived += OnWorkspaceWebMessageReceived;
                 initializedCore.NavigationStarting += OnWorkspaceNavigationStarting;

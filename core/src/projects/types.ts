@@ -1,6 +1,7 @@
 import type { SessionSummary } from '../sessions/types.js';
 
 export type ProjectKind = 'workspace_root' | 'folder' | 'project';
+export type ProjectColor = 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink';
 
 export interface ProjectRecord {
   id: string;
@@ -11,6 +12,8 @@ export interface ProjectRecord {
   parent_id?: string | null;
   /** Absolute path — only for workspace_root */
   folder_path?: string | null;
+  /** Accessible palette id used by workspace/project labels. */
+  color?: ProjectColor | null;
 }
 
 export interface ProjectSummary extends ProjectRecord {
@@ -23,6 +26,7 @@ export interface WorkspaceNode {
   kind: ProjectKind;
   parent_id?: string | null;
   folder_path?: string | null;
+  color?: ProjectColor | null;
   created_at: string;
   updated_at: string;
   sessions: SessionSummary[];

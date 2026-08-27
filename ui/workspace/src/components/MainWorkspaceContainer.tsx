@@ -70,6 +70,17 @@ function PreviewBody() {
   const pipResizeRef = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const mode = useWorkspaceStore((s) => s.mode);
 
+  const detachPreview = () => {
+    const bridge = (window as typeof window & {
+      chrome?: { webview?: { postMessage: (message: unknown) => void } };
+    }).chrome?.webview;
+    if (bridge) {
+      bridge.postMessage({ type: 'preview.detach', mode });
+      return;
+    }
+    window.open(`${window.location.origin}/?preview=${encodeURIComponent(mode)}`, '_blank', 'popup,width=960,height=720');
+  };
+
   const pipPositionRef = useRef(pipPosition);
   const pipSizeRef = useRef(pipSize);
   pipPositionRef.current = pipPosition;
@@ -161,6 +172,15 @@ function PreviewBody() {
           고정
         </button>
       )}
+      <button
+        type="button"
+        className="rounded px-2 py-1 text-[11px] text-muted transition hover:bg-hover hover:text-primary"
+        onClick={detachPreview}
+        aria-label="현재 프리뷰를 새 창으로 열기"
+        title="다른 디스플레이로 옮길 수 있는 별도 창"
+      >
+        새 창
+      </button>
       <button
         type="button"
         className="rounded px-2 py-1 text-[11px] text-muted transition hover:bg-hover hover:text-primary"
@@ -274,6 +294,15 @@ function PreviewBody() {
   );
 }
 
+const EDITING_ONLY_CTRL_KEYS = new Set(['a', 'v', 'x', 'y', 'z']);
+const BLOCKED_BROWSER_CTRL_KEYS = new Set(['d', 'h', 'j', 'l', 'n', 'o', 'r', 't', 'u', 'w', '+', '-', '0']);
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]') !== null;
+}
+
 function PreviewPane() {
   const mode = useWorkspaceStore((s) => s.mode);
   const setMode = useWorkspaceStore((s) => s.setMode);
@@ -292,13 +321,30 @@ function PreviewPane() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      const editing = isTextEditingTarget(e.target);
+
+      if ((e.ctrlKey || e.metaKey) && EDITING_ONLY_CTRL_KEYS.has(key) && !editing) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      if (
+        ((e.ctrlKey || e.metaKey) && BLOCKED_BROWSER_CTRL_KEYS.has(key))
+        || (!editing && (e.key === 'BrowserBack' || e.key === 'BrowserForward' || e.key === 'Backspace'))
+        || (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))
+        || e.key === 'F5'
+        || e.key === 'F12'
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
-      // VS Code / Cursor: Ctrl+` (and Ctrl+J) toggles bottom terminal
-      if (e.key === '`' || e.key === 'j' || e.key === 'J') {
-        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-        if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement | null)?.isContentEditable) {
-          if (e.key !== '`') return;
-        }
+      // 터미널 토글은 Edge 다운로드와 충돌하는 Ctrl+J 없이 Ctrl+`만 사용한다.
+      if (e.key === '`') {
         e.preventDefault();
         setTerminalOpen(!useWorkspaceStore.getState().terminalOpen);
         return;
@@ -377,6 +423,22 @@ function PreviewPane() {
 
 export function MainWorkspaceContainer() {
   const previewPaneOpen = useWorkspaceStore((s) => s.previewPaneOpen);
+  const setMode = useWorkspaceStore((s) => s.setMode);
+  const detachedMode = new URLSearchParams(window.location.search).get('preview') as WorkspaceMode | null;
+
+  useEffect(() => {
+    if (detachedMode && PREVIEW_MODES.some((item) => item.id === detachedMode)) setMode(detachedMode);
+  }, [detachedMode, setMode]);
+
+  if (detachedMode && PREVIEW_MODES.some((item) => item.id === detachedMode)) {
+    return (
+      <div className="h-full min-h-0 bg-ink text-text">
+        <PreviewPane />
+        <ImagePreviewModal />
+        <ConfirmModal />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink text-text">

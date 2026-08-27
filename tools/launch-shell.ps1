@@ -10,6 +10,8 @@ Set-Location -LiteralPath $Root
 
 function Resolve-ShellExe {
   $candidates = @(
+    (Join-Path $Root 'MYAgent.exe'),
+    (Join-Path $Root 'bin\my-agent\MYAgent.exe'),
     (Join-Path $Root 'bin\cqr-pa\cqr-pa.exe'),
     (Join-Path $Root 'shell\CqrPa.Shell\bin\Release\net8.0-windows\cqr-pa.exe')
   )

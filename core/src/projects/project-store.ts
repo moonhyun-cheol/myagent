@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
-import type { ProjectKind, ProjectRecord, ProjectSummary, WorkspaceNode, MoveTarget } from './types.js';
+import type { ProjectColor, ProjectKind, ProjectRecord, ProjectSummary, WorkspaceNode, MoveTarget } from './types.js';
 import type { SessionSummary } from '../sessions/types.js';
 
 interface ProjectIndex {
@@ -147,6 +147,22 @@ export class ProjectStore {
     return rec;
   }
 
+  setColor(id: string, color: ProjectColor | null): ProjectRecord | null {
+    const safe = sanitizeId(id);
+    if (!safe) return null;
+    const allowed: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
+    if (color !== null && !allowed.includes(color)) {
+      throw new ProjectStoreError('INVALID_COLOR', 'Unsupported project color');
+    }
+    const index = this.loadIndex();
+    const rec = index.projects.find((project) => project.id === safe);
+    if (!rec) return null;
+    rec.color = color;
+    rec.updated_at = new Date().toISOString();
+    this.saveIndex(index);
+    return rec;
+  }
+
   touch(id: string): void {
     const safe = sanitizeId(id);
     if (!safe) return;
@@ -256,6 +272,7 @@ export class ProjectStore {
       kind: this.resolveKind(rec),
       parent_id: rec.parent_id ?? null,
       folder_path: rec.folder_path ?? null,
+      color: rec.color ?? null,
       created_at: rec.created_at,
       updated_at: rec.updated_at,
       sessions: nodeSessions,

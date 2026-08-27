@@ -2,7 +2,7 @@ import type { ChatMode } from '../router/types.js';
 import { SKILL_CHAT_MODES } from '../router/types.js';
 import { getSkillSystemPromptByMode } from './skill-registry.js';
 import { isUserSkillMode } from './user-skill-store.js';
-import { isOrgSkillMode } from './organization-skill-store.js';
+import { getOrganizationSkillDef, isOrgSkillMode } from './organization-skill-store.js';
 import { augmentPromptMasterSystemPrompt } from './prompt-master-target.js';
 import { augmentWebLandingSystemPrompt, shouldIncludeDesignFirst } from './web-landing-bundle.js';
 import { augmentSkillSystemPrompt } from './skill-routing-augment.js';
@@ -22,6 +22,23 @@ export function resolveLlmSkillMode(mode: ChatMode): ChatMode | null {
   if (isSkillChatMode(mode)) return mode;
   if (isUserSkillMode(mode) || isOrgSkillMode(mode)) return mode;
   return null;
+}
+
+/** Installed organization module: 컨셉 RA is the default chat skill unless another mode is selected. */
+export function resolveDefaultOrganizationSkillMode(cqrRoot: string): ChatMode | null {
+  const def = getOrganizationSkillDef('brand_concept', cqrRoot);
+  return def?.mode ? (def.mode as ChatMode) : null;
+}
+
+export function resolveTurnSkillMode(
+  routingMode: ChatMode,
+  cqrRoot: string,
+  opts?: { workspaceAgent?: boolean },
+): ChatMode | null {
+  const selected = resolveLlmSkillMode(routingMode);
+  if (selected) return selected;
+  if (opts?.workspaceAgent) return null;
+  return resolveDefaultOrganizationSkillMode(cqrRoot);
 }
 
 export function isStreamableLlmSkillMode(mode: string): boolean {

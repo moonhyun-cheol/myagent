@@ -15,6 +15,8 @@ import {
   fetchWorkspaceTree,
   getStoredSessionId,
   setDevWorkspace,
+  updateProjectColor,
+  type ProjectColor,
   type SessionSummary,
   type WorkspaceNode,
   type WorkspaceTreePayload,
@@ -25,6 +27,11 @@ import { FolderBrowserModal } from './FolderBrowserModal';
 
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
+const PROJECT_COLORS: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
+const PROJECT_COLOR_CLASS: Record<ProjectColor, string> = {
+  gray: 'bg-slate-400', red: 'bg-red-400', orange: 'bg-orange-400', yellow: 'bg-yellow-400',
+  green: 'bg-green-400', teal: 'bg-teal-400', blue: 'bg-blue-400', pink: 'bg-pink-400',
+};
 
 function loadCollapsed(): Set<string> {
   try {
@@ -422,7 +429,12 @@ function TreeNode({
   const isOpen = !collapsed.has(node.id);
   const isContainer = node.kind === 'workspace_root' || node.kind === 'folder';
   const isActiveRoot = node.kind === 'workspace_root' && node.id === activeWorkspaceId;
+  const [labelColor, setLabelColor] = useState<ProjectColor>(node.color ?? 'gray');
   const pad = 8 + depth * 10;
+
+  useEffect(() => {
+    setLabelColor(node.color ?? 'gray');
+  }, [node.color]);
 
   return (
     <div className="mb-0.5">
@@ -440,6 +452,17 @@ function TreeNode({
         >
           {isOpen ? <CaretDown size={12} /> : <CaretRight size={12} />}
         </button>
+        <button
+          type="button"
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${PROJECT_COLOR_CLASS[labelColor]}`}
+          title="컬러 라벨 변경"
+          aria-label={`${node.title} 컬러 라벨 변경`}
+          onClick={() => {
+            const next = PROJECT_COLORS[(PROJECT_COLORS.indexOf(labelColor) + 1) % PROJECT_COLORS.length];
+            setLabelColor(next);
+            void updateProjectColor(node.id, next);
+          }}
+        />
         <FolderSimple size={14} className="shrink-0" weight={isActiveRoot ? 'fill' : 'regular'} />
         <button
           type="button"

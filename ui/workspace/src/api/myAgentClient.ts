@@ -348,6 +348,7 @@ export async function createSession(projectId: string | null = null): Promise<st
 }
 
 export type ProjectKind = 'workspace_root' | 'folder' | 'project';
+export type ProjectColor = 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink';
 
 export interface WorkspaceNode {
   id: string;
@@ -355,6 +356,7 @@ export interface WorkspaceNode {
   kind: ProjectKind;
   parent_id?: string | null;
   folder_path?: string | null;
+  color?: ProjectColor | null;
   sessions: SessionSummary[];
   children: WorkspaceNode[];
   session_count: number;
@@ -368,6 +370,7 @@ export interface WorkspaceTreePayload {
     id: string;
     title: string;
     kind?: ProjectKind;
+    color?: ProjectColor | null;
     sessions: SessionSummary[];
     session_count: number;
   }>;
@@ -399,6 +402,16 @@ export async function createProject(body: {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로젝트 생성 실패 (${res.status})`);
   return data;
+}
+
+export async function updateProjectColor(id: string, color: ProjectColor | null): Promise<void> {
+  const res = await fetch(`/projects/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ color }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `색상 저장 실패 (${res.status})`);
 }
 
 export async function deleteProject(id: string, unlink = false): Promise<void> {

@@ -32,7 +32,7 @@ function getShellWebView(): ShellWebViewHost | null {
 
 function reasonLabel(reason?: string): string | null {
   if (!reason) return null;
-  if (reason === 'LICENSE_MISSING') return '사내 서버에서 라이선스를 받지 못했습니다. 다시 시도하거나 네트워크를 확인하세요.';
+  if (reason === 'LICENSE_MISSING') return '받은 라이선스 파일을 선택하세요.';
   if (reason === 'LICENSE_EXPIRED') return '라이선스가 만료되었습니다. 새 파일을 선택하세요.';
   if (reason === 'LICENSE_USER_MISMATCH') return '이 라이선스는 다른 Windows 계정용입니다.';
   if (reason === 'LICENSE_MACHINE_MISMATCH') return '이 라이선스는 다른 PC용입니다.';

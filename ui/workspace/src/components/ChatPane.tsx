@@ -171,11 +171,14 @@ export function ChatPane() {
   const contextBudget = useWorkspaceStore((s) => s.contextBudget);
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
+  const messageQueue = useWorkspaceStore((s) => s.messageQueue);
+  const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
   const undoLastTurn = useWorkspaceStore((s) => s.undoLastTurn);
   const canUndo = useWorkspaceStore((s) => s.canUndo);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
+  const activeQueue = messageQueue.filter((item) => item.sessionId === activeSessionId);
   const activeProjectId = useWorkspaceStore((s) => s.activeProjectId);
   const activeWorkspaceProjectId = useWorkspaceStore((s) => s.activeWorkspaceProjectId);
   const setSessionWorkspaceProject = useWorkspaceStore((s) => s.setSessionWorkspaceProject);
@@ -189,6 +192,7 @@ export function ChatPane() {
   const setExecutionPolicy = useWorkspaceStore((s) => s.setExecutionPolicy);
   const apiError = useWorkspaceStore((s) => s.apiError);
   const setApiStatus = useWorkspaceStore((s) => s.setApiStatus);
+  const hydrateOrganizationSkillDefault = useWorkspaceStore((s) => s.hydrateOrganizationSkillDefault);
   const setLicenseMode = useWorkspaceStore((s) => s.setLicenseMode);
   const licenseMode = useWorkspaceStore((s) => s.licenseMode);
   const pendingAttachments = useWorkspaceStore((s) => s.pendingAttachments);
@@ -546,6 +550,7 @@ export function ChatPane() {
         if (cancelled) return;
         setLicenseMode(lic.mode ?? null);
         setApiStatus(true, lic.mode === 'read_only' ? '읽기 전용 라이선스 — 채팅이 제한될 수 있습니다' : null);
+        void hydrateOrganizationSkillDefault();
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -577,7 +582,7 @@ export function ChatPane() {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
     };
-  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
+  }, [clearActiveChat, hydrateOrganizationSkillDefault, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
 
   const ingestFiles = useCallback(
     async (files: File[]) => {
@@ -705,9 +710,9 @@ export function ChatPane() {
   );
 
   const attachDisabled =
-    pasting || busy || Boolean(licenseMode && licenseMode !== 'full');
+    pasting || Boolean(licenseMode && licenseMode !== 'full');
 
-  const canSend = (!!draft.trim() || pendingAttachments.length > 0) && !busy && !pasting;
+  const canSend = (!!draft.trim() || pendingAttachments.length > 0) && !pasting;
 
   const showUndo = canUndo && !busy && licenseMode === 'full';
 
@@ -732,23 +737,6 @@ export function ChatPane() {
     setDraft('');
     void sendAiMessage(t);
   };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
-        if (draft) return;
-      }
-      if (!showUndo) return;
-      e.preventDefault();
-      void undoLastTurn().then((text) => {
-        if (text) setDraft(text);
-      });
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showUndo, undoLastTurn, draft]);
 
   return (
     <section
@@ -1298,12 +1286,31 @@ export function ChatPane() {
               placeholder="할 일 입력… (@ 또는 피커로 파일 컨텍스트)"
               className="w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-muted/50"
               onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   submit();
                 }
               }}
             />
+            {activeQueue.length > 0 ? (
+              <div className="mx-3 mb-2 rounded-lg border border-line bg-panel-2/60 px-3 py-2" data-testid="message-queue">
+                <div className="mb-1 text-[10px] font-semibold text-muted">대기 중 {activeQueue.length}</div>
+                {activeQueue.map((item, index) => (
+                  <div key={item.id} className="flex items-center gap-2 py-1 text-[11px] text-text">
+                    <span className="text-muted">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate">{item.text || item.attachmentNames.join(', ')}</span>
+                    <button
+                      type="button"
+                      className="text-muted hover:text-red-300"
+                      onClick={() => removeQueuedMessage(item.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-3 px-3 pb-3">
               <div className="flex items-center gap-2">
                 <button
@@ -1350,7 +1357,7 @@ export function ChatPane() {
                 {showUndo ? (
                   <button
                     type="button"
-                    title="마지막 턴 되돌리기 (Ctrl+Z)"
+                    title="마지막 턴 되돌리기"
                     onClick={() =>
                       void undoLastTurn().then((text) => {
                         if (text) setDraft(text);
@@ -1363,7 +1370,18 @@ export function ChatPane() {
                   </button>
                 ) : null}
                 {busy ? (
-                  <button
+                  <>
+                    <button
+                      type="button"
+                      disabled={!canSend || licenseMode === 'read_only'}
+                      onClick={submit}
+                      title="현재 응답 다음에 실행"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
+                    >
+                      <PaperPlaneTilt size={14} weight="fill" />
+                      대기열 추가
+                    </button>
+                    <button
                     type="button"
                     onClick={() => stopAiMessage()}
                     title="생성 중지"
@@ -1371,7 +1389,8 @@ export function ChatPane() {
                   >
                     <Stop size={14} weight="fill" />
                     중지
-                  </button>
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"

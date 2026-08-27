@@ -18,6 +18,7 @@ import {
   fetchModelPicker,
   fetchSession,
   fetchWorkspaceFsTree,
+  listSkills,
   readWorkspaceFsFile,
   renameWorkspaceFsFile,
   runWorkspaceTerminal,
@@ -230,20 +231,6 @@ function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
         imageUrl: url,
       });
     }
-    const fences = String(m.content ?? '').matchAll(/```(?:\w+)?\n([\s\S]*?)```/g);
-    for (const fence of fences) {
-      const code = fence[1]?.trim();
-      if (!code || code.length < 40) continue;
-      out.push({
-        id: uid('code'),
-        kind: 'code',
-        title: '세션 코드',
-        prompt: m.content?.slice(0, 80),
-        createdAt: m.at || new Date().toISOString(),
-        content: code,
-        language: 'typescript',
-      });
-    }
   }
   return out;
 }
@@ -307,6 +294,16 @@ export type PendingMutateReview = {
   paths: string[];
   sessionId: string;
 };
+
+export interface QueuedMessage {
+  id: string;
+  sessionId: string;
+  text: string;
+  attachmentIds: string[];
+  attachmentNames: string[];
+  contextPaths: string[];
+  createdAt: string;
+}
 
 interface WorkspaceState {
   mode: WorkspaceMode;
@@ -376,6 +373,9 @@ interface WorkspaceState {
   canUndo: boolean;
   /** Per-session run phase for sidebar badges (FIFO global queue). */
   sessionPhases: Record<string, SessionRunPhase>;
+  /** User messages waiting for the current turn to finish, in session FIFO order. */
+  messageQueue: QueuedMessage[];
+  removeQueuedMessage: (id: string) => void;
   setMode: (mode: WorkspaceMode) => void;
   setBrowserInputUrl: (url: string) => void;
   navigateBrowser: (url: string) => void;
@@ -423,6 +423,7 @@ interface WorkspaceState {
   placeAssetOnCanvas: (assetId: string, position?: { x: number; y: number }) => void;
   openAssetInEditor: (assetId: string) => void;
   setSkillMode: (mode: string | null, label?: string | null) => void;
+  hydrateOrganizationSkillDefault: () => Promise<void>;
   addPendingAttachments: (items: PendingAttachment[]) => void;
   removePendingAttachment: (id: string) => Promise<void>;
   clearPendingAttachments: () => void;
@@ -447,6 +448,41 @@ interface WorkspaceState {
 
 /** In-flight jobs keyed by session. Different sessions may run concurrently. */
 const liveJobs = new Map<string, LiveJob>();
+const MESSAGE_QUEUE_KEY = 'my-agent-message-queue-v1';
+const WORK_OBJECTS_KEY = 'my-agent-work-objects-v1';
+
+function loadSessionAssets(sessionId: string): WorkspaceAsset[] {
+  try {
+    const all = JSON.parse(localStorage.getItem(WORK_OBJECTS_KEY) ?? '{}') as Record<string, WorkspaceAsset[]>;
+    return Array.isArray(all[sessionId]) ? all[sessionId] : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSessionAssets(sessionId: string, assets: WorkspaceAsset[]): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(WORK_OBJECTS_KEY) ?? '{}') as Record<string, WorkspaceAsset[]>;
+    all[sessionId] = assets.filter((asset) => Boolean(asset.sourcePath));
+    localStorage.setItem(WORK_OBJECTS_KEY, JSON.stringify(all));
+  } catch {
+    // Storage failure must not interrupt an active model run.
+  }
+}
+
+function loadMessageQueue(): QueuedMessage[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(MESSAGE_QUEUE_KEY) ?? '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMessageQueue(queue: QueuedMessage[]): void {
+  localStorage.setItem(MESSAGE_QUEUE_KEY, JSON.stringify(queue));
+}
+
 /** In-memory view snapshots make revisiting a loaded conversation synchronous. */
 const sessionViewCache = new Map<string, SessionViewSnapshot>();
 
@@ -569,6 +605,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         canUndo: true,
         ...(finishedJob?.terminalUsed ? { terminalAttention: true } : {}),
       });
+      const next = get().messageQueue.find((item) => item.sessionId === sid);
+      if (next) {
+        const remaining = get().messageQueue.filter((item) => item.id !== next.id);
+        saveMessageQueue(remaining);
+        set({ messageQueue: remaining });
+        queueMicrotask(() => {
+          if (get().activeSessionId !== sid || liveJobs.has(sid)) return;
+          set({
+            pendingAttachments: next.attachmentIds.map((id, index) => ({
+              id,
+              name: next.attachmentNames[index] ?? '첨부 파일',
+            })),
+            pendingContextPaths: next.contextPaths,
+          });
+          void get().sendAiMessage(next.text);
+        });
+      }
     } else if (finishedJob?.terminalUsed) {
       set({ terminalAttention: true });
     }
@@ -831,6 +884,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
       if (get().activeSessionId === sid && mutatedWorkspacePaths.size) {
         await get().refreshExplorer();
+        const now = new Date().toISOString();
+        let nextAssets = [...get().assets];
+        for (const sourcePath of mutatedWorkspacePaths) {
+          const canonicalPath = sourcePath.replace(/\\/g, '/').replace(/^\.\//, '');
+          const existingIndex = nextAssets.findIndex(
+            (asset) => asset.sourcePath?.toLocaleLowerCase() === canonicalPath.toLocaleLowerCase(),
+          );
+          if (existingIndex >= 0) {
+            const existing = nextAssets[existingIndex];
+            nextAssets.splice(existingIndex, 1);
+            nextAssets.unshift({
+              ...existing,
+              title: canonicalPath.split('/').pop() || canonicalPath,
+              sourcePath: canonicalPath,
+              updatedAt: now,
+              modificationCount: (existing.modificationCount ?? 1) + 1,
+            });
+          } else {
+            nextAssets.unshift({
+              id: `file:${canonicalPath}`,
+              kind: /\.(png|jpe?g|gif|webp|svg)$/i.test(canonicalPath) ? 'image' : 'document',
+              title: canonicalPath.split('/').pop() || canonicalPath,
+              prompt: job.displayText,
+              createdAt: now,
+              updatedAt: now,
+              modificationCount: 1,
+              sourcePath: canonicalPath,
+            });
+          }
+        }
+        saveSessionAssets(sid, nextAssets);
+        set({ assets: nextAssets });
       }
 
       if (!content.trim() || content === '작업 중…') {
@@ -912,6 +997,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     streamAbort: null,
     canUndo: false,
     sessionPhases: {},
+    messageQueue: loadMessageQueue(),
+    removeQueuedMessage: (id) => {
+      const queue = get().messageQueue.filter((item) => item.id !== id);
+      saveMessageQueue(queue);
+      set({ messageQueue: queue });
+    },
 
     setMode: (mode) => set({ mode }),
     setBrowserInputUrl: (browserInputUrl) => set({ browserInputUrl }),
@@ -1099,6 +1190,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     closeImagePreview: () => set({ imagePreview: null }),
     setSkillMode: (skillMode, skillLabel = null) =>
       set({ skillMode, skillLabel: skillMode ? skillLabel : null }),
+    hydrateOrganizationSkillDefault: async () => {
+      if (get().skillMode) return;
+      try {
+        const skills = await listSkills();
+        if (get().skillMode) return;
+        const concept =
+          skills.find((s) => s.source === 'organization' && s.id === 'brand_concept') ??
+          skills.find((s) => s.source === 'organization');
+        if (concept) set({ skillMode: concept.mode, skillLabel: concept.label });
+      } catch {
+        /* org module optional */
+      }
+    },
 
     addPendingAttachments: (items) => {
       if (!items.length) return;
@@ -1320,7 +1424,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,
           canUndo: currentLive ? false : messages.some((m) => m.role === 'user'),
-          assets: currentLive && previous ? previous.assets : assetsFromMessages(messages),
+          assets: currentLive && previous
+            ? previous.assets
+            : [...loadSessionAssets(sessionId), ...assetsFromMessages(messages)],
           canvasNodes: previous?.canvasNodes ?? [],
           canvasEdges: previous?.canvasEdges ?? [],
         };
@@ -1729,6 +1835,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         get().placeAssetOnCanvas(assetId);
         return;
       }
+      if (asset.sourcePath) {
+        void get().openFile(asset.sourcePath);
+        return;
+      }
       get().openEditorTab({
         id: `asset:${asset.id}`,
         title: asset.title || '코드 자산',
@@ -1749,7 +1859,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         sid = await createSession(get().activeProjectId);
         set({ activeSessionId: sid });
       }
-      if (liveJobs.has(sid) || get().sessionPhases[sid]) return;
+      if (liveJobs.has(sid) || get().sessionPhases[sid]) {
+        const queued: QueuedMessage = {
+          id: uid('queue'),
+          sessionId: sid,
+          text: trimmed,
+          attachmentIds,
+          attachmentNames,
+          contextPaths: [...get().pendingContextPaths],
+          createdAt: new Date().toISOString(),
+        };
+        const queue = [...get().messageQueue, queued];
+        saveMessageQueue(queue);
+        for (const attachment of pending) {
+          if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+        }
+        set({ messageQueue: queue, pendingAttachments: [], pendingContextPaths: [] });
+        return;
+      }
 
       const skillMode = get().skillMode;
       const model = get().selectedModel || 'auto';

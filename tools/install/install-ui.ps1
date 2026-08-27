@@ -120,6 +120,14 @@ if ($sourceFull -and $defaultPath) {
     $defaultPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MYAgent'
   }
 }
+function Remove-EmptyDirIfExists([string]$folder) {
+  if (-not $folder -or -not (Test-Path -LiteralPath $folder)) { return }
+  $leftover = Get-ChildItem -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+  if (-not $leftover) {
+    Remove-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
+  }
+}
+
 try {
   New-Item -ItemType Directory -Force -Path $defaultPath | Out-Null
 } catch {
@@ -156,6 +164,7 @@ if (-not $TargetDir) {
     [System.Windows.Forms.MessageBoxIcon]::Information
   )
   if ($choice -eq [System.Windows.Forms.DialogResult]::Cancel) {
+    Remove-EmptyDirIfExists $defaultPath
     exit 1
   }
   if ($choice -eq [System.Windows.Forms.DialogResult]::Yes) {
@@ -170,6 +179,7 @@ if (-not $TargetDir) {
   $dialog.ShowNewFolderButton = $true
   while ($true) {
     if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+      Remove-EmptyDirIfExists $defaultPath
       exit 1
     }
     $picked = Get-FullPathSafe $dialog.SelectedPath

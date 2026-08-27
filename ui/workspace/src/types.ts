@@ -18,6 +18,10 @@ export interface WorkspaceAsset {
   title: string;
   prompt?: string;
   createdAt: string;
+  /** Final workspace-relative path for a file result. Never use the display id as a path. */
+  sourcePath?: string;
+  updatedAt?: string;
+  modificationCount?: number;
   imageUrl?: string;
   content?: string;
   language?: string;

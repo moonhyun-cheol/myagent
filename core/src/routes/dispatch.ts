@@ -1636,10 +1636,21 @@ export async function dispatchApiRequest(
         if (method === 'PUT') {
           license.assertWritable();
           license.assertFeature('chat');
-          const body = JSON.parse(await readBody(req)) as { title?: string };
-          const rec = projectStore.rename(pid, body.title ?? '');
-          if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
-          return sendJson(res, 200, rec);
+          try {
+            const body = JSON.parse(await readBody(req)) as {
+              title?: string;
+              color?: 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink' | null;
+            };
+            let rec = body.title !== undefined ? projectStore.rename(pid, body.title) : projectStore.get(pid);
+            if (rec && body.color !== undefined) rec = projectStore.setColor(pid, body.color);
+            if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+            return sendJson(res, 200, rec);
+          } catch (e: unknown) {
+            if (e instanceof ProjectStoreError) {
+              return sendJson(res, 400, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
         }
         if (method === 'DELETE') {
           license.assertWritable();

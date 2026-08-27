@@ -13,6 +13,7 @@ import {
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 interface SettingsSkillsPageProps {
   readOnly: boolean;
@@ -38,6 +39,9 @@ function getShellWebView(): ShellWebViewHost | null {
 }
 
 export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
+  const skillMode = useWorkspaceStore((s) => s.skillMode);
+  const setSkillMode = useWorkspaceStore((s) => s.setSkillMode);
+  const hydrateOrganizationSkillDefault = useWorkspaceStore((s) => s.hydrateOrganizationSkillDefault);
   const [skills, setSkills] = useState<SkillListItem[]>([]);
   const [moduleStatus, setModuleStatus] = useState<OrganizationModuleStatus | null>(null);
   const [moduleUpdate, setModuleUpdate] = useState<OrganizationModuleUpdate | null>(null);
@@ -52,12 +56,13 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     try {
       setSkills(await listSkills());
       setModuleStatus(await fetchOrganizationModule());
+      await hydrateOrganizationSkillDefault();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 목록을 불러오지 못했습니다.');
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [hydrateOrganizationSkillDefault]);
 
   useEffect(() => {
     void refresh();
@@ -220,7 +225,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     <div className="min-h-0 flex-1 overflow-y-auto bg-ink px-8 py-7">
       <header className="mb-6 pr-12">
         <h2 className="text-xl font-semibold">스킬</h2>
-        <p className="mt-1 text-sm text-muted">ZIP으로 전달받은 스킬을 풀어서 이 PC에 설치하고 관리합니다.</p>
+        <p className="mt-1 text-sm text-muted">회사 팩과 ZIP으로 받은 스킬을 이 PC에 설치하고 채팅에 붙입니다.</p>
       </header>
 
       {message ? (
@@ -298,15 +303,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
         ) : (
           <p className="text-sm text-muted">아직 회사 팩이 없습니다. 위에서 ZIP을 고른 뒤 추가하세요.</p>
         )}
-        {organization.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {organization.map((skill) => (
-              <span key={skill.id} className="rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted">
-                {skill.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </section>
 
       <section className="max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
@@ -355,14 +351,52 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       <section className="mt-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <Package size={21} className="text-accent" />
-          <h3 className="font-semibold">사용자가 설치한 스킬</h3>
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">{installed.length}</span>
+          <h3 className="font-semibold">설치된 스킬</h3>
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">
+            {organization.length + installed.length}
+          </span>
         </div>
-        {busy && installed.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
-        {!busy && installed.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">설치된 사용자 스킬이 없습니다.</p>
+        {busy && organization.length === 0 && installed.length === 0 ? (
+          <p className="py-4 text-sm text-muted">불러오는 중...</p>
+        ) : null}
+        {!busy && organization.length === 0 && installed.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
+            설치된 스킬이 없습니다. 회사 팩 ZIP을 추가하거나 아래에서 스킬 ZIP을 설치하세요.
+          </p>
         ) : (
           <div className="space-y-3">
+            {organization.map((skill) => {
+              const active = skillMode === skill.mode;
+              return (
+                <div
+                  key={`org:${skill.id}`}
+                  data-testid={`organization-skill-${skill.id}`}
+                  className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">조직 모듈</span>
+                    </div>
+                    <p className="mt-1 font-mono text-[11px] text-muted">{skill.id} · {skill.mode}</p>
+                    <p className="mt-2 text-xs leading-5 text-muted">회사 팩에서 들어온 스킬입니다. 채팅에 사용하면 이 턴부터 붙습니다.</p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`organization-skill-use-${skill.id}`}
+                    disabled={busy}
+                    onClick={() => setSkillMode(skill.mode, skill.label)}
+                    className={`inline-flex shrink-0 items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                      active
+                        ? 'bg-accent text-white'
+                        : 'border border-line text-muted hover:border-accent hover:text-text'
+                    }`}
+                  >
+                    {active ? '사용 중' : '채팅에 사용'}
+                  </button>
+                </div>
+              );
+            })}
             {installed.map((skill) => (
               <div key={skill.id} data-testid={`installed-skill-${skill.id}`} className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4">
                 <div className="min-w-0">
@@ -376,14 +410,28 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
                   {skill.description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{skill.description}</p> : null}
                   {typeof skill.file_count === 'number' ? <p className="mt-1 text-[11px] text-muted">패키지 파일 {skill.file_count}개</p> : null}
                 </div>
-                <button
-                  type="button"
-                  disabled={readOnly || busy || skill.removable === false}
-                  onClick={() => void remove(skill)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <Trash size={13} /> 제거
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setSkillMode(skill.mode, skill.label)}
+                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                      skillMode === skill.mode
+                        ? 'bg-accent text-white'
+                        : 'border border-line text-muted hover:border-accent hover:text-text'
+                    }`}
+                  >
+                    {skillMode === skill.mode ? '사용 중' : '채팅에 사용'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={readOnly || busy || skill.removable === false}
+                    onClick={() => void remove(skill)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <Trash size={13} /> 제거
+                  </button>
+                </div>
               </div>
             ))}
           </div>

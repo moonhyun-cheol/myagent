@@ -179,6 +179,9 @@ try {
   if (gateUi.includes('data\\vault') || gateUi.includes('data/vault')) {
     throw new Error('LicenseGate must not mention vault paths');
   }
+  if (gateUi.includes('사내 서버에서 라이선스와 키를 받는 중입니다.')) {
+    throw new Error('LicenseGate must not wait on a LAN activation server');
+  }
   if (!panelUi.includes("purpose: 'licenseFile'")) throw new Error('license file picker purpose missing');
   if (!panelUi.includes('importLicensePath')) throw new Error('license path import missing');
   if (!settingsUi.includes('settings-nav-license')) throw new Error('settings license page missing');
