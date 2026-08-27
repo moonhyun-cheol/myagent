@@ -30,7 +30,6 @@ import {
   undoSessionTurn,
   uploadAttachments,
   writeWorkspaceFsFile,
-  rollbackWorkspaceCheckpoint,
   cancelRunTerminalJob,
   type PickerModel,
   type SessionMessage,
@@ -289,12 +288,6 @@ interface LiveJob {
   terminalUsed: boolean;
 }
 
-export type PendingMutateReview = {
-  checkpointId: string;
-  paths: string[];
-  sessionId: string;
-};
-
 export interface QueuedMessage {
   id: string;
   sessionId: string;
@@ -365,10 +358,6 @@ interface WorkspaceState {
   pendingAttachments: PendingAttachment[];
   /** Composer @ chips — workspace relative paths. */
   pendingContextPaths: string[];
-  /**
-   * After code agent mutates: Accept keeps disk, Reject restores auto-checkpoint.
-   */
-  pendingMutateReview: PendingMutateReview | null;
   streamAbort: AbortController | null;
   canUndo: boolean;
   /** Per-session run phase for sidebar badges (FIFO global queue). */
@@ -430,9 +419,6 @@ interface WorkspaceState {
   addContextPath: (path: string) => void;
   removeContextPath: (path: string) => void;
   clearContextPaths: () => void;
-  acceptMutateReview: () => void;
-  /** Reject all or only listed paths (partial rollback). */
-  rejectMutateReview: (paths?: string[]) => Promise<void>;
   /** Upload any file type into pending attachments (images get preview chips). */
   uploadFiles: (files: File[]) => Promise<void>;
   /** @deprecated Prefer uploadFiles — kept for clipboard paste call sites. */
@@ -993,7 +979,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     licenseMode: null,
     pendingAttachments: [],
     pendingContextPaths: [],
-    pendingMutateReview: null,
     streamAbort: null,
     canUndo: false,
     sessionPhases: {},
@@ -1237,76 +1222,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     clearContextPaths: () => set({ pendingContextPaths: [] }),
-
-    acceptMutateReview: () => {
-      set({ pendingMutateReview: null, statusText: '변경 수락됨' });
-      window.setTimeout(() => {
-        if (get().statusText === '변경 수락됨') set({ statusText: '' });
-      }, 2000);
-    },
-
-    rejectMutateReview: async (onlyPaths) => {
-      const review = get().pendingMutateReview;
-      if (!review) return;
-      const partial =
-        Array.isArray(onlyPaths) && onlyPaths.length > 0
-          ? onlyPaths
-              .map((p) => String(p || '').replace(/\\/g, '/').trim())
-              .filter((p) => review.paths.includes(p))
-          : null;
-      // Always pass the mutate path list so new files (not in snapshot) can be deleted.
-      const targets = partial ?? review.paths;
-      if (targets.length === 0) {
-        set({ statusText: '선택된 경로 없음' });
-        return;
-      }
-      set({
-        statusText: partial
-          ? `선택 ${targets.length}개 되돌리는 중…`
-          : '변경 되돌리는 중…',
-      });
-      try {
-        const result = await rollbackWorkspaceCheckpoint({
-          checkpointId: review.checkpointId,
-          sessionId: review.sessionId,
-          confirm: true,
-          paths: targets,
-        });
-        if (!result.ok) {
-          set({
-            statusText: result.message || result.error || '롤백 실패',
-          });
-          return;
-        }
-        const remaining = review.paths.filter((p) => !targets.includes(p));
-        set({
-          pendingMutateReview: remaining.length
-            ? { ...review, paths: remaining }
-            : null,
-        });
-        await get().openMutatedWorkspaceFiles(
-          targets.filter((p) => !(result.deleted_paths || []).includes(p)),
-        );
-        await get().refreshExplorer();
-        const delN = result.deleted ?? 0;
-        set({
-          statusText: [
-            partial ? '부분 거부' : '변경 거부',
-            `복원 ${result.restored ?? 0}`,
-            delN ? `삭제 ${delN}` : null,
-            remaining.length ? `남은 ${remaining.length}` : null,
-          ]
-            .filter(Boolean)
-            .join(' · '),
-        });
-        window.setTimeout(() => {
-          if (/거부|롤백|복원|삭제/.test(get().statusText)) set({ statusText: '' });
-        }, 3500);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        set({ statusText: `롤백 오류: ${msg}` });
-      }
-    },
 
     uploadFiles: async (files) => {
       if (!files.length) return;

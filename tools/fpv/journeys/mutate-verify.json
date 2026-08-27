@@ -39,6 +39,6 @@
   "oracles": {
     "requireSameSession": ["S1_note", "S2_confirm"],
     "requireDiskProbe": true,
-    "uiNote": "IMP-GIT-01: Accept/Reject (pendingMutateReview) is ChatPane UI after mutate — manual click once per release; diskProbe is automated evidence."
+    "uiNote": "Mutations apply to disk immediately. No Accept/Reject pane. Rollback is POST /workspace/checkpoint/rollback. diskProbe is automated evidence."
   }
 }

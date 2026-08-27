@@ -38,11 +38,9 @@ import {
 } from '../../agent/agent-workspace-lock.js';
 
 /**
- * Run Code Agent when the session is bound to a work folder, or the user
- * Workspace association is the only local condition for entering the agent plane.
- *
- * Top-level「새 채팅」(standalone, no project_id) must NOT inherit the connected
- * notebook folder — only chats under that folder/project do (or explicit 코드 chip).
+ * Enter the code-agent plane when this session has a bound work folder, or when
+ * the session is standalone and a PC-wide `dev_workspace_root` is set.
+ * `mode` / `message` / `explicitMode` are ignored — no keyword routing.
  */
 export function shouldRunWorkspaceAgent(
   configPath: string,

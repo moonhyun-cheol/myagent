@@ -22,9 +22,8 @@ export function newAgentIds(parentRunId?: string): { parentRunId: string; nextId
 }
 
 /**
- * Decide serial specialist chain for one user turn.
- * Always starts with planner when dual-role mutate; browser/researcher append when intent matches.
- * After any mutate-capable coder chain, append read-only reviewer (mandatory Critic).
+ * Role plan for one user turn. Live runtime is model-directed: always a single
+ * `coder`. Planner/reviewer note helpers below are unused by this planner.
  */
 export function planMarRoles(
   _message: string,
