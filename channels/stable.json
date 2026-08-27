@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 4,
+    "update_sequence": 5,
     "minimum_supported_sequence": 1,
     "version": "1.0.1",
     "channel": "stable",
-    "published_at": "2026-08-27T06:54:17.156Z",
+    "published_at": "2026-08-27T07:47:31.023Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-4",
+      "release_tag": "update-5",
       "name": "MYAgent-v1.0.1-delta.zip",
-      "size": 193898766,
-      "sha256": "8d22f943adb8e7555f49c4c450a95a0527f0558068572da68a0600b637ab5e4a"
+      "size": 193898423,
+      "sha256": "c2e4e1a97e9b97d8896ccbb8f5b0c38b023a1d258db280821dd9846eba4492fc"
     },
-    "payload_manifest_sha256": "edeee2e2ad29e7984892a900784e0fd1032cee6039444ccd73ed69a6a39be3e9",
-    "release_notes": "1.0.1 seq 4: Optional install checklist. Repo pack and structural search are selected by default."
+    "payload_manifest_sha256": "62c32bc20315c9ec9c0bd543cabf97a85eb5d75cf3c3c7521a5de178119f21ed",
+    "release_notes": "1.0.1 seq 5: Remove unused mutate-review pane; align AGENTS.md with model-directed runtime."
   },
-  "signature": "Mbr7BeWYzmoylEzH1Djsw1O3r3/hT3LFmY35TmwntHoeSMW3EFSbmQheRnq1ffpfjIT2Zq2xhHbtSgEsNegfdxe7lQ3AjgRY4gGJh7g1xVNQ2c3LhOiovRUoTd/cu/6nvlLcg6s7Yu/rOFPb/OKgYZNw6lOxnKDZ829Gh9q8/RgUUwKTxMB5yH7S/m0bsoh375jD9lSlcmIw8huVb/sWbOYOxEAGmygZYmTn2UJnwkfWw1Xb4tBYrYc/AqlSKVA4PCqtaC4NbML8HIgE0X7U1PdpeIidXX6KSei0NuzEY3VA65zyO52AuFX2tA4Tx78pUAsNi6recD+qh8PF2pbZwwexbxPjQdBqMPucT2SCfKCbou986LIp7zmoR7WM8l1ZWxAa4Qz0chTAnCGky7CxCwtgSTwhixMaIEaEwHKiEXzLXnbjbypOGKTN0nIPUK9h5msWIbRbuRZ3SMfuxG32dL5gJZPNyji3WFwN5LcxG7S7P3GXf+15ICKNIk8gqxtn"
+  "signature": "K+BTXQ2gnZRf7/lfm1ZIjk9Pax4XKaa5GATrJmS7DeeHuKqsVBQKKDeyWKA39J6GYVBSSSDzGITyGMCv2pdi1+qEvtcSyXdDOtOOOIcfhFKyhcJYOp2act7Yrwk1Tk9VcOjshCT9EUhfS7xXo9/7LTUULe5oFuKojMJfkWD/w7suA+yn7jXt0eBHXfhVH+h/5yYjBjda8hbQZooLyOa+55+ifeUxKSaYd+GCSczmfrxcTzeQq32uoGSa4RXVDSttsR2INnGK8ddB28Zcn6xuVCptUnitKx2MniBOJlJ3sPmvwky+xJQFk1zt3KK4crXUggjoq5mkaSVP0DqVLFLS24198tjdWz/2PfPWO6V8h1/S68B5RWB42TUAqdlAOVWVYPxkKVQDu+wltXUn9ZUf4rryV75ycV8EFnO7nuTUN7qs+8Krrkur7RthwwU/waerZHGQmOGZla0N/3vMd3oNP1qzVHc7SMHNlIOIcuwq5iIWZkxSG6ZVS0mJ06kzj92a"
 }
