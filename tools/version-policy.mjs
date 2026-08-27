@@ -85,6 +85,12 @@ function inspect() {
       mismatches.push(`repo-target.json github=${target.github}`);
     }
   }
+  const expectedFeed =
+    `https://raw.githubusercontent.com/${manifest.update_repository ?? 'moonhyun-cheol/myagent'}`
+    + `/main/channels/${channel}.json`;
+  if (String(manifest.update_feed_url ?? '') !== expectedFeed) {
+    mismatches.push(`update_feed_url=${manifest.update_feed_url}`);
+  }
   return { version, channel, update_sequence: sequence, consistent: mismatches.length === 0, mismatches };
 }
 
@@ -110,6 +116,9 @@ function prepare() {
   manifest.update_channel = channel;
   manifest.build = channel;
   manifest.update_sequence = sequence;
+  const repository = String(manifest.update_repository ?? 'moonhyun-cheol/myagent').trim();
+  manifest.update_feed_url =
+    `https://raw.githubusercontent.com/${repository}/main/channels/${channel}.json`;
 
   const pkg = readJson(packagePath);
   pkg.version = version;

@@ -3,8 +3,11 @@
 param(
   [string]$SourceDir = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
   [string]$TargetDir = $env:MY_AGENT_INSTALL_TARGET,
-  [switch]$Interactive
+  [switch]$Interactive,
+  [string]$OptionalRuntimes = '',
+  [switch]$AllOptional
 )
+. (Join-Path $PSScriptRoot 'optional-runtimes.ps1')
 
 $ErrorActionPreference = 'Stop'
 
@@ -291,38 +294,9 @@ if (Test-Path -LiteralPath $bootstrapNode) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$bootstrapPlaywright = Join-Path $targetFull 'tools\bootstrap-playwright-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapPlaywright) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing Playwright (web_dev browser tools, ~300MB)...'
-  & $bootstrapPlaywright -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] Playwright (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
-
-$bootstrapFfmpeg = Join-Path $targetFull 'tools\bootstrap-ffmpeg-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapFfmpeg) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing ffmpeg (video attachment keyframes)...'
-  & $bootstrapFfmpeg -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] ffmpeg (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
-
-$bootstrapOss = Join-Path $targetFull 'tools\bootstrap-oss-sidecars-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapOss) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing OSS sidecars (markitdown, repomix, ast-grep)...'
-  & $bootstrapOss -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] OSS sidecars (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
+$selectedOptionals = Resolve-OptionalRuntimeSelection -Root $targetFull -OptionalRuntimes $OptionalRuntimes -AllOptional:$AllOptional -ApplyCatalogDefaults:(-not $PSBoundParameters.ContainsKey('OptionalRuntimes'))
+Save-OptionalRuntimeSelection -Root $targetFull -Selected $selectedOptionals
+Install-SelectedOptionalRuntimes -Root $targetFull -Selected $selectedOptionals
 
 $bootstrapNpmDeps = Join-Path $targetFull 'tools\bootstrap-npm-deps-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNpmDeps) {
@@ -350,7 +324,7 @@ Desktop shortcut: MY Agent.lnk
 
 First run: the app contacts the activation server and stores the issued license plus key bundle.
 Organization skills are installed separately through their signed module stream.
-Slim zip: first install may need internet for Node, ffmpeg, Playwright Chromium, and OSS sidecars (markitdown/repomix/ast-grep). Token-gated MCP is not auto-installed.
+Slim zip: first install needs internet for portable Node. Optional extras (Playwright, ffmpeg, MarkItDown, Repomix, ast-grep) download only when selected in the installer checklist. Add more later from Settings > Features. Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
 

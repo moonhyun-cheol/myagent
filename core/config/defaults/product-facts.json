@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-27T00:53:08.719Z",
+  "generated_at": "2026-08-27T06:21:22.486Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -41,7 +41,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 78,
+    "route_count": 80,
     "routes": [
       {
         "method": "GET",
@@ -391,6 +391,16 @@
       {
         "method": "GET",
         "path": "/setup/machine-id",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/setup/optional-runtimes",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/setup/optional-runtimes/install",
         "match": "exact"
       },
       {

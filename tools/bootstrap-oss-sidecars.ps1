@@ -7,6 +7,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Root,
   [switch]$SkipIfExists,
   [switch]$SkipAstGrep,
+  [switch]$OnlyMarkitdown,
+  [switch]$OnlyRepomix,
+  [switch]$OnlyAstGrep,
   [string]$AstGrepVersion = '0.45.0'
 )
 
@@ -46,8 +49,20 @@ if ($installedBundleVersion -lt 3) {
   }
 }
 
+$onlyAny = $OnlyMarkitdown -or $OnlyRepomix -or $OnlyAstGrep
+$wantMarkitdown = if ($onlyAny) { [bool]$OnlyMarkitdown } else { $true }
+$wantRepomix = if ($onlyAny) { [bool]$OnlyRepomix } else { $true }
+$wantAstGrep = if ($onlyAny) { [bool]$OnlyAstGrep -and -not $SkipAstGrep } else { -not $SkipAstGrep }
+
 $complete = (Test-Path -LiteralPath $markitdownExe) -and (Test-Path -LiteralPath $repomixPkg) -and (Test-Path -LiteralPath $sgExe)
-if ($SkipIfExists -and $installedBundleVersion -ge $bundleVersion -and (Test-Path -LiteralPath $marker) -and $complete) {
+$needMarkitdown = $wantMarkitdown -and -not (Test-Path -LiteralPath $markitdownExe)
+$needRepomix = $wantRepomix -and -not (Test-Path -LiteralPath $repomixPkg)
+$needAstGrep = $wantAstGrep -and -not (Test-Path -LiteralPath $sgExe)
+if ($SkipIfExists -and -not $needMarkitdown -and -not $needRepomix -and -not $needAstGrep) {
+  Write-Host 'bootstrap-oss-sidecars: skipped (selected components exist)'
+  exit 0
+}
+if ($SkipIfExists -and -not $onlyAny -and $installedBundleVersion -ge $bundleVersion -and (Test-Path -LiteralPath $marker) -and $complete) {
   Write-Host 'bootstrap-oss-sidecars: skipped (exists)'
   exit 0
 }
@@ -77,6 +92,7 @@ function Resolve-BootstrapNpm([string]$AppRoot) {
 }
 
 # --- Python venv: markitdown ---
+if ($wantMarkitdown) {
 $py = Resolve-BootstrapPython $Root
 if (-not $py) {
   $warnings.Add('No Python for oss-sidecars venv (python-embed / pipeline-venv / PATH)')
@@ -99,8 +115,10 @@ if (-not $py) {
     $warnings.Add("Python sidecars: $($_.Exception.Message)")
   }
 }
+}
 
 # --- Node: repomix under runtime/oss-sidecars ---
+if ($wantRepomix) {
 $npm = Resolve-BootstrapNpm $Root
 if (-not $npm) {
   $warnings.Add('npm missing — skip repomix')
@@ -121,9 +139,10 @@ if (-not $npm) {
     $warnings.Add("repomix: $($_.Exception.Message)")
   }
 }
+}
 
 # --- ast-grep portable binary ---
-if (-not $SkipAstGrep) {
+if ($wantAstGrep) {
   $sgExe = Join-Path $binDir 'ast-grep.exe'
   if (-not (Test-Path -LiteralPath $sgExe)) {
     try {
@@ -159,7 +178,8 @@ foreach ($w in $warnings) {
   Write-Warning "bootstrap-oss-sidecars: $w"
 }
 
-if (-not $stamp.markitdown -and -not $stamp.repomix -and -not $stamp.astGrep) {
+$wantedMissing = ($wantMarkitdown -and -not $stamp.markitdown) -or ($wantRepomix -and -not $stamp.repomix) -or ($wantAstGrep -and -not $stamp.astGrep)
+if ($wantedMissing -and -not $stamp.markitdown -and -not $stamp.repomix -and -not $stamp.astGrep) {
   Write-Warning 'bootstrap-oss-sidecars: nothing installed (offline or missing runtimes)'
   exit 0
 }

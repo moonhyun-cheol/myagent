@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -111,12 +112,54 @@ assert.doesNotMatch(
   'must allow install to a parent of the unzipped zip (e.g. C:\\app while zip lives in C:\\app\\MY Agent-*-install-slim\\app)',
 );
 assert.match(installer, /Programs\\MYAgent/);
+assert.match(installer, /OptionalRuntimes/);
+assert.match(installer, /Save-OptionalRuntimeSelection/);
+assert.match(installer, /Install-SelectedOptionalRuntimes/);
+
+const optionalCatalog = JSON.parse(read('core/config/defaults/optional-runtimes.json'));
+assert.ok(Array.isArray(optionalCatalog.core_features) && optionalCatalog.core_features.length >= 5);
+assert.deepEqual(
+  optionalCatalog.optional_runtimes.map((item) => item.id).sort(),
+  ['ast_grep', 'ffmpeg', 'markitdown', 'playwright', 'repomix'],
+);
+for (const item of optionalCatalog.optional_runtimes) {
+  assert.equal(existsSync(path.join(root, item.bootstrap)), true, `missing bootstrap ${item.bootstrap}`);
+  assert.ok(typeof item.detail === 'string' && item.detail.length > 20, `missing detail for ${item.id}`);
+}
+assert.equal(optionalCatalog.optional_runtimes.find((item) => item.id === 'repomix')?.default_selected, true);
+assert.equal(optionalCatalog.optional_runtimes.find((item) => item.id === 'ast_grep')?.default_selected, true);
+assert.equal(optionalCatalog.optional_runtimes.find((item) => item.id === 'playwright')?.default_selected, false);
+assert.equal(optionalCatalog.optional_runtimes.find((item) => item.id === 'ffmpeg')?.default_selected, false);
+assert.equal(optionalCatalog.optional_runtimes.find((item) => item.id === 'markitdown')?.default_selected, false);
+for (const item of optionalCatalog.core_features) {
+  assert.ok(typeof item.detail === 'string' && item.detail.length > 20, `missing core detail for ${item.id}`);
+}
+const optionalHelper = read('tools/install/optional-runtimes.ps1');
+assert.match(optionalHelper, /function Get-OptionalRuntimeCatalog/);
+assert.match(optionalHelper, /function Get-DefaultOptionalRuntimeIds/);
+assert.match(optionalHelper, /ApplyCatalogDefaults/);
+assert.match(optionalHelper, /function Save-OptionalRuntimeSelection/);
+assert.match(read('tools/install/install-optional.ps1'), /Install-SelectedOptionalRuntimes/);
+
+const launchCqr = read('tools/launch-cqr.ps1');
+assert.match(launchCqr, /Read-OptionalRuntimeSelection/);
+assert.doesNotMatch(launchCqr, /bootstrap-pipeline-if-needed/);
+assert.doesNotMatch(launchCqr, /runtime\\ffmpeg\\ffmpeg\.exe/);
 
 const installUi = read('tools/install/install-ui.ps1');
 assert.match(installUi, /function Get-ProductInstallDir/);
 assert.match(installUi, /function Remove-EmptyDirIfExists/);
 assert.match(installUi, /\[IO\.Path\]::Combine\(\$t, 'MYAgent'\)/);
 assert.match(installUi, /Programs\\MYAgent/);
+assert.match(installUi, /function Show-FeatureChecklist/);
+assert.match(installUi, /\$script:featureHelpMap/);
+assert.match(installUi, /DefaultSelected/);
+assert.match(installUi, /passOptionalRuntimesArg/);
+assert.match(installUi, /What this is/);
+assert.match(installUi, /function Show-InstallCompleteWindow/);
+assert.match(installUi, /Launch now/);
+assert.match(installUi, /Show-InstallCompleteWindow -targetDir/);
+assert.match(installUi, /if \(\$script:st\.ExitCode -eq 0 -and -not \$SmokeTest\)/);
 for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
   assert.ok(
     !/[^\x00-\x7F]/.test(m[1]),
@@ -139,5 +182,26 @@ assert.match(bundleVerify, /path: '\.github'/);
 const updater = read('tools/update/apply-delta.ps1');
 assert.match(updater, /'MYAgent\.exe'/);
 assert.match(updater, /'MYAgent\.Updater\.exe'/);
+assert.match(updater, /Test-OptionalRuntimeSelected/);
+
+const parseCmd = [
+  '$files = @(',
+  "  'tools/install/optional-runtimes.ps1',",
+  "  'tools/install/install.ps1',",
+  "  'tools/install/install-ui.ps1',",
+  "  'tools/install/install-optional.ps1'",
+  ');',
+  'foreach ($rel in $files) {',
+  '  $errs = $null;',
+  '  [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $rel), [ref]$null, [ref]$errs);',
+  '  if ($errs -and $errs.Count -gt 0) { throw ($rel + ": " + $errs[0].ToString()) }',
+  '}',
+].join(' ');
+const parsed = spawnSync(
+  'powershell',
+  ['-NoProfile', '-Command', parseCmd],
+  { cwd: root, encoding: 'utf8' },
+);
+assert.equal(parsed.status, 0, `installer ps1 parse failed: ${parsed.stderr || parsed.stdout}`);
 
 console.log('verify-windows-entrypoint: ok');

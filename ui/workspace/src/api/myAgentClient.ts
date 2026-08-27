@@ -323,6 +323,56 @@ export async function importLicenseFile(file: File): Promise<{ ok: true; org_id:
   return data as { ok: true; org_id: string };
 }
 
+export interface OptionalRuntimeCatalogFeature {
+  id: string;
+  label: string;
+  summary: string;
+  detail?: string;
+}
+
+export interface OptionalRuntimeStatusItem {
+  id: string;
+  label: string;
+  summary: string;
+  detail?: string;
+  size_hint?: string;
+  selected: boolean;
+  installed: boolean;
+  missing_markers: string[];
+}
+
+export interface OptionalRuntimesPayload {
+  catalog: {
+    core_features: OptionalRuntimeCatalogFeature[];
+    license_features: OptionalRuntimeCatalogFeature[];
+    later_streams: OptionalRuntimeCatalogFeature[];
+    optional_runtimes: OptionalRuntimeCatalogFeature[];
+  };
+  selection: { selected: string[]; skipped: string[] };
+  optionals: OptionalRuntimeStatusItem[];
+}
+
+export async function fetchOptionalRuntimes(): Promise<OptionalRuntimesPayload> {
+  const res = await fetch('/setup/optional-runtimes');
+  if (!res.ok) throw new Error(`기능 목록 실패 (${res.status})`);
+  return (await res.json()) as OptionalRuntimesPayload;
+}
+
+export async function installOptionalRuntimes(ids: string[]): Promise<{
+  ok: boolean;
+  installed: string[];
+  log: string;
+}> {
+  const res = await fetch('/setup/optional-runtimes/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `기능 설치 실패 (${res.status})`);
+  return data as { ok: boolean; installed: string[]; log: string };
+}
+
 export async function ensureSession(): Promise<string> {
   const existing = localStorage.getItem(SESSION_KEY);
   if (existing) {

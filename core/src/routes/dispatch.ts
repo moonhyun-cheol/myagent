@@ -50,6 +50,10 @@ import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
+  describeOptionalRuntimes,
+  installOptionalRuntimes,
+} from '../setup/optional-runtimes.js';
+import {
   listAllSkills,
   isBundledSkillId,
   getSkillSystemPromptByMode,
@@ -1037,6 +1041,34 @@ export async function dispatchApiRequest(
         if (!raw.trim()) return sendJson(res, 400, { error: 'BUNDLE_EMPTY' });
         const result = setup.importBundle(raw, { overwrite });
         return sendJson(res, 200, result);
+      }
+
+      if (method === 'GET' && url.pathname === '/setup/optional-runtimes') {
+        return sendJson(res, 200, describeOptionalRuntimes(cqrRoot));
+      }
+
+      if (method === 'POST' && url.pathname === '/setup/optional-runtimes/install') {
+        license.assertWritable();
+        let body: { ids?: unknown };
+        try {
+          body = JSON.parse(await readBody(req)) as { ids?: unknown };
+        } catch {
+          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
+        }
+        const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
+        try {
+          const result = await installOptionalRuntimes(cqrRoot, ids);
+          return sendJson(res, result.ok ? 200 : 500, result);
+        } catch (err) {
+          const code = (err as { code?: string }).code;
+          if (code === 'OPTIONAL_RUNTIME_BUSY') {
+            return sendJson(res, 409, {
+              error: 'OPTIONAL_RUNTIME_BUSY',
+              message: '다른 기능 설치가 진행 중입니다.',
+            });
+          }
+          throw err;
+        }
       }
 
       const workspaceReady =

@@ -1,6 +1,6 @@
 {
   "name": "myagent",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.1",
   "private": true,
   "description": "MY Agent — portable isolated AI toolkit",
   "type": "module",

@@ -118,23 +118,24 @@ if (!withOptional) {
   delete installEnv.MY_AGENT_INSTALL_SKIP_OPTIONAL;
 }
 
-run(
-  'powershell',
-  [
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    installPs1,
-    '-SourceDir',
-    appSrc,
-    '-TargetDir',
-    installDir,
-  ],
-  {
-    env: installEnv,
-  },
-);
+const installArgs = [
+  '-NoProfile',
+  '-ExecutionPolicy',
+  'Bypass',
+  '-File',
+  installPs1,
+  '-SourceDir',
+  appSrc,
+  '-TargetDir',
+  installDir,
+];
+if (withOptional) {
+  installArgs.push('-AllOptional');
+}
+
+run('powershell', installArgs, {
+  env: installEnv,
+});
 
 const checks = [
   ['core/dist/main.js', true],
@@ -142,6 +143,7 @@ const checks = [
   ['MYAgent.exe', true],
   ['INSTALL-DONE.txt', true],
   ['runtime/node/node.exe', true],
+  ['data/config/optional-runtimes.json', true],
   ['modules/organization', false],
   ['bin/cqr-pa/cqr-pa.exe', false],
   ['runtime/pipeline-venv/Scripts/python.exe', false],
