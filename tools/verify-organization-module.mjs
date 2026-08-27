@@ -110,7 +110,7 @@ function buildPack({ sequence, version, skillBody, overlayBody }) {
       update_sequence: sequence,
       install_root: 'modules/organization',
       required_core_api: '1.0.0-beta.1',
-      update_feed_url: 'https://raw.githubusercontent.com/moonhyun-cheol/MY_CUSTOM_CODEX-COMPANY/main/channels/beta.json',
+      update_feed_url: 'https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/channels/beta.json',
       update_channel: 'beta',
       capabilities: ['skills', 'brand-context'],
     }, null, 2)}\n`,
@@ -140,7 +140,7 @@ function buildPack({ sequence, version, skillBody, overlayBody }) {
     channel: 'beta',
     published_at: '2026-08-27T00:00:00.000Z',
     asset: {
-      repository: 'moonhyun-cheol/MY_CUSTOM_CODEX-COMPANY',
+      repository: 'moonhyun-cheol/myagent-org',
       release_tag: `update-${sequence}`,
       name: path.basename(zipPath),
       size: statSync(zipPath).size,
@@ -262,6 +262,8 @@ try {
   const skillsUi = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'SettingsSkillsPage.tsx'), 'utf8');
   assert.match(skillsUi, /purpose: 'organizationModuleZip'/);
   assert.match(skillsUi, /data-testid="organization-module-install"/);
+  assert.match(skillsUi, /organization-skill-\$\{skill\.id\}/);
+  assert.match(skillsUi, /채팅에 사용/);
   const shell = readFileSync(path.join(root, 'shell', 'CqrPa.Shell', 'MainWindow.xaml.cs'), 'utf8');
   assert.match(shell, /organizationModuleZip/);
   const apiServer = readFileSync(path.join(root, 'core', 'src', 'api-server.ts'), 'utf8');

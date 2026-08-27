@@ -26,9 +26,9 @@ Windows 온프렘 **코딩 에이전트 워크벤치**. Cursor 대체 IDE가 아
 
 | 역할 | 위치 |
 |------|------|
-| 코어 소스·코어 업데이트 | 이 저장소 (`MY_CUSTOM_CODEX`) |
-| 조직 모듈 계약·모듈 업데이트 | `MY_CUSTOM_CODEX-COMPANY` |
-| 사용자 설치 폴더 | `%LOCALAPPDATA%\Programs\MY Agent` |
+| 코어 소스·코어 업데이트 | 이 저장소 (`myagent`) |
+| 조직 모듈 계약·모듈 업데이트 | `myagent-org` |
+| 사용자 설치 폴더 | `%LOCALAPPDATA%\Programs\MYAgent` |
 | 사용자 시작점 | `MYAgent.exe` |
 
 ## 로컬 실행

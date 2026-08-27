@@ -58,7 +58,7 @@ try {
     version: '0.9.1-beta',
     channel: 'beta',
     publishedAt: '2026-08-26T00:00:00.000Z',
-    repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+    repository: 'moonhyun-cheol/myagent',
     releaseTag: 'update-2',
     assetName: 'MYAgent-v0.9.1-beta-delta.zip',
     assetSize: 123,
@@ -77,7 +77,7 @@ try {
     '--verify-update-feed',
     '--feed', feedPath,
     '--public-key', publicKeyPath,
-    '--repository', 'moonhyun-cheol/MY_CUSTOM_CODEX',
+    '--repository', 'moonhyun-cheol/myagent',
     '--channel', 'beta',
   ];
   const verified = spawnSync(executable, commandArgs, {

@@ -64,7 +64,7 @@ try {
     version: '0.9.1-beta',
     channel: 'beta',
     publishedAt: payload.created_at,
-    repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+    repository: 'moonhyun-cheol/myagent',
     releaseTag: 'update-7',
     assetName: 'MYAgent-v0.9.1-beta-delta.zip',
     assetSize: 11,
@@ -92,7 +92,7 @@ try {
       version: '0.9.1-beta',
       channel: 'beta',
       publishedAt: payload.created_at,
-      repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+      repository: 'moonhyun-cheol/myagent',
       releaseTag: 'update-8',
       assetName: 'bad.zip',
       assetSize: 1,
@@ -115,12 +115,12 @@ try {
   assert.equal(releasePlan.tag, 'update-7');
   assert.equal(
     releasePlan.raw_feed_url,
-    'https://raw.githubusercontent.com/moonhyun-cheol/MY_CUSTOM_CODEX/main/channels/beta.json',
+    'https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/beta.json',
   );
   assert.equal(releasePlan.release_args.includes('--prerelease'), true);
   assert.throws(
     () => buildGitHubReleasePlan({
-      repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+      repository: 'moonhyun-cheol/myagent',
       defaultBranch: '../main',
       channel: 'beta',
       updateSequence: 7,

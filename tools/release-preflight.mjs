@@ -77,7 +77,7 @@ try {
   }
   assertFresh(status);
 
-  if (String(readJson('package.json').name ?? '') === 'my-custom-codex') {
+  if (String(readJson('package.json').name ?? '') === 'myagent') {
     runNode('tools/verify-public-boundary.mjs', ['--strict']);
   } else {
     console.warn('release-preflight: public-boundary strict gate skipped for non-core package');
