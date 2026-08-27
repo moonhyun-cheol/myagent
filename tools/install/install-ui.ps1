@@ -23,12 +23,23 @@ Add-Type -AssemblyName System.Drawing
 $defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) {
   $env:MY_AGENT_INSTALL_DEFAULT
 } else {
-  Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MY Agent'
+  Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MYAgent'
 }
 
 function Get-FullPathSafe([string]$p) {
   if (-not $p) { return $null }
-  return [IO.Path]::GetFullPath($p).TrimEnd('\')
+  $clean = $p.Trim().Trim('"').TrimEnd('\')
+  if (-not $clean) { return $null }
+  return [IO.Path]::GetFullPath($clean).TrimEnd('\')
+}
+
+function Get-ProductInstallDir([string]$picked) {
+  $t = Get-FullPathSafe $picked
+  if (-not $t) { return $t }
+  $leaf = [IO.Path]::GetFileName($t)
+  if ([string]::Equals($leaf, 'MYAgent', [StringComparison]::OrdinalIgnoreCase)) { return $t }
+  if ([string]::Equals($leaf, 'MY Agent', [StringComparison]::OrdinalIgnoreCase)) { return $t }
+  return [IO.Path]::Combine($t, 'MYAgent')
 }
 
 function Test-IsDriveRoot([string]$target) {
@@ -106,13 +117,13 @@ $sourceFull = Get-FullPathSafe $SourceDir
 if ($sourceFull -and $defaultPath) {
   $defFull = Get-FullPathSafe $defaultPath
   if ($defFull -eq $sourceFull -or ($defFull.Length -gt $sourceFull.Length -and $defFull.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase))) {
-    $defaultPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MY Agent'
+    $defaultPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MYAgent'
   }
 }
 try {
   New-Item -ItemType Directory -Force -Path $defaultPath | Out-Null
 } catch {
-  $defaultPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'MY Agent'
+  $defaultPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'MYAgent'
   try { New-Item -ItemType Directory -Force -Path $defaultPath | Out-Null } catch { }
 }
 
@@ -154,7 +165,7 @@ if (-not $TargetDir) {
 
 if (-not $TargetDir) {
   $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-  $dialog.Description = 'Select a user folder. Do not pick C:\, Desktop, or the unzipped app folder.'
+  $dialog.Description = 'Pick a parent folder. A MYAgent folder is created inside it. Do not pick C:\ or the unzipped app folder.'
   $dialog.SelectedPath = $defaultPath
   $dialog.ShowNewFolderButton = $true
   while ($true) {
@@ -162,29 +173,30 @@ if (-not $TargetDir) {
       exit 1
     }
     $picked = Get-FullPathSafe $dialog.SelectedPath
-    $badSame = $sourceFull -and ($picked -eq $sourceFull)
-    $badInside = $sourceFull -and $picked.Length -gt $sourceFull.Length -and $picked.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase)
-    $badDump = Test-IsShellDumpFolder $picked
-    $badRoot = Test-IsDriveRoot $picked
-    $badSystem = Test-IsProtectedSystemFolder $picked
-    $badNewRoot = Test-IsNewFolderOnDriveRoot $picked
+    $resolved = Get-ProductInstallDir $picked
+    $badSame = $sourceFull -and ($resolved -eq $sourceFull)
+    $badInside = $sourceFull -and $resolved.Length -gt $sourceFull.Length -and $resolved.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase)
+    $badDump = Test-IsShellDumpFolder $resolved
+    $badRoot = Test-IsDriveRoot $resolved
+    $badSystem = Test-IsProtectedSystemFolder $resolved
+    $badNewRoot = Test-IsNewFolderOnDriveRoot $resolved
     if (-not $badSame -and -not $badInside -and -not $badDump -and -not $badRoot -and -not $badSystem -and -not $badNewRoot) {
-      if (-not (Test-InstallFolderWritable $picked)) {
+      if (-not (Test-InstallFolderWritable $resolved)) {
         [void][System.Windows.Forms.MessageBox]::Show(
-          "That folder is not writable:`r`n$picked`r`nUse $defaultPath",
+          "That folder is not writable:`r`n$resolved`r`nUse $defaultPath",
           'MY Agent Installer',
           [System.Windows.Forms.MessageBoxButtons]::OK,
           [System.Windows.Forms.MessageBoxIcon]::Warning
         )
         continue
       }
-      $TargetDir = $dialog.SelectedPath
+      $TargetDir = $resolved
       break
     }
     $hint = if ($badRoot -or $badSystem -or $badNewRoot) {
       "Do not install to C:\ or Program Files.`r`nUse the user folder:`r`n$defaultPath"
     } elseif ($badDump) {
-      "Do not install onto Desktop / Documents / Downloads.`r`nThe zip may stay on the Desktop. Example:`r`n$defaultPath"
+      "Do not install onto Desktop / Documents / Downloads itself.`r`nPick a parent folder; MYAgent is created inside it. Example:`r`n$defaultPath"
     } else {
       "That folder is the unzipped package (or inside it). Example:`r`n$defaultPath"
     }
@@ -409,15 +421,15 @@ function Complete-Install {
   }
   $failBlob = "$detail $logTail"
   if ($failBlob -like '*cannot be the same folder*' -or $failBlob -like '*cannot be inside the unzipped*' -or $failBlob -like '*cannot be inside the source*') {
-    $st.Status.Text = 'Pick a folder outside the unzipped package. Example: LocalAppData\Programs\MY Agent'
+    $st.Status.Text = 'Pick a folder outside the unzipped package. Example: LocalAppData\Programs\MYAgent'
   } elseif ($failBlob -like '*Do not install onto Desktop*' -or $failBlob -like '*Documents, Downloads*') {
-    $st.Status.Text = 'Zip may stay on the Desktop. Install into a new folder, not Desktop itself.'
+    $st.Status.Text = 'Zip may stay on the Desktop. Pick a parent folder; MYAgent is created inside it.'
   } elseif ($failBlob -like '*Do not run install*' -or $failBlob -like '*as administrator*') {
     $st.Status.Text = 'Do not run as administrator. Run install.bat as the employee Windows user.'
   } elseif ($failBlob -like '*Program Files*' -or $failBlob -like '*ProgramData*') {
-    $st.Status.Text = 'Do not install under Program Files. Use LocalAppData\Programs\MY Agent.'
+    $st.Status.Text = 'Do not install under Program Files. Use LocalAppData\Programs\MYAgent.'
   } elseif ($failBlob -like '*directly under*' -or $failBlob -like '*drive root*' -or $failBlob -like '*not C:\*' -or $failBlob -like '*not writable*') {
-    $st.Status.Text = 'Do not install to C:\. Use LocalAppData\Programs\MY Agent (Yes on the first prompt).'
+    $st.Status.Text = 'Do not install to C:\. Use LocalAppData\Programs\MYAgent (Yes on the first prompt).'
   } elseif ($failBlob -like '*is not a batch file*' -or $failBlob -like '*tsclient*' -or $failBlob -like '*UNC*') {
     $st.Status.Text = 'Shared folder path broke the installer. Copy zip to C:\Temp, extract, run install.bat.'
   } elseif ($failBlob -match 'internet|download|WebRequest|nodejs\.org|pypi|ENOTFOUND|timed out') {

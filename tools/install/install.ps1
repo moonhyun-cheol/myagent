@@ -10,7 +10,9 @@ $ErrorActionPreference = 'Stop'
 
 function Get-FullPath([string]$p) {
   if (-not $p) { return $null }
-  return [IO.Path]::GetFullPath($p).TrimEnd('\')
+  $clean = $p.Trim().Trim('"').TrimEnd('\')
+  if (-not $clean) { return $null }
+  return [IO.Path]::GetFullPath($clean).TrimEnd('\')
 }
 
 function Test-IsSubPath([string]$child, [string]$parent) {
@@ -126,7 +128,7 @@ function Repair-CopiedTree([string]$folder) {
   }
 }
 
-$defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAULT } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MY Agent' }
+$defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAULT } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MYAgent' }
 
 if (Test-IsElevated) {
   Write-Host 'ERROR: Do not run install.bat as administrator.'

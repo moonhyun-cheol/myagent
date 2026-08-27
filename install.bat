@@ -19,7 +19,7 @@ if not defined NEED_LOCAL (
 )
 if not defined NEED_LOCAL goto :run_install
 
-set "LOCAL_SRC=%LOCALAPPDATA%\MY Agent-install-src"
+set "LOCAL_SRC=%LOCALAPPDATA%\MYAgent-install-src"
 echo.
 echo [MY Agent] Shared/network path detected:
 echo   %~dp0
@@ -67,10 +67,13 @@ if exist "%~dp0app\tools\install\install.ps1" (
   set "INSTALL_UI=%~dp0tools\install\install-ui.ps1"
   set "SOURCE=%~dp0"
 )
+REM %~dp0 always ends with \ . A quoted "...\" eats the closing quote and
+REM PowerShell then sees a " in the path (Illegal characters in path).
+if "%SOURCE:~-1%"=="\" set "SOURCE=%SOURCE:~0,-1%"
 if exist "%INSTALL_UI%" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%INSTALL_UI%" -SourceDir "%SOURCE%"
 ) else (
-  echo MY Agent install - default folder is %LOCALAPPDATA%\Programs\MY Agent
+  echo MY Agent install - default folder is %LOCALAPPDATA%\Programs\MYAgent
   powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_PS1%" -SourceDir "%SOURCE%"
 )
 if errorlevel 1 pause
