@@ -244,10 +244,7 @@ const report = {
     market_full_research_not_default: true,
     shell_wpf_click_manual: true,
   },
-  residual_docs: {
-    openclaw: 'tools/lab/OPENCLAW_RUNBOOK.md',
-    ops: 'tools/lab/OPS_RESIDUAL_FIXES.md',
-  },
+  residual_docs: {},
   rows: allRows,
   maxstressReport: existsSync(path.join(outDir, 'agent-only-maxstress-report.json'))
     ? JSON.parse(readFileSync(path.join(outDir, 'agent-only-maxstress-report.json'), 'utf8'))

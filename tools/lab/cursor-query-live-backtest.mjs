@@ -649,8 +649,7 @@ async function main() {
   console.log(mdPath);
   console.log(jsonPath);
 
-  // Feedback append to improvement plan
-  const planPath = path.join(root, 'tools', 'lab', 'CURSOR_BACKTEST_IMPROVEMENT_PLAN.md');
+  const planPath = path.join(outDir, 'cursor-backtest-plan.md');
   if (existsSync(planPath)) {
     const append = [
       '',

@@ -157,7 +157,6 @@ cpSync(
 // Personal pack backup/restore (survives outside data/; data/ itself never in delta)
 const optionalTools = [
   'tools/personal-pack-export.mjs',
-  'tools/lab/PERSONAL_PACK.md',
   'package.json',
 ];
 for (const rel of optionalTools) {
@@ -173,7 +172,7 @@ writeFileSync(
     'data/ NOT included — local skills/plugins/MCP/vault stay on disk after apply-delta',
     'runtime/ NOT included — oss-sidecars/ffmpeg/playwright/node stay local; START/apply-delta re-bootstraps if missing',
     'same-experience: no token-gated MCP in shipped defaults; secrets never required for parity features',
-    'optional backup: node tools/personal-pack-export.mjs --export  (see tools/lab/PERSONAL_PACK.md)',
+    'optional backup: node tools/personal-pack-export.mjs --export',
     '',
   ].join('\n'),
   'utf8',

@@ -162,9 +162,6 @@ if (-not (Test-Path -LiteralPath $productExeSource)) {
   if (Test-Path -LiteralPath (Join-Path $source '.github')) {
     Write-Host 'This folder contains .github — it is source, not the product zip.'
   }
-  if (Test-Path -LiteralPath (Join-Path $source 'PORT.md')) {
-    Write-Host 'This folder contains PORT.md — developer porting notes, not an installed app.'
-  }
   exit 1
 }
 

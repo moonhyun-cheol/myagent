@@ -22,7 +22,6 @@ const SECRET_FIXTURE_PATHS = new Set([
   'tools/verify-agent-eval.mjs',
 ]);
 const COMPANY_MARKER_ALLOWLIST = new Set([
-  'PORT.md',
   'repo-target.json',
   'tools/port-status.mjs',
   'core/config/defaults/deploy-defaults.json',

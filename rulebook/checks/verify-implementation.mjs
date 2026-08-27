@@ -28,4 +28,4 @@ run('package B — browser URL boundary (via contracts)', 'rulebook/checks/verif
 run('package C — in-app browser call path', 'tools/verify-in-app-browser-path.mjs');
 
 console.log('\nrulebook implementation gate: PASS');
-console.log('RC-006 desktop click remains manual — see rulebook/implementation/package-c-in-app-browser/MANUAL.md');
+console.log('RC-006 desktop click remains manual.');

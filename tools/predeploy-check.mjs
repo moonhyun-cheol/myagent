@@ -186,7 +186,7 @@ if (full) {
   console.log('\n8) Full verify suite');
   run('verify', 'verify.mjs', [], { ...process.env, CQR_ACTIVATION_SERVER_URL: '' });
   console.log('\n8b) Release checklist reminder');
-  ok('see tools/lab/RELEASE_CHECKLIST.md (lab + sandbox-slim-install-test)');
+  ok('lab + sandbox-slim-install-test');
 }
 
 console.log('');

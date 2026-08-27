@@ -1,6 +1,6 @@
 /**
  * Gate / claim surface barrel — prefer importing from here for new code.
- * See tools/lab/AGENT_MODULE_FREEZE.md (ADR note: no new top-level agent-*.ts without reason).
+ * Prefer this barrel for new gate/claim imports. Do not add top-level agent-*.ts without reason.
  */
 export {
   parseCriticNext,
