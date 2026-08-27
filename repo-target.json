@@ -4,7 +4,7 @@
   "role": "core",
   "accepts_legacy_edits": false,
   "version": "1.0.1",
-  "update_sequence": 4,
+  "update_sequence": 5,
   "channel": "stable",
   "github": "moonhyun-cheol/myagent",
   "local_folder": "MY_CUSTOM_CODEX",
