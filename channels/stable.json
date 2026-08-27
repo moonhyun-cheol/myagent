@@ -1,0 +1,21 @@
+{
+  "algorithm": "RSA-PSS-SHA256",
+  "document": {
+    "schema": "cqr-pa-update-feed/v1",
+    "update_sequence": 4,
+    "minimum_supported_sequence": 1,
+    "version": "1.0.1",
+    "channel": "stable",
+    "published_at": "2026-08-27T06:54:17.156Z",
+    "asset": {
+      "repository": "moonhyun-cheol/myagent",
+      "release_tag": "update-4",
+      "name": "MYAgent-v1.0.1-delta.zip",
+      "size": 193898766,
+      "sha256": "8d22f943adb8e7555f49c4c450a95a0527f0558068572da68a0600b637ab5e4a"
+    },
+    "payload_manifest_sha256": "edeee2e2ad29e7984892a900784e0fd1032cee6039444ccd73ed69a6a39be3e9",
+    "release_notes": "1.0.1 seq 4: Optional install checklist. Repo pack and structural search are selected by default."
+  },
+  "signature": "Mbr7BeWYzmoylEzH1Djsw1O3r3/hT3LFmY35TmwntHoeSMW3EFSbmQheRnq1ffpfjIT2Zq2xhHbtSgEsNegfdxe7lQ3AjgRY4gGJh7g1xVNQ2c3LhOiovRUoTd/cu/6nvlLcg6s7Yu/rOFPb/OKgYZNw6lOxnKDZ829Gh9q8/RgUUwKTxMB5yH7S/m0bsoh375jD9lSlcmIw8huVb/sWbOYOxEAGmygZYmTn2UJnwkfWw1Xb4tBYrYc/AqlSKVA4PCqtaC4NbML8HIgE0X7U1PdpeIidXX6KSei0NuzEY3VA65zyO52AuFX2tA4Tx78pUAsNi6recD+qh8PF2pbZwwexbxPjQdBqMPucT2SCfKCbou986LIp7zmoR7WM8l1ZWxAa4Qz0chTAnCGky7CxCwtgSTwhixMaIEaEwHKiEXzLXnbjbypOGKTN0nIPUK9h5msWIbRbuRZ3SMfuxG32dL5gJZPNyji3WFwN5LcxG7S7P3GXf+15ICKNIk8gqxtn"
+}
