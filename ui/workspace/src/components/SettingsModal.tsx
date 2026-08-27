@@ -1,4 +1,4 @@
-import { FolderSimple, GearSix, Plugs, PuzzlePiece, Robot, ShieldCheck, Stack, X } from '@phosphor-icons/react';
+import { FolderSimple, GearSix, IdentificationCard, Plugs, PuzzlePiece, Robot, ShieldCheck, Stack, X } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import {
   agentAutopilotModeFromConfig,
@@ -12,12 +12,13 @@ import {
 } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ModelManagementModal } from './ModelManagementModal';
+import { SettingsLicensePage } from './SettingsLicensePage';
 import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
 import { SettingsSkillsPage } from './SettingsSkillsPage';
 import { SettingsWorkspacePage } from './SettingsWorkspacePage';
 
-type SettingsPage = 'models' | 'agent' | 'permissions' | 'workspaces' | 'skills' | 'plugins' | 'mcp';
+type SettingsPage = 'models' | 'license' | 'agent' | 'permissions' | 'workspaces' | 'skills' | 'plugins' | 'mcp';
 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [page, setPage] = useState<SettingsPage>('models');
@@ -132,6 +133,16 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             </button>
             <button
               type="button"
+              data-testid="settings-nav-license"
+              onClick={() => setPage('license')}
+              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium ${
+                page === 'license' ? 'bg-panel text-text shadow-sm' : 'text-muted hover:bg-panel/60 hover:text-text'
+              }`}
+            >
+              <IdentificationCard size={17} /> 라이선스
+            </button>
+            <button
+              type="button"
               onClick={() => setPage('agent')}
               className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium ${
                 page === 'agent' ? 'bg-panel text-text shadow-sm' : 'text-muted hover:bg-panel/60 hover:text-text'
@@ -201,6 +212,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
           {page === 'models' ? (
             <ModelManagementModal open embedded onClose={onClose} />
+          ) : page === 'license' ? (
+            <SettingsLicensePage />
           ) : page === 'agent' ? (
             <div className="min-h-0 flex-1 overflow-y-auto bg-ink px-8 py-7">
               <header className="mb-6 pr-12">

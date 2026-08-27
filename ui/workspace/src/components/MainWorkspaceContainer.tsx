@@ -12,6 +12,7 @@ import { ChatPane } from './ChatPane';
 import { GeminiNavSidebar } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
+import { LicenseGate } from './LicenseGate';
 import { MediaPane } from './MediaPane';
 import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
@@ -403,6 +404,7 @@ export function MainWorkspaceContainer() {
 
       <ImagePreviewModal />
       <ConfirmModal />
+      <LicenseGate />
     </div>
   );
 }

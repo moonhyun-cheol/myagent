@@ -991,26 +991,33 @@ export async function dispatchApiRequest(
       }
 
       if (method === 'POST' && url.pathname === '/setup/import-license') {
-        let raw = '';
         const ct = req.headers['content-type'] ?? '';
+        let result: { ok: true; org_id: string };
         if (ct.includes('multipart/form-data')) {
           const files = await parseMultipart(req);
           const file = files.find((f) => f.fieldName === 'license' || f.filename.endsWith('.ocx'));
-          if (!file) return sendJson(res, 400, { error: 'FILE_MISSING' });
-          raw = file.data.toString('utf8');
+          if (!file) return sendJson(res, 400, { error: 'FILE_MISSING', message: '라이선스 파일을 선택하세요.' });
+          result = setup.importLicense(file.data.toString('utf8'));
         } else {
-          const body = JSON.parse(await readBody(req)) as { license?: string };
-          raw = body.license ?? '';
+          const body = JSON.parse(await readBody(req)) as { license?: string; license_path?: string };
+          if (body.license_path?.trim()) {
+            result = setup.importLicenseFromPath(body.license_path);
+          } else {
+            const raw = body.license ?? '';
+            if (!raw.trim()) {
+              return sendJson(res, 400, { error: 'LICENSE_EMPTY', message: '라이선스 파일을 선택하세요.' });
+            }
+            result = setup.importLicense(raw);
+          }
         }
-        if (!raw.trim()) return sendJson(res, 400, { error: 'LICENSE_EMPTY' });
-        const result = setup.importLicense(raw);
+        setup.tryAutoImportBundle();
         return sendJson(res, 200, result);
       }
 
       if (method === 'POST' && url.pathname === '/setup/import-bundle') {
         const lic = license.getStatus();
         if (lic.mode !== 'full') {
-          return sendJson(res, 403, { error: 'LICENSE_REQUIRED', message: '먼저 license.ocx를 등록하세요.' });
+          return sendJson(res, 403, { error: 'LICENSE_REQUIRED', message: '먼저 라이선스 파일을 등록하세요.' });
         }
         license.assertFeature('manager');
         const overwrite = url.searchParams.get('overwrite') === '1';

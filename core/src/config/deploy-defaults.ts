@@ -41,6 +41,13 @@ function resolveDeployDefaultsPath(cqrRoot: string): string | null {
 
 const ACTIVATION_DISABLED_VALUES = new Set(['0', 'off', 'none', 'false', 'disabled']);
 
+function readEnvFirst(...names: string[]): string | undefined {
+  for (const name of names) {
+    if (process.env[name] !== undefined) return process.env[name] ?? '';
+  }
+  return undefined;
+}
+
 export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
   const file = resolveDeployDefaultsPath(cqrRoot);
   let doc: DeployDefaults = {};
@@ -54,15 +61,19 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
 
   // Windows drops env vars set to an empty string across process spawns, so an explicit
   // sentinel is the only reliable way for callers (verify scripts, offline runs) to turn
-  // central activation off.
-  const rawActivationUrl = process.env.MY_AGENT_ACTIVATION_SERVER_URL;
+  // central activation off. CQR_* remains a compatibility alias for older scripts.
+  const rawActivationUrl = readEnvFirst(
+    'MY_AGENT_ACTIVATION_SERVER_URL',
+    'CQR_ACTIVATION_SERVER_URL',
+  );
   if (rawActivationUrl !== undefined) {
     const v = rawActivationUrl.trim();
     if (v && !ACTIVATION_DISABLED_VALUES.has(v.toLowerCase())) doc.activation_server_url = v;
     else delete doc.activation_server_url;
   }
-  if (process.env.MY_AGENT_ACTIVATION_TOKEN?.trim()) {
-    doc.activation_token = process.env.MY_AGENT_ACTIVATION_TOKEN.trim();
+  const rawActivationToken = readEnvFirst('MY_AGENT_ACTIVATION_TOKEN', 'CQR_ACTIVATION_TOKEN');
+  if (rawActivationToken?.trim()) {
+    doc.activation_token = rawActivationToken.trim();
   }
 
   const rawBrandManualUrl = process.env.MY_AGENT_BRAND_MANUAL_URL;

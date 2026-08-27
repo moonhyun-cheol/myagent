@@ -254,6 +254,20 @@ try {
 Repair-CopiedTree $targetFull
 Grant-CurrentUserModify $targetFull
 
+$licenseDest = Join-Path $targetFull 'license.ocx'
+if (-not (Test-Path -LiteralPath $licenseDest)) {
+  foreach ($candidate in @(
+    (Join-Path $source 'license.ocx'),
+    (Join-Path (Split-Path $source -Parent) 'license.ocx')
+  )) {
+    if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+      Copy-Item -LiteralPath $candidate -Destination $licenseDest -Force
+      Write-Host 'License file found next to the installer. It will be registered on first launch.'
+      break
+    }
+  }
+}
+
 $bootstrapNode = Join-Path $targetFull 'tools\bootstrap-node-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNode) {
   Write-Host ''
@@ -310,9 +324,9 @@ Path: $targetFull
 
 Desktop shortcut: MY Agent.lnk
 
-1. Launch MY Agent from the desktop shortcut or MYAgent.exe
+1. Launch MY Agent from the desktop shortcut or MYAgent.exe. On the office LAN it requests a license from the activation server automatically.
 
-First run: optional activation and provider setup.
+First run: the app contacts the activation server and stores the issued license plus key bundle.
 Organization skills are installed separately through their signed module stream.
 Slim zip: first install may need internet for Node, ffmpeg, Playwright Chromium, and OSS sidecars (markitdown/repomix/ast-grep). Token-gated MCP is not auto-installed.
 "@

@@ -75,7 +75,10 @@ async function readLimited(response: Response, limit: number): Promise<Buffer> {
   return bytes;
 }
 
-export async function checkOrganizationModuleUpdate(cqrRoot: string): Promise<AvailableModuleUpdate | null> {
+export async function checkOrganizationModuleUpdate(
+  cqrRoot: string,
+  opts?: { signal?: AbortSignal },
+): Promise<AvailableModuleUpdate | null> {
   const installed = readInstalledOrganizationModule(cqrRoot);
   const feedUrlText = installed?.update_feed_url?.trim();
   if (!feedUrlText) return null;
@@ -85,6 +88,7 @@ export async function checkOrganizationModuleUpdate(cqrRoot: string): Promise<Av
   const response = await fetch(feedUrl, {
     redirect: 'follow',
     headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
+    signal: opts?.signal,
   });
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -107,7 +111,10 @@ export async function checkOrganizationModuleUpdate(cqrRoot: string): Promise<Av
   };
 }
 
-export async function applyOrganizationModuleUpdate(cqrRoot: string): Promise<InstalledOrganizationModule> {
+export async function applyOrganizationModuleUpdate(
+  cqrRoot: string,
+  opts?: { signal?: AbortSignal },
+): Promise<InstalledOrganizationModule> {
   const installed = readInstalledOrganizationModule(cqrRoot);
   const feedUrlText = installed?.update_feed_url?.trim();
   if (!feedUrlText) {
@@ -119,6 +126,7 @@ export async function applyOrganizationModuleUpdate(cqrRoot: string): Promise<In
   const feedResponse = await fetch(feedUrl, {
     redirect: 'follow',
     headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
+    signal: opts?.signal,
   });
   if (!feedResponse.ok) {
     throw new OrganizationModuleError('MODULE_FEED_HTTP', `모듈 피드를 읽지 못했습니다 (${feedResponse.status}).`);
@@ -140,6 +148,7 @@ export async function applyOrganizationModuleUpdate(cqrRoot: string): Promise<In
     const assetResponse = await fetch(assetUrl, {
       redirect: 'follow',
       headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
+      signal: opts?.signal,
     });
     if (!assetResponse.ok || !assetResponse.body) {
       throw new OrganizationModuleError('MODULE_ASSET_HTTP', `모듈 ZIP을 받지 못했습니다 (${assetResponse.status}).`);
@@ -162,5 +171,35 @@ export async function applyOrganizationModuleUpdate(cqrRoot: string): Promise<In
     return result.installed;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+const LAUNCH_UPDATE_TIMEOUT_MS = 15_000;
+
+export async function maybeApplyOrganizationModuleOnLaunch(
+  cqrRoot: string,
+  opts: { licensed: boolean },
+): Promise<{ applied: boolean; version?: string; error?: string }> {
+  if (!opts.licensed) return { applied: false };
+  const check = String(process.env.MY_AGENT_UPDATE_CHECK ?? '').trim();
+  if (check === '0') return { applied: false };
+  try {
+    const installed = readInstalledOrganizationModule(cqrRoot);
+    if (!installed?.update_feed_url?.trim()) return { applied: false };
+    const signal = AbortSignal.timeout(LAUNCH_UPDATE_TIMEOUT_MS);
+    const update = await checkOrganizationModuleUpdate(cqrRoot, { signal });
+    if (!update) return { applied: false };
+    const next = await applyOrganizationModuleUpdate(cqrRoot, { signal });
+    return { applied: true, version: next.version };
+  } catch (error) {
+    const aborted = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+    const message = aborted
+      ? 'MODULE_UPDATE_TIMEOUT'
+      : error instanceof OrganizationModuleError
+        ? `${error.code}: ${error.message}`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    return { applied: false, error: message };
   }
 }

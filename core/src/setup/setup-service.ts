@@ -7,7 +7,7 @@ import { computeMachineId } from '../license/machine-id.js';
 import { computeWindowsUserId, normalizeUserHint } from '../license/windows-user-id.js';
 import type { ProviderStore } from '../providers/provider-store.js';
 import { decryptBundle, parseBundleFile, type BundlePayload } from './key-bundle.js';
-import { assertWritablePath } from '../security/path-guard.js';
+import { assertWritablePath, isNasPath } from '../security/path-guard.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { requestCentralActivation } from './activation-client.js';
 import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
@@ -164,6 +164,28 @@ export class SetupService {
     return { license: licenseImported, bundle: bundle.imported };
   }
 
+  importLicenseFromPath(filePath: string): { ok: true; org_id: string } {
+    const resolved = path.resolve(filePath.trim().replace(/^"|"$/g, ''));
+    if (isNasPath(resolved)) {
+      throw new SetupError('NAS_READ_FORBIDDEN', '공유 폴더에 있는 라이선스 파일은 사용할 수 없습니다. 이 PC로 복사한 뒤 다시 선택하세요.');
+    }
+    if (!existsSync(resolved)) {
+      throw new SetupError('LICENSE_FILE_MISSING', '선택한 라이선스 파일을 찾을 수 없습니다.');
+    }
+    const st = statSync(resolved);
+    if (!st.isFile()) {
+      throw new SetupError('LICENSE_FILE_MISSING', '선택한 라이선스 파일을 찾을 수 없습니다.');
+    }
+    if (st.size > 256 * 1024) {
+      throw new SetupError('LICENSE_FILE_TOO_LARGE', '라이선스 파일이 너무 큽니다.');
+    }
+    const ext = path.extname(resolved).toLowerCase();
+    if (ext && ext !== '.ocx' && ext !== '.json' && ext !== '.lic') {
+      throw new SetupError('LICENSE_FILE_TYPE', '라이선스 파일(.ocx)을 선택하세요.');
+    }
+    return this.importLicense(readFileSync(resolved, 'utf8'));
+  }
+
   importLicense(raw: string): { ok: true; org_id: string } {
     const doc = parseSignedLicense(raw);
     if (!doc) throw new SetupError('LICENSE_INVALID', '라이선스 파일 형식이 올바르지 않습니다.');
@@ -184,13 +206,13 @@ export class SetupService {
       if (expected !== userId) {
         throw new SetupError(
           'LICENSE_USER_MISMATCH',
-          `이 license는 다른 Windows 계정용입니다.\n필요: ${expected}\n현재: ${userId}`,
+          `이 라이선스는 다른 Windows 계정용입니다.\n필요: ${expected}\n현재: ${userId}`,
         );
       }
     }
     if (doc.payload.machine_hint) {
       if (doc.payload.machine_hint !== machineId) {
-        throw new SetupError('LICENSE_MACHINE_MISMATCH', '이 license는 다른 PC용입니다.');
+        throw new SetupError('LICENSE_MACHINE_MISMATCH', '이 라이선스는 다른 PC용입니다.');
       }
     }
 
@@ -208,7 +230,7 @@ export class SetupService {
   importBundle(raw: string, opts?: { overwrite?: boolean }): { ok: true; imported: string[] } {
     const lic = this.license.getStatus();
     if (lic.mode !== 'full' || !lic.org_id) {
-      throw new SetupError('LICENSE_REQUIRED', '먼저 license.ocx를 등록하세요.');
+      throw new SetupError('LICENSE_REQUIRED', '먼저 라이선스 파일을 등록하세요.');
     }
 
     if (this.providerStore.hasAnyKeys() && !opts?.overwrite) {

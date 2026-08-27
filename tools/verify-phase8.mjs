@@ -7,6 +7,7 @@ import {
   writeFileSync,
   copyFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,6 +99,22 @@ try {
   let st = await fetch(`${base}/setup/status`).then((r) => r.json());
   if (!st.needs_license) throw new Error('expected needs_license');
 
+  const tmpLic = path.join(tmpdir(), `my-agent-license-path-${process.pid}.ocx`);
+  copyFileSync(testLic, tmpLic);
+  try {
+    const pathRes = await fetch(`${base}/setup/import-license`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_path: tmpLic }),
+    });
+    if (!pathRes.ok) throw new Error(`import-license path: ${JSON.stringify(await pathRes.json())}`);
+  } finally {
+    if (existsSync(tmpLic)) unlinkSync(tmpLic);
+  }
+
+  st = await fetch(`${base}/setup/status`).then((r) => r.json());
+  if (st.needs_license) throw new Error('license still needed after path import');
+
   const licRaw = readFileSync(testLic, 'utf8');
   const licForm = new FormData();
   licForm.append('license', new Blob([licRaw], { type: 'application/json' }), 'license.ocx');
@@ -107,11 +124,13 @@ try {
   st = await fetch(`${base}/setup/status`).then((r) => r.json());
   if (st.needs_license) throw new Error('license still needed');
 
-  const bundleForm = new FormData();
-  bundleForm.append('bundle', new Blob([readFileSync(testBundle, 'utf8')]), 'keys-bundle.enc');
-  const bRes = await fetch(`${base}/setup/import-bundle`, { method: 'POST', body: bundleForm });
-  const bBody = await bRes.json();
-  if (!bRes.ok) throw new Error(`import-bundle: ${JSON.stringify(bBody)}`);
+  if (!st.keys_configured) {
+    const bundleForm = new FormData();
+    bundleForm.append('bundle', new Blob([readFileSync(testBundle, 'utf8')]), 'keys-bundle.enc');
+    const bRes = await fetch(`${base}/setup/import-bundle`, { method: 'POST', body: bundleForm });
+    const bBody = await bRes.json();
+    if (!bRes.ok) throw new Error(`import-bundle: ${JSON.stringify(bBody)}`);
+  }
 
   const wrongIssue = spawnSync(
     process.execPath,
@@ -151,6 +170,19 @@ try {
   if (!prov2.providers?.find((p) => p.id === 'ollama')?.configured) {
     throw new Error('auto-import bundle failed');
   }
+
+  const gateUi = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'LicenseGate.tsx'), 'utf8');
+  const panelUi = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'LicenseImportPanel.tsx'), 'utf8');
+  const settingsUi = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'SettingsModal.tsx'), 'utf8');
+  const shellUi = readFileSync(path.join(root, 'shell', 'CqrPa.Shell', 'MainWindow.xaml.cs'), 'utf8');
+  if (!gateUi.includes('data-testid="license-gate"')) throw new Error('LicenseGate missing test id');
+  if (gateUi.includes('data\\vault') || gateUi.includes('data/vault')) {
+    throw new Error('LicenseGate must not mention vault paths');
+  }
+  if (!panelUi.includes("purpose: 'licenseFile'")) throw new Error('license file picker purpose missing');
+  if (!panelUi.includes('importLicensePath')) throw new Error('license path import missing');
+  if (!settingsUi.includes('settings-nav-license')) throw new Error('settings license page missing');
+  if (!shellUi.includes('licenseFile')) throw new Error('shell license picker missing');
 
   console.log('verify-phase8 OK');
 } finally {

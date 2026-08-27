@@ -109,7 +109,7 @@ function buildPack({ sequence, version, skillBody, overlayBody }) {
       version,
       update_sequence: sequence,
       install_root: 'modules/organization',
-      required_core_api: '1.4.0-beta.1',
+      required_core_api: '1.0.0-beta.1',
       update_feed_url: 'https://raw.githubusercontent.com/moonhyun-cheol/MY_CUSTOM_CODEX-COMPANY/main/channels/beta.json',
       update_channel: 'beta',
       capabilities: ['skills', 'brand-context'],
@@ -160,7 +160,7 @@ const leftovers = [];
 try {
   writeFileSync(
     path.join(installRoot, 'manifest.json'),
-    `${JSON.stringify({ name: 'MY Agent', version: '1.4.0-beta.1', update_sequence: 1 }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'MY Agent', version: '1.0.0-beta.1', update_sequence: 1 }, null, 2)}\n`,
   );
   mkdirSync(path.join(installRoot, 'core', 'config', 'defaults'), { recursive: true });
   writeFileSync(path.join(installRoot, 'core', 'config', 'defaults', 'organization-module-public.pem'), publicPem);
@@ -221,7 +221,7 @@ try {
   leftovers.push(zipOnlyRoot);
   writeFileSync(
     path.join(zipOnlyRoot, 'manifest.json'),
-    `${JSON.stringify({ name: 'MY Agent', version: '1.4.0-beta.1', update_sequence: 1 }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'MY Agent', version: '1.0.0-beta.1', update_sequence: 1 }, null, 2)}\n`,
   );
   mkdirSync(path.join(zipOnlyRoot, 'core', 'config', 'defaults'), { recursive: true });
   writeFileSync(path.join(zipOnlyRoot, 'core', 'config', 'defaults', 'organization-module-public.pem'), publicPem);
@@ -264,6 +264,20 @@ try {
   assert.match(skillsUi, /data-testid="organization-module-install"/);
   const shell = readFileSync(path.join(root, 'shell', 'CqrPa.Shell', 'MainWindow.xaml.cs'), 'utf8');
   assert.match(shell, /organizationModuleZip/);
+  const apiServer = readFileSync(path.join(root, 'core', 'src', 'api-server.ts'), 'utf8');
+  assert.match(apiServer, /maybeApplyOrganizationModuleOnLaunch/);
+  const feedSrc = readFileSync(path.join(root, 'core', 'src', 'updates', 'organization-module-feed.ts'), 'utf8');
+  assert.match(feedSrc, /maybeApplyOrganizationModuleOnLaunch/);
+  assert.match(feedSrc, /MY_AGENT_UPDATE_CHECK/);
+
+  const skipPrev = process.env.MY_AGENT_UPDATE_CHECK;
+  process.env.MY_AGENT_UPDATE_CHECK = '0';
+  const skipped = await feedMod.maybeApplyOrganizationModuleOnLaunch(installRoot, { licensed: true });
+  assert.equal(skipped.applied, false);
+  if (skipPrev === undefined) delete process.env.MY_AGENT_UPDATE_CHECK;
+  else process.env.MY_AGENT_UPDATE_CHECK = skipPrev;
+  const unlicensed = await feedMod.maybeApplyOrganizationModuleOnLaunch(installRoot, { licensed: false });
+  assert.equal(unlicensed.applied, false);
   const publish = readFileSync(
     path.join(root, '..', 'MY_CUSTOM_CODEX-COMPANY', 'tools', 'publish-module-update.mjs'),
     'utf8',

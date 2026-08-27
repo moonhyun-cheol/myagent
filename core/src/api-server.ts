@@ -19,6 +19,7 @@ import { startAutoLogReportLoop } from './support/error-report-service.js';
 import { UserSkillStore } from './skills/user-skill-store.js';
 import { sweepCheckpoints } from './agent/agent-checkpoint.js';
 import { sweepSessionTemp } from './sessions/session-temp-gc.js';
+import { maybeApplyOrganizationModuleOnLaunch } from './updates/organization-module-feed.js';
 import type { ApiContext } from './http/api-context.js';
 import { handleApiError } from './http/api-error-handler.js';
 import { dispatchApiRequest } from './routes/dispatch.js';
@@ -67,6 +68,22 @@ export async function createApiServer(port: number) {
     license.reload();
     setup.syncProviderRegistry();
     await setup.ensureOpenClawAdapter();
+    const moduleUpdate = await maybeApplyOrganizationModuleOnLaunch(cqrRoot, {
+      licensed: license.getStatus().mode === 'full' && license.hasFeature('chat'),
+    });
+    if (moduleUpdate.applied || moduleUpdate.error) {
+      try {
+        appendFileSync(
+          path.join(paths.logsDir, 'api-start.log'),
+          `${new Date().toISOString()} organization-module ${
+            moduleUpdate.applied ? `applied ${moduleUpdate.version}` : `skip ${moduleUpdate.error}`
+          }\n`,
+          'utf8',
+        );
+      } catch {
+        /* ignore log write errors */
+      }
+    }
   });
   license.reload();
   setup.syncProviderRegistry();
