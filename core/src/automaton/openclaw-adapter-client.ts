@@ -7,6 +7,7 @@ import {
   buildGateCommandContextPayload,
   signGateCommandContext,
 } from './openclaw-gate-context.js';
+import { attachLocalNopsUserId } from './local-nops-user-id.js';
 import { readOpenClawAdapterVault } from './openclaw-adapter-vault.js';
 import { resolveOpenClawWorkflow } from './openclaw-workflow-map.js';
 import { resolveAutomatonToolTimeoutMs } from './timeouts.js';
@@ -105,47 +106,49 @@ function buildRawRequest(
   const requestId = `req-${randomUUID()}`;
   const transactionId = `txn-${randomUUID()}`;
   const requestedText = message.trim();
-  const args = {
+  const args: Record<string, unknown> = {
     ...workflow.args,
     requested_text: requestedText,
     manager_request_text: requestedText,
   };
 
+  const rawRequest: Record<string, unknown> = {
+    transaction_id: transactionId,
+    request_id: requestId,
+    actor_id: cfg.actorId ?? 'my-agent',
+    platform: 'my_agent',
+    guild_id: cfg.guildId ?? 'my-agent',
+    channel_id: cfg.channelId ?? 'my-agent-chat',
+    actor_tier: 'operator',
+    task_profile_id: workflow.task_profile_id,
+    tool_id: workflow.tool_id,
+    approval_token: '',
+    approval_token_ref: '',
+    incident_reference: '',
+    args,
+    requested_text: requestedText,
+    token_scope: {},
+    requested_scope: {},
+    dispatch: {
+      execution_plan_id: `plan-${randomUUID()}`,
+      operation_fingerprint: 'my-agent-automaton',
+      approval_token_ref: 'n/a',
+    },
+    response: {
+      response_receipt_id: randomUUID(),
+      created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      binding_hash: 'my-agent',
+    },
+    desired_transition: 'complete',
+    reconciliation_verdict: 'pass',
+  };
+  attachLocalNopsUserId(rawRequest, args);
   return {
     requestId,
     transactionId,
     workflowToolId: workflow.tool_id,
     taskProfileId: workflow.task_profile_id,
-    rawRequest: {
-      transaction_id: transactionId,
-      request_id: requestId,
-      actor_id: cfg.actorId ?? 'my-agent',
-      platform: 'my_agent',
-      guild_id: cfg.guildId ?? 'my-agent',
-      channel_id: cfg.channelId ?? 'my-agent-chat',
-      actor_tier: 'operator',
-      task_profile_id: workflow.task_profile_id,
-      tool_id: workflow.tool_id,
-      approval_token: '',
-      approval_token_ref: '',
-      incident_reference: '',
-      args,
-      requested_text: requestedText,
-      token_scope: {},
-      requested_scope: {},
-      dispatch: {
-        execution_plan_id: `plan-${randomUUID()}`,
-        operation_fingerprint: 'my-agent-automaton',
-        approval_token_ref: 'n/a',
-      },
-      response: {
-        response_receipt_id: randomUUID(),
-        created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        binding_hash: 'my-agent',
-      },
-      desired_transition: 'complete',
-      reconciliation_verdict: 'pass',
-    },
+    rawRequest,
   };
 }
 
