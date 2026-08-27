@@ -1,85 +1,24 @@
 # MY Agent
 
-Windows 온프렘 **코딩 에이전트 워크벤치**. Cursor 대체 IDE가 아니라, 라이선스·델타 배포가 붙은 납품형 앱입니다.
+**1.0.0-beta.1** · seq **1** · [`moonhyun-cheol/myagent`](https://github.com/moonhyun-cheol/myagent)
 
-## 처음 볼 곳 (3줄)
+Windows 온프렘 코딩 에이전트. 화면은 `ui/workspace` 하나, 시작점은 `MYAgent.exe`.
 
-1. **제품:** `shell/` → `core/` → `ui/workspace/` (화면은 workspace 하나)
-2. **실행:** 설치본은 `MYAgent.exe` 하나, 소스 개발은 `npm run build` → `npm run build:exe`
-3. **지도:** [rulebook/docs/ops/STRUCTURE.md](rulebook/docs/ops/STRUCTURE.md)
-4. **진행상황:** [rulebook/docs/ops/진행상황.md](rulebook/docs/ops/진행상황.md)
+| | |
+|---|---|
+| 창 | `shell/CqrPa.Shell/` |
+| API | `core/src/` |
+| UI | `ui/workspace/` |
+| 설치 | [README-설치.txt](README-설치.txt) |
+| 1.4 보관본 이식 | [PORT.md](PORT.md) |
+| 조직 모듈 | [`myagent-org`](https://github.com/moonhyun-cheol/myagent-org) |
 
-| 폴더 | 역할 |
-|------|------|
-| `shell/CqrPa.Shell/` | WebView2 데스크톱 창 |
-| `core/src/` | Node API · 채팅 · 코드 에이전트 (`:10200`) |
-| `ui/workspace/` | 유일한 제품 UI |
-| `tools/` | 빌드·배포·검증 ([tools/README.md](tools/README.md)) |
-| `rulebook/docs/` | 명세·배포 가이드 |
-| `data/` | 사용자 데이터 (업데이트 시 보존) |
+설치 폴더: `%LOCALAPPDATA%\Programs\MYAgent`. 개발은 `npm install` → `npm run build` → `npm run build:exe`.
 
-코딩 에이전트용 메모는 [AGENTS.md](AGENTS.md)입니다. 사람 인수인계는 이 README와 STRUCTURE를 먼저 보세요.
+## 업데이트 (두 갈래)
 
-## 운영 위치
+**코어(이 저장소)** — 앱이 켜질 때 `manifest.json`의 피드 URL을 읽습니다.  
+`https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/beta.json`  
+서명이 맞고 `update_sequence`가 **지금보다 크면** 확인창 → `MYAgent.Updater.exe`가 델타 zip을 적용합니다. SemVer가 아니라 **seq 숫자**가 기준입니다. 지금 seq는 1이라, 이미 seq 1인 설치본은 인앱 업데이트가 없습니다. 첫 설치는 릴리스의 **install zip**입니다.
 
-이 저장소가 중립 코어의 작업·배포 기준입니다. 조직 모듈은 별도 저장소에서 독립 서명·업데이트합니다.
-
-| 역할 | 위치 |
-|------|------|
-| 코어 소스·코어 업데이트 | 이 저장소 (`myagent`) |
-| 조직 모듈 계약·모듈 업데이트 | `myagent-org` |
-| 사용자 설치 폴더 | `%LOCALAPPDATA%\Programs\MYAgent` |
-| 사용자 시작점 | `MYAgent.exe` |
-
-## 로컬 실행
-
-필요: Node 22+, Windows, WebView2. 클론만으로는 라이선스·빌드 산출물이 없습니다.
-
-```powershell
-npm install
-npm run build
-npm run build:exe
-copy data\vault\license.ocx.example data\vault\license.ocx
-MYAgent.exe
-```
-
-브라우저만 (셸 없이 API):
-
-```powershell
-$env:MY_AGENT_ROOT = (Get-Location).Path
-node core\dist\main.js
-# http://127.0.0.1:10200
-```
-
-설치 zip은 [README-설치.txt](README-설치.txt) · [명령어-모음](rulebook/docs/ops/명령어-모음.md) · [deploy-guide](rulebook/docs/ops/deploy-guide.md).
-
-## 자주 쓰는 명령
-
-| 목적 | 명령 |
-|------|------|
-| 검증 | `npm run verify` |
-| 전체 설치 zip | `npm run publish` |
-| 서명 코어 업데이트 zip | `npm run publish:update` |
-| GitHub 코어 업데이트 게시 | `npm run publish:update:github -- --confirm` |
-| 델타 적용 | `UPDATE.bat` |
-| 진단 | `tools\commands\diagnostics.bat` |
-| 유지보수 BAT | `tools\commands\` |
-| 활성화 서버 | `npm run server:activation` |
-
-## 제약
-
-- 데이터는 `MY_AGENT_ROOT` 아래만 (`data/`). NAS 경로에 쓰지 않음.
-- 서명 없는 license → read-only.
-- 조직 전용 기능은 별도 서명 모듈로 설치하며 neutral core 저장소에 포함하지 않습니다.
-
-## 기능 이력 (참고)
-
-포지셔닝: Cline급 툴 루프 + 라이선스/델타 배포 + 한글 도메인 스킬·거짓완료 거버넌스.
-
-- **활성화** — LAN 서버 `:10201`, 첫 발급 후 오프라인 동작 (`npm run server:activation`)
-- **배포** — 사용자 시작점은 `MYAgent.exe`; `npm run publish` / `publish:delta` + `UPDATE.bat`는 관리자 작업 (`data/`·`runtime/` 보존)
-- **모델** — NAS Ollama, API 프로바이더(vault 암호화), 선택적 로컬 GGUF
-- **채팅** — SSE, 세션, 첨부(PDF/DOCX/영상), 이미지 생성·리서치
-- **셸** — `shell/CqrPa.Shell`, 프로필 `data/webview-user-data/`
-
-라이선스 관리: `npm run admin:keygen` · `npm run admin:issue` · `node tools/cqr-admin.mjs verify data\vault\license.ocx`
+**조직 모듈** — 설정 → 스킬에서 zip을 **한 번** 고릅니다. 이후 실행 때 `myagent-org` 피드를 보고 seq가 크면 대화 없이 모듈만 갈아끼웁니다. 코어 Updater와 섞이지 않습니다.

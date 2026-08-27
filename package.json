@@ -160,6 +160,8 @@
     "predeploy:full": "node tools/predeploy-check.mjs --full",
     "version:status": "node tools/version-policy.mjs status",
     "version:prepare": "node tools/version-policy.mjs prepare",
+    "verify:repo-target": "node tools/verify-repo-target.mjs",
+    "port:status": "node tools/port-status.mjs",
     "audit:public-boundary": "node tools/verify-public-boundary.mjs --write-report",
     "verify:public-boundary": "node tools/verify-public-boundary.mjs --strict",
     "publish": "node tools/publish.mjs",

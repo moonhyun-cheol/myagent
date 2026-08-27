@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,7 @@ const manifestPath = path.join(root, 'manifest.json');
 const packagePath = path.join(root, 'package.json');
 const lockPath = path.join(root, 'package-lock.json');
 const versionTextPath = path.join(root, 'VERSION.txt');
+const repoTargetPath = path.join(root, 'repo-target.json');
 
 function readJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
@@ -71,6 +72,19 @@ function inspect() {
   if (readFileSync(versionTextPath, 'utf8') !== expectedVersionText(manifest)) {
     mismatches.push('VERSION.txt');
   }
+  if (existsSync(repoTargetPath)) {
+    const target = readJson(repoTargetPath);
+    if (target.version !== version) mismatches.push(`repo-target.json version=${target.version}`);
+    if (Number(target.update_sequence) !== sequence) {
+      mismatches.push(`repo-target.json update_sequence=${target.update_sequence}`);
+    }
+    if (target.channel && target.channel !== channel) {
+      mismatches.push(`repo-target.json channel=${target.channel}`);
+    }
+    if (target.github && target.github !== manifest.update_repository) {
+      mismatches.push(`repo-target.json github=${target.github}`);
+    }
+  }
   return { version, channel, update_sequence: sequence, consistent: mismatches.length === 0, mismatches };
 }
 
@@ -109,6 +123,14 @@ function prepare() {
   writeAtomic(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeAtomic(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
   writeAtomic(versionTextPath, expectedVersionText(manifest));
+  if (existsSync(repoTargetPath)) {
+    const target = readJson(repoTargetPath);
+    target.version = version;
+    target.update_sequence = sequence;
+    target.channel = channel;
+    if (manifest.update_repository) target.github = manifest.update_repository;
+    writeAtomic(repoTargetPath, `${JSON.stringify(target, null, 2)}\n`);
+  }
   return inspect();
 }
 

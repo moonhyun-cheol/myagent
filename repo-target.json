@@ -1,0 +1,25 @@
+{
+  "schema": "my-agent-repo-target/v1",
+  "product": "MY Agent",
+  "role": "core",
+  "accepts_legacy_edits": true,
+  "version": "1.0.0-beta.1",
+  "update_sequence": 1,
+  "channel": "beta",
+  "github": "moonhyun-cheol/myagent",
+  "local_folder": "MY_CUSTOM_CODEX",
+  "sibling": {
+    "role": "organization-module",
+    "github": "moonhyun-cheol/myagent-org",
+    "local_folder": "MY_CUSTOM_CODEX-COMPANY",
+    "lookup": "that repo's repo-target.json"
+  },
+  "legacy": {
+    "role": "private-archive",
+    "github": "moonhyun-cheol/CQR_PA",
+    "local_folder": "CQR_PA",
+    "version": "1.4.0-beta.1",
+    "update_sequence": 1,
+    "folder_env": "MY_AGENT_LEGACY_ROOT"
+  }
+}
