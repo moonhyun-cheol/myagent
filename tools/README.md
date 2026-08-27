@@ -13,7 +13,7 @@ tools/
 ├── commands/              # 관리자·배포·복구 BAT 모음
 ├── admin/                 # diagnostics.ps1
 ├── bootstrap-*.ps1        # runtime deps (node, ffmpeg, playwright, oss-sidecars)
-├── install/               # install.ps1 + install-ui.ps1 (install.bat)
+├── install/               # install.ps1 + install-ui.ps1 + install.bat (zip root only)
 ├── update/                # apply-delta.ps1 (UPDATE.bat)
 ├── e2e/                   # Playwright config + ui-smoke.spec.ts
 ├── lab/                   # agent stress, maturity scorecard, fixtures
@@ -37,4 +37,4 @@ tools/
 | Lab full surface | `npm run lab:full-surface` |
 | FPV offline | `npm run fpv:full -- --offline` |
 
-루트 BAT는 최초 설치 `install.bat`과 델타 적용 `UPDATE.bat`만 유지합니다.
+git 루트 BAT는 델타 적용 `UPDATE.bat`만 둡니다. 최초 설치 `install.bat`은 릴리스 zip 루트에만 있습니다.

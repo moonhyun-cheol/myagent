@@ -2,6 +2,20 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
+REM Shipped at the root of MYAgent-v*-install.zip only (publish copies this file).
+REM Git clone / GitHub "Source code (zip)" do not include this BAT at repo root.
+if exist "%~dp0app\MYAgent.exe" goto :path_ok
+if exist "%~dp0MYAgent.exe" goto :path_ok
+echo.
+echo [MY Agent] This folder is source, not the install package.
+echo Download MYAgent-v*-install.zip from the v* GitHub release.
+echo Do not use "Source code (zip)" or a git clone — those have no MYAgent.exe.
+echo Developers: npm start   (or tools\commands\dev-run.bat)
+echo.
+pause
+exit /b 1
+:path_ok
+
 REM Shared folders (Windows Sandbox \\tsclient, UNC, mapped network drives)
 REM break CMD batch CALL ("배치 파일이 아닙니다"). Mirror to local disk first.
 set "NEED_LOCAL="

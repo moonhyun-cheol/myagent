@@ -33,6 +33,10 @@ assert.match(publish, /path\.join\(appDir, 'MYAgent\.exe'\)/);
 assert.match(publish, /cpSync\(publishedExe, productExe\)/);
 assert.match(publish, /MYAgent\.Updater\.exe/);
 assert.match(publish, /publishUpdater/);
+assert.match(publish, /skipExactFiles/);
+assert.match(publish, /'PORT\.md'/);
+assert.match(publish, /'repo-target\.json'/);
+assert.match(publish, /tools', 'install', 'install\.bat'/);
 
 const localBuild = read('tools/build-windows-exe.mjs');
 assert.match(localBuild, /path\.join\(root, 'MYAgent\.exe'\)/);
@@ -42,11 +46,21 @@ assert.match(localBuild, /publishUpdater/);
 
 const packageDoc = JSON.parse(read('package.json'));
 assert.equal(packageDoc.scripts['build:exe'], 'node tools/build-windows-exe.mjs');
+assert.equal(packageDoc.scripts.start, 'node tools/dev-run.mjs');
 
 assert.deepEqual(
   readdirSync(root).filter((name) => name.toLowerCase().endsWith('.bat')).sort(),
-  ['UPDATE.bat', 'install.bat'],
-  'root must expose only install and update BAT files',
+  ['UPDATE.bat'],
+  'root must not expose install.bat (release zip only)',
+);
+assert.equal(existsSync(path.join(root, 'install.bat')), false, 'install.bat belongs in the release zip, not git root');
+const installBat = read('tools/install/install.bat');
+assert.match(installBat, /This folder is source, not the install package/);
+assert.match(installBat, /app\\MYAgent\.exe/);
+assert.ok(
+  installBat.indexOf('This folder is source, not the install package')
+    < installBat.indexOf(':run_install'),
+  'source-tree refusal must run before the installer UI',
 );
 for (const command of [
   'activation-autostart-install.bat',
@@ -60,6 +74,8 @@ for (const command of [
   'reset-first-run.bat',
   'setup-vault.bat',
   'start-legacy.bat',
+  'dev-run.bat',
+  'create-dev-shortcut.bat',
 ]) {
   const body = read(`tools/commands/${command}`);
   assert.match(body, /%~dp0\.\.\\\.\./, `${command} must resolve the project root`);
@@ -72,10 +88,14 @@ assert.match(delta, /path\.join\(stageDir, 'MYAgent\.Updater\.exe'\)/);
 
 const shortcut = read('tools/desktop-shortcut.ps1');
 assert.match(shortcut, /\$shortcut\.TargetPath = \$productExe/);
+assert.match(shortcut, /\[switch\]\$Dev/);
+assert.match(shortcut, /MY Agent Dev\.lnk/);
 assert.doesNotMatch(shortcut, /\$shortcut\.TargetPath = \$powershell/);
 
 const installer = read('tools/install/install.ps1');
-assert.match(installer, /Join-Path \$targetFull 'MYAgent\.exe'/);
+assert.match(installer, /The git clone has no install\.bat/);
+assert.match(installer, /Copy finished but MYAgent\.exe is missing/);
+assert.doesNotMatch(installer, /MYAgent\.exe not found — desktop shortcut was not created/);
 assert.match(installer, /\$shortcut\.TargetPath = \$productExe/);
 assert.match(installer, /Test-IsDriveRoot/);
 assert.match(installer, /Test-IsNewFolderOnDriveRoot/);
@@ -90,8 +110,13 @@ assert.doesNotMatch(
   /Source folder cannot be inside the install target/,
   'must allow install to a parent of the unzipped zip (e.g. C:\\app while zip lives in C:\\app\\MY Agent-*-install-slim\\app)',
 );
+assert.match(installer, /Programs\\MYAgent/);
 
 const installUi = read('tools/install/install-ui.ps1');
+assert.match(installUi, /function Get-ProductInstallDir/);
+assert.match(installUi, /function Remove-EmptyDirIfExists/);
+assert.match(installUi, /\[IO\.Path\]::Combine\(\$t, 'MYAgent'\)/);
+assert.match(installUi, /Programs\\MYAgent/);
 for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
   assert.ok(
     !/[^\x00-\x7F]/.test(m[1]),
@@ -108,6 +133,8 @@ assert.ok(exeBranch >= 0 && legacyLauncher > exeBranch, 'legacy launcher must pr
 const bundleVerify = read('tools/verify-publish-bundle.mjs');
 assert.match(bundleVerify, /path: 'MYAgent\.exe'/);
 assert.match(bundleVerify, /path: 'MYAgent\.Updater\.exe'/);
+assert.match(bundleVerify, /path: '\.gitignore'/);
+assert.match(bundleVerify, /path: '\.github'/);
 
 const updater = read('tools/update/apply-delta.ps1');
 assert.match(updater, /'MYAgent\.exe'/);

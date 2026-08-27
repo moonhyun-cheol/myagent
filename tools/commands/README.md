@@ -15,6 +15,8 @@
 | `reset-first-run.bat` | 사용자 로컬 상태 초기화 |
 | `setup-vault.bat` | 수동 라이선스·키 번들 복사 |
 | `refresh-shortcut.bat` | 바탕화면 바로가기 재생성 |
+| `dev-run.bat` | 개발 실행 (`npm start`) |
+| `create-dev-shortcut.bat` | 바탕화면 MY Agent Dev 바로가기 |
 | `start-legacy.bat` | 이전 BAT 실행 경로 호환 |
 
-설치와 업데이트 진입점은 배포 구조상 각각 루트 `install.bat`, `UPDATE.bat`로 유지합니다.
+`install.bat`은 git 루트에 두지 않습니다. `npm run publish`가 릴리스 zip 루트에만 넣습니다. 설치된 앱의 델타 적용은 `UPDATE.bat`입니다.

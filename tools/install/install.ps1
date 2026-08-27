@@ -152,6 +152,22 @@ if ($resolvedTarget) {
 Write-Host "Source: $source"
 Write-Host "Target: $targetFull"
 
+$productExeSource = Join-Path $source 'MYAgent.exe'
+if (-not (Test-Path -LiteralPath $productExeSource)) {
+  Write-Host 'ERROR: MYAgent.exe is missing from this folder.'
+  Write-Host 'First install needs MYAgent-v*-install.zip from the v* GitHub release.'
+  Write-Host 'Do not use GitHub "Source code (zip)" (that tree has .github and no exe).'
+  Write-Host 'Do not use MYAgent-v*-delta.zip for first install (that file is an update payload).'
+  Write-Host 'The git clone has no install.bat. First install is MYAgent-v*-install.zip from the GitHub release.'
+  if (Test-Path -LiteralPath (Join-Path $source '.github')) {
+    Write-Host 'This folder contains .github — it is source, not the product zip.'
+  }
+  if (Test-Path -LiteralPath (Join-Path $source 'PORT.md')) {
+    Write-Host 'This folder contains PORT.md — developer porting notes, not an installed app.'
+  }
+  exit 1
+}
+
 $sourceUnc = $source.StartsWith('\\') -or $source.ToLowerInvariant().Contains('\tsclient\')
 if (-not $sourceUnc) {
   try {
@@ -319,6 +335,13 @@ if (Test-Path -LiteralPath $bootstrapNpmDeps) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+$productExe = Join-Path $targetFull 'MYAgent.exe'
+if (-not (Test-Path -LiteralPath $productExe)) {
+  Write-Host "ERROR: Copy finished but MYAgent.exe is missing in $targetFull"
+  Write-Host 'The install zip was incomplete, or antivirus removed the executable.'
+  exit 1
+}
+
 $readme = @"
 MY Agent install complete
 =======================
@@ -334,30 +357,25 @@ Slim zip: first install may need internet for Node, ffmpeg, Playwright Chromium,
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
 
-$productExe = Join-Path $targetFull 'MYAgent.exe'
-if (-not (Test-Path -LiteralPath $productExe)) {
-  Write-Warning 'MYAgent.exe not found — desktop shortcut was not created.'
-} else {
-  try {
-    $shortcutScript = Join-Path $targetFull 'tools\desktop-shortcut.ps1'
-    if (Test-Path -LiteralPath $shortcutScript) {
-      & $shortcutScript -Root $targetFull
-    } else {
-      $desktop = [Environment]::GetFolderPath('Desktop')
-      $shortcutPath = Join-Path $desktop 'MY Agent.lnk'
-      $shell = New-Object -ComObject WScript.Shell
-      $shortcut = $shell.CreateShortcut($shortcutPath)
-      $shortcut.TargetPath = $productExe
-      $shortcut.Arguments = ''
-      $shortcut.WorkingDirectory = $targetFull
-      $shortcut.Description = 'MY Agent'
-      $shortcut.WindowStyle = 7
-      $shortcut.Save()
-      Write-Host "Desktop shortcut: $shortcutPath"
-    }
-  } catch {
-    Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
+try {
+  $shortcutScript = Join-Path $targetFull 'tools\desktop-shortcut.ps1'
+  if (Test-Path -LiteralPath $shortcutScript) {
+    & $shortcutScript -Root $targetFull
+  } else {
+    $desktop = [Environment]::GetFolderPath('Desktop')
+    $shortcutPath = Join-Path $desktop 'MY Agent.lnk'
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $productExe
+    $shortcut.Arguments = ''
+    $shortcut.WorkingDirectory = $targetFull
+    $shortcut.Description = 'MY Agent'
+    $shortcut.WindowStyle = 7
+    $shortcut.Save()
+    Write-Host "Desktop shortcut: $shortcutPath"
   }
+} catch {
+  Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
 }
 
 Write-Host ''

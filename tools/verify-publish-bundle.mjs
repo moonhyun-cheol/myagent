@@ -84,6 +84,33 @@ for (const c of checks) {
   failed++;
 }
 
+const stageInstallBat = path.join(appDir, '..', 'install.bat');
+if (existsSync(stageInstallBat)) {
+  console.log('  OK   zip-root install.bat');
+} else {
+  console.error('  FAIL zip-root install.bat — missing next to app\\');
+  failed++;
+}
+
+const forbidden = [
+  { id: 'no_github', path: '.github', label: 'GitHub workflow tree must not ship in install zip' },
+  { id: 'no_gitignore', path: '.gitignore', label: '.gitignore must not ship in install zip' },
+  { id: 'no_port_md', path: 'PORT.md', label: 'PORT.md must not ship in install zip' },
+  { id: 'no_repo_target', path: 'repo-target.json', label: 'repo-target.json must not ship in install zip' },
+  { id: 'no_activation_server', path: 'activation-server', label: 'activation-server must not ship in install zip' },
+  { id: 'no_build_dir', path: '.build', label: '.build must not ship in install zip' },
+];
+
+for (const c of forbidden) {
+  const full = path.join(appDir, c.path);
+  if (existsSync(full)) {
+    console.error(`  FAIL ${c.label} — present: ${c.path}`);
+    failed++;
+  } else {
+    console.log(`  OK   ${c.label}`);
+  }
+}
+
 const deployPath = path.join(appDir, 'core/config/defaults/deploy-defaults.json');
 if (existsSync(deployPath)) {
   const deploy = JSON.parse(readFileSync(deployPath, 'utf8'));

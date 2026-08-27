@@ -4,16 +4,31 @@
 
 Windows 온프렘 코딩 에이전트. 화면은 `ui/workspace` 하나, 시작점은 `MYAgent.exe`.
 
+## 직원 PC (설치)
+
+GitHub 릴리스 **[v1.0.0-beta.1](https://github.com/moonhyun-cheol/myagent/releases/tag/v1.0.0-beta.1)** 의 **`MYAgent-v*-install.zip`만** 받습니다.
+
+- zip 루트에 `install.bat` + `app\` 가 있습니다. 압축 해제 후 `install.bat`을 실행합니다 (관리자 권한 없이).
+- `Code → Download ZIP` / 릴리스의 **Source code (zip)** / git clone 은 설치 패키지가 아닙니다. exe가 없고 `install.bat`도 없습니다.
+
+설치 폴더: `%LOCALAPPDATA%\Programs\MYAgent`.
+
+## 개발 PC (클론)
+
+```
+git clone https://github.com/moonhyun-cheol/myagent.git
+cd myagent
+npm start
+```
+
+또는 `tools\commands\create-dev-shortcut.bat`으로 바탕화면 **MY Agent Dev** 바로가기를 만듭니다.
+
 | | |
 |---|---|
 | 창 | `shell/CqrPa.Shell/` |
 | API | `core/src/` |
 | UI | `ui/workspace/` |
-| 설치 | [README-설치.txt](README-설치.txt) |
-| 1.4 보관본 이식 | [PORT.md](PORT.md) |
 | 조직 모듈 | [`myagent-org`](https://github.com/moonhyun-cheol/myagent-org) |
-
-설치 폴더: `%LOCALAPPDATA%\Programs\MYAgent`. 개발은 `npm install` → `npm run build` → `npm run build:exe`.
 
 ## 업데이트 (두 갈래)
 
