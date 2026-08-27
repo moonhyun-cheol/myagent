@@ -8,6 +8,9 @@ const {
   parseNopsUserLogName,
   pickLocalNopsUserId,
   attachLocalNopsUserId,
+  logDirsFromNopsExeDir,
+  listGoodAppNopsLogDirs,
+  readLocalNopsUserId,
 } = await import(pathToFileURL(path.join(root, 'core/dist/automaton/local-nops-user-id.js')).href);
 
 assert.deepEqual(parseNopsUserLogName('2026-08-27_INS78516.Log'), {
@@ -55,5 +58,12 @@ assert.equal(args.nopspro_user_id, 'JEWEL9505');
 const emptyArgs = {};
 const emptyReq = attachLocalNopsUserId({ platform: 'my_agent', args: emptyArgs }, emptyArgs, '');
 assert.equal(emptyReq.nopspro_user_id, undefined);
+
+assert.equal(
+  logDirsFromNopsExeDir('D:\\Company\\NOPSPro')[0],
+  'D:\\Company\\NOPSPro\\NOPSPro\\LogFiles',
+);
+assert.ok(listGoodAppNopsLogDirs().includes('D:\\GoodApp\\NOPSPro\\NOPSPro\\LogFiles'));
+assert.equal(readLocalNopsUserId(path.join(root, 'no-such-nops-logs')), '');
 
 console.log('OK local-nops-user-id');

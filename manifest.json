@@ -3,7 +3,7 @@
   "version": "1.0.0-beta.1",
   "build": "beta",
   "update_channel": "beta",
-  "update_sequence": 2,
+  "update_sequence": 3,
   "minimum_supported_sequence": 1,
   "update_repository": "moonhyun-cheol/myagent",
   "update_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/beta.json",
