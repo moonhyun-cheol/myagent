@@ -2,7 +2,7 @@
   "schema": "my-agent-repo-target/v1",
   "product": "MY Agent",
   "role": "core",
-  "accepts_legacy_edits": true,
+  "accepts_legacy_edits": false,
   "version": "1.0.0-beta.1",
   "update_sequence": 2,
   "channel": "beta",
