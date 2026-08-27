@@ -25,6 +25,8 @@ const COMPANY_MARKER_ALLOWLIST = new Set([
   'PORT.md',
   'repo-target.json',
   'tools/port-status.mjs',
+  'core/config/defaults/deploy-defaults.json',
+  'tools/verify-brand-manual-context.mjs',
 ]);
 const MAX_TEXT_BYTES = 5 * 1024 * 1024;
 const TEXT_EXT = /\.(?:bat|cjs|cs|csproj|css|html|js|json|jsx|md|mjs|ps1|ts|tsx|txt|xaml|xml|ya?ml)$/i;
