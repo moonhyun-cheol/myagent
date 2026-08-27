@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 2,
+    "update_sequence": 3,
     "minimum_supported_sequence": 1,
     "version": "1.0.0-beta.1",
     "channel": "beta",
-    "published_at": "2026-08-27T03:03:55.974Z",
+    "published_at": "2026-08-27T05:53:27.253Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-2",
+      "release_tag": "update-3",
       "name": "MYAgent-v1.0.0-beta.1-delta.zip",
-      "size": 193891421,
-      "sha256": "f89876351e549d2ba807ff1fc3d50827df13b74a39e716877fb1883ce82bdd6d"
+      "size": 193888272,
+      "sha256": "754f86959c60a92e8ebabce74c31e0b7128d1bf11670a7c3538948ede55bd69e"
     },
-    "payload_manifest_sha256": "f7734e48c9aebbf6c4471e5fc79ae3d38ba8b6313db06c3db648690855a7cf72",
-    "release_notes": "1.0.0-beta.1 seq 2: install.bat path quoting fix."
+    "payload_manifest_sha256": "5a7bc84d2d7cf70ed3752ec65ead86dc560307fe5efab04ffa0eaf52c6259189",
+    "release_notes": "1.0.0-beta.1 seq 3: Gate requests include same-PC NOPS login id (nopspro_user_id)."
   },
-  "signature": "kU2kjviu4d5RDh+D3CkBoA5RTNs3Q4IgZXCcDEO848kt+yI9lRrV0ZJO9QeTH//a67MiAoJZLgG4b8aV3NWkkpiNwHwII73w1Mcqcod4WoZ11yB9pW13/y6laf38uj1Sl4DkRcJO8KPhADuZbEgsZwGJGkSpx1fgMZdZv3jyqFn2I5o5NuC3SkC3PWuSY+vRWbqIO18/AFvZmgF/y+khunDHByt6JgbDjYebtPMkqBq7H9Azyk36m1H5OCC1JUO120K4osM+ryaBkNdcDYWV0eeBkR7Ixs+UhFq17KqSUmHb6C2uYbD1VDfBfwZ76VYWz2z4mNWGAMyaRfYkhKEQNdJ/u+mxbaPni8jPrUiZO074VyfwfTCnBwrSccgBCEnHIdHm+oHT0MofzvlT2qLAUsgVPOph99ewsMQPwiAoaIyogaqe9R7YxNS/Qln9wqKrOyEVQxNMLR5W5jVJ1uf9vaxgAdlWsGljwUpog4SOSsfrJ8bVHSyjlHJWre0P4sS2"
+  "signature": "d9NyHTjiTxDlEazZJFnjn50lnVq0q7omj98TVVBi68CF5/x9qc45aNZZN70EVORx2ZNWdRApaKBiLFb00EHPdBuxuqhibvPDNKYTkjDbwyymbBK+2J0E8v9HXNskopzBn4zDJKkWVNqgsgIrM7GOa9BaM/l0eG/jeQP4Qz+ngiZOKGOR20Jn4gZ2twrKHvISnUeDIN/gB0BeLIXwXY6XjCclErMktXFjgda7kXL25EeO+F9rH3Z7oPOeoigGnuwsPfnC5cwNxdlVtYcUedkwuzB4xTu6KCsWf171tudeA+FQ0Jw4yCRqrOgfipR2ynijqYCIXUlGnl5co9Ra2rWlk2f+SWsJoDw8QzgSxwlv75Up4KKCT7ooOG5Ha7vR/lS+HjPGH6TtsECAFl4yrKgL/ecIyCDP3ZDXB4FtIm3m40Lzfj84FxKYSRzCg4xeHsm7oFwZpp8xdUfu7++ouaaRSXvCiRGDLx26/QEgkmtTvLSBZbYfYYOlUQD1md2bb6tD"
 }
