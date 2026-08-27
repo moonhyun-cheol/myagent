@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-26T07:34:27.192Z",
+  "generated_at": "2026-08-27T00:53:08.719Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -38,9 +38,10 @@
       "/projects",
       "/workspace",
       "/error-report",
+      "/organization-module",
       "/assets/"
     ],
-    "route_count": 74,
+    "route_count": 78,
     "routes": [
       {
         "method": "GET",
@@ -305,6 +306,26 @@
       {
         "method": "POST",
         "path": "/models/upload",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/organization-module",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/organization-module/apply",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/organization-module/check",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/organization-module/install",
         "match": "exact"
       },
       {

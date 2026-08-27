@@ -338,7 +338,7 @@ export function GeminiNavSidebar() {
 
             <div className="space-y-1.5">
               {skills.map((s) => (
-                <div key={s.id} className="rounded-xl border border-line bg-ink/60 p-2.5">
+                <div key={`${s.source}:${s.id}`} className="rounded-xl border border-line bg-ink/60 p-2.5">
                   <div className="mb-1.5 flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-medium text-text">{s.label}</p>
@@ -348,10 +348,12 @@ export function GeminiNavSidebar() {
                       className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] ${
                         s.source === 'bundled'
                           ? 'bg-line text-muted'
-                          : 'bg-accent/15 text-accent'
+                          : s.source === 'organization'
+                            ? 'bg-accent/15 text-accent'
+                            : 'bg-accent/15 text-accent'
                       }`}
                     >
-                      {s.source === 'bundled' ? '번들' : '사용자'}
+                      {s.source === 'bundled' ? '번들' : s.source === 'organization' ? '조직' : '사용자'}
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-1">

@@ -54,7 +54,17 @@ import {
   isBundledSkillId,
   getSkillSystemPromptByMode,
 } from '../skills/skill-registry.js';
+import { getOrganizationSkillDef } from '../skills/organization-skill-store.js';
 import { UserSkillError } from '../skills/user-skill-store.js';
+import {
+  describeOrganizationModuleStatus,
+  installOrganizationModule,
+  OrganizationModuleError,
+} from '../updates/organization-module-installer.js';
+import {
+  applyOrganizationModuleUpdate,
+  checkOrganizationModuleUpdate,
+} from '../updates/organization-module-feed.js';
 import {
   installAgentPlugin,
   installAgentPluginFromTemplate,
@@ -151,6 +161,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/projects',
     '/workspace',
     '/error-report',
+    '/organization-module',
     '/assets/',
   ];
   return roots.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
@@ -1682,6 +1693,62 @@ export async function dispatchApiRequest(
         });
       }
 
+      if (method === 'GET' && url.pathname === '/organization-module') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, describeOrganizationModuleStatus(cqrRoot));
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/check') {
+        license.assertFeature('chat');
+        try {
+          const update = await checkOrganizationModuleUpdate(cqrRoot);
+          return sendJson(res, 200, { update });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/apply') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const installed = await applyOrganizationModuleUpdate(cqrRoot);
+          return sendJson(res, 200, { installed });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/install') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as { zip_path?: string };
+          if (!body.zip_path?.trim()) {
+            return sendJson(res, 400, {
+              error: 'MODULE_ZIP_PATH_REQUIRED',
+              message: '회사 팩 ZIP 파일 경로를 입력하세요.',
+            });
+          }
+          const result = installOrganizationModule({
+            cqrRoot,
+            zipPath: body.zip_path.trim().replace(/^"|"$/g, ''),
+          });
+          return sendJson(res, 201, { installed: result.installed });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
       if (method === 'POST' && url.pathname === '/skills/import') {
         license.assertWritable();
         license.assertFeature('chat');
@@ -1717,6 +1784,20 @@ export async function dispatchApiRequest(
             const prompt = getSkillSystemPromptByMode(bundled.mode, cqrRoot);
             return sendJson(res, 200, { ...bundled, prompt: prompt ?? '' });
           }
+          const orgDef = getOrganizationSkillDef(skillId, cqrRoot);
+          if (orgDef) {
+            const prompt = getSkillSystemPromptByMode(orgDef.mode, cqrRoot);
+            return sendJson(res, 200, {
+              id: skillId,
+              label: orgDef.label,
+              mode: orgDef.mode,
+              source: 'organization',
+              editable: false,
+              removable: false,
+              feature: orgDef.feature,
+              prompt: prompt ?? '',
+            });
+          }
           const rec = userSkillStore.get(skillId);
           if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
           return sendJson(res, 200, {
@@ -1742,6 +1823,9 @@ export async function dispatchApiRequest(
           if (isBundledSkillId(skillId)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_READONLY' });
           }
+          if (getOrganizationSkillDef(skillId, cqrRoot)) {
+            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_READONLY' });
+          }
           try {
             const body = JSON.parse(await readBody(req)) as {
               label?: string;
@@ -1764,6 +1848,9 @@ export async function dispatchApiRequest(
           if (isBundledSkillId(skillId)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_READONLY' });
           }
+          if (getOrganizationSkillDef(skillId, cqrRoot)) {
+            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_READONLY' });
+          }
           const ok = userSkillStore.delete(skillId);
           return sendJson(res, ok ? 200 : 404, { ok });
         }
@@ -1782,6 +1869,9 @@ export async function dispatchApiRequest(
           };
           if (isBundledSkillId(body.id)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_ID' });
+          }
+          if (getOrganizationSkillDef(body.id, cqrRoot)) {
+            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_ID' });
           }
           const rec = userSkillStore.create(body);
           return sendJson(res, 201, rec);

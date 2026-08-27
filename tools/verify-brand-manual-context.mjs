@@ -45,11 +45,35 @@ try {
   assert.equal(unrelated, null);
   assert.equal(fetchCount, 1, 'unrelated requests must not fetch the manual');
 
+  const moduleRoot = mkdtempSync(path.join(tmpdir(), 'my-agent-brand-manual-mod-'));
+  mkdirSync(path.join(moduleRoot, 'modules', 'organization'), { recursive: true });
+  writeFileSync(
+    path.join(moduleRoot, 'modules', 'organization', 'module.json'),
+    JSON.stringify({
+      kind: 'organization-module',
+      brand_manual_url: 'http://192.168.1.248:8080/api/brand-manual/current.md',
+    }),
+  );
+  delete process.env.MY_AGENT_BRAND_MANUAL_URL;
+  clearBrandManualCacheForTests();
+  globalThis.fetch = async (url) => {
+    fetchCount += 1;
+    assert.equal(String(url), 'http://192.168.1.248:8080/api/brand-manual/current.md');
+    return new Response('# Live CQR Manual\nPURPOSE ABOVE ALL');
+  };
+  const fromModule = await loadBrandManualContext(moduleRoot, {
+    userMessage: '제품 방향',
+    systemPrompt: 'ORGANIZATION_BRAND_CONTEXT',
+  });
+  assert.match(fromModule ?? '', /192\.168\.1\.248:8080\/api\/brand-manual\/current\.md/);
+  assert.match(fromModule ?? '', /PURPOSE ABOVE ALL/);
+  rmSync(moduleRoot, { recursive: true, force: true });
+
   process.env.MY_AGENT_BRAND_MANUAL_URL = 'off';
   clearBrandManualCacheForTests();
   const disabled = await loadBrandManualContext(root, { userMessage: '브랜드 매뉴얼 정보' });
   assert.equal(disabled, null);
-  assert.equal(fetchCount, 1, 'the environment override can disable the source');
+  assert.equal(fetchCount, 2, 'the environment override can disable the source');
 
   console.log('verify-brand-manual-context: PASS');
 } finally {

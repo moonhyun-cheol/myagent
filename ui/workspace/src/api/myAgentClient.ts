@@ -103,7 +103,7 @@ export interface SkillListItem {
   id: string;
   label: string;
   mode: string;
-  source: 'bundled' | 'user';
+  source: 'bundled' | 'user' | 'organization';
   editable: boolean;
   removable?: boolean;
   install_kind?: 'prompt' | 'package';
@@ -810,6 +810,56 @@ export async function listSkills(): Promise<SkillListItem[]> {
   if (!res.ok) throw new Error(`스킬 목록 실패 (${res.status})`);
   const data = await res.json();
   return (data.skills ?? []) as SkillListItem[];
+}
+
+export interface OrganizationModuleStatus {
+  installed: {
+    id: string;
+    version: string;
+    update_sequence: number;
+    required_core_api: string;
+    update_feed_url?: string;
+    capabilities: string[];
+    root: string;
+  } | null;
+}
+
+export interface OrganizationModuleUpdate {
+  sequence: number;
+  version: string;
+  channel: string;
+  assetName: string;
+  feedUrl: string;
+}
+
+export async function fetchOrganizationModule(): Promise<OrganizationModuleStatus> {
+  const res = await fetch('/organization-module');
+  if (!res.ok) throw new Error(`조직 모듈 상태 실패 (${res.status})`);
+  return (await res.json()) as OrganizationModuleStatus;
+}
+
+export async function checkOrganizationModule(): Promise<OrganizationModuleUpdate | null> {
+  const res = await fetch('/organization-module/check', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `조직 모듈 확인 실패 (${res.status})`);
+  return (data.update ?? null) as OrganizationModuleUpdate | null;
+}
+
+export async function applyOrganizationModule(): Promise<void> {
+  const res = await fetch('/organization-module/apply', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `조직 모듈 업데이트 실패 (${res.status})`);
+}
+
+export async function installOrganizationModule(zipPath: string): Promise<OrganizationModuleStatus['installed']> {
+  const res = await fetch('/organization-module/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ zip_path: zipPath }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `회사 팩 설치 실패 (${res.status})`);
+  return (data.installed ?? null) as OrganizationModuleStatus['installed'];
 }
 
 export async function fetchSkill(id: string): Promise<SkillListItem> {

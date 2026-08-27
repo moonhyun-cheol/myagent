@@ -13,7 +13,9 @@ tools/keys/*.txt
 !tools/keys/*.example
 !tools/keys/*.example.*
 
-# ===== 로컬 사용자 데이터 =====
+data/backups/
+modules/organization/
+.module-staging/
 data/sessions/
 data/webview-user-data/
 data/attachments/

@@ -1,10 +1,11 @@
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
+import { resolveOrganizationBrandManualUrl } from '../skills/organization-module-root.js';
 
 const BRAND_REQUEST_RE = /브랜드\s*(?:매뉴얼|가이드|가이드라인)|brand\s*(?:manual|guidelines?)/i;
 const BRAND_SKILL_RE = /ORGANIZATION_BRAND_CONTEXT/i;
 const DEFAULT_TTL_MS = 5 * 60_000;
-const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_MAX_CHARS = 48_000;
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_CHARS = 100_000;
 
 type CachedManual = {
   content: string;
@@ -51,6 +52,14 @@ async function fetchManual(
   return markdown.slice(0, maxChars);
 }
 
+function resolveBrandManualUrl(cqrRoot: string): string | undefined {
+  const deploy = loadDeployDefaults(cqrRoot);
+  if (process.env.MY_AGENT_BRAND_MANUAL_URL !== undefined) {
+    return deploy.brand_manual_url?.trim() || undefined;
+  }
+  return resolveOrganizationBrandManualUrl(cqrRoot) || deploy.brand_manual_url?.trim() || undefined;
+}
+
 export async function loadBrandManualContext(
   cqrRoot: string | undefined,
   input: {
@@ -64,7 +73,7 @@ export async function loadBrandManualContext(
 ): Promise<string | null> {
   if (!cqrRoot || !needsBrandManual(input.userMessage, input.systemPrompt)) return null;
 
-  const url = loadDeployDefaults(cqrRoot).brand_manual_url?.trim();
+  const url = resolveBrandManualUrl(cqrRoot);
   if (!url) return null;
 
   const cached = manualCache.get(url);

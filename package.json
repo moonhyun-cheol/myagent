@@ -69,6 +69,8 @@
     "verify:domain-registry": "node tools/verify-domain-registry.mjs",
     "verify:prompt-master-target": "node tools/verify-prompt-master-target.mjs",
     "verify:skills": "node tools/verify-skills.mjs",
+    "install:organization-module": "node tools/install-organization-module.mjs",
+    "verify:organization-module": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-organization-module.mjs",
     "verify:skill-packages": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-skill-packages.mjs",
     "verify:harness-goldens": "node tools/verify-harness-goldens.mjs",
     "verify:embedding-cold": "node tools/verify-embedding-cold.mjs",

@@ -1,8 +1,17 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { UserSkillStore, isUserSkillMode, parseUserSkillId, userSkillMode } from './user-skill-store.js';
+import { resolveOrganizationModuleRoot } from './organization-module-root.js';
+import {
+  getOrganizationSkillDef,
+  isOrgSkillMode,
+  listOrganizationSkillDefs,
+  overlayBrandFiles,
+  parseOrgSkillId,
+} from './organization-skill-store.js';
+
+export { resolveOrganizationModuleRoot, resolveOrganizationBrandManualUrl } from './organization-module-root.js';
 
 export interface SkillDef {
   label: string;
@@ -26,7 +35,7 @@ export interface SkillListItem {
   id: string;
   label: string;
   mode: string;
-  source: 'bundled' | 'user';
+  source: 'bundled' | 'user' | 'organization';
   editable: boolean;
   removable?: boolean;
   install_kind?: 'prompt' | 'package';
@@ -50,20 +59,6 @@ function defaultsDir(): string {
   return candidates[0];
 }
 
-export function resolveOrganizationModuleRoot(cqrRoot: string): string | null {
-  const env = process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT?.trim();
-  if (env && existsSync(env)) return path.resolve(env);
-
-  const bundled = path.join(cqrRoot, 'modules', 'organization');
-  if (existsSync(bundled)) return path.resolve(bundled);
-
-  const deploy = loadDeployDefaults(cqrRoot);
-  const configured = deploy.organization_module_root?.trim();
-  if (configured && existsSync(configured)) return path.resolve(configured);
-
-  return null;
-}
-
 function loadManifest(): SkillsManifest {
   const manifestPath = path.join(defaultsDir(), 'skills', 'manifest.json');
   if (!existsSync(manifestPath)) {
@@ -84,6 +79,14 @@ function readPromptFile(filePath: string): string | null {
 export function getSkillDef(skillId: string): SkillDef | null {
   const manifest = loadManifest();
   return manifest.skills[skillId] ?? null;
+}
+
+function effectiveBundledDef(skillId: string, cqrRoot: string): SkillDef | null {
+  const def = getSkillDef(skillId);
+  if (!def) return null;
+  const brandFiles = overlayBrandFiles(skillId, cqrRoot);
+  if (!brandFiles) return def;
+  return { ...def, brand_files: brandFiles };
 }
 
 /**
@@ -129,7 +132,7 @@ export function getSkillSystemPrompt(
   cqrRoot: string,
   opts?: { tier?: 'slim' | 'full' },
 ): string | null {
-  const def = getSkillDef(skillId);
+  const def = effectiveBundledDef(skillId, cqrRoot) ?? getOrganizationSkillDef(skillId, cqrRoot);
   if (!def) return null;
 
   const { parts } = loadSkillPromptParts(def, cqrRoot);
@@ -170,16 +173,20 @@ export function listSkillModes(): string[] {
   return Object.values(manifest.skills).map((s) => s.mode);
 }
 
-export function skillIdForMode(mode: string): string | null {
+export function skillIdForMode(mode: string, cqrRoot?: string): string | null {
   const manifest = loadManifest();
   for (const [id, def] of Object.entries(manifest.skills)) {
     if (def.mode === mode) return id;
+  }
+  if (cqrRoot) {
+    const orgId = parseOrgSkillId(mode);
+    if (orgId && getOrganizationSkillDef(orgId, cqrRoot)) return orgId;
   }
   return null;
 }
 
 export function resolvePipelineScript(skillId: string, cqrRoot: string): string | null {
-  const def = getSkillDef(skillId);
+  const def = getSkillDef(skillId) ?? getOrganizationSkillDef(skillId, cqrRoot);
   if (!def?.pipeline_script) return null;
   const brandRoot = resolveOrganizationModuleRoot(cqrRoot);
   if (!brandRoot) return null;
@@ -205,6 +212,15 @@ export function listBundledSkills(): SkillListItem[] {
 
 export function listAllSkills(cqrRoot: string): SkillListItem[] {
   const bundled = listBundledSkills();
+  const organization = listOrganizationSkillDefs(cqrRoot).map(({ id, def }) => ({
+    id,
+    label: def.label,
+    mode: def.mode,
+    source: 'organization' as const,
+    editable: false,
+    removable: false,
+    feature: def.feature,
+  }));
   const user = userSkillStore(cqrRoot)
     .list()
     .map((rec) => ({
@@ -218,7 +234,7 @@ export function listAllSkills(cqrRoot: string): SkillListItem[] {
       description: rec.description,
       file_count: rec.file_count,
     }));
-  return [...bundled, ...user];
+  return [...bundled, ...organization, ...user];
 }
 
 export function isBundledSkillId(id: string): boolean {
@@ -235,7 +251,12 @@ export function getSkillSystemPromptByMode(
     if (!userId) return null;
     return userSkillStore(cqrRoot).readPrompt(userId);
   }
-  const skillId = skillIdForMode(mode);
+  if (isOrgSkillMode(mode)) {
+    const orgId = parseOrgSkillId(mode);
+    if (!orgId) return null;
+    return getSkillSystemPrompt(orgId, cqrRoot, opts);
+  }
+  const skillId = skillIdForMode(mode, cqrRoot);
   if (!skillId) return null;
   return getSkillSystemPrompt(skillId, cqrRoot, opts);
 }
