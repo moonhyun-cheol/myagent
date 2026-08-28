@@ -20,6 +20,7 @@ for (const f of [licPath, keysPath, bundlePath, activation]) {
 }
 
 process.env.MY_AGENT_ROOT = root;
+process.env.MY_AGENT_LICENSE_ENFORCEMENT = '1';
 const build = spawnSync(process.execPath, [path.join(root, 'tools', 'build.mjs')], {
   cwd: root,
   stdio: 'inherit',

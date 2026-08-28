@@ -12,6 +12,8 @@ export interface DeployDefaults {
   openwebui_default_model?: string;
   activation_server_url?: string;
   activation_token?: string;
+  /** When true, require a signed license.ocx. Default false — OpenRouter keys are the access control. */
+  license_enforcement?: boolean;
   organization_module_root?: string;
   /** Optional organization brand manual markdown. */
   brand_manual_url?: string;

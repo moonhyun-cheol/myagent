@@ -4,6 +4,7 @@
   "openrouter_base_url": "https://openrouter.ai/api/v1",
   "openrouter_default_model": "",
   "activation_token": "",
+  "license_enforcement": false,
   "openclaw_adapter_base_url": "",
   "openclaw_adapter_token": "",
   "openclaw_gate_signing_private_key": "",

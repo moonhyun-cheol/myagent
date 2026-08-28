@@ -39,6 +39,7 @@ for (const f of [
 }
 
 process.env.MY_AGENT_ROOT = root;
+process.env.MY_AGENT_LICENSE_ENFORCEMENT = '1';
 // This step verifies the manual license/bundle import flow, so central auto-activation
 // must stay off even when deploy-defaults points at a reachable activation server.
 process.env.CQR_ACTIVATION_SERVER_URL = 'off';

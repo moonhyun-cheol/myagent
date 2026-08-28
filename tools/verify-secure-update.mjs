@@ -21,7 +21,7 @@ import {
   sha256Bytes,
   verifySignedEnvelope,
 } from './update/update-signing.mjs';
-import { buildGitHubReleasePlan } from './update/github-release-plan.mjs';
+import { buildGitHubReleasePlan, formatGitHubInstallTitle } from './update/github-release-plan.mjs';
 
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-secure-update-'));
 
@@ -113,6 +113,13 @@ try {
     releaseNotes: 'Fixture release',
   });
   assert.equal(releasePlan.tag, 'update-7');
+  assert.equal(releasePlan.title, 'MY Agent 0.9.1-beta (update 7)');
+  assert.equal(releasePlan.release_args.includes('MY Agent 0.9.1-beta (update 7)'), true);
+  assert.match(
+    releasePlan.release_args.join('\n'),
+    /Clients follow update_sequence, not SemVer/,
+  );
+  assert.equal(formatGitHubInstallTitle('1.0.1'), 'MY Agent 1.0.1 (install)');
   assert.equal(
     releasePlan.raw_feed_url,
     'https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/beta.json',

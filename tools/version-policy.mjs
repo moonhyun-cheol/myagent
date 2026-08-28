@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+/**
+ * Version vs sequence (ADR-RE-003):
+ * - update_sequence +1 on every signed client zip. Never reuse or roll back.
+ * - SemVer patch/minor/major only when user-facing meaning changes.
+ * - Public label is always `MY Agent {version} (update {N})`.
+ * - Updater compares sequence only, never SemVer.
+ */
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,9 +53,15 @@ function validateVersion(version, channel) {
   }
 }
 
+function publicLabel(version, sequence) {
+  return `MY Agent ${version} (update ${sequence})`;
+}
+
 function expectedVersionText(manifest) {
+  const version = String(manifest.version ?? '').trim();
+  const sequence = Number(manifest.update_sequence);
   return [
-    `${manifest.name ?? 'MY Agent'} ${manifest.update_channel} v${manifest.version}`,
+    publicLabel(version, sequence),
     `update_sequence: ${manifest.update_sequence}`,
     `channel: ${manifest.update_channel}`,
     '',
@@ -91,7 +104,14 @@ function inspect() {
   if (String(manifest.update_feed_url ?? '') !== expectedFeed) {
     mismatches.push(`update_feed_url=${manifest.update_feed_url}`);
   }
-  return { version, channel, update_sequence: sequence, consistent: mismatches.length === 0, mismatches };
+  return {
+    version,
+    channel,
+    update_sequence: sequence,
+    public_label: publicLabel(version, sequence),
+    consistent: mismatches.length === 0,
+    mismatches,
+  };
 }
 
 function writeAtomic(file, body) {

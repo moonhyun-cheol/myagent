@@ -16,6 +16,30 @@ export function validateGitHubBranch(branch) {
   return value;
 }
 
+export function formatGitHubReleaseTitle(version, updateSequence) {
+  const safeVersion = String(version ?? '').trim();
+  if (!safeVersion) throw new Error('version is required');
+  if (!Number.isSafeInteger(updateSequence) || updateSequence < 1) {
+    throw new Error('update sequence must be a positive safe integer');
+  }
+  return `MY Agent ${safeVersion} (update ${updateSequence})`;
+}
+
+export function formatGitHubInstallTitle(version) {
+  const safeVersion = String(version ?? '').trim();
+  if (!safeVersion) throw new Error('version is required');
+  return `MY Agent ${safeVersion} (install)`;
+}
+
+export function formatGitHubReleaseNotes({ version, updateSequence, releaseNotes = '' }) {
+  const title = formatGitHubReleaseTitle(version, updateSequence);
+  const policy = 'Clients follow update_sequence, not SemVer.';
+  const body = String(releaseNotes ?? '').trim();
+  if (!body) return `${title}\n\n${policy}`;
+  if (body.startsWith(title)) return body;
+  return `${title}\n\n${policy}\n\n${body}`;
+}
+
 export function buildGitHubReleasePlan({
   repository,
   defaultBranch,
@@ -36,6 +60,12 @@ export function buildGitHubReleasePlan({
   const safeVersion = String(version ?? '').trim();
   if (!safeVersion) throw new Error('version is required');
   const tag = `update-${updateSequence}`;
+  const title = formatGitHubReleaseTitle(safeVersion, updateSequence);
+  const notes = formatGitHubReleaseNotes({
+    version: safeVersion,
+    updateSequence,
+    releaseNotes,
+  });
   const zipName = path.basename(zipPath);
   const feedName = path.basename(feedPath);
   if (!zipName.toLowerCase().endsWith('.zip')) throw new Error('release payload must be a zip');
@@ -52,9 +82,9 @@ export function buildGitHubReleasePlan({
     '--repo',
     repo,
     '--title',
-    `MY Agent ${safeVersion}`,
+    title,
     '--notes',
-    releaseNotes || `MY Agent ${safeVersion} secure update`,
+    notes,
   ];
   if (safeChannel !== 'stable') releaseArgs.push('--prerelease');
 
@@ -65,6 +95,7 @@ export function buildGitHubReleasePlan({
     update_sequence: updateSequence,
     version: safeVersion,
     tag,
+    title,
     release_args: releaseArgs,
     feed_api_path: `repos/${repo}/contents/channels/${safeChannel}.json`,
     feed_branch: branch,

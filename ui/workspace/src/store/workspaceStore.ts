@@ -355,6 +355,7 @@ interface WorkspaceState {
   skillMode: string | null;
   skillLabel: string | null;
   licenseMode: string | null;
+  licenseEnforced: boolean;
   pendingAttachments: PendingAttachment[];
   /** Composer @ chips — workspace relative paths. */
   pendingContextPaths: string[];
@@ -380,6 +381,7 @@ interface WorkspaceState {
   refreshModelPicker: (refreshRemote?: boolean) => Promise<number>;
   setApiStatus: (online: boolean, error?: string | null) => void;
   setLicenseMode: (mode: string | null) => void;
+  setLicenseEnforced: (enforced: boolean) => void;
   setPreviewPaneOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   clearTerminalAttention: () => void;
@@ -977,6 +979,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     skillMode: null,
     skillLabel: null,
     licenseMode: null,
+    licenseEnforced: false,
     pendingAttachments: [],
     pendingContextPaths: [],
     streamAbort: null,
@@ -1095,6 +1098,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
     setLicenseMode: (licenseMode) => set({ licenseMode }),
+    setLicenseEnforced: (licenseEnforced) => set({ licenseEnforced }),
     setPreviewPaneOpen: (previewPaneOpen) => set({ previewPaneOpen }),
     setTerminalOpen: (terminalOpen) => {
       try {

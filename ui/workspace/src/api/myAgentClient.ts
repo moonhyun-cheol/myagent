@@ -262,6 +262,7 @@ export interface LicenseStatusPayload {
   org_id?: string;
   expires_at?: string;
   valid?: boolean;
+  enforced?: boolean;
 }
 
 export async function fetchLicense(): Promise<LicenseStatusPayload> {
@@ -275,6 +276,7 @@ export async function fetchLicense(): Promise<LicenseStatusPayload> {
     org_id: data.org_id,
     expires_at: data.expires_at,
     valid: data.valid,
+    enforced: data.enforced === true,
   };
 }
 

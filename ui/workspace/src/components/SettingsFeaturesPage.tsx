@@ -176,7 +176,7 @@ export function SettingsFeaturesPage({ readOnly }: SettingsFeaturesPageProps) {
       </section>
 
       <section className="mb-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <h3 className="font-semibold">라이선스로 열리는 기능</h3>
+        <h3 className="font-semibold">포함된 기능</h3>
         <p className="mb-3 mt-0.5 text-xs text-muted">프로그램은 이미 들어 있습니다. 이름을 누르면 설명을 봅니다.</p>
         <ul className="grid gap-2 sm:grid-cols-2">
           {(doc?.catalog.license_features ?? []).map((item) => (

@@ -6,7 +6,7 @@ import { LicenseImportPanel } from './LicenseImportPanel';
 export function LicenseGate() {
   const licenseMode = useWorkspaceStore((state) => state.licenseMode);
   const setLicenseMode = useWorkspaceStore((state) => state.setLicenseMode);
-  const [activating, setActivating] = useState(true);
+  const setLicenseEnforced = useWorkspaceStore((state) => state.setLicenseEnforced);
   const [activationError, setActivationError] = useState('');
 
   useEffect(() => {
@@ -25,28 +25,21 @@ export function LicenseGate() {
           }
         }
         const license = await fetchLicense();
-        if (!cancelled) setLicenseMode(license.mode ?? null);
+        if (!cancelled) {
+          setLicenseMode(license.mode ?? null);
+          setLicenseEnforced(license.enforced === true);
+        }
       } catch {
-        if (!cancelled) setLicenseMode(null);
-      } finally {
-        if (!cancelled) setActivating(false);
+        if (!cancelled) {
+          setLicenseMode(null);
+          setLicenseEnforced(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [setLicenseMode]);
-
-  if (activating && (licenseMode === null || licenseMode === 'read_only')) {
-    return (
-      <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 p-5 backdrop-blur-sm" data-testid="license-gate">
-        <div className="w-full max-w-xl rounded-2xl border border-line bg-ink p-6 shadow-[0_28px_90px_rgba(0,0,0,0.28)]">
-          <h2 className="mb-2 text-xl font-semibold">라이선스 확인 중</h2>
-          <p className="text-sm leading-6 text-muted">잠시만 기다려 주세요.</p>
-        </div>
-      </div>
-    );
-  }
+  }, [setLicenseMode, setLicenseEnforced]);
 
   if (licenseMode !== 'read_only') return null;
 

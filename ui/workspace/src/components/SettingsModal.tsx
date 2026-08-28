@@ -30,6 +30,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const licenseMode = useWorkspaceStore((state) => state.licenseMode);
+  const licenseEnforced = useWorkspaceStore((state) => state.licenseEnforced);
   const readOnly = licenseMode !== null && licenseMode !== 'full';
 
   useEffect(() => {
@@ -132,6 +133,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             >
               <Stack size={17} /> 모델 및 연결
             </button>
+            {licenseEnforced ? (
             <button
               type="button"
               data-testid="settings-nav-license"
@@ -142,6 +144,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             >
               <IdentificationCard size={17} /> 라이선스
             </button>
+            ) : null}
             <button
               type="button"
               data-testid="settings-nav-features"
@@ -223,7 +226,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
           {page === 'models' ? (
             <ModelManagementModal open embedded onClose={onClose} />
-          ) : page === 'license' ? (
+          ) : page === 'license' && licenseEnforced ? (
             <SettingsLicensePage />
           ) : page === 'features' ? (
             <SettingsFeaturesPage readOnly={readOnly} />

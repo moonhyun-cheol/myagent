@@ -8,6 +8,17 @@ export type LicenseFeature =
   | 'browser_automation'
   | 'chat';
 
+export const ALL_LICENSE_FEATURES: LicenseFeature[] = [
+  'chat',
+  'manager',
+  'local_models',
+  'local_image',
+  'image_generation',
+  'deep_research',
+  'web_dev',
+  'browser_automation',
+];
+
 export type LicenseMode = 'full' | 'read_only';
 
 export interface LicensePayload {
@@ -29,6 +40,8 @@ export interface LicenseStatus {
   features: LicenseFeature[];
   org_id?: string;
   expires_at?: string;
+  /** False when file-license checks are disabled (default). */
+  enforced?: boolean;
 }
 
 export class LicenseGateError extends Error {
