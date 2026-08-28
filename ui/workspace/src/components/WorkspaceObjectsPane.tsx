@@ -23,7 +23,7 @@ type ObjectView = 'recent' | 'all' | 'files' | 'todo';
 export interface TodoProgressItem {
   id: string;
   label: string;
-  status: 'active' | 'done' | 'blocked';
+  status: 'pending' | 'active' | 'done' | 'blocked';
 }
 
 const PINNED_INSTRUCTIONS_KEY = 'my-agent-pinned-instructions-v1';
@@ -186,7 +186,7 @@ export function WorkspaceObjectsPane({
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold text-text">작업 단계</h3>
+            <h3 className="text-xs font-semibold text-text">To-do</h3>
             {todoItems.length ? (
               <span className="text-[10px] text-muted">
                 {todoItems.filter((item) => item.status === 'done').length}/{todoItems.length}
@@ -194,7 +194,7 @@ export function WorkspaceObjectsPane({
             ) : null}
           </div>
           {todoItems.length ? (
-            <ol className="mt-2 space-y-2" aria-label="작업 단계별 진행상황">
+            <ol className="mt-2 space-y-2" aria-label="과제별 To-do 진행상황">
               {todoItems.map((item, index) => (
                 <li key={item.id} className="flex items-start gap-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]">
                   <span
@@ -203,19 +203,39 @@ export function WorkspaceObjectsPane({
                         ? 'border-accent bg-accent text-white'
                         : item.status === 'blocked'
                           ? 'border-red-400 text-red-300'
-                          : 'border-accent text-accent'
+                          : item.status === 'active'
+                            ? 'border-accent text-accent'
+                            : 'border-line text-muted'
                     }`}
-                    aria-label={item.status === 'done' ? '완료' : item.status === 'blocked' ? '차단' : '진행 중'}
+                    aria-label={
+                      item.status === 'done'
+                        ? '완료'
+                        : item.status === 'blocked'
+                          ? '차단'
+                          : item.status === 'active'
+                            ? '진행 중'
+                            : '대기'
+                    }
                   >
                     {item.status === 'done' ? '✓' : index + 1}
                   </span>
-                  <span className={item.status === 'done' ? 'text-muted line-through' : 'text-text'}>{item.label}</span>
+                  <span
+                    className={
+                      item.status === 'done'
+                        ? 'text-muted line-through'
+                        : item.status === 'pending'
+                          ? 'text-muted'
+                          : 'text-text'
+                    }
+                  >
+                    {item.label}
+                  </span>
                 </li>
               ))}
             </ol>
           ) : (
             <p className="mt-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px] text-muted">
-              모델이 과제를 단계로 나누면 여기에 To-do 목록과 진행상황이 표시됩니다.
+              모델이 과제나 목표를 구분해 답변하면 To-do 목록과 진행상황을 표시합니다.
             </p>
           )}
           <h3 className="mt-5 text-xs font-semibold text-text">고정지침</h3>
@@ -420,7 +440,7 @@ export function WorkspaceObjectsPane({
               className="m-3 w-[calc(100%-24px)] rounded-md border border-dashed border-line px-2 py-2 text-[10px] text-muted hover:border-accent/60 hover:text-text"
               onClick={() => setView('all')}
             >
-              결과물 {workAssets.length - recentAssets.length}개 더 보기
+              결과물 {assets.length - recentAssets.length}개 더 보기
             </button>
           ) : null}
         </section>

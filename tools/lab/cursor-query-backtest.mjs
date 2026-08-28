@@ -27,7 +27,7 @@ const outDir = path.join(root, 'data', '_skill_tool_lab');
 const harvestPath = path.join(outDir, 'cursor-query-harvest.json');
 const reportPath = path.join(outDir, 'cursor-query-backtest-report.md');
 const jsonPath = path.join(outDir, 'cursor-query-backtest.json');
-const planPath = path.join(outDir, 'cursor-backtest-plan.md');
+const planPath = path.join(root, 'tools', 'lab', 'CURSOR_BACKTEST_IMPROVEMENT_PLAN.md');
 
 const harvestOnly = process.argv.includes('--harvest-only');
 const live = process.env.MY_AGENT_CURSOR_BT_LIVE === '1';

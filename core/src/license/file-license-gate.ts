@@ -5,13 +5,12 @@ import type {
   LicenseFeature,
   LicenseStatus,
 } from './types.js';
-import { ALL_LICENSE_FEATURES, LicenseGateError } from './types.js';
+import { LicenseGateError } from './types.js';
 import { parseSignedLicense } from './license-format.js';
 import { verifyLicenseSignature } from './license-crypto.js';
 import { computeMachineId } from './machine-id.js';
 import { computeWindowsUserId } from './windows-user-id.js';
 import { checkLicenseBinding } from './activation.js';
-import { isLicenseEnforcementEnabled } from './license-enforcement.js';
 import { resolveCqrRoot } from '../bootstrap.js';
 
 function readOnly(reason: string, partial?: Partial<LicenseStatus>): LicenseStatus {
@@ -20,18 +19,7 @@ function readOnly(reason: string, partial?: Partial<LicenseStatus>): LicenseStat
     valid: false,
     reason,
     features: [],
-    enforced: true,
     ...partial,
-  };
-}
-
-function openAccess(): LicenseStatus {
-  return {
-    mode: 'full',
-    valid: true,
-    features: [...ALL_LICENSE_FEATURES],
-    org_id: 'open',
-    enforced: false,
   };
 }
 
@@ -51,10 +39,6 @@ export class FileLicenseGate implements ILicenseGate {
   }
 
   private load(): LicenseStatus {
-    if (!isLicenseEnforcementEnabled(this.cqrRoot)) {
-      return openAccess();
-    }
-
     const licensePath = path.join(this.vaultDir, 'license.ocx');
     if (!existsSync(licensePath)) {
       return readOnly('LICENSE_MISSING');
@@ -103,7 +87,6 @@ export class FileLicenseGate implements ILicenseGate {
       features: doc.payload.features,
       org_id: doc.payload.org_id,
       expires_at: doc.payload.expires_at,
-      enforced: true,
     };
   }
 

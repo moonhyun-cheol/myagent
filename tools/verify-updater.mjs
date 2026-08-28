@@ -79,7 +79,7 @@ try {
     version: '0.9.1-beta',
     channel: 'beta',
     publishedAt: payloadDocument.created_at,
-    repository: 'moonhyun-cheol/myagent',
+    repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
     releaseTag: 'update-2',
     assetName: path.basename(zipPath),
     assetSize: statSync(zipPath).size,

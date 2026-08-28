@@ -41,7 +41,6 @@ if (exampleMissing.length) {
 copyFileSync(example, lic);
 
 process.env.MY_AGENT_ROOT = root;
-process.env.MY_AGENT_LICENSE_ENFORCEMENT = '1';
 if (!('CQR_ACTIVATION_SERVER_URL' in process.env)) {
   process.env.CQR_ACTIVATION_SERVER_URL = '';
 }

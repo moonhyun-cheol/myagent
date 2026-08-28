@@ -35,7 +35,7 @@ const ver = manifest.version ?? '1.0.0';
 
 const norm = spawnSync(
   process.execPath,
-  [path.join(root, 'tools', 'normalize-encoding.mjs'), '--scan-only', '--target', 'source'],
+  [path.join(root, 'tools', 'normalize-encoding.mjs'), '--target', 'source'],
   { cwd: root, stdio: 'inherit' },
 );
 if (norm.status !== 0) process.exit(norm.status ?? 1);
@@ -100,22 +100,7 @@ const skipDirs = new Set([
  * dev dependencies (monaco-editor, typescript, oxlint) inside the install zip.
  * The app only needs the built `ui/workspace/dist`.
  */
-const skipAnySegment = new Set([
-  'node_modules',
-  '.git',
-  '.github',
-  '.cursor',
-  '.build',
-  '.tmp',
-  '__pycache__',
-]);
-const skipExactFiles = new Set([
-  '.gitignore',
-  '.gitattributes',
-  '.editorconfig',
-  'PORT.md',
-  'repo-target.json',
-]);
+const skipAnySegment = new Set(['node_modules', '.git', '.cursor', '__pycache__']);
 const skipRelPrefixes = [
   'tools/keys',
   'tools/cache',
@@ -130,7 +115,6 @@ const skipRelPrefixes = [
   'runtime/oss-sidecars',
   'bin/my-agent',
   '.github',
-  '.build',
   'activation-server',
 ];
 
@@ -160,12 +144,9 @@ function shouldCopyData(norm) {
 
 function shouldCopy(rel) {
   const norm = rel.replace(/\\/g, '/');
-  if (norm === 'install.bat' || norm === 'tools/install/install.bat') return false;
+  if (norm === 'install.bat') return false;
   if (norm.includes('tools/test-')) return false;
   const parts = norm.split('/');
-  const base = parts[parts.length - 1];
-  if (skipExactFiles.has(base)) return false;
-  if (base.endsWith('.tsbuildinfo')) return false;
   if (parts.some((seg) => skipAnySegment.has(seg))) return false;
   const top = parts[0];
   if (skipDirs.has(top)) return false;
@@ -361,23 +342,7 @@ install 시 필수 다운로드 (인터넷 필요 · 모든 PC 동일 런타임 
 관리자: docs/DEPLOY.md — 활성화 서버 + allowlist
 `;
 writeFileSync(path.join(appDir, 'README-설치.txt'), readme, 'utf8');
-cpSync(path.join(root, 'tools', 'install', 'install.bat'), path.join(stageDir, 'install.bat'));
-writeFileSync(
-  path.join(stageDir, 'README-설치.txt'),
-  [
-    `MY Agent v${ver} — first install`,
-    '',
-    'Use this zip: MYAgent-v*-install.zip',
-    'Do not use GitHub "Source code (zip)" (no MYAgent.exe, includes .github).',
-    'Do not use MYAgent-v*-delta.zip here (that file is for in-app / UPDATE.bat updates).',
-    '',
-    '1. Run install.bat (do not run as administrator).',
-    '2. After install, launch MYAgent.exe from the install folder or the desktop shortcut.',
-    '   Extracted zip root has install.bat + app\\ ; the exe is inside app\\ until install.bat copies it.',
-    '',
-  ].join('\n'),
-  'utf8',
-);
+cpSync(path.join(root, 'install.bat'), path.join(stageDir, 'install.bat'));
 const koreanInstall = path.join(root, '설치.bat');
 if (existsSync(koreanInstall)) {
   cpSync(koreanInstall, path.join(stageDir, '설치.bat'));

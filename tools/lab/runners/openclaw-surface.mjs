@@ -1,6 +1,7 @@
 /**
  * OpenClaw adapter: schema dry + non-destructive live /health when configured.
  */
+import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -11,6 +12,15 @@ function row(item, result, ms, note = '') {
 export async function runOpenClawSurface(root) {
   const rows = [];
   const t0 = Date.now();
+  const runbook = path.join(root, 'tools/lab/OPENCLAW_RUNBOOK.md');
+  rows.push(
+    row(
+      'runbook',
+      existsSync(runbook) ? 'pass' : 'fail',
+      0,
+      existsSync(runbook) ? 'OPENCLAW_RUNBOOK.md' : 'missing tools/lab/OPENCLAW_RUNBOOK.md',
+    ),
+  );
   try {
     const { resolveOpenClawAdapterConfig, probeOpenClawAdapterHealth } = await import(
       pathToFileURL(path.join(root, 'core/dist/automaton/openclaw-adapter-client.js')).href
@@ -72,7 +82,7 @@ export async function runOpenClawSurface(root) {
           'slash_side_effect',
           'skip',
           0,
-          'safety: no auto Discord job — manual slash only',
+          'safety: no auto Discord job; see OPENCLAW_RUNBOOK.md — manual slash only',
         ),
       );
     }

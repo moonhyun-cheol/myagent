@@ -1,6 +1,6 @@
 /**
  * Realuse "deep" / previously out-of-scope planes:
- *  - product UI wiring (@ context / terminal Stop, shell inAppBrowser)
+ *  - product UI wiring (Accept/Reject/@/terminal Stop, shell inAppBrowser)
  *  - agent gate suite (MAR / outcome / continuity / … — no live LLM)
  *  - skills L2 routing matrix
  *  - Playwright UI+API e2e against ephemeral API
@@ -51,13 +51,17 @@ export function runUiRealuseMarkers(root) {
   };
   const need = {
     ChatPane: [
+      [/pendingMutateReview/, 'mutate review state'],
+      [/Accept|수락/, 'Accept label'],
+      [/Reject|거절|복원/, 'Reject path'],
       [/context-at-button|contextAt|@ 컨텍스트|pendingContextPaths/, '@ context'],
       [/diff_lines|diffPreview|previewCheckpoint|checkpoint\/preview/, 'diff preview'],
-    },
+    ],
     TerminalPane: [
       [/cancel|Stop|중지|terminalJob|run-terminal\/cancel|listActive|jobs/, 'terminal stop/jobs'],
     ],
     store: [
+      [/pendingMutateReview/, 'store review'],
       [/terminalJobId/, 'store terminal job'],
       [/pendingContextPaths|contextPaths/, 'store @ paths'],
     ],

@@ -12,11 +12,7 @@ export interface DeployDefaults {
   openwebui_default_model?: string;
   activation_server_url?: string;
   activation_token?: string;
-  /** When true, require a signed license.ocx. Default false — OpenRouter keys are the access control. */
-  license_enforcement?: boolean;
   organization_module_root?: string;
-  /** Optional organization brand manual markdown. */
-  brand_manual_url?: string;
   live_automaton_root?: string;
   /** OpenClaw Adapter API base (e.g. http://192.168.x.x:8790). Empty = local spawn only. */
   openclaw_adapter_base_url?: string;
@@ -43,13 +39,6 @@ function resolveDeployDefaultsPath(cqrRoot: string): string | null {
 
 const ACTIVATION_DISABLED_VALUES = new Set(['0', 'off', 'none', 'false', 'disabled']);
 
-function readEnvFirst(...names: string[]): string | undefined {
-  for (const name of names) {
-    if (process.env[name] !== undefined) return process.env[name] ?? '';
-  }
-  return undefined;
-}
-
 export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
   const file = resolveDeployDefaultsPath(cqrRoot);
   let doc: DeployDefaults = {};
@@ -63,26 +52,15 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
 
   // Windows drops env vars set to an empty string across process spawns, so an explicit
   // sentinel is the only reliable way for callers (verify scripts, offline runs) to turn
-  // central activation off. CQR_* remains a compatibility alias for older scripts.
-  const rawActivationUrl = readEnvFirst(
-    'MY_AGENT_ACTIVATION_SERVER_URL',
-    'CQR_ACTIVATION_SERVER_URL',
-  );
+  // central activation off.
+  const rawActivationUrl = process.env.MY_AGENT_ACTIVATION_SERVER_URL;
   if (rawActivationUrl !== undefined) {
     const v = rawActivationUrl.trim();
     if (v && !ACTIVATION_DISABLED_VALUES.has(v.toLowerCase())) doc.activation_server_url = v;
     else delete doc.activation_server_url;
   }
-  const rawActivationToken = readEnvFirst('MY_AGENT_ACTIVATION_TOKEN', 'CQR_ACTIVATION_TOKEN');
-  if (rawActivationToken?.trim()) {
-    doc.activation_token = rawActivationToken.trim();
-  }
-
-  const rawBrandManualUrl = process.env.MY_AGENT_BRAND_MANUAL_URL;
-  if (rawBrandManualUrl !== undefined) {
-    const v = rawBrandManualUrl.trim();
-    if (v && !ACTIVATION_DISABLED_VALUES.has(v.toLowerCase())) doc.brand_manual_url = v;
-    else delete doc.brand_manual_url;
+  if (process.env.MY_AGENT_ACTIVATION_TOKEN?.trim()) {
+    doc.activation_token = process.env.MY_AGENT_ACTIVATION_TOKEN.trim();
   }
 
   if (process.env.OPENCLAW_ADAPTER_BASE_URL?.trim()) {

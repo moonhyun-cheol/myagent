@@ -18,18 +18,19 @@ import {
   fetchModelPicker,
   fetchSession,
   fetchWorkspaceFsTree,
-  listSkills,
   readWorkspaceFsFile,
   renameWorkspaceFsFile,
   runWorkspaceTerminal,
   setStoredSessionId,
   streamChat,
   setSessionExecutionPolicy,
+  setSessionPreferredModel,
   setSessionProject as saveSessionProject,
   setSessionWorkspaceProject as saveSessionWorkspaceProject,
   undoSessionTurn,
   uploadAttachments,
   writeWorkspaceFsFile,
+  rollbackWorkspaceCheckpoint,
   cancelRunTerminalJob,
   type PickerModel,
   type SessionMessage,
@@ -232,6 +233,7 @@ function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
         imageUrl: url,
       });
     }
+
   }
   return out;
 }
@@ -262,6 +264,7 @@ interface SessionViewSnapshot {
   activeProjectId: string | null;
   activeWorkspaceProjectId: string | null;
   chat: ChatTurn[];
+  selectedModel: string;
   activeExecutionPolicy: ExecutionPolicy;
   effectiveExecutionPolicy: EffectiveExecutionPolicy | null;
   canUndo: boolean;
@@ -290,6 +293,12 @@ interface LiveJob {
   terminalUsed: boolean;
 }
 
+export type PendingMutateReview = {
+  checkpointId: string;
+  paths: string[];
+  sessionId: string;
+};
+
 export interface QueuedMessage {
   id: string;
   sessionId: string;
@@ -297,6 +306,7 @@ export interface QueuedMessage {
   attachmentIds: string[];
   attachmentNames: string[];
   contextPaths: string[];
+  model?: string;
   createdAt: string;
 }
 
@@ -357,10 +367,13 @@ interface WorkspaceState {
   skillMode: string | null;
   skillLabel: string | null;
   licenseMode: string | null;
-  licenseEnforced: boolean;
   pendingAttachments: PendingAttachment[];
   /** Composer @ chips — workspace relative paths. */
   pendingContextPaths: string[];
+  /**
+   * After code agent mutates: Accept keeps disk, Reject restores auto-checkpoint.
+   */
+  pendingMutateReview: PendingMutateReview | null;
   streamAbort: AbortController | null;
   canUndo: boolean;
   /** Per-session run phase for sidebar badges (FIFO global queue). */
@@ -374,7 +387,7 @@ interface WorkspaceState {
   reloadBrowser: () => void;
   goBrowserBack: () => void;
   goBrowserForward: () => void;
-  setSelectedModel: (model: string) => void;
+  setSelectedModel: (model: string) => Promise<void>;
   setExecutionPolicy: (policy: Partial<ExecutionPolicy>) => Promise<void>;
   setSessionWorkspaceProject: (workspaceProjectId: string | null) => Promise<void>;
   setSessionProject: (projectId: string | null) => Promise<void>;
@@ -383,7 +396,6 @@ interface WorkspaceState {
   refreshModelPicker: (refreshRemote?: boolean) => Promise<number>;
   setApiStatus: (online: boolean, error?: string | null) => void;
   setLicenseMode: (mode: string | null) => void;
-  setLicenseEnforced: (enforced: boolean) => void;
   setPreviewPaneOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   clearTerminalAttention: () => void;
@@ -416,13 +428,15 @@ interface WorkspaceState {
   placeAssetOnCanvas: (assetId: string, position?: { x: number; y: number }) => void;
   openAssetInEditor: (assetId: string) => void;
   setSkillMode: (mode: string | null, label?: string | null) => void;
-  hydrateOrganizationSkillDefault: () => Promise<void>;
   addPendingAttachments: (items: PendingAttachment[]) => void;
   removePendingAttachment: (id: string) => Promise<void>;
   clearPendingAttachments: () => void;
   addContextPath: (path: string) => void;
   removeContextPath: (path: string) => void;
   clearContextPaths: () => void;
+  acceptMutateReview: () => void;
+  /** Reject all or only listed paths (partial rollback). */
+  rejectMutateReview: (paths?: string[]) => Promise<void>;
   /** Upload any file type into pending attachments (images get preview chips). */
   uploadFiles: (files: File[]) => Promise<void>;
   /** @deprecated Prefer uploadFiles — kept for clipboard paste call sites. */
@@ -431,7 +445,7 @@ interface WorkspaceState {
   /** Clear current chat without creating a replacement session (allows zero chats). */
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
-  sendAiMessage: (text: string) => Promise<void>;
+  sendAiMessage: (text: string, modelOverride?: string) => Promise<void>;
   stopAiMessage: () => void;
   undoLastTurn: () => Promise<string | null>;
 }
@@ -544,7 +558,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     sessionViewCache.set(sid, {
       activeProjectId: state.activeProjectId,
       activeWorkspaceProjectId: state.activeWorkspaceProjectId,
+      selectedModel: state.selectedModel,
       chat: liveJobs.get(sid)?.chat ?? state.chat,
+
       activeExecutionPolicy: liveJobs.get(sid)?.executionPolicy ?? state.activeExecutionPolicy,
       effectiveExecutionPolicy: liveJobs.get(sid)?.effectiveExecutionPolicy ?? state.effectiveExecutionPolicy,
       canUndo: state.canUndo,
@@ -616,7 +632,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             })),
             pendingContextPaths: next.contextPaths,
           });
-          void get().sendAiMessage(next.text);
+          void get().sendAiMessage(next.text, next.model);
         });
       }
     } else if (finishedJob?.terminalUsed) {
@@ -991,9 +1007,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     skillMode: null,
     skillLabel: null,
     licenseMode: null,
-    licenseEnforced: false,
     pendingAttachments: [],
     pendingContextPaths: [],
+    pendingMutateReview: null,
     streamAbort: null,
     canUndo: false,
     sessionPhases: {},
@@ -1041,7 +1057,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if (!browserLoadedUrl) return state;
         return { browserHistoryIndex, browserLoadedUrl, browserInputUrl: browserLoadedUrl };
       }),
-    setSelectedModel: (selectedModel) => set({ selectedModel }),
+    setSelectedModel: async (selectedModel) => {
+      const previous = get().selectedModel;
+      const sessionId = get().activeSessionId;
+      set({ selectedModel });
+      if (!sessionId) return;
+      try {
+        await setSessionPreferredModel(sessionId, selectedModel);
+        const cached = sessionViewCache.get(sessionId);
+        if (cached) sessionViewCache.set(sessionId, { ...cached, selectedModel });
+      } catch (err) {
+        if (get().activeSessionId === sessionId && get().selectedModel === selectedModel) {
+          set({ selectedModel: previous });
+        }
+        throw err;
+      }
+    },
     setExecutionPolicy: async (patch) => {
       const policy = { ...get().activeExecutionPolicy, ...patch };
       set({ activeExecutionPolicy: policy, effectiveExecutionPolicy: null });
@@ -1100,17 +1131,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refreshModelPicker: async (refreshRemote = false) => {
       const picker = await fetchModelPicker(refreshRemote);
       const models = picker.models.length ? picker.models : FALLBACK_MODEL_OPTIONS;
-      const saved = readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY);
-      const pick =
-        (saved && models.some((m) => m.id === saved) && saved) ||
-        (picker.default_id && models.some((m) => m.id === picker.default_id) && picker.default_id) ||
-        'auto';
-      set({ modelOptions: models, selectedModel: pick });
+      set({ modelOptions: models });
       return models.length;
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
     setLicenseMode: (licenseMode) => set({ licenseMode }),
-    setLicenseEnforced: (licenseEnforced) => set({ licenseEnforced }),
     setPreviewPaneOpen: (previewPaneOpen) => set({ previewPaneOpen }),
     setTerminalOpen: (terminalOpen) => {
       try {
@@ -1191,19 +1216,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     closeImagePreview: () => set({ imagePreview: null }),
     setSkillMode: (skillMode, skillLabel = null) =>
       set({ skillMode, skillLabel: skillMode ? skillLabel : null }),
-    hydrateOrganizationSkillDefault: async () => {
-      if (get().skillMode) return;
-      try {
-        const skills = await listSkills();
-        if (get().skillMode) return;
-        const concept =
-          skills.find((s) => s.source === 'organization' && s.id === 'brand_concept') ??
-          skills.find((s) => s.source === 'organization');
-        if (concept) set({ skillMode: concept.mode, skillLabel: concept.label });
-      } catch {
-        /* org module optional */
-      }
-    },
 
     addPendingAttachments: (items) => {
       if (!items.length) return;
@@ -1239,6 +1251,76 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     clearContextPaths: () => set({ pendingContextPaths: [] }),
 
+    acceptMutateReview: () => {
+      set({ pendingMutateReview: null, statusText: '변경 수락됨' });
+      window.setTimeout(() => {
+        if (get().statusText === '변경 수락됨') set({ statusText: '' });
+      }, 2000);
+    },
+
+    rejectMutateReview: async (onlyPaths) => {
+      const review = get().pendingMutateReview;
+      if (!review) return;
+      const partial =
+        Array.isArray(onlyPaths) && onlyPaths.length > 0
+          ? onlyPaths
+              .map((p) => String(p || '').replace(/\\/g, '/').trim())
+              .filter((p) => review.paths.includes(p))
+          : null;
+      // Always pass the mutate path list so new files (not in snapshot) can be deleted.
+      const targets = partial ?? review.paths;
+      if (targets.length === 0) {
+        set({ statusText: '선택된 경로 없음' });
+        return;
+      }
+      set({
+        statusText: partial
+          ? `선택 ${targets.length}개 되돌리는 중…`
+          : '변경 되돌리는 중…',
+      });
+      try {
+        const result = await rollbackWorkspaceCheckpoint({
+          checkpointId: review.checkpointId,
+          sessionId: review.sessionId,
+          confirm: true,
+          paths: targets,
+        });
+        if (!result.ok) {
+          set({
+            statusText: result.message || result.error || '롤백 실패',
+          });
+          return;
+        }
+        const remaining = review.paths.filter((p) => !targets.includes(p));
+        set({
+          pendingMutateReview: remaining.length
+            ? { ...review, paths: remaining }
+            : null,
+        });
+        await get().openMutatedWorkspaceFiles(
+          targets.filter((p) => !(result.deleted_paths || []).includes(p)),
+        );
+        await get().refreshExplorer();
+        const delN = result.deleted ?? 0;
+        set({
+          statusText: [
+            partial ? '부분 거부' : '변경 거부',
+            `복원 ${result.restored ?? 0}`,
+            delN ? `삭제 ${delN}` : null,
+            remaining.length ? `남은 ${remaining.length}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        });
+        window.setTimeout(() => {
+          if (/거부|롤백|복원|삭제/.test(get().statusText)) set({ statusText: '' });
+        }, 3500);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        set({ statusText: `롤백 오류: ${msg}` });
+      }
+    },
+
     uploadFiles: async (files) => {
       if (!files.length) return;
       if (get().licenseMode && get().licenseMode !== 'full') {
@@ -1273,6 +1355,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         activeProjectId: projectId,
         activeWorkspaceProjectId: rec.workspace_project_id ?? null,
         chat: [],
+        selectedModel: readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
         activeExecutionPolicy: rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
         effectiveExecutionPolicy: null,
         canUndo: false,
@@ -1350,6 +1433,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const previous = sessionViewCache.get(sessionId);
         const refreshed: SessionViewSnapshot = {
           activeProjectId: rec.project_id ?? null,
+          selectedModel: rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
           activeWorkspaceProjectId: rec.workspace_project_id ?? null,
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
           activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
@@ -1784,7 +1868,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
     },
 
-    sendAiMessage: async (text) => {
+    sendAiMessage: async (text, modelOverride) => {
       const trimmed = text.trim();
       const pending = get().pendingAttachments;
       const attachmentIds = pending.map((a) => a.id);
@@ -1804,6 +1888,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           attachmentIds,
           attachmentNames,
           contextPaths: [...get().pendingContextPaths],
+          model: get().selectedModel || 'auto',
           createdAt: new Date().toISOString(),
         };
         const queue = [...get().messageQueue, queued];
@@ -1816,7 +1901,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
 
       const skillMode = get().skillMode;
-      const model = get().selectedModel || 'auto';
+      const model = modelOverride || get().selectedModel || 'auto';
       const assistantId = uid('s');
       const displayText =
         trimmed ||

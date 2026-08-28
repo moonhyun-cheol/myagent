@@ -84,6 +84,11 @@ const srcChecks = [
     re: /loadUserMcpConfig/,
   },
   {
+    name: 'UI Accept/Reject bar state',
+    file: 'ui/workspace/src/store/workspaceStore.ts',
+    re: /pendingMutateReview/,
+  },
+  {
     name: 'UI @ context paths',
     file: 'ui/workspace/src/store/workspaceStore.ts',
     re: /pendingContextPaths/,
@@ -92,6 +97,11 @@ const srcChecks = [
     name: 'UI @ context picker',
     file: 'ui/workspace/src/components/ChatPane.tsx',
     re: /contextPickerOpen|context-at-button|@ 컨텍스트 추가/,
+  },
+    {
+    name: 'UI mutate review path list',
+    file: 'ui/workspace/src/components/MutateReviewPane.tsx',
+    re: /mutate-review-bar/,
   },
   {
     name: 'dispatch mcp test route',
@@ -112,6 +122,11 @@ const srcChecks = [
     name: 'terminal cancel UI',
     file: 'ui/workspace/src/components/TerminalPane.tsx',
     re: /cancelTerminalCommand|terminal-cancel/,
+  },
+    {
+    name: 'mutate reject selected',
+    file: 'ui/workspace/src/components/MutateReviewPane.tsx',
+    re: /mutate-review-reject-selected/,
   },
   {
     name: 'line hunk builder',

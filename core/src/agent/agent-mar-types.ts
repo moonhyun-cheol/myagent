@@ -58,8 +58,7 @@ export interface MarRunResult {
 }
 
 /**
- * Env: MAR wrapper on by default. Set MY_AGENT_MULTI_AGENT=0|false|off|no to call
- * runCodeAgent directly. When on, runMultiAgent still plans a single coder.
+ * Env: MAR on by default. Set MY_AGENT_MULTI_AGENT=0|false|off|no to use single runCodeAgent.
  */
 export function isMultiAgentEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = (env.MY_AGENT_MULTI_AGENT ?? '1').trim().toLowerCase();
@@ -67,8 +66,8 @@ export function isMultiAgentEnabled(env: NodeJS.ProcessEnv = process.env): boole
 }
 
 /**
- * Env flag retained for tests / leftover critic-skip branch. Live `planMarRoles` /
- * `runMultiAgent` never append `reviewer`, so this flag does not change the role plan.
+ * Env: mandatory Critic after mutate — default on.
+ * Set MY_AGENT_MANDATORY_CRITIC=0|false|off|no to skip auto-appending reviewer.
  */
 export function isMandatoryCriticEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = (env.MY_AGENT_MANDATORY_CRITIC ?? '1').trim().toLowerCase();
@@ -76,8 +75,9 @@ export function isMandatoryCriticEnabled(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * Env: MAR light flag (default on). Live role plan is already single-coder, so
- * this does not attach or skip a Critic.
+ * Env: MAR light — skip mandatory Critic on simple single-coder mutates (default on).
+ * Multi-file / agentic dual / browser mutate chains still get Critic when mandatory is on.
+ * Set MY_AGENT_MAR_LIGHT=0|false|off|no to always attach Critic when mandatory is on.
  */
 export function isMarLightEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = (env.MY_AGENT_MAR_LIGHT ?? '1').trim().toLowerCase();

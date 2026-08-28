@@ -28,12 +28,6 @@ for (const relative of [
   const source = read(relative);
   assert.doesNotMatch(source, /agent-work-mode|classifyAgentWorkMode|filterToolsForWorkMode/);
 }
-const orchestrator = read('core/src/chat/chat-orchestrator.ts');
-assert.match(orchestrator, /resolveTurnSkillMode/);
-assert.doesNotMatch(orchestrator, /CONCEPT_RE/);
-const skillFlow = read('core/src/skills/chat-skill-flow.ts');
-assert.match(skillFlow, /resolveDefaultOrganizationSkillMode/);
-assert.match(skillFlow, /brand_concept/);
 
 assert.equal(codingPlanLockEnabled({}), false);
 assert.equal(codingPlanLockEnabled({ MY_AGENT_CODE_PLAN_LOCK: '1' }), true);

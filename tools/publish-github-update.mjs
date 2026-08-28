@@ -75,7 +75,7 @@ if (!existsSync(zipPath) || !existsSync(feedPath)) {
 const repository = String(
   process.env.MY_AGENT_UPDATE_GITHUB_REPO
   ?? latest.github_repository
-  ?? 'moonhyun-cheol/myagent',
+  ?? 'moonhyun-cheol/MY_CUSTOM_CODEX',
 ).trim();
 const repoView = run(
   ['repo', 'view', repository, '--json', 'nameWithOwner,visibility,defaultBranchRef,url'],

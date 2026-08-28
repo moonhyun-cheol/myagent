@@ -106,6 +106,10 @@ import { agentToolOutputOk, summarizeAgentToolResult } from './agent-tool-result
 import { summarizeResponsesPerfState } from './agent-perf-metrics.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentInfraError } from './agent-failure-plane.js';
+import {
+  compileAgentStepContext,
+  resolveAgentContextProfile,
+} from './agent-context-profile.js';
 
 function noteFirstTool(state: AgentRunStepState): void {
   if (state.firstToolMs == null && state.runStartedAt > 0) {
@@ -232,6 +236,19 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       onContent: publishModelAnswer,
     };
 
+    const contextProfile = resolveAgentContextProfile({
+      step: state.steps,
+      messages: state.messages,
+      evidence: state.toolCtx.getRunEvidence?.(),
+    });
+    const profiledContext = compileAgentStepContext({
+      profile: contextProfile,
+      messages: state.messages,
+      agentTools: state.agentTools,
+      userMessage: state.opts.userMessage,
+    });
+    state.reportStatus(`${modelWaitLabel} · context ${contextProfile}`);
+
     let result: ToolCompletionResult;
 
     if (state.toolProtocol === 'client') {
@@ -240,9 +257,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.baseUrl,
           state.secret.api_key,
           state.modelId,
-          state.messages,
+          profiledContext.messages,
           state.opts,
-          state.toolNames,
+          profiledContext.toolNames,
         ),
       );
     } else {
@@ -252,10 +269,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.baseUrl,
           state.secret.api_key,
           state.modelId,
-          state.messages,
+          profiledContext.messages,
           state.opts,
-          state.agentTools,
-          state.toolNames,
+          profiledContext.agentTools,
+          profiledContext.toolNames,
           withApiTimeout({
             streamHandlers,
             stream: true,

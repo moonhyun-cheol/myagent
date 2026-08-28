@@ -15,7 +15,6 @@ export interface CurateConfig {
   max_models: number;
   openrouter_prefix: string;
   hard_exclude: string[];
-  exclude_patterns: string[];
   /** Matrix models always included in the curated picker when available remotely. */
   pinned_suffixes?: string[];
   /** When true, picker shows only pinned_suffixes (workspace matrix), no quota fill. */
@@ -121,16 +120,8 @@ export function classifyModel(modelId: string, cfg = loadCurateConfig()): ModelC
   return 'general';
 }
 
-export function shouldExcludeModel(modelId: string, cfg = loadCurateConfig()): boolean {
-  if (cfg.hard_exclude.includes(modelId)) return true;
-  const hay = `${modelId} ${shortModelName(modelId, cfg)}`;
-  return cfg.exclude_patterns.some((p) => {
-    try {
-      return new RegExp(p, 'i').test(hay);
-    } catch {
-      return hay.toLowerCase().includes(p.toLowerCase());
-    }
-  });
+function isHardExcluded(modelId: string, cfg: CurateConfig): boolean {
+  return cfg.hard_exclude.includes(modelId);
 }
 
 function familyPatternIndex(modelId: string, pattern: string, cfg: CurateConfig): number {
@@ -154,7 +145,7 @@ export function applyFamilyDedupe(modelIds: string[], cfg = loadCurateConfig()):
   for (const family of families) {
     const candidates: { id: string; priority: number }[] = [];
     for (const id of modelIds) {
-      if (excluded.has(id) || shouldExcludeModel(id, cfg)) continue;
+      if (excluded.has(id) || isHardExcluded(id, cfg)) continue;
       let bestPriority = Number.POSITIVE_INFINITY;
       for (let i = 0; i < family.match.length; i++) {
         if (modelMatchesFamily(id, family.match[i], cfg)) {
@@ -216,13 +207,16 @@ export function defaultCompanyModelIds(cfg = loadCurateConfig()): string[] {
   return (cfg.pinned_suffixes ?? []).map((suffix) => normalizeCompanyModelId(suffix, cfg));
 }
 
-/** Describe an explicit user selection without applying matrix quotas or family pruning. */
+/** Describe an explicit user selection without applying matrix quotas or automatic family pruning. */
 export function describeRemoteModels(modelIds: string[], cfg = loadCurateConfig()): CuratedModel[] {
   const seen = new Set<string>();
   return modelIds
     .map((id) => normalizeCompanyModelId(id, cfg))
     .filter((id) => {
-      if (!id || seen.has(id) || shouldExcludeModel(id, cfg)) return false;
+      // Explicit user choices may intentionally select a family hidden from the
+      // automatic recommendation list. Only invalid hard-excluded sentinels
+      // remain forbidden here.
+      if (!id || seen.has(id) || cfg.hard_exclude.includes(id)) return false;
       seen.add(id);
       return true;
     })
@@ -239,7 +233,7 @@ function resolvePinnedModels(modelIds: string[], cfg: CurateConfig): CuratedMode
   const pinned: CuratedModel[] = [];
   for (const suffix of cfg.pinned_suffixes ?? []) {
     const id = resolveModelIdBySuffix(modelIds, suffix, cfg);
-    if (!id || shouldExcludeModel(id, cfg)) continue;
+    if (!id || isHardExcluded(id, cfg)) continue;
     if (pinned.some((m) => m.id === id)) continue;
     pinned.push(toCuratedEntry(id, cfg));
   }
@@ -251,7 +245,7 @@ export function curateRemoteModels(modelIds: string[], cfg = loadCurateConfig())
   if (cfg.matrix_only) return pinned;
 
   const deduped = applyFamilyDedupe(modelIds, cfg);
-  const filtered = deduped.filter((id) => !shouldExcludeModel(id, cfg));
+  const filtered = deduped.filter((id) => !isHardExcluded(id, cfg));
   const scored = filtered.map((id) => ({
     ...toCuratedEntry(id, cfg),
     tierNum: tierScore(id, classifyModel(id, cfg), cfg),

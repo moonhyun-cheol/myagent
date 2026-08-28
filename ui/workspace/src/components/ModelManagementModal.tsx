@@ -128,11 +128,26 @@ export function ModelManagementModal({
     if (!companyModels) return [];
     const query = companyModelSearch.trim().toLowerCase();
     const selected = new Set(companyModelDraft);
-    return companyModels.available
+    const discovery = query
+      ? companyModels.available
+      : [...companyModels.featured, ...companyModels.recent];
+    return [...new Set(discovery)]
       .filter((id) => !selected.has(id))
       .filter((id) => !query || companyModelLabel(id).toLowerCase().includes(query))
       .slice(0, 40);
   }, [companyModels, companyModelDraft, companyModelSearch]);
+
+  const addCompanyModel = (modelId: string) => {
+    const id = modelId.trim();
+    if (!id) return;
+    if (!id.includes('/') && !id.startsWith('open_webui_openrouter_integration.')) {
+      setMessage('모델 ID를 provider/model 형식으로 입력하세요.');
+      return;
+    }
+    setCompanyModelDraft((items) => items.includes(id) || items.length >= 40 ? items : [...items, id]);
+    setCompanyModelSearch('');
+    setMessage('선택 목록에 추가했습니다. 변경을 확정하려면 선택 저장을 누르세요.');
+  };
 
   const openCompanyModels = async () => {
     setCompanyModelsOpen(true);
@@ -409,8 +424,8 @@ export function ModelManagementModal({
               </section>
 
               <aside className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
-                <p className="text-base font-semibold">MY 전체 모델 검색</p>
-                <p className="mt-1 text-sm leading-5 text-muted">OpenRouter의 긴 목록을 직접 펼치지 않고 이름으로 찾습니다.</p>
+                <p className="text-base font-semibold">MY 모델 찾기</p>
+                <p className="mt-1 text-sm leading-5 text-muted">추천·최신 모델만 먼저 보여주고, 입력하면 OpenRouter 전체 카탈로그에서 검색합니다.</p>
                 <input
                   value={companyModelSearch}
                   onChange={(event) => setCompanyModelSearch(event.target.value)}
@@ -419,21 +434,33 @@ export function ModelManagementModal({
                   autoFocus
                 />
                 <div className="mt-3 max-h-[360px] space-y-1 overflow-y-auto pr-1">
-                  {companyModelSearch.trim() ? (
-                    companyModelChoices.length ? companyModelChoices.map((id) => (
+                  {!companyModelSearch.trim() && companyModelChoices.length ? (
+                    <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">추천 · 최신</p>
+                  ) : null}
+                  {companyModelChoices.length ? companyModelChoices.map((id) => (
                       <button
                         key={id}
                         type="button"
-                        onClick={() => {
-                          setCompanyModelDraft((items) => [...items, id]);
-                          setCompanyModelSearch('');
-                        }}
+                        onClick={() => addCompanyModel(id)}
                         className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-emerald-50 hover:text-emerald-800"
                       >
                         {companyModelLabel(id)}
                       </button>
-                    )) : <p className="rounded-lg bg-panel-2 px-3 py-4 text-center text-sm text-muted">검색 결과가 없습니다.</p>
-                  ) : <p className="rounded-lg bg-panel-2 px-3 py-4 text-center text-sm text-muted">모델 이름을 입력하세요.</p>}
+                    )) : companyModelSearch.includes('/') || companyModelSearch.startsWith('open_webui_openrouter_integration.') ? (
+                      <button
+                        type="button"
+                        disabled={companyModelDraft.length >= 40}
+                        onClick={() => addCompanyModel(companyModelSearch)}
+                        className="block w-full rounded-lg border border-dashed border-accent/50 px-3 py-3 text-left text-sm font-medium text-accent hover:bg-accent/5 disabled:opacity-50"
+                      >
+                        입력한 모델 ID 직접 추가
+                        <span className="mt-1 block truncate text-xs font-normal text-muted">{companyModelSearch.trim()}</span>
+                      </button>
+                    ) : companyModelSearch.trim() ? (
+                      <p className="rounded-lg bg-panel-2 px-3 py-4 text-center text-sm text-muted">검색 결과가 없습니다. provider/model 형식의 정확한 ID는 직접 추가할 수 있습니다.</p>
+                    ) : (
+                      <p className="rounded-lg bg-panel-2 px-3 py-4 text-center text-sm text-muted">추가할 추천 모델이 없습니다. 이름으로 전체 카탈로그를 검색하세요.</p>
+                    )}
                 </div>
               </aside>
 

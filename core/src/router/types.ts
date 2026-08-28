@@ -13,7 +13,7 @@ export type BuiltinChatMode =
   | 'code_agent'
   | 'automaton_direct';
 
-export type ChatMode = BuiltinChatMode | `user:${string}` | `org:${string}`;
+export type ChatMode = BuiltinChatMode | `user:${string}`;
 
 export const SKILL_CHAT_MODES: BuiltinChatMode[] = ['web_dev', 'web_landing', 'prompt_master'];
 

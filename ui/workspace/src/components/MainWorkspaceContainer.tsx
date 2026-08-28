@@ -16,7 +16,6 @@ import { ChatPane } from './ChatPane';
 import { GeminiNavSidebar } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
-import { LicenseGate } from './LicenseGate';
 import { MediaPane } from './MediaPane';
 import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
@@ -29,6 +28,42 @@ const PREVIEW_MODES: { id: WorkspaceMode; label: string; icon: typeof Browser }[
   { id: 'media', label: '미디어', icon: ImageSquare },
   { id: 'browser', label: '웹', icon: Browser },
 ];
+
+function cleanTodoLabel(value: string): string {
+  return value
+    .replace(/\*\*/g, '')
+    .replace(/`/g, '')
+    .replace(/\s*[:：]\s*$/, '')
+    .trim();
+}
+
+type ExtractedTodo = {
+  label: string;
+  checked?: boolean;
+};
+
+function extractTodoItems(text: string): ExtractedTodo[] {
+  const taskListItems = [...text.matchAll(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/gm)]
+    .map((match) => ({
+      label: cleanTodoLabel(match[2] ?? ''),
+      checked: (match[1] ?? '').toLowerCase() === 'x',
+    }))
+    .filter((item) => Boolean(item.label));
+  const numberedHeadings = [...text.matchAll(/^\s{0,3}#{1,6}\s+(?:\*\*)?\d+[.)]\s+(.+?)(?:\*\*)?\s*$/gm)]
+    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
+    .filter((item) => Boolean(item.label));
+  const boldListItems = [...text.matchAll(/^\s*[-*]\s+\*\*(.+?)\*\*\s*(?::|：|$)/gm)]
+    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
+    .filter((item) => Boolean(item.label));
+  const candidates = taskListItems.length > 0
+    ? taskListItems
+    : numberedHeadings.length >= 2
+      ? numberedHeadings
+      : boldListItems;
+  return candidates
+    .filter((item, index) => candidates.findIndex((candidate) => candidate.label === item.label) === index)
+    .slice(0, 12);
+}
 
 const PIP_MIN_WIDTH = 360;
 const PIP_MAX_WIDTH = 960;
@@ -76,21 +111,18 @@ function PreviewBody() {
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
   const todoItems = useMemo<TodoProgressItem[]>(() => {
-    // To-do는 현재 작업 한 건이 아니라 실행 중 기록된 단계들을 체크리스트로 투영한다.
-    const recordedSteps = [...chat]
+    // To-do는 도구 호출 기록이 아니라 모델이 답변에서 구분한 과제·목표를 보여준다.
+    const sourceTurn = [...chat]
       .reverse()
-      .find((turn) => turn.role === 'assistant' && turn.progressSteps?.length)
-      ?.progressSteps ?? [];
-    const checklistSteps = recordedSteps
-      .map((step) => step.trim())
-      .filter((step, index, steps) => step && steps.indexOf(step) === index);
-    return checklistSteps.map((label, index) => ({
-      id: `${index}-${label}`,
-      label,
-      status: /(?:실패|오류|차단|중단)/.test(label)
-        ? 'blocked'
-        : busy && index === checklistSteps.length - 1
-          ? 'active'
+      .find((turn) => turn.role === 'assistant' && turn.text.trim());
+    const checklistItems = extractTodoItems(sourceTurn?.text ?? '');
+    return checklistItems.map((item, index) => ({
+      id: `${sourceTurn?.id ?? 'todo'}-${index}-${item.label}`,
+      label: item.label,
+      status: item.checked === true
+        ? 'done'
+        : busy
+          ? (index === checklistItems.findIndex((candidate) => candidate.checked !== true) ? 'active' : 'pending')
           : 'done',
     }));
   }, [busy, chat]);
@@ -497,7 +529,6 @@ export function MainWorkspaceContainer() {
 
       <ImagePreviewModal />
       <ConfirmModal />
-      <LicenseGate />
     </div>
   );
 }

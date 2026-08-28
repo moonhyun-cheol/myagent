@@ -3,19 +3,14 @@
 param(
   [string]$SourceDir = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
   [string]$TargetDir = $env:MY_AGENT_INSTALL_TARGET,
-  [switch]$Interactive,
-  [string]$OptionalRuntimes = '',
-  [switch]$AllOptional
+  [switch]$Interactive
 )
-. (Join-Path $PSScriptRoot 'optional-runtimes.ps1')
 
 $ErrorActionPreference = 'Stop'
 
 function Get-FullPath([string]$p) {
   if (-not $p) { return $null }
-  $clean = $p.Trim().Trim('"').TrimEnd('\')
-  if (-not $clean) { return $null }
-  return [IO.Path]::GetFullPath($clean).TrimEnd('\')
+  return [IO.Path]::GetFullPath($p).TrimEnd('\')
 }
 
 function Test-IsSubPath([string]$child, [string]$parent) {
@@ -131,11 +126,11 @@ function Repair-CopiedTree([string]$folder) {
   }
 }
 
-$defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAULT } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MYAgent' }
+$defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAULT } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MY Agent' }
 
 if (Test-IsElevated) {
   Write-Host 'ERROR: Do not run install.bat as administrator.'
-  Write-Host 'Right-click install.bat and run it as the Windows user so data\vault stays writable.'
+  Write-Host 'Right-click install.bat and run it as the employee Windows user so data\vault stays writable.'
   exit 1
 }
 
@@ -154,19 +149,6 @@ if ($resolvedTarget) {
 
 Write-Host "Source: $source"
 Write-Host "Target: $targetFull"
-
-$productExeSource = Join-Path $source 'MYAgent.exe'
-if (-not (Test-Path -LiteralPath $productExeSource)) {
-  Write-Host 'ERROR: MYAgent.exe is missing from this folder.'
-  Write-Host 'First install needs MYAgent-v*-install.zip from the v* GitHub release.'
-  Write-Host 'Do not use GitHub "Source code (zip)" (that tree has .github and no exe).'
-  Write-Host 'Do not use MYAgent-v*-delta.zip for first install (that file is an update payload).'
-  Write-Host 'The git clone has no install.bat. First install is MYAgent-v*-install.zip from the GitHub release.'
-  if (Test-Path -LiteralPath (Join-Path $source '.github')) {
-    Write-Host 'This folder contains .github — it is source, not the product zip.'
-  }
-  exit 1
-}
 
 $sourceUnc = $source.StartsWith('\\') -or $source.ToLowerInvariant().Contains('\tsclient\')
 if (-not $sourceUnc) {
@@ -272,20 +254,6 @@ try {
 Repair-CopiedTree $targetFull
 Grant-CurrentUserModify $targetFull
 
-$licenseDest = Join-Path $targetFull 'license.ocx'
-if (-not (Test-Path -LiteralPath $licenseDest)) {
-  foreach ($candidate in @(
-    (Join-Path $source 'license.ocx'),
-    (Join-Path (Split-Path $source -Parent) 'license.ocx')
-  )) {
-    if ($candidate -and (Test-Path -LiteralPath $candidate)) {
-      Copy-Item -LiteralPath $candidate -Destination $licenseDest -Force
-      Write-Host 'License file found next to the installer. It will be registered on first launch.'
-      break
-    }
-  }
-}
-
 $bootstrapNode = Join-Path $targetFull 'tools\bootstrap-node-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNode) {
   Write-Host ''
@@ -294,9 +262,38 @@ if (Test-Path -LiteralPath $bootstrapNode) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$selectedOptionals = Resolve-OptionalRuntimeSelection -Root $targetFull -OptionalRuntimes $OptionalRuntimes -AllOptional:$AllOptional -ApplyCatalogDefaults:(-not $PSBoundParameters.ContainsKey('OptionalRuntimes'))
-Save-OptionalRuntimeSelection -Root $targetFull -Selected $selectedOptionals
-Install-SelectedOptionalRuntimes -Root $targetFull -Selected $selectedOptionals
+$bootstrapPlaywright = Join-Path $targetFull 'tools\bootstrap-playwright-if-needed.ps1'
+if ((Test-Path -LiteralPath $bootstrapPlaywright) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+  Write-Host ''
+  Write-Host 'Installing Playwright (web_dev browser tools, ~300MB)...'
+  & $bootstrapPlaywright -Root $targetFull
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
+  Write-Host ''
+  Write-Host '[SKIP] Playwright (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
+}
+
+$bootstrapFfmpeg = Join-Path $targetFull 'tools\bootstrap-ffmpeg-if-needed.ps1'
+if ((Test-Path -LiteralPath $bootstrapFfmpeg) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+  Write-Host ''
+  Write-Host 'Installing ffmpeg (video attachment keyframes)...'
+  & $bootstrapFfmpeg -Root $targetFull
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
+  Write-Host ''
+  Write-Host '[SKIP] ffmpeg (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
+}
+
+$bootstrapOss = Join-Path $targetFull 'tools\bootstrap-oss-sidecars-if-needed.ps1'
+if ((Test-Path -LiteralPath $bootstrapOss) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+  Write-Host ''
+  Write-Host 'Installing OSS sidecars (markitdown, repomix, ast-grep)...'
+  & $bootstrapOss -Root $targetFull
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
+  Write-Host ''
+  Write-Host '[SKIP] OSS sidecars (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
+}
 
 $bootstrapNpmDeps = Join-Path $targetFull 'tools\bootstrap-npm-deps-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNpmDeps) {
@@ -306,13 +303,6 @@ if (Test-Path -LiteralPath $bootstrapNpmDeps) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$productExe = Join-Path $targetFull 'MYAgent.exe'
-if (-not (Test-Path -LiteralPath $productExe)) {
-  Write-Host "ERROR: Copy finished but MYAgent.exe is missing in $targetFull"
-  Write-Host 'The install zip was incomplete, or antivirus removed the executable.'
-  exit 1
-}
-
 $readme = @"
 MY Agent install complete
 =======================
@@ -320,33 +310,38 @@ Path: $targetFull
 
 Desktop shortcut: MY Agent.lnk
 
-1. Launch MY Agent from the desktop shortcut or MYAgent.exe. On the office LAN it requests a license from the activation server automatically.
+1. Launch MY Agent from the desktop shortcut or MYAgent.exe
 
-First run: the app contacts the activation server and stores the issued license plus key bundle.
+First run: optional activation and provider setup.
 Organization skills are installed separately through their signed module stream.
-Slim zip: first install needs internet for portable Node. Optional extras (Playwright, ffmpeg, MarkItDown, Repomix, ast-grep) download only when selected in the installer checklist. Add more later from Settings > Features. Token-gated MCP is not auto-installed.
+Slim zip: first install may need internet for Node, ffmpeg, Playwright Chromium, and OSS sidecars (markitdown/repomix/ast-grep). Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
 
-try {
-  $shortcutScript = Join-Path $targetFull 'tools\desktop-shortcut.ps1'
-  if (Test-Path -LiteralPath $shortcutScript) {
-    & $shortcutScript -Root $targetFull
-  } else {
-    $desktop = [Environment]::GetFolderPath('Desktop')
-    $shortcutPath = Join-Path $desktop 'MY Agent.lnk'
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $productExe
-    $shortcut.Arguments = ''
-    $shortcut.WorkingDirectory = $targetFull
-    $shortcut.Description = 'MY Agent'
-    $shortcut.WindowStyle = 7
-    $shortcut.Save()
-    Write-Host "Desktop shortcut: $shortcutPath"
+$productExe = Join-Path $targetFull 'MYAgent.exe'
+if (-not (Test-Path -LiteralPath $productExe)) {
+  Write-Warning 'MYAgent.exe not found — desktop shortcut was not created.'
+} else {
+  try {
+    $shortcutScript = Join-Path $targetFull 'tools\desktop-shortcut.ps1'
+    if (Test-Path -LiteralPath $shortcutScript) {
+      & $shortcutScript -Root $targetFull
+    } else {
+      $desktop = [Environment]::GetFolderPath('Desktop')
+      $shortcutPath = Join-Path $desktop 'MY Agent.lnk'
+      $shell = New-Object -ComObject WScript.Shell
+      $shortcut = $shell.CreateShortcut($shortcutPath)
+      $shortcut.TargetPath = $productExe
+      $shortcut.Arguments = ''
+      $shortcut.WorkingDirectory = $targetFull
+      $shortcut.Description = 'MY Agent'
+      $shortcut.WindowStyle = 7
+      $shortcut.Save()
+      Write-Host "Desktop shortcut: $shortcutPath"
+    }
+  } catch {
+    Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
   }
-} catch {
-  Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
 }
 
 Write-Host ''

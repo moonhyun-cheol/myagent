@@ -50,25 +50,11 @@ import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
-  describeOptionalRuntimes,
-  installOptionalRuntimes,
-} from '../setup/optional-runtimes.js';
-import {
   listAllSkills,
   isBundledSkillId,
   getSkillSystemPromptByMode,
 } from '../skills/skill-registry.js';
-import { getOrganizationSkillDef } from '../skills/organization-skill-store.js';
 import { UserSkillError } from '../skills/user-skill-store.js';
-import {
-  describeOrganizationModuleStatus,
-  installOrganizationModule,
-  OrganizationModuleError,
-} from '../updates/organization-module-installer.js';
-import {
-  applyOrganizationModuleUpdate,
-  checkOrganizationModuleUpdate,
-} from '../updates/organization-module-feed.js';
 import {
   installAgentPlugin,
   installAgentPluginFromTemplate,
@@ -165,7 +151,6 @@ function looksLikeApiPath(pathname: string): boolean {
     '/projects',
     '/workspace',
     '/error-report',
-    '/organization-module',
     '/assets/',
   ];
   return roots.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
@@ -995,33 +980,26 @@ export async function dispatchApiRequest(
       }
 
       if (method === 'POST' && url.pathname === '/setup/import-license') {
+        let raw = '';
         const ct = req.headers['content-type'] ?? '';
-        let result: { ok: true; org_id: string };
         if (ct.includes('multipart/form-data')) {
           const files = await parseMultipart(req);
           const file = files.find((f) => f.fieldName === 'license' || f.filename.endsWith('.ocx'));
-          if (!file) return sendJson(res, 400, { error: 'FILE_MISSING', message: '라이선스 파일을 선택하세요.' });
-          result = setup.importLicense(file.data.toString('utf8'));
+          if (!file) return sendJson(res, 400, { error: 'FILE_MISSING' });
+          raw = file.data.toString('utf8');
         } else {
-          const body = JSON.parse(await readBody(req)) as { license?: string; license_path?: string };
-          if (body.license_path?.trim()) {
-            result = setup.importLicenseFromPath(body.license_path);
-          } else {
-            const raw = body.license ?? '';
-            if (!raw.trim()) {
-              return sendJson(res, 400, { error: 'LICENSE_EMPTY', message: '라이선스 파일을 선택하세요.' });
-            }
-            result = setup.importLicense(raw);
-          }
+          const body = JSON.parse(await readBody(req)) as { license?: string };
+          raw = body.license ?? '';
         }
-        setup.tryAutoImportBundle();
+        if (!raw.trim()) return sendJson(res, 400, { error: 'LICENSE_EMPTY' });
+        const result = setup.importLicense(raw);
         return sendJson(res, 200, result);
       }
 
       if (method === 'POST' && url.pathname === '/setup/import-bundle') {
         const lic = license.getStatus();
         if (lic.mode !== 'full') {
-          return sendJson(res, 403, { error: 'LICENSE_REQUIRED', message: '먼저 라이선스 파일을 등록하세요.' });
+          return sendJson(res, 403, { error: 'LICENSE_REQUIRED', message: '먼저 license.ocx를 등록하세요.' });
         }
         license.assertFeature('manager');
         const overwrite = url.searchParams.get('overwrite') === '1';
@@ -1041,34 +1019,6 @@ export async function dispatchApiRequest(
         if (!raw.trim()) return sendJson(res, 400, { error: 'BUNDLE_EMPTY' });
         const result = setup.importBundle(raw, { overwrite });
         return sendJson(res, 200, result);
-      }
-
-      if (method === 'GET' && url.pathname === '/setup/optional-runtimes') {
-        return sendJson(res, 200, describeOptionalRuntimes(cqrRoot));
-      }
-
-      if (method === 'POST' && url.pathname === '/setup/optional-runtimes/install') {
-        license.assertWritable();
-        let body: { ids?: unknown };
-        try {
-          body = JSON.parse(await readBody(req)) as { ids?: unknown };
-        } catch {
-          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
-        }
-        const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
-        try {
-          const result = await installOptionalRuntimes(cqrRoot, ids);
-          return sendJson(res, result.ok ? 200 : 500, result);
-        } catch (err) {
-          const code = (err as { code?: string }).code;
-          if (code === 'OPTIONAL_RUNTIME_BUSY') {
-            return sendJson(res, 409, {
-              error: 'OPTIONAL_RUNTIME_BUSY',
-              message: '다른 기능 설치가 진행 중입니다.',
-            });
-          }
-          throw err;
-        }
       }
 
       const workspaceReady =
@@ -1668,21 +1618,14 @@ export async function dispatchApiRequest(
         if (method === 'PUT') {
           license.assertWritable();
           license.assertFeature('chat');
-          try {
-            const body = JSON.parse(await readBody(req)) as {
-              title?: string;
-              color?: 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink' | null;
-            };
-            let rec = body.title !== undefined ? projectStore.rename(pid, body.title) : projectStore.get(pid);
-            if (rec && body.color !== undefined) rec = projectStore.setColor(pid, body.color);
-            if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
-            return sendJson(res, 200, rec);
-          } catch (e: unknown) {
-            if (e instanceof ProjectStoreError) {
-              return sendJson(res, 400, { error: e.code, message: e.message });
-            }
-            throw e;
-          }
+          const body = JSON.parse(await readBody(req)) as {
+            title?: string;
+            color?: 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink' | null;
+          };
+          let rec = body.title !== undefined ? projectStore.rename(pid, body.title) : projectStore.get(pid);
+          if (rec && body.color !== undefined) rec = projectStore.setColor(pid, body.color);
+          if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+          return sendJson(res, 200, rec);
         }
         if (method === 'DELETE') {
           license.assertWritable();
@@ -1743,62 +1686,6 @@ export async function dispatchApiRequest(
         });
       }
 
-      if (method === 'GET' && url.pathname === '/organization-module') {
-        license.assertFeature('chat');
-        return sendJson(res, 200, describeOrganizationModuleStatus(cqrRoot));
-      }
-
-      if (method === 'POST' && url.pathname === '/organization-module/check') {
-        license.assertFeature('chat');
-        try {
-          const update = await checkOrganizationModuleUpdate(cqrRoot);
-          return sendJson(res, 200, { update });
-        } catch (e: unknown) {
-          if (e instanceof OrganizationModuleError) {
-            return sendJson(res, 400, { error: e.code, message: e.message });
-          }
-          throw e;
-        }
-      }
-
-      if (method === 'POST' && url.pathname === '/organization-module/apply') {
-        license.assertWritable();
-        license.assertFeature('chat');
-        try {
-          const installed = await applyOrganizationModuleUpdate(cqrRoot);
-          return sendJson(res, 200, { installed });
-        } catch (e: unknown) {
-          if (e instanceof OrganizationModuleError) {
-            return sendJson(res, 400, { error: e.code, message: e.message });
-          }
-          throw e;
-        }
-      }
-
-      if (method === 'POST' && url.pathname === '/organization-module/install') {
-        license.assertWritable();
-        license.assertFeature('chat');
-        try {
-          const body = JSON.parse(await readBody(req)) as { zip_path?: string };
-          if (!body.zip_path?.trim()) {
-            return sendJson(res, 400, {
-              error: 'MODULE_ZIP_PATH_REQUIRED',
-              message: '회사 팩 ZIP 파일 경로를 입력하세요.',
-            });
-          }
-          const result = installOrganizationModule({
-            cqrRoot,
-            zipPath: body.zip_path.trim().replace(/^"|"$/g, ''),
-          });
-          return sendJson(res, 201, { installed: result.installed });
-        } catch (e: unknown) {
-          if (e instanceof OrganizationModuleError) {
-            return sendJson(res, 400, { error: e.code, message: e.message });
-          }
-          throw e;
-        }
-      }
-
       if (method === 'POST' && url.pathname === '/skills/import') {
         license.assertWritable();
         license.assertFeature('chat');
@@ -1834,20 +1721,6 @@ export async function dispatchApiRequest(
             const prompt = getSkillSystemPromptByMode(bundled.mode, cqrRoot);
             return sendJson(res, 200, { ...bundled, prompt: prompt ?? '' });
           }
-          const orgDef = getOrganizationSkillDef(skillId, cqrRoot);
-          if (orgDef) {
-            const prompt = getSkillSystemPromptByMode(orgDef.mode, cqrRoot);
-            return sendJson(res, 200, {
-              id: skillId,
-              label: orgDef.label,
-              mode: orgDef.mode,
-              source: 'organization',
-              editable: false,
-              removable: false,
-              feature: orgDef.feature,
-              prompt: prompt ?? '',
-            });
-          }
           const rec = userSkillStore.get(skillId);
           if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
           return sendJson(res, 200, {
@@ -1873,9 +1746,6 @@ export async function dispatchApiRequest(
           if (isBundledSkillId(skillId)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_READONLY' });
           }
-          if (getOrganizationSkillDef(skillId, cqrRoot)) {
-            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_READONLY' });
-          }
           try {
             const body = JSON.parse(await readBody(req)) as {
               label?: string;
@@ -1898,9 +1768,6 @@ export async function dispatchApiRequest(
           if (isBundledSkillId(skillId)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_READONLY' });
           }
-          if (getOrganizationSkillDef(skillId, cqrRoot)) {
-            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_READONLY' });
-          }
           const ok = userSkillStore.delete(skillId);
           return sendJson(res, ok ? 200 : 404, { ok });
         }
@@ -1919,9 +1786,6 @@ export async function dispatchApiRequest(
           };
           if (isBundledSkillId(body.id)) {
             return sendJson(res, 403, { error: 'BUNDLED_SKILL_ID' });
-          }
-          if (getOrganizationSkillDef(body.id, cqrRoot)) {
-            return sendJson(res, 403, { error: 'ORGANIZATION_SKILL_ID' });
           }
           const rec = userSkillStore.create(body);
           return sendJson(res, 201, rec);
@@ -2053,6 +1917,20 @@ export async function dispatchApiRequest(
         const result = sessionStore.popLastTurn(sid);
         if (!result) return sendJson(res, 404, { error: 'NOTHING_TO_UNDO' });
         return sendJson(res, 200, result);
+      }
+
+      const sessionModelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/preferred-model$/);
+      if (sessionModelMatch && method === 'PUT') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { model?: string };
+        const model = typeof body.model === 'string' ? body.model.trim() : '';
+        if (!model || model.length > 240) {
+          return sendJson(res, 400, { error: 'INVALID_MODEL' });
+        }
+        const rec = sessionStore.setPreferredModel(sessionModelMatch[1], model);
+        if (!rec) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        return sendJson(res, 200, rec);
       }
 
       const sessionPolicyMatch = url.pathname.match(/^\/sessions\/([^/]+)\/execution-policy$/);

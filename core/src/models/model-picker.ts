@@ -3,7 +3,7 @@ import type { UserOverrides } from '../config/user-overrides.js';
 import { isProviderAllowedLocalOnly } from '../config/user-overrides.js';
 import type { ProviderStore } from '../providers/provider-store.js';
 import type { ResolvedModelRoute } from '../providers/types.js';
-import { listRemoteModels } from '../providers/openai-compatible.js';
+import { listRemoteModelsDetailed, type RemoteModelInfo } from '../providers/openai-compatible.js';
 import type { ChatMode } from '../router/types.js';
 import { hasDevWorkspace } from '../chat/session-context.js';
 import {
@@ -42,6 +42,10 @@ export interface ModelPickerPayload {
     selected: string[];
     defaults: string[];
     available: string[];
+    /** Install-time featured set that drives the compact discovery view. */
+    featured: string[];
+    /** Newest remotely published models when the provider exposes publication time. */
+    recent: string[];
   };
 }
 
@@ -67,8 +71,17 @@ const REMOTE_MODEL_CACHE_MS = 60_000;
 const PRIMARY_BYOK_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google']);
 const remoteModelCache = new Map<
   string,
-  { at: number; models: string[]; curated: CuratedModel[] }
+  { at: number; models: string[]; curated: CuratedModel[]; recent: string[] }
 >();
+
+/** Keep discovery compact and use provider publication metadata instead of model-name guesses. */
+export function selectRecentRemoteModelIds(models: RemoteModelInfo[], limit = 12): string[] {
+  return models
+    .filter((model) => model.created_at != null)
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+    .slice(0, limit)
+    .map((model) => model.id);
+}
 
 export function encodeProviderModelPick(providerId: string, modelId: string): string {
   return `provider:${providerId}@${encodeURIComponent(modelId)}`;
@@ -91,38 +104,42 @@ function getCachedCurated(providerId: string): CuratedModel[] {
   return remoteModelCache.get(providerId)?.curated ?? [];
 }
 
-function getCachedRemote(providerId: string): { models: string[]; curated: CuratedModel[] } {
+function getCachedRemote(providerId: string): { models: string[]; curated: CuratedModel[]; recent: string[] } {
   const cached = remoteModelCache.get(providerId);
-  return cached ? { models: cached.models, curated: cached.curated } : { models: [], curated: [] };
+  return cached
+    ? { models: cached.models, curated: cached.curated, recent: cached.recent }
+    : { models: [], curated: [], recent: [] };
 }
 
 async function fetchRemoteModelsForProvider(
   providerStore: ProviderStore,
   providerId: string,
-): Promise<{ models: string[]; curated: CuratedModel[]; error?: string }> {
+): Promise<{ models: string[]; curated: CuratedModel[]; recent: string[]; error?: string }> {
   const cached = remoteModelCache.get(providerId);
   if (cached && Date.now() - cached.at < REMOTE_MODEL_CACHE_MS) {
-    return { models: cached.models, curated: cached.curated };
+    return { models: cached.models, curated: cached.curated, recent: cached.recent };
   }
   const secret = providerStore.getSecret(providerId);
   const def = providerStore.getDefinition(providerId);
-  if (!secret || !def?.custom) return { models: [], curated: [] };
+  if (!secret || !def?.custom) return { models: [], curated: [], recent: [] };
   const baseUrl = (secret.base_url || def.base_url).replace(/\/$/, '');
-  if (!baseUrl || !secret.api_key) return { models: [], curated: [] };
+  if (!baseUrl || !secret.api_key) return { models: [], curated: [], recent: [] };
   try {
-    const models = await listRemoteModels(baseUrl, secret.api_key);
+    const remoteModels = await listRemoteModelsDetailed(baseUrl, secret.api_key);
+    const models = remoteModels.map((model) => model.id);
+    const recent = selectRecentRemoteModelIds(remoteModels);
     const curated = curateRemoteModels(models);
     // Empty lists can be transient — do not pin them for the full TTL.
     if (models.length > 0) {
-      remoteModelCache.set(providerId, { at: Date.now(), models, curated });
+      remoteModelCache.set(providerId, { at: Date.now(), models, curated, recent });
     } else {
       remoteModelCache.delete(providerId);
     }
-    return { models, curated };
+    return { models, curated, recent };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     remoteModelCache.delete(providerId);
-    return { models: [], curated: [], error: msg };
+    return { models: [], curated: [], recent: [], error: msg };
   }
 }
 
@@ -163,6 +180,8 @@ export async function buildModelPicker(
     selected: describeRemoteModels(initialCompanySelection, curateCfg).map((model) => model.id),
     defaults: companyDefaults,
     available: [],
+    featured: companyDefaults,
+    recent: [],
   };
   const matrixPickerOnly = curateCfg.matrix_only === true && !localOnly;
 
@@ -180,7 +199,7 @@ export async function buildModelPicker(
       if (def.custom) {
         // Cold UI boot uses the encrypted vault's saved model immediately. A live /models
         // request (up to several 20s candidate probes) only runs on explicit refresh.
-        const remote: { models: string[]; curated: CuratedModel[]; error?: string } = opts?.refreshRemote
+        const remote: { models: string[]; curated: CuratedModel[]; recent: string[]; error?: string } = opts?.refreshRemote
           ? await fetchRemoteModelsForProvider(providerStore, def.id)
           : getCachedRemote(def.id);
         if (remote.error) remoteModelErrors[def.id] = remote.error;
@@ -196,6 +215,8 @@ export async function buildModelPicker(
           selected: selectedModels.map((model) => model.id),
           defaults: companyDefaults,
           available: remote.models,
+          featured: companyDefaults.filter((id) => remote.models.includes(id)),
+          recent: remote.recent,
         };
 
         const remoteIds = new Set(selectedModels.map((m) => m.id));

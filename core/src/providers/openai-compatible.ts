@@ -718,6 +718,8 @@ export interface RemoteModelInfo {
   id: string;
   /** Context window when the provider exposes it. */
   context_length?: number;
+  /** Provider catalog publication time (Unix seconds when supplied by OpenRouter). */
+  created_at?: number;
 }
 
 function extractContextLength(row: Record<string, unknown>): number | undefined {
@@ -773,7 +775,17 @@ export function parseRemoteModels(data: unknown): RemoteModelInfo[] {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const context_length = extractContextLength(m);
-    out.push(context_length ? { id, context_length } : { id });
+    const createdRaw = m.created ?? m.created_at;
+    const created_at = typeof createdRaw === 'number'
+      ? createdRaw
+      : typeof createdRaw === 'string' && createdRaw.trim() && Number.isFinite(Number(createdRaw))
+        ? Number(createdRaw)
+        : undefined;
+    out.push({
+      id,
+      ...(context_length ? { context_length } : {}),
+      ...(created_at != null ? { created_at } : {}),
+    });
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }

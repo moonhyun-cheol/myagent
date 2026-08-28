@@ -1,3 +1,3 @@
-MY Agent 1.0.3 (update 8)
+MY Agent stable v1.0.3
 update_sequence: 8
 channel: stable

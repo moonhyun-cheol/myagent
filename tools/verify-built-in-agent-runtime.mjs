@@ -73,7 +73,10 @@ const markitdownRequirements = readFileSync(path.join(root, 'tools/requirements-
 assert.match(markitdownRequirements, /markitdown\[pptx,xlsx,xls,outlook\]/);
 assert.match(bootstrap, /\$bundleVersion\s*=\s*4/);
 
-const settingsModal = readFileSync(path.join(root, 'ui/workspace/src/components/SettingsModal.tsx'), 'utf8');
+const settingsModal = [
+  'ui/workspace/src/components/SettingsModal.tsx',
+  'ui/workspace/src/components/SettingsAgentPage.tsx',
+].map((file) => readFileSync(path.join(root, file), 'utf8')).join('\n');
 assert.match(settingsModal, /data-testid="settings-autopilot-mode"/);
 assert.match(settingsModal, /setAgentAutopilot\(mode\)/);
 for (const option of ['auto', 'on', 'off']) assert.match(settingsModal, new RegExp(`value="${option}"`));

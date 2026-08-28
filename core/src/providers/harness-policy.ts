@@ -14,7 +14,7 @@ export interface HarnessPolicy {
   historyKeepRecent: number;
   /** Trigger deterministic history compress when total history chars exceed this. */
   historyCompressChars: number;
-  /** MAR-light env flag; live role plan is already single-coder. */
+  /** Skip mandatory Critic on simple single-coder mutates. */
   marLight: boolean;
   /** Global continuous runs (MY_AGENT_AUTOPILOT). Default off; CODE/UI task heuristics are separate. */
   autopilot: boolean;

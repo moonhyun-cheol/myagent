@@ -10,22 +10,20 @@ Set-Location -LiteralPath $Root
 
 function Resolve-ShellExe {
   $candidates = @(
-    (Join-Path $Root 'MYAgent.exe'),
     (Join-Path $Root 'bin\my-agent\MYAgent.exe'),
-    (Join-Path $Root 'bin\cqr-pa\cqr-pa.exe'),
-    (Join-Path $Root 'shell\CqrPa.Shell\bin\Release\net8.0-windows\cqr-pa.exe')
+    (Join-Path $Root 'shell\CqrPa.Shell\bin\Release\net8.0-windows\win-x64\MYAgent.exe')
   )
   foreach ($candidate in $candidates) {
     if (Test-Path -LiteralPath $candidate) { return $candidate }
   }
 
-  $outDir = Join-Path $Root 'bin\cqr-pa'
+  $outDir = Join-Path $Root 'bin\my-agent'
   dotnet publish (Join-Path $Root 'shell\CqrPa.Shell\CqrPa.Shell.csproj') -c Release -o $outDir -v q | Out-Null
   if ($LASTEXITCODE -ne 0) {
-    throw 'WebView2 shell publish failed. Install .NET 8 SDK and run: dotnet publish shell/CqrPa.Shell/CqrPa.Shell.csproj -c Release -o bin/cqr-pa'
+    throw 'WebView2 shell publish failed. Install .NET 8 SDK and run: dotnet publish shell/CqrPa.Shell/CqrPa.Shell.csproj -c Release -o bin/my-agent'
   }
 
-  $published = Join-Path $outDir 'cqr-pa.exe'
+  $published = Join-Path $outDir 'MYAgent.exe'
   if (-not (Test-Path -LiteralPath $published)) {
     throw "Missing shell after publish: $published"
   }

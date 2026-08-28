@@ -25,7 +25,7 @@
       "name": "OpenAI",
       "kind": "openai_compatible",
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5.6-luna",
+      "default_model": "gpt-5.6-terra-pro",
       "wire_api": "responses"
     },
     {
@@ -33,7 +33,7 @@
       "name": "Anthropic",
       "kind": "openai_compatible",
       "base_url": "https://api.anthropic.com/v1",
-      "default_model": "claude-fable-5",
+      "default_model": "claude-opus-4-8",
       "wire_api": "messages",
       "note": "Anthropic native Messages API"
     },
@@ -50,7 +50,7 @@
       "name": "OpenRouter",
       "kind": "openai_compatible",
       "base_url": "https://openrouter.ai/api/v1",
-      "default_model": "anthropic/claude-fable-5",
+      "default_model": "anthropic/claude-opus-4.8",
       "wire_api": "responses",
       "custom": true,
       "docs_url": "https://openrouter.ai/docs/api/api-reference/responses/create-responses",

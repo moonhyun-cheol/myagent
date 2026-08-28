@@ -21,7 +21,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(root, 'deploy', 'output');
 const productManifestPath = path.join(root, 'manifest.json');
 const githubRepository = String(
-  process.env.MY_AGENT_UPDATE_GITHUB_REPO ?? 'moonhyun-cheol/myagent',
+  process.env.MY_AGENT_UPDATE_GITHUB_REPO ?? 'moonhyun-cheol/MY_CUSTOM_CODEX',
 ).trim();
 const privateKeyPath = path.resolve(
   process.env.MY_AGENT_UPDATE_SIGNING_KEY

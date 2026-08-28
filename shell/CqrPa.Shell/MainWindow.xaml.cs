@@ -256,7 +256,7 @@ public partial class MainWindow : Window
         preview.Content = webView;
         preview.Show();
 
-        var userData = Path.Combine(_cqrRoot, "data", "webview-preview-user-data");
+        var userData = Path.Combine(_cqrRoot, "data", "webview-user-data");
         Directory.CreateDirectory(userData);
         var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
         await webView.EnsureCoreWebView2Async(env);
@@ -492,19 +492,13 @@ public partial class MainWindow : Window
         var purpose = request.TryGetProperty("purpose", out var purposeProperty)
             ? purposeProperty.GetString()
             : null;
-        if (string.IsNullOrWhiteSpace(requestId)
-            || (purpose != "skillZip" && purpose != "organizationModuleZip" && purpose != "licenseFile")) return;
+        if (string.IsNullOrWhiteSpace(requestId) || purpose != "skillZip") return;
 
-        var licensePicker = purpose == "licenseFile";
         var dialog = new OpenFileDialog
         {
-            Title = licensePicker
-                ? "라이선스 파일 선택"
-                : purpose == "organizationModuleZip" ? "회사 팩 ZIP 선택" : "설치할 스킬 ZIP 선택",
-            Filter = licensePicker
-                ? "라이선스 파일 (*.ocx)|*.ocx|모든 파일 (*.*)|*.*"
-                : "ZIP 압축 파일 (*.zip)|*.zip",
-            DefaultExt = licensePicker ? ".ocx" : ".zip",
+            Title = "설치할 스킬 ZIP 선택",
+            Filter = "ZIP 압축 파일 (*.zip)|*.zip",
+            DefaultExt = ".zip",
             AddExtension = true,
             CheckFileExists = true,
             CheckPathExists = true,
@@ -512,14 +506,7 @@ public partial class MainWindow : Window
             DereferenceLinks = true,
         };
         var accepted = dialog.ShowDialog(this) == true;
-        var extension = accepted ? Path.GetExtension(dialog.FileName) : null;
-        var selectedPath = accepted && (
-            licensePicker
-                ? string.IsNullOrEmpty(extension)
-                    || string.Equals(extension, ".ocx", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(extension, ".json", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(extension, ".lic", StringComparison.OrdinalIgnoreCase)
-                : string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+        var selectedPath = accepted && string.Equals(Path.GetExtension(dialog.FileName), ".zip", StringComparison.OrdinalIgnoreCase)
             ? Path.GetFullPath(dialog.FileName)
             : null;
         var payload = JsonSerializer.Serialize(new
@@ -634,7 +621,7 @@ public partial class MainWindow : Window
         _trayIcon = null;
     }
 
-    internal void RestoreFromTray()
+    private void RestoreFromTray()
     {
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;

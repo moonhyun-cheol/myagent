@@ -138,8 +138,11 @@ try {
   assert.equal(events.some((event) => event.ok === true), true);
   assert.equal(events.some((event) => event.ok === false), true);
 
-  const ui = readFileSync(path.join(root, 'ui/workspace/src/components/SettingsModal.tsx'), 'utf8');
-  const client = readFileSync(path.join(root, 'ui/workspace/src/api/cqrClient.ts'), 'utf8');
+  const ui = [
+    'ui/workspace/src/components/SettingsModal.tsx',
+    'ui/workspace/src/components/SettingsAgentPage.tsx',
+  ].map((file) => readFileSync(path.join(root, file), 'utf8')).join('\n');
+  const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
   const dispatch = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   const orchestrator = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
   const stepLoop = readFileSync(path.join(root, 'core/src/agent/agent-run-step-loop.ts'), 'utf8');

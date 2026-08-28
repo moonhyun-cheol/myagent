@@ -2,9 +2,12 @@ import {
   CaretDown,
   CaretRight,
   ChatTeardropText,
+  DotsThree,
   FolderPlus,
   FolderSimple,
+  PencilSimple,
   Plus,
+  PushPin,
   Trash,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
@@ -13,9 +16,11 @@ import {
   deleteProject,
   deleteSession,
   fetchWorkspaceTree,
+  getPinnedSessionIds,
   getStoredSessionId,
   setDevWorkspace,
-  updateProjectColor,
+  setPinnedSessionIds,
+  updateProject,
   type ProjectColor,
   type SessionSummary,
   type WorkspaceNode,
@@ -28,9 +33,9 @@ import { FolderBrowserModal } from './FolderBrowserModal';
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
 const PROJECT_COLORS: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
-const PROJECT_COLOR_CLASS: Record<ProjectColor, string> = {
-  gray: 'bg-slate-400', red: 'bg-red-400', orange: 'bg-orange-400', yellow: 'bg-yellow-400',
-  green: 'bg-green-400', teal: 'bg-teal-400', blue: 'bg-blue-400', pink: 'bg-pink-400',
+const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
+  gray: '#94a3b8', red: '#f87171', orange: '#fb923c', yellow: '#facc15',
+  green: '#4ade80', teal: '#2dd4bf', blue: '#60a5fa', pink: '#f472b6',
 };
 
 function loadCollapsed(): Set<string> {
@@ -66,6 +71,7 @@ function latestSession(sessions: SessionSummary[] | undefined): SessionSummary |
 export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOpened }: ProjectsTreeProps) {
   const [tree, setTree] = useState<WorkspaceTreePayload | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());
+  const [pinned, setPinned] = useState<string[]>(() => getPinnedSessionIds());
   const [browseOpen, setBrowseOpen] = useState(false);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
@@ -90,6 +96,12 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     window.addEventListener('cqr:workspace-tree-changed', onTreeChanged);
     return () => window.removeEventListener('cqr:workspace-tree-changed', onTreeChanged);
   }, [refresh]);
+
+  const togglePin = (id: string) => {
+    const next = pinned.includes(id) ? pinned.filter((item) => item !== id) : [id, ...pinned];
+    setPinned(next);
+    setPinnedSessionIds(next);
+  };
 
   const toggle = (id: string) => {
     setCollapsed((prev) => {
@@ -118,6 +130,23 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       onMessage?.('프로젝트 생성');
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : '생성 실패');
+    }
+  };
+
+  const onRenameNode = async (node: WorkspaceNode) => {
+    const title = await promptDialog({
+      title: '이름 변경',
+      message: '새 이름을 입력하세요.',
+      defaultValue: node.title,
+      placeholder: '이름',
+      confirmLabel: '변경',
+    });
+    if (title === null || !title.trim() || title.trim() === node.title) return;
+    try {
+      await updateProject(node.id, { title: title.trim() });
+      await refresh();
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : '이름 변경 실패');
     }
   };
 
@@ -294,27 +323,56 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
 
   return (
     <div className={embedded ? "border-t border-line" : "flex h-full min-h-0 flex-col"}>
-      <div className="space-y-1 border-b border-line px-3 py-2">
-        <p className="text-[11px] font-medium tracking-wide text-muted">작업 단위</p>
-        <button
-          type="button"
-          onClick={() => setBrowseOpen(true)}
-          className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[12px] text-muted hover:bg-ink hover:text-text"
-        >
-          <FolderPlus size={15} />
-          + 작업 폴더 추가
-        </button>
-        <button
-          type="button"
-          onClick={() => void onNewProject()}
-          className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[12px] text-muted hover:bg-ink hover:text-text"
-        >
-          <Plus size={15} />
-          + 새 프로젝트
-        </button>
+      <div className="group flex h-9 shrink-0 items-center border-b border-line px-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">워크스페이스</p>
+        <div className="ml-auto flex items-center opacity-70 transition group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => setBrowseOpen(true)}
+            className="rounded-md p-1 text-muted hover:bg-ink hover:text-text"
+            title="작업 폴더 연결"
+            aria-label="작업 폴더 연결"
+          >
+            <FolderPlus size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void onNewProject()}
+            className="rounded-md p-1 text-muted hover:bg-ink hover:text-text"
+            title="새 프로젝트"
+            aria-label="새 프로젝트"
+          >
+            <Plus size={14} weight="bold" />
+          </button>
+        </div>
       </div>
 
-      <div className={embedded ? "px-2 py-2" : "min-h-0 flex-1 overflow-y-auto px-2 py-2"}>
+      <div className={embedded ? "px-2 py-1.5" : "min-h-0 flex-1 overflow-y-auto px-2 py-1.5"}>
+        {(tree?.standalone_sessions ?? []).filter(matchSession).length > 0 ? (
+          <div className="mb-1">
+            <div className="flex h-8 items-center gap-1 rounded-md px-1 text-[12px] text-muted">
+              <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX.gray }} />
+              <span className="font-medium">개인 작업</span>
+            </div>
+            <div className="ml-[11px] border-l border-line/70 pl-1">
+              {[...(tree?.standalone_sessions ?? [])]
+                .filter(matchSession)
+                .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))
+                .map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  active={session.id === activeSessionId}
+                  indent={20}
+                  pinned={pinned.includes(session.id)}
+                  onTogglePin={() => togglePin(session.id)}
+                  onSelect={() => void onSelectSession(session.id)}
+                  onDelete={() => void onDeleteSession(session.id)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
         {(tree?.workspace_trees ?? []).filter(matchNode).map((root) => (
           <TreeNode
             key={root.id}
@@ -333,13 +391,13 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
             onDeleteSession={(id) => void onDeleteSession(id)}
             onNewChat={(id) => void onNewChatIn(id)}
             onAddFolder={(id) => void onAddFolder(id)}
+            onRenameNode={(n) => void onRenameNode(n)}
             onDeleteNode={(n) => void onDeleteNode(n)}
           />
         ))}
 
         {(tree?.projects ?? []).length > 0 ? (
           <>
-            <p className="mt-3 px-2 text-[11px] font-medium tracking-wide text-muted">프로젝트</p>
             {tree!.projects
               .filter((p) => !q || p.title.toLowerCase().includes(q) || p.sessions.some(matchSession))
               .map((p) => (
@@ -347,6 +405,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   key={p.id}
                   id={p.id}
                   title={p.title}
+                  color={p.color ?? 'gray'}
                   sessions={p.sessions}
                   collapsed={collapsed.has(p.id)}
                   activeSessionId={activeSessionId}
@@ -365,6 +424,15 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   onSelectSession={(id) => void onSelectSession(id, p.id)}
                   onDeleteSession={(id) => void onDeleteSession(id)}
                   onNewChat={() => void onNewChatIn(p.id)}
+                  onRename={() => void onRenameNode({
+                    id: p.id,
+                    title: p.title,
+                    kind: 'project',
+                    color: p.color,
+                    sessions: p.sessions,
+                    children: [],
+                    session_count: p.sessions.length,
+                  })}
                   onDelete={() =>
                     void deleteProject(p.id).then(refresh).catch((err) => {
                       onMessage?.(err instanceof Error ? err.message : '삭제 실패');
@@ -407,6 +475,7 @@ function TreeNode({
   onDeleteSession,
   onNewChat,
   onAddFolder,
+  onRenameNode,
   onDeleteNode,
 }: {
   node: WorkspaceNode;
@@ -424,23 +493,21 @@ function TreeNode({
   onDeleteSession: (id: string) => void;
   onNewChat: (projectId: string) => void;
   onAddFolder: (parentId: string) => void;
+  onRenameNode: (node: WorkspaceNode) => void;
   onDeleteNode: (node: WorkspaceNode) => void;
 }) {
   const isOpen = !collapsed.has(node.id);
   const isContainer = node.kind === 'workspace_root' || node.kind === 'folder';
   const isActiveRoot = node.kind === 'workspace_root' && node.id === activeWorkspaceId;
   const [labelColor, setLabelColor] = useState<ProjectColor>(node.color ?? 'gray');
+  const [menuOpen, setMenuOpen] = useState(false);
   const pad = 8 + depth * 10;
-
-  useEffect(() => {
-    setLabelColor(node.color ?? 'gray');
-  }, [node.color]);
 
   return (
     <div className="mb-0.5">
       <div
-        className={`group flex items-center gap-0.5 rounded-xl py-1.5 pr-1 text-[12px] ${
-          isActiveRoot ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-ink hover:text-text'
+        className={`group relative flex h-8 items-center gap-0.5 rounded-md pr-1 text-[12px] transition before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded ${
+          isActiveRoot ? 'bg-accent/10 text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
         }`}
         style={{ paddingLeft: pad }}
       >
@@ -454,16 +521,17 @@ function TreeNode({
         </button>
         <button
           type="button"
-          className={`h-2.5 w-2.5 shrink-0 rounded-full ${PROJECT_COLOR_CLASS[labelColor]}`}
+          className="shrink-0 rounded p-0.5"
           title="컬러 라벨 변경"
           aria-label={`${node.title} 컬러 라벨 변경`}
           onClick={() => {
             const next = PROJECT_COLORS[(PROJECT_COLORS.indexOf(labelColor) + 1) % PROJECT_COLORS.length];
             setLabelColor(next);
-            void updateProjectColor(node.id, next);
+            void updateProject(node.id, { color: next });
           }}
-        />
-        <FolderSimple size={14} className="shrink-0" weight={isActiveRoot ? 'fill' : 'regular'} />
+        >
+          <FolderSimple size={16} className="shrink-0" weight="fill" style={{ color: PROJECT_COLOR_HEX[labelColor] }} />
+        </button>
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"
@@ -481,34 +549,48 @@ function TreeNode({
         </button>
         <button
           type="button"
-          className="rounded p-0.5 opacity-0 group-hover:opacity-100"
-          title="이 위치에 새 채팅"
-          onClick={() => onNewChat(node.id)}
+          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+          title="이름 변경"
+          aria-label="이름 변경"
+          onClick={() => onRenameNode(node)}
         >
-          <ChatTeardropText size={13} />
+          <PencilSimple size={12} />
         </button>
-        {isContainer ? (
-          <button
-            type="button"
-            className="rounded p-0.5 opacity-0 group-hover:opacity-100"
-            title="하위 폴더 추가"
-            onClick={() => onAddFolder(node.id)}
-          >
-            <FolderPlus size={13} />
-          </button>
-        ) : null}
         <button
           type="button"
-          className="rounded p-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400"
+          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400"
           title="삭제"
           onClick={() => onDeleteNode(node)}
         >
           <Trash size={12} />
         </button>
+        <div className="relative">
+          <button
+            type="button"
+            className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+            title="더보기"
+            aria-label="더보기"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <DotsThree size={14} weight="bold" />
+          </button>
+          {menuOpen ? (
+            <div className="absolute right-0 top-7 z-30 w-36 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+              <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
+                <ChatTeardropText size={13} />새 세션
+              </button>
+              {isContainer ? (
+                <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
+                  <FolderPlus size={13} />하위 폴더
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {isOpen ? (
-        <div>
+        <div className="ml-[11px] border-l border-line/70 pl-1">
           {(node.sessions ?? []).filter(matchSession).map((s) => (
             <SessionRow
               key={s.id}
@@ -537,6 +619,7 @@ function TreeNode({
               onDeleteSession={onDeleteSession}
               onNewChat={onNewChat}
               onAddFolder={onAddFolder}
+              onRenameNode={onRenameNode}
               onDeleteNode={onDeleteNode}
             />
           ))}
@@ -549,6 +632,7 @@ function TreeNode({
 function ProjectBlock({
   id,
   title,
+  color,
   sessions,
   collapsed,
   activeSessionId,
@@ -558,10 +642,12 @@ function ProjectBlock({
   onSelectSession,
   onDeleteSession,
   onNewChat,
+  onRename,
   onDelete,
 }: {
   id: string;
   title: string;
+  color: ProjectColor;
   sessions: SessionSummary[];
   collapsed: boolean;
   activeSessionId: string | null;
@@ -571,15 +657,17 @@ function ProjectBlock({
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onNewChat: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="mb-0.5">
-      <div className="group flex items-center gap-0.5 rounded-xl px-2 py-1.5 text-[12px] text-muted hover:bg-ink hover:text-text">
+      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text">
         <button type="button" className="rounded p-0.5" onClick={onToggle} aria-label={collapsed ? '펼치기' : '접기'}>
           {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
         </button>
-        <FolderSimple size={14} />
+        <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX[color] }} />
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"
@@ -588,22 +676,29 @@ function ProjectBlock({
         >
           {title}
         </button>
-        <button
-          type="button"
-          className="rounded p-0.5 opacity-0 group-hover:opacity-100"
-          title="프로젝트에 새 채팅"
-          onClick={onNewChat}
-        >
-          <ChatTeardropText size={13} />
+        <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="이름 변경" onClick={onRename}>
+          <PencilSimple size={12} />
         </button>
         <button
           type="button"
-          className="rounded p-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400"
+          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400"
           title="삭제"
           onClick={onDelete}
         >
           <Trash size={12} />
         </button>
+        <div className="relative">
+          <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={() => setMenuOpen((open) => !open)}>
+            <DotsThree size={14} weight="bold" />
+          </button>
+          {menuOpen ? (
+            <div className="absolute right-0 top-7 z-30 w-32 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+              <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
+                <ChatTeardropText size={13} />새 세션
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       {!collapsed
         ? sessions.filter(matchSession).map((s) => (
@@ -627,12 +722,16 @@ function SessionRow({
   session,
   active,
   indent = 8,
+  pinned,
+  onTogglePin,
   onSelect,
   onDelete,
 }: {
   session: SessionSummary;
   active: boolean;
   indent?: number;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   onSelect: () => void;
   onDelete: () => void;
 }) {
@@ -645,8 +744,8 @@ function SessionRow({
       onKeyDown={(e) => {
         if (e.key === 'Enter') onSelect();
       }}
-      className={`group mb-0.5 flex cursor-pointer items-center gap-1 rounded-xl py-1.5 pr-1 text-[12px] ${
-        active ? 'bg-line/70 text-text' : 'text-muted hover:bg-ink hover:text-text'
+      className={`group relative mb-0.5 flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1 text-[11px] transition before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded ${
+        active ? 'bg-accent/10 text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
       }`}
       style={{ paddingLeft: indent }}
     >
@@ -655,6 +754,16 @@ function SessionRow({
         <span className="shrink-0 text-[9px] text-accent" title="생성 중">
           ●
         </span>
+      ) : null}
+      {onTogglePin ? (
+        <button
+          type="button"
+          className={`shrink-0 rounded p-0.5 transition ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          title={pinned ? '고정 해제' : '고정'}
+          onClick={(event) => { event.stopPropagation(); onTogglePin(); }}
+        >
+          <PushPin size={11} weight={pinned ? 'fill' : 'regular'} />
+        </button>
       ) : null}
       <button
         type="button"

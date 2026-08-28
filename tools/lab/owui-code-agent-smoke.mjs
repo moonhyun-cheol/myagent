@@ -128,7 +128,7 @@ try {
       note: ok
         ? 'README mutated with smoke-ok'
         : partial
-          ? 'agent ran but no disk marker — re-run or UI manual'
+          ? 'agent ran but no disk marker — re-run or UI manual (OPS_RESIDUAL_FIXES.md §3)'
           : disk.slice(0, 200),
     },
     ok || (!force && partial) ? 0 : 1,

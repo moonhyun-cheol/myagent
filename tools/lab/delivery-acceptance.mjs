@@ -459,7 +459,7 @@ async function main() {
       encoding: 'utf8',
     }).stdout?.trim(),
     residual_risks: [
-      'OpenClaw slash is manual only; Playwright browser tools skip without bootstrap.',
+      'See tools/lab/OPS_RESIDUAL_FIXES.md + tools/lab/OPENCLAW_RUNBOOK.md.',
       'R1–R15 product residual closed in code (probe timeout, Autopilot, text protocol, finish scrub, full-surface lab).',
       'Playwright browser tools skip without bootstrap — set MY_AGENT_LAB_BROWSER=1 after tools/bootstrap-playwright-if-needed.ps1',
       'OpenClaw: vault + /health; slash is manual only (never auto in lab).',

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-28T01:17:35.080Z",
+  "generated_at": "2026-08-26T07:34:27.192Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -38,10 +38,9 @@
       "/projects",
       "/workspace",
       "/error-report",
-      "/organization-module",
       "/assets/"
     ],
-    "route_count": 80,
+    "route_count": 74,
     "routes": [
       {
         "method": "GET",
@@ -310,26 +309,6 @@
       },
       {
         "method": "GET",
-        "path": "/organization-module",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/organization-module/apply",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/organization-module/check",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/organization-module/install",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
         "path": "/projects",
         "match": "exact"
       },
@@ -391,16 +370,6 @@
       {
         "method": "GET",
         "path": "/setup/machine-id",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/setup/optional-runtimes",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/setup/optional-runtimes/install",
         "match": "exact"
       },
       {

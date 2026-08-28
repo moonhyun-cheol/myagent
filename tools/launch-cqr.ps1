@@ -22,11 +22,20 @@ function Get-NormalizedRoot([string]$path) {
 function Test-NeedsFirstRunBootstrap([string]$AppRoot) {
   if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'runtime\node\node.exe'))) { return $true }
 
+  $venvPy = Join-Path $AppRoot 'runtime\pipeline-venv\Scripts\python.exe'
+  if (-not (Test-Path -LiteralPath $venvPy)) { return $true }
+
+  if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'runtime\ffmpeg\ffmpeg.exe'))) { return $true }
+
+  $pwPkg = Join-Path $AppRoot 'node_modules\playwright\package.json'
+  $chromiumMarker = Join-Path $AppRoot 'runtime\playwright\browsers\.chromium-installed'
+  if (-not ((Test-Path -LiteralPath $pwPkg) -and (Test-Path -LiteralPath $chromiumMarker))) { return $true }
+
   if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'core\dist\main.js'))) { return $true }
 
   $shellCandidates = @(
-    (Join-Path $AppRoot 'bin\cqr-pa\cqr-pa.exe'),
-    (Join-Path $AppRoot 'shell\CqrPa.Shell\bin\Release\net8.0-windows\cqr-pa.exe')
+    (Join-Path $AppRoot 'bin\my-agent\MYAgent.exe'),
+    (Join-Path $AppRoot 'shell\CqrPa.Shell\bin\Release\net8.0-windows\win-x64\MYAgent.exe')
   )
   foreach ($candidate in $shellCandidates) {
     if (Test-Path -LiteralPath $candidate) { return $false }
@@ -36,14 +45,14 @@ function Test-NeedsFirstRunBootstrap([string]$AppRoot) {
 
 function Resolve-ShellExe([string]$AppRoot) {
   $candidates = @(
-    (Join-Path $AppRoot 'bin\cqr-pa\cqr-pa.exe'),
-    (Join-Path $AppRoot 'shell\CqrPa.Shell\bin\Release\net8.0-windows\cqr-pa.exe')
+    (Join-Path $AppRoot 'bin\my-agent\MYAgent.exe'),
+    (Join-Path $AppRoot 'shell\CqrPa.Shell\bin\Release\net8.0-windows\win-x64\MYAgent.exe')
   )
   foreach ($candidate in $candidates) {
     if (Test-Path -LiteralPath $candidate) { return $candidate }
   }
 
-  $outDir = Join-Path $AppRoot 'bin\cqr-pa'
+  $outDir = Join-Path $AppRoot 'bin\my-agent'
   $csproj = Join-Path $AppRoot 'shell\CqrPa.Shell\CqrPa.Shell.csproj'
   if (-not (Test-Path -LiteralPath $csproj)) {
     throw "WebView2 shell missing. Expected: $($candidates[0])"
@@ -51,14 +60,14 @@ function Resolve-ShellExe([string]$AppRoot) {
 
   $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
   if (-not $dotnet -or -not $dotnet.Source) {
-    throw 'WebView2 shell missing and .NET SDK (dotnet) not found. Reinstall from the published zip (bin\cqr-pa), or install .NET 8 SDK.'
+    throw 'WebView2 shell missing and .NET SDK (dotnet) not found. Reinstall from the published zip (bin\my-agent), or install .NET 8 SDK.'
   }
   & $dotnet.Source publish $csproj -c Release -o $outDir -v q
   if ($LASTEXITCODE -ne 0) {
-    throw 'WebView2 shell publish failed. Install .NET 8 SDK and run: dotnet publish shell\CqrPa.Shell\CqrPa.Shell.csproj -c Release -o bin\cqr-pa'
+    throw 'WebView2 shell publish failed. Install .NET 8 SDK and run: dotnet publish shell\CqrPa.Shell\CqrPa.Shell.csproj -c Release -o bin\my-agent'
   }
 
-  $published = Join-Path $outDir 'cqr-pa.exe'
+  $published = Join-Path $outDir 'MYAgent.exe'
   if (-not (Test-Path -LiteralPath $published)) {
     throw "Missing shell after publish: $published"
   }
@@ -194,20 +203,22 @@ function Invoke-BootstrapWithSplash {
         throw 'Portable Node missing: runtime\node\node.exe'
       }
 
-      $optionalHelper = Join-Path $Root 'tools\install\optional-runtimes.ps1'
-      if (Test-Path -LiteralPath $optionalHelper) {
-        . $optionalHelper
-        $wanted = @()
-        $sel = Read-OptionalRuntimeSelection $Root.TrimEnd('\')
-        if ($sel) {
-          $wanted = @($sel.selected | Where-Object { $_ })
-        } else {
-          $wanted = @(Get-DefaultOptionalRuntimeIds $Root.TrimEnd('\'))
-        }
-        if ($wanted.Count -gt 0) {
-          & $setStatus 'Installing selected optional features...'
-          Install-SelectedOptionalRuntimes -Root $Root.TrimEnd('\') -Selected $wanted
-        }
+      $bootstrapPipeline = Join-Path $Root 'tools\bootstrap-pipeline-if-needed.ps1'
+      & $setStatus 'Setting up Python environment (internet required, may take several minutes)...'
+      Invoke-BootstrapScript -ScriptPath $bootstrapPipeline -StepLabel 'Pipeline venv bootstrap' -AppRoot $Root.TrimEnd('\')
+
+      $bootstrapPlaywright = Join-Path $Root 'tools\bootstrap-playwright-if-needed.ps1'
+      & $setStatus 'Setting up Playwright browser (~300MB, internet required)...'
+      Invoke-BootstrapScript -ScriptPath $bootstrapPlaywright -StepLabel 'Playwright bootstrap' -AppRoot $Root.TrimEnd('\')
+
+      $bootstrapFfmpeg = Join-Path $Root 'tools\bootstrap-ffmpeg-if-needed.ps1'
+      & $setStatus 'Setting up ffmpeg (video keyframes, internet required)...'
+      Invoke-BootstrapScript -ScriptPath $bootstrapFfmpeg -StepLabel 'ffmpeg bootstrap' -AppRoot $Root.TrimEnd('\')
+
+      if ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+        $bootstrapOss = Join-Path $Root 'tools\bootstrap-oss-sidecars-if-needed.ps1'
+        & $setStatus 'Setting up OSS sidecars (markitdown / repomix / ast-grep)...'
+        Invoke-BootstrapScript -ScriptPath $bootstrapOss -StepLabel 'OSS sidecars bootstrap' -AppRoot $Root.TrimEnd('\')
       }
 
       $bootstrapNpmDeps = Join-Path $Root 'tools\bootstrap-npm-deps-if-needed.ps1'
@@ -221,8 +232,8 @@ function Invoke-BootstrapWithSplash {
         Invoke-ExternalStep -FilePath $nodeExe -ArgumentList @($buildScript) -StepLabel 'App build' -WorkingDirectory $Root.TrimEnd('\')
       }
 
-      $shellExe = Join-Path $Root 'bin\cqr-pa\cqr-pa.exe'
-      $altShell = Join-Path $Root 'shell\CqrPa.Shell\bin\Release\net8.0-windows\cqr-pa.exe'
+      $shellExe = Join-Path $Root 'bin\my-agent\MYAgent.exe'
+      $altShell = Join-Path $Root 'shell\CqrPa.Shell\bin\Release\net8.0-windows\win-x64\MYAgent.exe'
       if (-not (Test-Path -LiteralPath $shellExe) -and -not (Test-Path -LiteralPath $altShell)) {
         & $setStatus 'Preparing UI shell...'
       }
@@ -260,24 +271,13 @@ if (Test-NeedsFirstRunBootstrap $Root) {
 }
 
 $bootstrapPlaywright = Join-Path $Root 'tools\bootstrap-playwright-if-needed.ps1'
-$optionalHelper = Join-Path $Root 'tools\install\optional-runtimes.ps1'
-$wantPlaywright = $false
-if (Test-Path -LiteralPath $optionalHelper) {
-  . $optionalHelper
-  $wantPlaywright = Test-OptionalRuntimeSelected -Root $Root.TrimEnd('\') -Id 'playwright'
-}
-if ((Test-Path -LiteralPath $bootstrapPlaywright) -and $wantPlaywright) {
+if (Test-Path -LiteralPath $bootstrapPlaywright) {
   & $bootstrapPlaywright -Root $Root.TrimEnd('\') | Out-Null
 }
 
-if ((Test-Path -LiteralPath $optionalHelper) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  $sidecarIds = @()
-  foreach ($id in @('markitdown', 'repomix', 'ast_grep')) {
-    if (Test-OptionalRuntimeSelected -Root $Root.TrimEnd('\') -Id $id) { $sidecarIds += $id }
-  }
-  if ($sidecarIds.Count -gt 0) {
-    Install-SelectedOptionalRuntimes -Root $Root.TrimEnd('\') -Selected $sidecarIds
-  }
+$bootstrapOss = Join-Path $Root 'tools\bootstrap-oss-sidecars-if-needed.ps1'
+if ((Test-Path -LiteralPath $bootstrapOss) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+  & $bootstrapOss -Root $Root.TrimEnd('\') | Out-Null
 }
 
 $bootstrapNpmDeps = Join-Path $Root 'tools\bootstrap-npm-deps-if-needed.ps1'

@@ -18,7 +18,8 @@ import { isAbortError, throwIfAborted } from './abort.js';
 import { LocalChatService } from '../inference/local-chat.js';
 import { loadUserOverrides } from '../config/user-overrides.js';
 import {
-  resolveTurnSkillMode,
+  isSkillChatMode,
+  resolveLlmSkillMode,
   resolveSkillSystemPrompt,
   isStreamableLlmSkillMode,
 } from '../skills/chat-skill-flow.js';
@@ -437,7 +438,7 @@ export class ChatOrchestrator {
       });
     }
 
-    const skillMode = resolveTurnSkillMode(routing.mode, this.cqrRoot);
+    const skillMode = resolveLlmSkillMode(routing.mode);
     const chatLikeMode: ChatMode = skillMode ?? 'chat';
     const histModelId =
       resolved.route.type === 'provider' || resolved.route.type === 'local'
@@ -973,7 +974,7 @@ export class ChatOrchestrator {
 
     sseEvent(res, { type: 'meta', routing, model: resolved.display });
 
-    const skillMode = resolveTurnSkillMode(routing.mode, this.cqrRoot);
+    const skillMode = resolveLlmSkillMode(routing.mode);
     const histModelId =
       resolved.route.type === 'provider' || resolved.route.type === 'local'
         ? resolved.route.modelId

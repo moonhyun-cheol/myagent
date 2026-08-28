@@ -51,11 +51,10 @@ try {
         options: [],
         company_models: {
           source: 'default',
-          selected: ['open_webui_openrouter_integration.openai.gpt-5.6-luna'],
-          defaults: ['open_webui_openrouter_integration.openai.gpt-5.6-luna'],
+          selected: ['open_webui_openrouter_integration.openai.gpt-5.6-terra-pro'],
+          defaults: ['open_webui_openrouter_integration.openai.gpt-5.6-terra-pro'],
           available: [
-            'open_webui_openrouter_integration.openai.gpt-5.6-luna',
-            'open_webui_openrouter_integration.anthropic.claude-fable-5',
+            'open_webui_openrouter_integration.openai.gpt-5.6-terra-pro',
             'open_webui_openrouter_integration.anthropic.claude-opus-4.8',
           ],
         },
@@ -77,7 +76,6 @@ try {
   await dialog.getByRole('button', { name: '모델 구성', exact: true }).click();
   await dialog.getByText('선택된 MY 모델', { exact: true }).waitFor();
   await dialog.getByPlaceholder('예: claude, gpt, gemini').fill('claude');
-  await dialog.getByText('anthropic.claude-fable-5', { exact: true }).waitFor();
   await dialog.getByText('anthropic.claude-opus-4.8', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(outDir, 'model-center-company-models-smoke.png'), fullPage: true });
   await dialog.getByRole('button', { name: '모델 관리로 돌아가기' }).click();
@@ -91,11 +89,15 @@ try {
   const screenshot = path.join(outDir, 'model-center-smoke.png');
   await page.screenshot({ path: screenshot, fullPage: true });
 
-  await dialog.getByRole('button', { name: '에이전트 기본값', exact: true }).click();
+  const settingsSearch = dialog.getByLabel('설정 검색', { exact: true });
+  await settingsSearch.fill('승인');
+  await dialog.getByTestId('settings-nav-agent').waitFor();
+  assert.equal(await dialog.getByTestId('settings-nav-models').count(), 0);
   await dialog.getByTestId('settings-reasoning-level').waitFor();
   await dialog.getByTestId('settings-autopilot-mode').waitFor();
-  await dialog.getByRole('button', { name: '권한 및 승인', exact: true }).click();
   await dialog.getByTestId('settings-approval-delegation-mode').waitFor();
+  await settingsSearch.press('Escape');
+  await dialog.getByTestId('settings-nav-general').waitFor();
   await page.screenshot({ path: path.join(outDir, 'settings-agent-runtime-smoke.png'), fullPage: true });
   await dialog.getByRole('button', { name: '설정 닫기', exact: true }).click();
 

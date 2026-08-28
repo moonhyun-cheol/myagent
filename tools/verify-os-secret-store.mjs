@@ -99,7 +99,7 @@ try {
   assert.match(source, /add-generic-password/);
   assert.match(source, /input: `\$\{key\.toString\('base64'\)\}\\n`/);
   assert.equal(source.includes("'-w', key.toString('base64')"), false, 'macOS key must not be placed in argv');
-  assert.equal(source.includes('CQR' + '_PA/provider-vault/v2'), false, 'legacy DPAPI entropy must stay disabled');
+  assert.equal(source.includes('CQR_PA/provider-vault/v2'), false, 'legacy DPAPI entropy must stay disabled');
 
   console.log('os-secret-store verify: PASS');
 } finally {

@@ -114,7 +114,7 @@ export function AssetGallery() {
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-auto p-2">
+      <div className="min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
         {assets.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-muted">결과물 없음</p>
         ) : (
@@ -127,9 +127,9 @@ export function AssetGallery() {
                 e.dataTransfer.effectAllowed = 'copy';
               }}
               onContextMenu={(e) => openAssetMenu(e, asset)}
-              className="cursor-grab rounded-lg border border-line bg-panel-2 p-2 active:cursor-grabbing"
+              className="cursor-grab rounded-lg border border-line bg-panel-2 px-2 py-1.5 active:cursor-grabbing"
             >
-              <div className="mb-2 flex items-start gap-2">
+              <div className="flex items-start gap-2">
                 <KindIcon kind={asset.kind} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{asset.title}</p>
@@ -139,20 +139,22 @@ export function AssetGallery() {
                 </div>
               </div>
               {asset.kind === 'image' && asset.imageUrl ? (
-                <img src={asset.imageUrl} alt="" className="mb-2 h-20 w-full rounded-md object-cover" />
-              ) : (
-                <pre className="mb-2 max-h-16 overflow-hidden rounded-md bg-ink/70 p-2 font-mono text-[9px] text-muted">
-                  {(asset.content ?? '').slice(0, 160)}
+                <img src={asset.imageUrl} alt="" className="mt-1.5 h-20 w-full rounded-md object-cover" />
+              ) : asset.content?.trim() ? (
+                <pre className="mt-1.5 max-h-16 overflow-hidden rounded-md bg-ink/70 p-2 font-mono text-[9px] text-muted">
+                  {asset.content.slice(0, 160)}
                 </pre>
-              )}
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  className="flex-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-text"
-                  onClick={() => placeAssetOnCanvas(asset.id)}
-                >
-                  캔버스
-                </button>
+              ) : null}
+              <div className="mt-1.5 flex gap-1">
+                {isCanvasAsset(asset) ? (
+                  <button
+                    type="button"
+                    className="flex-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-text"
+                    onClick={() => placeAssetOnCanvas(asset.id)}
+                  >
+                    캔버스
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="flex-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-text"

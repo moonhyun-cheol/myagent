@@ -19,9 +19,7 @@ const failurePlane = read('core/src/agent/agent-failure-plane.ts');
 const assistantReply = read('core/src/chat/assistant-reply.ts');
 const deepResearchMode = read('core/src/chat/modes/deep-research.ts');
 const browserAgentMode = read('core/src/chat/modes/browser-agent.ts');
-const marketResearchMode = existsSync(path.join(root, 'core/src/chat/modes/market-research.ts'))
-  ? read('core/src/chat/modes/market-research.ts')
-  : '';
+const marketResearchMode = read('core/src/chat/modes/market-research.ts');
 const workspaceLock = read('core/src/agent/agent-workspace-lock.ts');
 const lockedConstraints = read('core/src/agent/agent-locked-constraints.ts');
 const sessionContinuity = read('core/src/agent/agent-session-continuity.ts');
@@ -46,7 +44,6 @@ for (const retired of [
   'core/src/chat/failure-followup-routing.ts',
   'core/src/router/unified-intent.ts',
   'core/src/router/unified-intent-catalog.ts',
-  'ui/workspace/src/components/MutateReviewPane.tsx',
 ]) {
   assert.equal(existsSync(path.join(root, retired)), false, `${retired} must stay deleted`);
 }
@@ -80,8 +77,6 @@ assert.doesNotMatch(stepLoop, /contentLooksLikeTokenSalad\(/);
 assert.match(stepLoop, /toolChoice: 'auto'/);
 assert.doesNotMatch(stepLoop, /work_mode_locked|retrieval_required|autoInvokePendingPlugins|preloadExternalReportGrounding/);
 
-assert.doesNotMatch(read('ui/workspace/src/store/workspaceStore.ts'), /pendingMutateReview/);
-assert.doesNotMatch(read('AGENTS.md'), /core\/src\/agent\/outcome-runtime\.ts/);
 assert.doesNotMatch(mar, /evaluateOutcomeGate\(/);
 assert.doesNotMatch(mar, /reviewerBlocksCompletion\(/);
 assert.match(mar, /function applySupervisorOutcomeGate[\s\S]*?return content;/);

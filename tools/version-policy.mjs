@@ -1,12 +1,5 @@
 #!/usr/bin/env node
-/**
- * Version vs sequence (ADR-RE-003):
- * - update_sequence +1 on every signed client zip. Never reuse or roll back.
- * - SemVer patch/minor/major only when user-facing meaning changes.
- * - Public label is always `MY Agent {version} (update {N})`.
- * - Updater compares sequence only, never SemVer.
- */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +10,6 @@ const manifestPath = path.join(root, 'manifest.json');
 const packagePath = path.join(root, 'package.json');
 const lockPath = path.join(root, 'package-lock.json');
 const versionTextPath = path.join(root, 'VERSION.txt');
-const repoTargetPath = path.join(root, 'repo-target.json');
 
 function readJson(file) {
   return JSON.parse(readFileSync(file, 'utf8'));
@@ -53,15 +45,9 @@ function validateVersion(version, channel) {
   }
 }
 
-function publicLabel(version, sequence) {
-  return `MY Agent ${version} (update ${sequence})`;
-}
-
 function expectedVersionText(manifest) {
-  const version = String(manifest.version ?? '').trim();
-  const sequence = Number(manifest.update_sequence);
   return [
-    publicLabel(version, sequence),
+    `${manifest.name ?? 'MY Agent'} ${manifest.update_channel} v${manifest.version}`,
     `update_sequence: ${manifest.update_sequence}`,
     `channel: ${manifest.update_channel}`,
     '',
@@ -85,33 +71,7 @@ function inspect() {
   if (readFileSync(versionTextPath, 'utf8') !== expectedVersionText(manifest)) {
     mismatches.push('VERSION.txt');
   }
-  if (existsSync(repoTargetPath)) {
-    const target = readJson(repoTargetPath);
-    if (target.version !== version) mismatches.push(`repo-target.json version=${target.version}`);
-    if (Number(target.update_sequence) !== sequence) {
-      mismatches.push(`repo-target.json update_sequence=${target.update_sequence}`);
-    }
-    if (target.channel && target.channel !== channel) {
-      mismatches.push(`repo-target.json channel=${target.channel}`);
-    }
-    if (target.github && target.github !== manifest.update_repository) {
-      mismatches.push(`repo-target.json github=${target.github}`);
-    }
-  }
-  const expectedFeed =
-    `https://raw.githubusercontent.com/${manifest.update_repository ?? 'moonhyun-cheol/myagent'}`
-    + `/main/channels/${channel}.json`;
-  if (String(manifest.update_feed_url ?? '') !== expectedFeed) {
-    mismatches.push(`update_feed_url=${manifest.update_feed_url}`);
-  }
-  return {
-    version,
-    channel,
-    update_sequence: sequence,
-    public_label: publicLabel(version, sequence),
-    consistent: mismatches.length === 0,
-    mismatches,
-  };
+  return { version, channel, update_sequence: sequence, consistent: mismatches.length === 0, mismatches };
 }
 
 function writeAtomic(file, body) {
@@ -136,9 +96,6 @@ function prepare() {
   manifest.update_channel = channel;
   manifest.build = channel;
   manifest.update_sequence = sequence;
-  const repository = String(manifest.update_repository ?? 'moonhyun-cheol/myagent').trim();
-  manifest.update_feed_url =
-    `https://raw.githubusercontent.com/${repository}/main/channels/${channel}.json`;
 
   const pkg = readJson(packagePath);
   pkg.version = version;
@@ -152,14 +109,6 @@ function prepare() {
   writeAtomic(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
   writeAtomic(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
   writeAtomic(versionTextPath, expectedVersionText(manifest));
-  if (existsSync(repoTargetPath)) {
-    const target = readJson(repoTargetPath);
-    target.version = version;
-    target.update_sequence = sequence;
-    target.channel = channel;
-    if (manifest.update_repository) target.github = manifest.update_repository;
-    writeAtomic(repoTargetPath, `${JSON.stringify(target, null, 2)}\n`);
-  }
   return inspect();
 }
 

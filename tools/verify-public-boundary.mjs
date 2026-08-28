@@ -21,14 +21,6 @@ const SECRET_FIXTURE_PATHS = new Set([
   'tools/verify-agent-context-upgrades.mjs',
   'tools/verify-agent-eval.mjs',
 ]);
-const COMPANY_MARKER_ALLOWLIST = new Set([
-  'repo-target.json',
-  'tools/port-status.mjs',
-  'core/config/defaults/deploy-defaults.json',
-  'tools/verify-brand-manual-context.mjs',
-  'core/src/automaton/local-nops-user-id.ts',
-  'tools/verify-local-nops-user-id.mjs',
-]);
 const MAX_TEXT_BYTES = 5 * 1024 * 1024;
 const TEXT_EXT = /\.(?:bat|cjs|cs|csproj|css|html|js|json|jsx|md|mjs|ps1|ts|tsx|txt|xaml|xml|ya?ml)$/i;
 
@@ -118,11 +110,7 @@ for (const relative of tracked) {
   }
 
   const text = relative === selfPath ? null : readText(relative);
-  const companyMarkers = (
-    text == null || COMPANY_MARKER_ALLOWLIST.has(relative)
-      ? []
-      : markerIds(text, COMPANY_MARKERS)
-  );
+  const companyMarkers = text == null ? [] : markerIds(text, COMPANY_MARKERS);
   const secretMarkers = (
     text == null || SECRET_FIXTURE_PATHS.has(relative)
       ? []

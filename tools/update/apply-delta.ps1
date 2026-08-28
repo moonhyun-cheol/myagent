@@ -243,22 +243,17 @@ try {
     }
   }
 
-  # Optional extras only when the install checklist selected them.
-  $optionalHelper = Join-Path $Root 'tools\install\optional-runtimes.ps1'
-  $wantSidecars = @()
-  if (Test-Path -LiteralPath $optionalHelper) {
-    . $optionalHelper
-    foreach ($id in @('markitdown', 'repomix', 'ast_grep')) {
-      if (Test-OptionalRuntimeSelected -Root $Root -Id $id) { $wantSidecars += $id }
-    }
-  }
-  if ($wantSidecars.Count -gt 0 -and $env:MY_AGENT_UPDATE_SKIP_OPTIONAL -ne '1' -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-    Write-Host ''
-    Write-Host 'Ensuring selected document/code helpers...'
-    try {
-      Install-SelectedOptionalRuntimes -Root $Root -Selected $wantSidecars
-    } catch {
-      Write-Warning "Optional sidecars bootstrap deferred: $($_.Exception.Message)"
+  # Same-experience: ensure portable OSS sidecars after script/tool updates (soft; internet).
+  if ($env:MY_AGENT_UPDATE_SKIP_OPTIONAL -ne '1' -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+    $bootstrapOss = Join-Path $Root 'tools\bootstrap-oss-sidecars-if-needed.ps1'
+    if (Test-Path -LiteralPath $bootstrapOss) {
+      Write-Host ''
+      Write-Host 'Ensuring OSS sidecars (markitdown/repomix/ast-grep) for parity...'
+      try {
+        & $bootstrapOss -Root $Root
+      } catch {
+        Write-Warning "OSS sidecars bootstrap deferred: $($_.Exception.Message) (repair install or bootstrap script can retry)"
+      }
     }
   }
 

@@ -28,9 +28,6 @@ assert.match(appSource, /ContentRendered/);
 assert.match(appSource, /CheckForUpdatesAsync/);
 assert.match(appSource, /MessageBoxButton\.YesNo/);
 assert.match(appSource, /LaunchUpdater/);
-assert.match(appSource, /UpdateProgressWindow/);
-assert.match(serviceSource, /System\.Threading\.Timeout\.InfiniteTimeSpan/);
-assert.match(serviceSource, /IProgress<UpdateDownloadProgress>/);
 assert.match(serviceSource, /raw\.githubusercontent\.com/);
 assert.match(serviceSource, /release-assets\.githubusercontent\.com/);
 assert.match(serviceSource, /--parent-pid/);
@@ -61,7 +58,7 @@ try {
     version: '0.9.1-beta',
     channel: 'beta',
     publishedAt: '2026-08-26T00:00:00.000Z',
-    repository: 'moonhyun-cheol/myagent',
+    repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
     releaseTag: 'update-2',
     assetName: 'MYAgent-v0.9.1-beta-delta.zip',
     assetSize: 123,
@@ -80,7 +77,7 @@ try {
     '--verify-update-feed',
     '--feed', feedPath,
     '--public-key', publicKeyPath,
-    '--repository', 'moonhyun-cheol/myagent',
+    '--repository', 'moonhyun-cheol/MY_CUSTOM_CODEX',
     '--channel', 'beta',
   ];
   const verified = spawnSync(executable, commandArgs, {

@@ -49,7 +49,24 @@ import {
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
 
-const MODEL_PREF_KEY = 'my-agent-workspace-model';
+const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
+
+function readChatScrollPosition(sessionId: string): number | null {
+  try {
+    const value = Number(localStorage.getItem(`${CHAT_SCROLL_KEY_PREFIX}${sessionId}`));
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeChatScrollPosition(sessionId: string, scrollTop: number): void {
+  try {
+    localStorage.setItem(`${CHAT_SCROLL_KEY_PREFIX}${sessionId}`, String(Math.max(0, Math.round(scrollTop))));
+  } catch {
+    // Storage can be unavailable in restricted WebView contexts; keep the current view usable.
+  }
+}
 
 const reasoningLabel = (value: string | null | undefined) =>
   value === 'auto' ? '자동' : value === 'low' ? '낮음' : value === 'medium' ? '중간' : value === 'high' ? '높음' : value ? value : '모델 관리';
@@ -209,7 +226,6 @@ export function ChatPane() {
   const setExecutionPolicy = useWorkspaceStore((s) => s.setExecutionPolicy);
   const apiError = useWorkspaceStore((s) => s.apiError);
   const setApiStatus = useWorkspaceStore((s) => s.setApiStatus);
-  const hydrateOrganizationSkillDefault = useWorkspaceStore((s) => s.hydrateOrganizationSkillDefault);
   const setLicenseMode = useWorkspaceStore((s) => s.setLicenseMode);
   const licenseMode = useWorkspaceStore((s) => s.licenseMode);
   const pendingAttachments = useWorkspaceStore((s) => s.pendingAttachments);
@@ -263,14 +279,6 @@ export function ChatPane() {
     () => [...managedModels, ...byokModels],
     [managedModels, byokModels],
   );
-
-  useEffect(() => {
-    if (pickerModels.some((model) => model.id === selectedModel)) return;
-    const next = pickerModels[0]?.id;
-    if (!next) return;
-    setSelectedModel(next);
-    localStorage.setItem(MODEL_PREF_KEY, next);
-  }, [selectedModel, setSelectedModel, pickerModels]);
 
   useEffect(() => {
     let cancelled = false;
@@ -327,6 +335,7 @@ export function ChatPane() {
   const workspacePromptBypassRef = useRef<string | null>(null);
   const { menu, openAt, close } = useContextMenu();
 
+  const hasChatTurns = chat.length > 0;
   const latestUserTurnId = [...chat].reverse().find((t) => t.role === 'user')?.id ?? null;
   const latestAssistantTurnId =
     [...chat].reverse().find((t) => t.role === 'assistant')?.id ?? null;
@@ -341,19 +350,40 @@ export function ChatPane() {
     scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   }, []);
 
-  // Opening or switching to a saved conversation starts at its latest turn.
-  // Do not repeat this on message/stream updates: users must be able to read upward.
+  // Restore each conversation to the position last viewed on this PC. A conversation
+  // without saved state still opens at its latest turn, preserving the first-open behavior.
   useLayoutEffect(() => {
     if (!activeSessionId || chat.length === 0 || openedSessionRef.current === activeSessionId) return;
     openedSessionRef.current = activeSessionId;
     const scroller = scrollRef.current;
     if (!scroller) return;
-    scroller.scrollTop = scroller.scrollHeight;
-    const frame = window.requestAnimationFrame(() => {
-      scroller.scrollTop = scroller.scrollHeight;
-    });
+    const savedPosition = readChatScrollPosition(activeSessionId);
+    const restore = () => {
+      scroller.scrollTop = savedPosition ?? scroller.scrollHeight;
+    };
+    restore();
+    const frame = window.requestAnimationFrame(restore);
     return () => window.cancelAnimationFrame(frame);
   }, [activeSessionId, chat.length]);
+
+  useEffect(() => {
+    const sessionId = activeSessionId;
+    const scroller = scrollRef.current;
+    // An empty, newly-created conversation has no meaningful viewport yet. Persisting
+    // scrollTop=0 here would make its first populated view look like a restored session.
+    if (!sessionId || !scroller || !hasChatTurns) return;
+    const remember = () => writeChatScrollPosition(sessionId, scroller.scrollTop);
+    scroller.addEventListener('scroll', remember, { passive: true });
+    window.addEventListener('beforeunload', remember);
+    return () => {
+      // On a session switch React runs this cleanup after the shared scroller has
+      // rendered the next conversation. Reading scrollTop here would therefore
+      // overwrite the previous conversation with the next one's initial position.
+      // User scroll events and beforeunload already persist the latest valid value.
+      scroller.removeEventListener('scroll', remember);
+      window.removeEventListener('beforeunload', remember);
+    };
+  }, [activeSessionId, hasChatTurns]);
 
   const flashPasteHint = useCallback((msg: string) => {
     setPasteHint(msg);
@@ -594,7 +624,6 @@ export function ChatPane() {
         if (cancelled) return;
         setLicenseMode(lic.mode ?? null);
         setApiStatus(true, lic.mode === 'read_only' ? '읽기 전용 라이선스 — 채팅이 제한될 수 있습니다' : null);
-        void hydrateOrganizationSkillDefault();
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -626,7 +655,7 @@ export function ChatPane() {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
     };
-  }, [clearActiveChat, hydrateOrganizationSkillDefault, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
+  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
 
   const ingestFiles = useCallback(
     async (files: File[]) => {
@@ -839,7 +868,6 @@ export function ChatPane() {
                       .then(() => {
                         setWorkspacePromptText(null);
                         setDraft('');
-                        setMessageReferences([]);
                         void sendAiMessage(pendingText);
                       })
                       .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
@@ -861,7 +889,6 @@ export function ChatPane() {
                   workspacePromptBypassRef.current = activeSessionId ?? (activeProjectId ? `project:${activeProjectId}` : null);
                   setWorkspacePromptText(null);
                   setDraft('');
-                  setMessageReferences([]);
                   void sendAiMessage(pendingText);
                 }}
                 className="rounded-xl border border-line px-3 py-2 text-xs text-muted hover:text-text"
@@ -882,14 +909,16 @@ export function ChatPane() {
       ) : null}
       <div className="relative flex h-10 shrink-0 items-center gap-1.5 border-b border-line px-3">
         <select
-          value={pickerModels.some((model) => model.id === selectedModel) ? selectedModel : ''}
+          value={selectedModel}
           onChange={(e) => {
-            setSelectedModel(e.target.value);
-            localStorage.setItem(MODEL_PREF_KEY, e.target.value);
+            void setSelectedModel(e.target.value);
           }}
           className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent"
           title="모델"
         >
+          {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
+            <option value={selectedModel}>{selectedModel} · 현재 목록에 없음</option>
+          ) : null}
           {pickerModels.length === 0 ? (
             <option value="" disabled>
               모델 없음 · 왼쪽 모델에서 키 등록

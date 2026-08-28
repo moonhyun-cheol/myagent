@@ -177,7 +177,6 @@ import {
   truncateToolResultForLlm,
   workspaceSnapshot,
 } from './agent-run-helpers.js';
-import { loadBrandManualContext } from '../providers/brand-manual-context.js';
 
 export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentResult> {
   try {
@@ -239,16 +238,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const { secret, modelId, baseUrl, def, wireApi, toolProtocol: configuredToolProtocol } = resolved;
   // Transport is fixed before the loop; no request-time protocol negotiation or fallback.
   opts.wireApi = wireApi;
-  const brandManualContext = opts.providerId === 'ollama'
-    ? null
-    : await loadBrandManualContext(opts.cqrRoot, {
-        userMessage: opts.userMessage,
-        systemPrompt: opts.systemPrompt,
-        signal: opts.signal,
-      });
-  const effectiveSystemPrompt = [opts.systemPrompt?.trim(), brandManualContext]
-    .filter(Boolean)
-    .join('\n\n') || undefined;
+
   if (wireApi === 'responses') {
     const mode = opts.providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;
     const lane = opts.marRole ? `agent:${opts.marRole}` : 'agent:primary';
@@ -491,7 +481,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   };
 
   let messages = buildAgentMessages(
-    { ...opts, systemPrompt: effectiveSystemPrompt },
+    opts,
     guard,
     toolNames,
     toolProtocol === 'client',

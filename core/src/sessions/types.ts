@@ -53,6 +53,8 @@ export interface SessionRecord {
   workspace_project_id?: string | null;
   /** Snapshot copied from PC defaults when the session is created; independent afterwards. */
   execution_policy?: ExecutionPolicy;
+  /** Model selected for this conversation. Missing means use the PC default/auto model. */
+  preferred_model?: string;
   /** The active model/provider owns one chain; switching either starts a new chain. */
   responses_state?: ResponsesContinuationState;
   /** Independent chat/agent/MAR lanes; prevents concurrent roles from sharing a chain. */
@@ -66,4 +68,5 @@ export interface SessionSummary {
   message_count: number;
   project_id?: string | null;
   workspace_project_id?: string | null;
+  preferred_model?: string;
 }

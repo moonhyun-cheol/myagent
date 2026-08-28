@@ -7,7 +7,6 @@ import { buildDevWorkspaceContext } from '../agent/dev-workspace-fs.js';
 import { buildEditorContextSnippet } from './editor-context.js';
 import { isSkillChatMode } from '../skills/chat-skill-flow.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
-import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 
 export type SessionContextScope = 'standalone' | 'general_project' | 'workspace_tree';
 
@@ -82,8 +81,7 @@ export function shouldAttachWorkspaceContext(
     mode === 'deep_research' ||
     mode === 'automaton_direct' ||
     isSkillChatMode(mode) ||
-    isUserSkillMode(mode) ||
-    isOrgSkillMode(mode)
+    isUserSkillMode(mode)
   ) {
     return false;
   }

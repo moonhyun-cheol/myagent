@@ -127,9 +127,9 @@ function writeProductManifest(directory, sequence, version, port) {
       update_channel: 'beta',
       update_sequence: sequence,
       minimum_supported_sequence: 1,
-      update_repository: 'moonhyun-cheol/myagent',
+      update_repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
       update_feed_url:
-        'https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/beta.json',
+        'https://raw.githubusercontent.com/moonhyun-cheol/MY_CUSTOM_CODEX/main/channels/beta.json',
       api_port_default: port,
     }, null, 2)}\n`,
   );
@@ -183,7 +183,7 @@ function createUpdate({
     version,
     channel: 'beta',
     publishedAt: payloadDocument.created_at,
-    repository: 'moonhyun-cheol/myagent',
+    repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
     releaseTag: `update-${sequence}`,
     assetName: path.basename(zipPath),
     assetSize: statSync(zipPath).size,

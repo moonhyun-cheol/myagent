@@ -3,11 +3,31 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildModelPicker } from '../core/dist/models/model-picker.js';
+import { buildModelPicker, selectRecentRemoteModelIds } from '../core/dist/models/model-picker.js';
+import {
+  describeRemoteModels,
+} from '../core/dist/providers/remote-model-curate.js';
 import { configurationWireCandidates } from '../core/dist/providers/provider-wire-api.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
+
+const explicitFable = describeRemoteModels(['anthropic/claude-fable-5']);
+assert.deepEqual(
+  explicitFable.map((model) => model.id),
+  ['anthropic/claude-fable-5'],
+  'an explicit user model selection must survive automatic family pruning',
+);
+assert.deepEqual(
+  selectRecentRemoteModelIds([
+    { id: 'vendor/older', created_at: 100 },
+    { id: 'vendor/no-date' },
+    { id: 'vendor/newest', created_at: 300 },
+    { id: 'vendor/newer', created_at: 200 },
+  ], 2),
+  ['vendor/newest', 'vendor/newer'],
+  'recent discovery must use provider publication metadata and omit undated guesses',
+);
 
 const app = read('shell/CqrPa.Shell/App.xaml.cs');
 assert.doesNotMatch(app, /WaitForHealth\(/, 'WPF startup must not block before showing the window');
@@ -31,8 +51,11 @@ assert.match(apiServer, /setImmediate\(\(\) => \{[\s\S]*sweepCheckpoints[\s\S]*s
 const sidebar = read('ui/workspace/src/components/GeminiNavSidebar.tsx');
 assert.match(sidebar, /SettingsModal/);
 assert.doesNotMatch(sidebar, /overlay === 'models'/);
-const settings = read('ui/workspace/src/components/SettingsModal.tsx');
-for (const marker of ['모델 및 연결', '에이전트 기본값', '권한 및 승인', 'settings-reasoning-level', 'settings-autopilot-mode', 'settings-approval-delegation-mode']) {
+const settings = [
+  read('ui/workspace/src/components/SettingsModal.tsx'),
+  read('ui/workspace/src/components/SettingsAgentPage.tsx'),
+].join('\n');
+for (const marker of ['모델·프로바이더', '동작·승인', 'settings-reasoning-level', 'settings-autopilot-mode', 'settings-approval-delegation-mode']) {
   assert.ok(settings.includes(marker), `settings center marker missing: ${marker}`);
 }
 assert.match(settings, /<ModelManagementModal open embedded/);

@@ -11,6 +11,7 @@ process.env.CQR_ACTIVATION_SERVER_URL = '';
 const lic = path.join(root, 'data', 'vault', 'license.ocx');
 const rootLic = path.join(root, 'license.ocx');
 const activation = path.join(root, 'data', 'vault', 'activation.json');
+const hadLicense = existsSync(lic);
 for (const f of [lic, rootLic, activation]) {
   if (existsSync(f)) unlinkSync(f);
 }
@@ -18,37 +19,14 @@ for (const f of [lic, rootLic, activation]) {
 const apiUrl = pathToFileURL(path.join(root, 'core', 'dist', 'api-server.js')).href;
 const { createApiServer } = await import(apiUrl);
 
-process.env.MY_AGENT_LICENSE_ENFORCEMENT = '0';
-const openPort = 10296;
-const openSrv = await createApiServer(openPort);
-await new Promise((resolve) => openSrv.listen(openPort, '127.0.0.1', resolve));
-try {
-  const openStatus = await fetch(`http://127.0.0.1:${openPort}/license/status`).then((r) => r.json());
-  if (openStatus.mode !== 'full' || openStatus.enforced !== false) {
-    console.error('verify-read-only-mode FAILED: default should be unenforced full', openStatus);
-    process.exit(1);
-  }
-  const openChat = await fetch(`http://127.0.0.1:${openPort}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{"message":"hi"}',
-  });
-  if (openChat.status === 403) {
-    const openBody = await openChat.json();
-    console.error('verify-read-only-mode FAILED: default must not 403 chat', openBody);
-    process.exit(1);
-  }
-} finally {
-  await new Promise((resolve) => openSrv.close(resolve));
-}
-
-process.env.MY_AGENT_LICENSE_ENFORCEMENT = '1';
 const port = 10299;
 const srv = await createApiServer(port);
 
 await new Promise((resolve) => srv.listen(port, '127.0.0.1', resolve));
 
 try {
+  const status = await fetch(`http://127.0.0.1:${port}/license/status`).then((r) => r.json());
+
   const chat = await fetch(`http://127.0.0.1:${port}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

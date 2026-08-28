@@ -105,7 +105,7 @@ import { parseMultipart } from '../attachments/multipart.js';
 import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error-report-service.js';
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
-import { listAllSkills, isBundledSkillId, getSkillSystemPromptByMode } from '../skills/skill-registry.js';
+import { resolveBrandManagerRoot, listAllSkills, isBundledSkillId, getSkillSystemPromptByMode } from '../skills/skill-registry.js';
 import { UserSkillError } from '../skills/user-skill-store.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import type { ApiContext } from '../http/api-context.js';

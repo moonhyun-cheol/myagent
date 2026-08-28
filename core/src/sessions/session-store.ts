@@ -200,6 +200,17 @@ export class SessionStore {
     return rec;
   }
 
+  setPreferredModel(id: string, model: string): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    const normalized = model.trim();
+    if (!normalized || normalized.length > 240) return null;
+    rec.preferred_model = normalized;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    return rec;
+  }
+
   setExecutionPolicy(id: string, policy: ExecutionPolicy): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;
@@ -304,6 +315,7 @@ export class SessionStore {
       message_count: rec.messages.length,
       project_id: rec.project_id ?? null,
       workspace_project_id: rec.workspace_project_id ?? null,
+      preferred_model: rec.preferred_model,
     };
   }
 

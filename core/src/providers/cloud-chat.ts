@@ -15,7 +15,6 @@ import {
   defaultChatSystemInstruction,
 } from '../chat/chat-context.js';
 import { isOwuiOrGatewayError } from '../agent/code-agent.js';
-import { loadBrandManualContext } from './brand-manual-context.js';
 
 export class CloudChatService {
   constructor(
@@ -23,19 +22,6 @@ export class CloudChatService {
     private readonly sessions?: SessionStore,
     private readonly cqrRoot?: string,
   ) {}
-
-  private async enrichSystemPrompt(
-    userMessage: string,
-    systemPrompt: string | undefined,
-    signal: AbortSignal | undefined,
-  ): Promise<string | undefined> {
-    const brandManual = await loadBrandManualContext(this.cqrRoot, {
-      userMessage,
-      systemPrompt,
-      signal,
-    });
-    return [systemPrompt?.trim(), brandManual].filter(Boolean).join('\n\n') || undefined;
-  }
 
   private responsesOptions(
     providerId: string,
@@ -202,12 +188,11 @@ export class CloudChatService {
         model: `${def.name}/${modelId}`,
       };
     }
-    const enrichedSystemPrompt = await this.enrichSystemPrompt(userMessage, systemPrompt, opts?.signal);
     const messages = this.buildMessages(
       userMessage,
       attachmentContext,
       history,
-      enrichedSystemPrompt,
+      systemPrompt,
       Boolean(opts?.hasWorkspaceContext),
       opts?.imageDataUrls ?? [],
     );
@@ -246,14 +231,12 @@ export class CloudChatService {
     }
 
     const { secret, modelId, baseUrl, def, wireApi } = resolved;
-    const enrichedSystemPrompt = secret.api_key.startsWith('stub:')
-      ? systemPrompt
-      : await this.enrichSystemPrompt(userMessage, systemPrompt, opts?.signal);
+    const enrichedSystemPrompt = systemPrompt;
     const messages = this.buildMessages(
       userMessage,
       attachmentContext,
       history,
-      enrichedSystemPrompt,
+      systemPrompt,
       Boolean(opts?.hasWorkspaceContext),
       opts?.imageDataUrls ?? [],
     );
