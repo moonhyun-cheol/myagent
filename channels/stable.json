@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 5,
+    "update_sequence": 6,
     "minimum_supported_sequence": 1,
-    "version": "1.0.1",
+    "version": "1.0.2",
     "channel": "stable",
-    "published_at": "2026-08-27T07:47:31.023Z",
+    "published_at": "2026-08-28T00:52:13.784Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-5",
-      "name": "MYAgent-v1.0.1-delta.zip",
-      "size": 193898423,
-      "sha256": "c2e4e1a97e9b97d8896ccbb8f5b0c38b023a1d258db280821dd9846eba4492fc"
+      "release_tag": "update-6",
+      "name": "MYAgent-v1.0.2-delta.zip",
+      "size": 193899794,
+      "sha256": "3b275a26a4e1a6ae5c2036f48d68b1921abb1b4802a364c1434e3bdd8497946f"
     },
-    "payload_manifest_sha256": "62c32bc20315c9ec9c0bd543cabf97a85eb5d75cf3c3c7521a5de178119f21ed",
-    "release_notes": "1.0.1 seq 5: Remove unused mutate-review pane; align AGENTS.md with model-directed runtime."
+    "payload_manifest_sha256": "340bb7b06c5aa83483cb9bfc0092ae4a8aaa054c35d65af86b392581fca102b2",
+    "release_notes": "1.0.2 seq 6: License file gate off by default. Use the company OpenRouter key in Settings."
   },
-  "signature": "K+BTXQ2gnZRf7/lfm1ZIjk9Pax4XKaa5GATrJmS7DeeHuKqsVBQKKDeyWKA39J6GYVBSSSDzGITyGMCv2pdi1+qEvtcSyXdDOtOOOIcfhFKyhcJYOp2act7Yrwk1Tk9VcOjshCT9EUhfS7xXo9/7LTUULe5oFuKojMJfkWD/w7suA+yn7jXt0eBHXfhVH+h/5yYjBjda8hbQZooLyOa+55+ifeUxKSaYd+GCSczmfrxcTzeQq32uoGSa4RXVDSttsR2INnGK8ddB28Zcn6xuVCptUnitKx2MniBOJlJ3sPmvwky+xJQFk1zt3KK4crXUggjoq5mkaSVP0DqVLFLS24198tjdWz/2PfPWO6V8h1/S68B5RWB42TUAqdlAOVWVYPxkKVQDu+wltXUn9ZUf4rryV75ycV8EFnO7nuTUN7qs+8Krrkur7RthwwU/waerZHGQmOGZla0N/3vMd3oNP1qzVHc7SMHNlIOIcuwq5iIWZkxSG6ZVS0mJ06kzj92a"
+  "signature": "srmqbx8xHy7ZPHjtYZOml2fZd11GrzmfntMd+ufx3cJ/AX0/juOaujLNx+ZBl2nt5kx2fsCl6Y5SmBc8ii7EaJGZa6Ed8if8kC6DMBES9bfrl0wQpr5i43wdiw2OZrU3UtEMdbXLZ1x2MwLwJ8yMW5057c0TyZwtSuGo/rAKTj2/2ugr4OWUYaA741jG2gTogJbEzg3bUUPm8hS1P5dN46vy+20nPd6JFYdAlHS5g4PD8Ix6UD38q6AVyiCZJV8VVWqyduLralB3o0P32kIDW1GeGzD5PM/mbvWq0hcpXdxnkNpiQltE10TC8QhLvSqY1TlN0+mTPKhbPy4tbiLHQjNvOjqt2BKoia8STOlDFzJge29BMdlm8yPn31gYBj/8w1dnt6qLdH8OOFvAkoKd41drqO61iqeq57XL/dLsO4wPlX4T9AtzroI/NTUcOBIL7KM7v/assqH4/aJEj5WDvNQ8ZcrQlMa/5Cfv65yN6PDCQRhhIcbDAtKz+0LssPVQ"
 }
