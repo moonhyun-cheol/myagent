@@ -77,6 +77,20 @@ try {
     const second = createPlatformMasterKeyStore(nativeVault, tempRoot).getOrCreate();
     assert.deepEqual(second, first);
     assert.equal(nativeOne.backend, 'windows-dpapi');
+
+    const unreadableDoc = JSON.parse(readFileSync(sidecar, 'utf8'));
+    unreadableDoc.protected_key = 'invalid-current-dpapi-payload';
+    writeFileSync(sidecar, `${JSON.stringify(unreadableDoc, null, 2)}\n`, 'utf8');
+    assert.throws(() => createPlatformMasterKeyStore(nativeVault, tempRoot).getOrCreate());
+
+    const replacementStore = new ProviderStore(nativeVault, tempRoot);
+    replacementStore.saveKey('openai', 'sk-test-replacement-secret', { model_id: 'gpt-5.6-terra-pro' });
+    const replacedDoc = JSON.parse(readFileSync(sidecar, 'utf8'));
+    assert.notEqual(replacedDoc.protected_key, unreadableDoc.protected_key);
+    assert.equal(
+      new ProviderStore(nativeVault, tempRoot).getSecret('openai')?.api_key,
+      'sk-test-replacement-secret',
+    );
   }
 
   const source = readFileSync(path.join(process.cwd(), 'core', 'src', 'providers', 'os-secret-store.ts'), 'utf8');
@@ -85,6 +99,7 @@ try {
   assert.match(source, /add-generic-password/);
   assert.match(source, /input: `\$\{key\.toString\('base64'\)\}\\n`/);
   assert.equal(source.includes("'-w', key.toString('base64')"), false, 'macOS key must not be placed in argv');
+  assert.equal(source.includes('CQR' + '_PA/provider-vault/v2'), false, 'legacy DPAPI entropy must stay disabled');
 
   console.log('os-secret-store verify: PASS');
 } finally {

@@ -1,0 +1,22 @@
+# Checkout and commit as LF. Overrides Windows core.autocrlf.
+# Batch files stay CRLF so cmd.exe can run them.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.exe binary
+*.dll binary
+*.zip binary
+*.7z binary
+*.gz binary
+*.pdf binary
+*.docx binary
+*.enc binary

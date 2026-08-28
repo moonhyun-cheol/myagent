@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — product version `1.0.2`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 6), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
+- `manifest.json` — product version `1.0.3`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 8), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
 
 ## Product layout
 

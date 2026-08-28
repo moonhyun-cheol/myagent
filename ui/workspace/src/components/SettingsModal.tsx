@@ -180,7 +180,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
                 page === 'workspaces' ? 'bg-panel text-text shadow-sm' : 'text-muted hover:bg-panel/60 hover:text-text'
               }`}
             >
-              <FolderSimple size={17} /> 사전 승인 워크스페이스
+              <FolderSimple size={17} /> 워크스페이스 및 프로그램
             </button>
             <button
               type="button"

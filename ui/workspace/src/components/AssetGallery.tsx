@@ -19,7 +19,9 @@ function KindIcon({ kind }: { kind: AssetKind }) {
 }
 
 export function AssetGallery() {
-  const assets = useWorkspaceStore((s) => s.assets);
+  const assets = useWorkspaceStore((s) => s.assets).filter(
+    (asset) => Boolean(asset.sourcePath || asset.imageUrl),
+  );
   const placeAssetOnCanvas = useWorkspaceStore((s) => s.placeAssetOnCanvas);
   const openAssetInEditor = useWorkspaceStore((s) => s.openAssetInEditor);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);

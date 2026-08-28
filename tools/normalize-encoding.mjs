@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * UTF-8 no BOM + LF normalization for MY Agent source trees.
+ * UTF-8 no BOM + LF check for MY Agent source trees.
+ * Publish/predeploy use --scan-only (never rewrite the working copy).
+ * Line endings are owned by .gitattributes. Run without --scan-only only to
+ * repair a tree on purpose.
  * Usage:
  *   node tools/normalize-encoding.mjs [--scan-only] [--target source|all]
  */
@@ -46,6 +49,7 @@ const SOURCE_FILES = [
   'README.md',
   '.editorconfig',
   '.gitignore',
+  '.gitattributes',
 ];
 
 function hasBom(buf) {
@@ -127,16 +131,16 @@ function processFile(abs, rel) {
 
   if (!changed) return;
 
-  if (hadBom) bomFixed += 1;
-  if (normalized !== text) eolFixed += 1;
-
   if (scanOnly) {
-    const flags = [hadBom && 'BOM', normalized !== text && 'EOL'].filter(Boolean).join('+');
-    console.log(`[scan] ${flags} ${rel}`);
-    if (hadBom) bomRemaining += 1;
+    if (hadBom) {
+      bomRemaining += 1;
+      console.log(`[scan] BOM ${rel}`);
+    }
     return;
   }
 
+  if (hadBom) bomFixed += 1;
+  if (normalized !== text) eolFixed += 1;
   writeFileSync(abs, normalized, 'utf8');
   console.log('normalized:', rel);
 }

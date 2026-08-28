@@ -56,6 +56,10 @@ export interface ChatTurn {
   text: string;
   /** Model id/name used for this specific assistant response. */
   model?: string;
+  /** ISO timestamp when this assistant execution started. */
+  startedAt?: string;
+  /** ISO timestamp when this assistant execution finished. */
+  completedAt?: string;
   /** Transient per-call progress shown only while this response is running. */
   progressSteps?: string[];
   /** Agent status / model thought stream (SSE `thought`) */

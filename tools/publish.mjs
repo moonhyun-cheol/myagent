@@ -35,7 +35,7 @@ const ver = manifest.version ?? '1.0.0';
 
 const norm = spawnSync(
   process.execPath,
-  [path.join(root, 'tools', 'normalize-encoding.mjs'), '--target', 'source'],
+  [path.join(root, 'tools', 'normalize-encoding.mjs'), '--scan-only', '--target', 'source'],
   { cwd: root, stdio: 'inherit' },
 );
 if (norm.status !== 0) process.exit(norm.status ?? 1);

@@ -8,7 +8,7 @@ export type SecretStoreBackend = 'windows-dpapi' | 'macos-keychain' | 'memory-te
 
 export interface MasterKeyStore {
   readonly backend: SecretStoreBackend;
-  getOrCreate(): Buffer;
+  getOrCreate(opts?: { replaceUnreadable?: boolean }): Buffer;
 }
 
 interface DpapiKeyFile {
@@ -59,17 +59,25 @@ class WindowsDpapiMasterKeyStore implements MasterKeyStore {
     private readonly cqrRoot: string,
   ) {}
 
-  getOrCreate(): Buffer {
+  getOrCreate(opts?: { replaceUnreadable?: boolean }): Buffer {
     if (this.cached) return Buffer.from(this.cached);
     if (existsSync(this.keyFile)) {
-      const doc = JSON.parse(readFileSync(this.keyFile, 'utf8')) as DpapiKeyFile;
-      if (doc.version !== 1 || doc.backend !== this.backend || !doc.protected_key) {
-        throw new Error('WINDOWS_DPAPI_KEY_FILE_INVALID');
+      try {
+        const doc = JSON.parse(readFileSync(this.keyFile, 'utf8')) as DpapiKeyFile;
+        if (doc.version !== 1 || doc.backend !== this.backend || !doc.protected_key) {
+          throw new Error('WINDOWS_DPAPI_KEY_FILE_INVALID');
+        }
+        this.cached = validateMasterKey(Buffer.from(powershellDpapi('unprotect', doc.protected_key), 'base64'));
+        return Buffer.from(this.cached);
+      } catch (error) {
+        if (!opts?.replaceUnreadable) throw error;
       }
-      this.cached = validateMasterKey(Buffer.from(powershellDpapi('unprotect', doc.protected_key), 'base64'));
-      return Buffer.from(this.cached);
     }
 
+    return this.createAndPersist();
+  }
+
+  private createAndPersist(): Buffer {
     const key = randomBytes(MASTER_KEY_BYTES);
     const doc: DpapiKeyFile = {
       version: 1,

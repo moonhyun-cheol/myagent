@@ -8,6 +8,10 @@ import {
   type PreviewDisplayState,
 } from '../store/workspaceStore';
 import { BrowserPane } from './BrowserPane';
+import {
+  APP_PREFERENCES_CHANGED_EVENT,
+  syncMinimizeToTrayOnClose,
+} from '../lib/appPreferences';
 import { ChatPane } from './ChatPane';
 import { GeminiNavSidebar } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
@@ -17,7 +21,7 @@ import { MediaPane } from './MediaPane';
 import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
 import { TerminalPane } from './TerminalPane';
-import { WorkspaceObjectsPane } from './WorkspaceObjectsPane';
+import { WorkspaceObjectsPane, type TodoProgressItem } from './WorkspaceObjectsPane';
 
 const PREVIEW_MODES: { id: WorkspaceMode; label: string; icon: typeof Browser }[] = [
   { id: 'objects', label: '작업', icon: Briefcase },
@@ -69,6 +73,27 @@ function PreviewBody() {
   const pipDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const pipResizeRef = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const mode = useWorkspaceStore((s) => s.mode);
+  const chat = useWorkspaceStore((s) => s.chat);
+  const busy = useWorkspaceStore((s) => s.busy);
+  const todoItems = useMemo<TodoProgressItem[]>(() => {
+    // To-do는 현재 작업 한 건이 아니라 실행 중 기록된 단계들을 체크리스트로 투영한다.
+    const recordedSteps = [...chat]
+      .reverse()
+      .find((turn) => turn.role === 'assistant' && turn.progressSteps?.length)
+      ?.progressSteps ?? [];
+    const checklistSteps = recordedSteps
+      .map((step) => step.trim())
+      .filter((step, index, steps) => step && steps.indexOf(step) === index);
+    return checklistSteps.map((label, index) => ({
+      id: `${index}-${label}`,
+      label,
+      status: /(?:실패|오류|차단|중단)/.test(label)
+        ? 'blocked'
+        : busy && index === checklistSteps.length - 1
+          ? 'active'
+          : 'done',
+    }));
+  }, [busy, chat]);
 
   const detachPreview = () => {
     const bridge = (window as typeof window & {
@@ -248,7 +273,7 @@ function PreviewBody() {
         {previewDisplayActions}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {mode === 'objects' ? <WorkspaceObjectsPane /> : null}
+        {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} /> : null}
         {mode === 'canvas' ? <MultiModalCanvas /> : null}
         {mode === 'media' ? <MediaPane /> : null}
         {mode === 'browser' ? <BrowserPane /> : null}
@@ -422,6 +447,12 @@ function PreviewPane() {
 }
 
 export function MainWorkspaceContainer() {
+  useEffect(() => {
+    const syncPreference = () => syncMinimizeToTrayOnClose();
+    syncPreference();
+    window.addEventListener(APP_PREFERENCES_CHANGED_EVENT, syncPreference);
+    return () => window.removeEventListener(APP_PREFERENCES_CHANGED_EVENT, syncPreference);
+  }, []);
   const previewPaneOpen = useWorkspaceStore((s) => s.previewPaneOpen);
   const setMode = useWorkspaceStore((s) => s.setMode);
   const detachedMode = new URLSearchParams(window.location.search).get('preview') as WorkspaceMode | null;

@@ -29,6 +29,15 @@ internal static class Program
                     ? configuredRestart!
                     : Path.Combine(root, "MYAgent.exe"));
 
+            try
+            {
+                Console.Title = "MY Agent 업데이트 중";
+            }
+            catch
+            {
+                // Console title is best effort when launched without a console.
+            }
+            Console.WriteLine("MY Agent 업데이트를 적용하는 중입니다. 이 창을 닫지 마세요.");
             InitializeLog(root);
             Log($"Updater starting. verify_only={verifyOnly}");
             ValidateInputs(root, feedPath, zipPath, publicKeyPath, restartExe, verifyOnly);

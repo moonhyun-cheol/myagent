@@ -117,6 +117,23 @@ function normalizeExternalHref(rawUrl: string): string | null {
   }
 }
 
+function formatWorkDuration(startedAt?: string, completedAt?: string, now = Date.now()): string | null {
+  if (!startedAt) return null;
+  const start = Date.parse(startedAt);
+  const end = completedAt ? Date.parse(completedAt) : now;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+interface MessageReference {
+  id: string;
+  role: ChatTurn['role'];
+  text: string;
+}
+
 function renderMessageText(text: string): ReactNode {
   const parts: ReactNode[] = [];
   let cursor = 0;
@@ -212,6 +229,8 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
+  const [messageReferences, setMessageReferences] = useState<MessageReference[]>([]);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [pasteHint, setPasteHint] = useState<string | null>(null);
   const [pasting, setPasting] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
@@ -286,6 +305,17 @@ export function ChatPane() {
       cancelled = true;
     };
   }, [activeSessionId, activeProjectId]);
+
+  useEffect(() => {
+    setMessageReferences([]);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!busy) return;
+    setClockNow(Date.now());
+    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const openedSessionRef = useRef<string | null>(null);
@@ -453,6 +483,20 @@ export function ChatPane() {
           onSelect: async () => {
             await copyText(turn.text || '');
             flashPasteHint('메시지를 복사했습니다.');
+          },
+        },
+        {
+          id: 'reference-message',
+          label: '챗에 참조로 추가',
+          disabled: !turn.text?.trim(),
+          onSelect: () => {
+            const text = turn.text.trim();
+            setMessageReferences((current) =>
+              current.some((item) => item.id === turn.id)
+                ? current
+                : [...current, { id: turn.id, role: turn.role, text }],
+            );
+            flashPasteHint('메시지를 챗 참조에 추가했습니다.');
           },
         },
       ];
@@ -712,13 +756,18 @@ export function ChatPane() {
   const attachDisabled =
     pasting || Boolean(licenseMode && licenseMode !== 'full');
 
-  const canSend = (!!draft.trim() || pendingAttachments.length > 0) && !pasting;
+  const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
 
   const showUndo = canUndo && !busy && licenseMode === 'full';
 
   const submit = () => {
     if (!canSend) return;
-    const t = draft;
+    const referenceContext = messageReferences
+      .map((reference, index) =>
+        `[참조 메시지 ${index + 1} · ${reference.role === 'user' ? '사용자' : '모델'}]\n${reference.text}`,
+      )
+      .join('\n\n');
+    const t = [referenceContext, draft.trim()].filter(Boolean).join('\n\n');
     const promptKey = activeSessionId ?? (activeProjectId ? `project:${activeProjectId}` : null);
     const projectInWorkspaceTree = Boolean(
       activeProjectId && workspaceTreeProjectIds.includes(activeProjectId),
@@ -735,6 +784,7 @@ export function ChatPane() {
       return;
     }
     setDraft('');
+    setMessageReferences([]);
     void sendAiMessage(t);
   };
 
@@ -789,6 +839,7 @@ export function ChatPane() {
                       .then(() => {
                         setWorkspacePromptText(null);
                         setDraft('');
+                        setMessageReferences([]);
                         void sendAiMessage(pendingText);
                       })
                       .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
@@ -810,6 +861,7 @@ export function ChatPane() {
                   workspacePromptBypassRef.current = activeSessionId ?? (activeProjectId ? `project:${activeProjectId}` : null);
                   setWorkspacePromptText(null);
                   setDraft('');
+                  setMessageReferences([]);
                   void sendAiMessage(pendingText);
                 }}
                 className="rounded-xl border border-line px-3 py-2 text-xs text-muted hover:text-text"
@@ -1125,11 +1177,16 @@ export function ChatPane() {
                     ))}
                   </div>
                 ) : null}
-                {turn.text
-                  ? renderMessageText(turn.text)
-                  : busy && turn.role === 'assistant' && !turn.imageUrls?.length
-                    ? '…'
-                    : ''}
+                {!turn.text || turn.text === '작업 중…'
+                  ? busy && turn.role === 'assistant' && !turn.imageUrls?.length
+                    ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
+                    : ''
+                  : renderMessageText(turn.text)}
+                {turn.role === 'assistant' && turn.completedAt && formatWorkDuration(turn.startedAt, turn.completedAt) ? (
+                  <div className="mt-2 text-[11px] text-muted">
+                    총 작업 시간 · {formatWorkDuration(turn.startedAt, turn.completedAt)}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
@@ -1209,6 +1266,30 @@ export function ChatPane() {
                 : 'border-line'
             }`}
           >
+            {messageReferences.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-3 pb-2 pt-2">
+                {messageReferences.map((reference) => (
+                  <div
+                    key={reference.id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-lg border border-accent/25 bg-accent/5 px-2 py-1 text-[11px] text-accent"
+                    title={reference.text}
+                  >
+                    <span className="shrink-0 opacity-70">↪</span>
+                    <span className="max-w-56 truncate">
+                      {reference.role === 'user' ? '사용자' : '모델'} · {reference.text}
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded p-0.5 text-muted hover:bg-ink hover:text-text"
+                      aria-label="메시지 참조 제거"
+                      onClick={() => setMessageReferences((current) => current.filter((item) => item.id !== reference.id))}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {pendingAttachments.length > 0 ? (
               <div className="flex flex-wrap gap-2 border-b border-line/60 px-3 pt-3">
                 {pendingAttachments.map((a) => (

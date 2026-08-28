@@ -210,6 +210,8 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       text: isPlaceholder ? '' : text,
       model: m.role === 'assistant' ? m.model : undefined,
       imageUrls: urls.length ? urls : undefined,
+      startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
+      completedAt: m.role === 'assistant' ? m.at : undefined,
     };
   });
 }
@@ -581,6 +583,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
   const finishJob = (sid: string) => {
     const finishedJob = liveJobs.get(sid);
+    if (finishedJob) {
+      const completedAt = new Date().toISOString();
+      const completedChat = finishedJob.chat.map((turn) =>
+        turn.id === finishedJob.assistantId ? { ...turn, completedAt } : turn,
+      );
+      patchLiveChat(sid, completedChat);
+    }
     liveJobs.delete(sid);
     const phases = { ...get().sessionPhases };
     delete phases[sid];
@@ -745,6 +754,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               patchAssistant({ text: content, streamPreview: undefined });
             },
             onCode: (label, code) => {
+              // Tool-plane code events are model response fragments, not completed work objects.
+              // Only successful workspace mutation events belong in the work-object list.
+              if (finalOnly) return;
               const title = codeAssetTitle(label, editorPath);
               // A code stream may emit the same artifact repeatedly while it is being assembled.
               // Keep a stable key so chunks update the existing tab instead of opening duplicates.
@@ -1692,17 +1704,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (asset.kind === 'image' && asset.imageUrl) {
         const a = document.createElement('a');
         a.href = asset.imageUrl;
-        a.download = `${asset.title.replace(/\s+/g, '-')}.png`;
+        a.download = asset.title;
         a.click();
         return;
       }
-      const blob = new Blob([asset.content ?? asset.title], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${asset.title.replace(/\s+/g, '-')}.${asset.kind === 'code' ? 'txt' : 'md'}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      void (async () => {
+        const content = asset.sourcePath
+          ? (await readWorkspaceFsFile(asset.sourcePath)).content
+          : asset.content ?? asset.title;
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const fallbackExtension = asset.kind === 'code' ? '.txt' : '.md';
+        a.download = /\.[^./\\]+$/.test(asset.title) ? asset.title : `${asset.title}${fallbackExtension}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })().catch(() => undefined);
     },
 
     removeCanvasNode: (nodeId) => {
@@ -1818,6 +1836,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       mode: 'text',
       text: '',
       model,
+      startedAt: new Date().toISOString(),
     };
       const chat = [...get().chat, userTurn, assistantTurn];
       const abort = new AbortController();

@@ -7,6 +7,11 @@ using System.Text.Json;
 
 namespace CqrPa.Shell;
 
+public readonly record struct UpdateDownloadProgress(
+    long ReceivedBytes,
+    long TotalBytes,
+    string Phase);
+
 internal sealed record DownloadedUpdate(
     AvailableUpdate Update,
     string Directory,
@@ -53,7 +58,9 @@ internal sealed class UpdateService
             AutomaticDecompression = DecompressionMethods.All,
         })
         {
-            Timeout = TimeSpan.FromSeconds(10),
+            // Feed checks use a short linked token. Zip download can be hundreds of MB
+            // and must not inherit a 10-second HttpClient timeout.
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan,
         };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("MYAgent-Updater/1");
     }
@@ -96,19 +103,21 @@ internal sealed class UpdateService
 
     public async Task<AvailableUpdate?> CheckAsync(CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var response = await _http.GetAsync(
             _feedUri,
             HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+            timeout.Token);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         EnsureFeedResponseUri(response.RequestMessage?.RequestUri);
         if (response.Content.Headers.ContentLength is > MaxFeedBytes)
             throw new InvalidDataException("Update feed is too large.");
         var feedBytes = await ReadLimitedAsync(
-            await response.Content.ReadAsStreamAsync(cancellationToken),
+            await response.Content.ReadAsStreamAsync(timeout.Token),
             MaxFeedBytes,
-            cancellationToken);
+            timeout.Token);
         var update = UpdateFeedVerifier.Verify(
             feedBytes,
             File.ReadAllText(_publicKeyPath, Encoding.UTF8),
@@ -125,7 +134,8 @@ internal sealed class UpdateService
 
     public async Task<DownloadedUpdate> DownloadAsync(
         AvailableUpdate update,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<UpdateDownloadProgress>? progress = null)
     {
         if (update.Sequence <= _currentSequence)
             throw new InvalidOperationException("Update is not newer than this installation.");
@@ -141,6 +151,7 @@ internal sealed class UpdateService
         var updaterPath = Path.Combine(updateDirectory, "MYAgent.Updater.exe");
         try
         {
+            progress?.Report(new UpdateDownloadProgress(0, update.Asset.Size, "업데이트 파일을 다운로드하는 중…"));
             await File.WriteAllBytesAsync(feedPath, update.FeedBytes, cancellationToken);
             using var response = await _http.GetAsync(
                 downloadUri,
@@ -166,6 +177,7 @@ internal sealed class UpdateService
             {
                 var buffer = new byte[128 * 1024];
                 long total = 0;
+                long lastReported = 0;
                 while (true)
                 {
                     var read = await input.ReadAsync(buffer, cancellationToken);
@@ -175,6 +187,14 @@ internal sealed class UpdateService
                         throw new InvalidDataException("Downloaded update exceeded its signed size.");
                     hash.AppendData(buffer, 0, read);
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    if (total - lastReported >= 512 * 1024 || total == update.Asset.Size)
+                    {
+                        lastReported = total;
+                        progress?.Report(new UpdateDownloadProgress(
+                            total,
+                            update.Asset.Size,
+                            "업데이트 파일을 다운로드하는 중…"));
+                    }
                 }
                 if (total != update.Asset.Size)
                     throw new InvalidDataException("Downloaded update size does not match signed feed.");
@@ -183,6 +203,10 @@ internal sealed class UpdateService
                     throw new InvalidDataException("Downloaded update hash does not match signed feed.");
             }
 
+            progress?.Report(new UpdateDownloadProgress(
+                update.Asset.Size,
+                update.Asset.Size,
+                "다운로드를 확인하고 설치를 준비하는 중…"));
             File.Copy(_installedUpdaterPath, updaterPath, overwrite: false);
             return new DownloadedUpdate(
                 update,
@@ -205,7 +229,7 @@ internal sealed class UpdateService
             FileName = downloaded.UpdaterPath,
             WorkingDirectory = downloaded.Directory,
             UseShellExecute = false,
-            CreateNoWindow = true,
+            CreateNoWindow = false,
         };
         start.ArgumentList.Add("--root");
         start.ArgumentList.Add(_root);

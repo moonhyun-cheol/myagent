@@ -2,6 +2,7 @@ import {
   ArrowSquareOut,
   ClockCounterClockwise,
   Code,
+  DownloadSimple,
   FileText,
   FolderOpen,
   Image as ImageIcon,
@@ -18,6 +19,12 @@ import { AssetExplorer } from './AssetExplorer';
 import { AssetGallery } from './AssetGallery';
 
 type ObjectView = 'recent' | 'all' | 'files' | 'todo';
+
+export interface TodoProgressItem {
+  id: string;
+  label: string;
+  status: 'active' | 'done' | 'blocked';
+}
 
 const PINNED_INSTRUCTIONS_KEY = 'my-agent-pinned-instructions-v1';
 
@@ -44,14 +51,15 @@ function displayUrl(url: string): string {
   }
 }
 
-function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
+function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; showDownloadAction: boolean }) {
+  const downloadAsset = useWorkspaceStore((s) => s.downloadAsset);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const placeAssetOnCanvas = useWorkspaceStore((s) => s.placeAssetOnCanvas);
   const setMode = useWorkspaceStore((s) => s.setMode);
   const canvasAvailable = isCanvasAsset(asset);
 
   return (
-    <article className="flex min-w-0 items-center gap-2 border-b border-line/70 px-3 py-1.5 last:border-b-0">
+    <article className="group flex min-w-0 items-center gap-2 border-b border-line/70 px-3 py-1.5 last:border-b-0">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {asset.kind === 'image' && asset.imageUrl ? (
           <img src={asset.imageUrl} alt="" className="h-8 w-8 shrink-0 rounded-md object-cover" />
@@ -69,6 +77,17 @@ function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
         </div>
       </div>
       <div className="flex shrink-0 gap-1">
+        {showDownloadAction ? (
+          <button
+            type="button"
+            title="다운로드"
+            aria-label={`${asset.title} 다운로드`}
+            className="inline-flex items-center rounded-md border border-line px-1.5 py-1 text-muted opacity-0 transition-opacity hover:border-accent/60 hover:text-text focus:opacity-100 group-hover:opacity-100"
+            onClick={() => downloadAsset(asset.id)}
+          >
+            <DownloadSimple size={13} />
+          </button>
+        ) : null}
         {asset.kind === 'image' && asset.imageUrl ? (
           <button
             type="button"
@@ -113,17 +132,19 @@ function RecentAsset({ asset }: { asset: WorkspaceAsset }) {
   );
 }
 
-export function WorkspaceObjectsPane() {
+export function WorkspaceObjectsPane({
+  showDownloadActions = false,
+  todoItems = [],
+}: {
+  showDownloadActions?: boolean;
+  todoItems?: TodoProgressItem[];
+}) {
   const [view, setView] = useState<ObjectView>('recent');
   const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
   const [instructionDraft, setInstructionDraft] = useState('');
   const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
   const assets = useWorkspaceStore((s) => s.assets);
-  const busy = useWorkspaceStore((s) => s.busy);
-  const statusText = useWorkspaceStore((s) => s.statusText);
-  const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
-  const messageQueue = useWorkspaceStore((s) => s.messageQueue);
-  const activeQueue = messageQueue.filter((item) => item.sessionId === activeSessionId);
+  const workAssets = assets.filter((asset) => Boolean(asset.sourcePath || asset.imageUrl));
   const browserHistory = useWorkspaceStore((s) => s.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
@@ -147,7 +168,7 @@ export function WorkspaceObjectsPane() {
       .catch((error) => setExplorerMessage(error instanceof Error ? error.message : String(error)));
   };
 
-  const recentAssets = assets.slice(0, 6);
+  const recentAssets = workAssets.slice(0, 6);
   const references = browserHistory.slice().reverse().slice(0, 6);
 
   const savePinnedInstructions = (next: string[]) => {
@@ -164,16 +185,39 @@ export function WorkspaceObjectsPane() {
           <button type="button" className="rounded-md bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent">To-do</button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          <h3 className="text-xs font-semibold text-text">현재 작업</h3>
-          <div className="mt-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]">
-            <p className="font-medium text-text">{busy ? statusText || '모델 작업 진행 중' : '진행 중인 작업 없음'}</p>
-            {activeQueue.length ? <p className="mt-1 text-muted">대기 작업 {activeQueue.length}개</p> : null}
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold text-text">작업 단계</h3>
+            {todoItems.length ? (
+              <span className="text-[10px] text-muted">
+                {todoItems.filter((item) => item.status === 'done').length}/{todoItems.length}
+              </span>
+            ) : null}
           </div>
-          {activeQueue.map((item, index) => (
-            <div key={item.id} className="mt-1 flex gap-2 rounded-md border border-line/70 px-2 py-1.5 text-[11px] text-muted">
-              <span>{index + 1}</span><span className="truncate">{item.text || item.attachmentNames.join(', ')}</span>
-            </div>
-          ))}
+          {todoItems.length ? (
+            <ol className="mt-2 space-y-2" aria-label="작업 단계별 진행상황">
+              {todoItems.map((item, index) => (
+                <li key={item.id} className="flex items-start gap-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]">
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${
+                      item.status === 'done'
+                        ? 'border-accent bg-accent text-white'
+                        : item.status === 'blocked'
+                          ? 'border-red-400 text-red-300'
+                          : 'border-accent text-accent'
+                    }`}
+                    aria-label={item.status === 'done' ? '완료' : item.status === 'blocked' ? '차단' : '진행 중'}
+                  >
+                    {item.status === 'done' ? '✓' : index + 1}
+                  </span>
+                  <span className={item.status === 'done' ? 'text-muted line-through' : 'text-text'}>{item.label}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px] text-muted">
+              모델이 과제를 단계로 나누면 여기에 To-do 목록과 진행상황이 표시됩니다.
+            </p>
+          )}
           <h3 className="mt-5 text-xs font-semibold text-text">고정지침</h3>
           <div className="mt-2 flex gap-1">
             <input value={instructionDraft} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="현재 작업 폴더에 기억할 지침" className="min-w-0 flex-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent" />
@@ -364,15 +408,19 @@ export function WorkspaceObjectsPane() {
           {recentAssets.length === 0 ? (
             <p className="px-3 pb-4 text-[11px] text-muted">아직 이 세션의 결과물이 없습니다.</p>
           ) : (
-            <div>{recentAssets.map((asset) => <RecentAsset key={asset.id} asset={asset} />)}</div>
+            <div>
+              {recentAssets.map((asset) => (
+                <RecentAsset key={asset.id} asset={asset} showDownloadAction={showDownloadActions} />
+              ))}
+            </div>
           )}
-          {assets.length > recentAssets.length ? (
+          {workAssets.length > recentAssets.length ? (
             <button
               type="button"
               className="m-3 w-[calc(100%-24px)] rounded-md border border-dashed border-line px-2 py-2 text-[10px] text-muted hover:border-accent/60 hover:text-text"
               onClick={() => setView('all')}
             >
-              결과물 {assets.length - recentAssets.length}개 더 보기
+              결과물 {workAssets.length - recentAssets.length}개 더 보기
             </button>
           ) : null}
         </section>

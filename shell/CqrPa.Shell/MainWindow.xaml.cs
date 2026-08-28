@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
@@ -7,6 +9,10 @@ using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Application = System.Windows.Application;
+using Forms = System.Windows.Forms;
+using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace CqrPa.Shell;
 
@@ -18,6 +24,9 @@ public partial class MainWindow : Window
     private readonly Thickness _restoredBorderThickness = new(1);
     private readonly WindowPlacementStore _windowPlacement;
     private CoreWebView2? _browserCore;
+    private Forms.NotifyIcon? _trayIcon;
+    private bool _allowExit;
+    private bool _minimizeToTrayOnClose = LoadMinimizeToTrayPreference();
 
     private bool _workspaceLoading;
 
@@ -44,6 +53,8 @@ public partial class MainWindow : Window
         };
         Loaded += (_, _) => _windowPlacement.StartTracking();
         Loaded += OnLoaded;
+        Closing += OnWindowClosing;
+        Application.Current.SessionEnding += (_, _) => _allowExit = true;
         LocationChanged += (_, _) => MaximizeWorkArea.OnUserMovedOrResized(this);
         SizeChanged += (_, _) => MaximizeWorkArea.OnUserMovedOrResized(this);
         UpdateMaximizeGlyph();
@@ -194,6 +205,12 @@ public partial class MainWindow : Window
                     break;
                 case "inAppBrowser.openExternal":
                     OpenInDefaultBrowser(url ?? _browserCore?.Source);
+                    break;
+                case "app.closeBehavior.set":
+                    var minimizeToTray = root.TryGetProperty("minimizeToTray", out var minimizeProperty)
+                        && minimizeProperty.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        && minimizeProperty.GetBoolean();
+                    SetMinimizeToTrayOnClose(minimizeToTray);
                     break;
                 case "filePicker.open":
                     // Let WebView2 finish dispatching the message before entering a modal
@@ -541,6 +558,110 @@ public partial class MainWindow : Window
         MaximizeWorkArea.Toggle(this);
         MaximizeWorkArea.ApplyChrome(this, RootLayout, _restoredBorderThickness);
         UpdateMaximizeGlyph();
+    }
+
+    private static string TrayPreferencePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MYAgent",
+        "shell-settings.json");
+
+    private static bool LoadMinimizeToTrayPreference()
+    {
+        try
+        {
+            if (!File.Exists(TrayPreferencePath)) return true;
+            using var document = JsonDocument.Parse(File.ReadAllText(TrayPreferencePath));
+            return !document.RootElement.TryGetProperty("minimizeToTrayOnClose", out var value)
+                || value.ValueKind != JsonValueKind.False;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static void SaveMinimizeToTrayPreference(bool enabled)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(TrayPreferencePath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            File.WriteAllText(TrayPreferencePath, JsonSerializer.Serialize(new { minimizeToTrayOnClose = enabled }));
+        }
+        catch
+        {
+            // The in-memory preference still applies for this run.
+        }
+    }
+
+    private void SetMinimizeToTrayOnClose(bool enabled)
+    {
+        _minimizeToTrayOnClose = enabled;
+        SaveMinimizeToTrayPreference(enabled);
+        if (enabled) EnsureTrayIcon();
+        else DisposeTrayIcon();
+    }
+
+    private void EnsureTrayIcon()
+    {
+        if (_trayIcon is not null) return;
+
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add("MY Agent 열기", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("종료", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
+
+        var icon = !string.IsNullOrWhiteSpace(Environment.ProcessPath)
+            ? System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath)
+            : null;
+        _trayIcon = new Forms.NotifyIcon
+        {
+            Text = "MY Agent",
+            Icon = icon ?? SystemIcons.Application,
+            ContextMenuStrip = menu,
+            Visible = true,
+        };
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreFromTray);
+    }
+
+    private void DisposeTrayIcon()
+    {
+        if (_trayIcon is null) return;
+        _trayIcon.Visible = false;
+        _trayIcon.ContextMenuStrip?.Dispose();
+        _trayIcon.Icon?.Dispose();
+        _trayIcon.Dispose();
+        _trayIcon = null;
+    }
+
+    internal void RestoreFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
+
+    private void ExitFromTray()
+    {
+        _allowExit = true;
+        DisposeTrayIcon();
+        Close();
+    }
+
+    private void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        if (_allowExit || !_minimizeToTrayOnClose)
+        {
+            DisposeTrayIcon();
+            return;
+        }
+
+        e.Cancel = true;
+        EnsureTrayIcon();
+        Hide();
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();

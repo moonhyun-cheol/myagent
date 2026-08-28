@@ -51,10 +51,11 @@ try {
         options: [],
         company_models: {
           source: 'default',
-          selected: ['open_webui_openrouter_integration.openai.gpt-5.6-terra-pro'],
-          defaults: ['open_webui_openrouter_integration.openai.gpt-5.6-terra-pro'],
+          selected: ['open_webui_openrouter_integration.openai.gpt-5.6-luna'],
+          defaults: ['open_webui_openrouter_integration.openai.gpt-5.6-luna'],
           available: [
-            'open_webui_openrouter_integration.openai.gpt-5.6-terra-pro',
+            'open_webui_openrouter_integration.openai.gpt-5.6-luna',
+            'open_webui_openrouter_integration.anthropic.claude-fable-5',
             'open_webui_openrouter_integration.anthropic.claude-opus-4.8',
           ],
         },
@@ -76,6 +77,7 @@ try {
   await dialog.getByRole('button', { name: '모델 구성', exact: true }).click();
   await dialog.getByText('선택된 MY 모델', { exact: true }).waitFor();
   await dialog.getByPlaceholder('예: claude, gpt, gemini').fill('claude');
+  await dialog.getByText('anthropic.claude-fable-5', { exact: true }).waitFor();
   await dialog.getByText('anthropic.claude-opus-4.8', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(outDir, 'model-center-company-models-smoke.png'), fullPage: true });
   await dialog.getByRole('button', { name: '모델 관리로 돌아가기' }).click();

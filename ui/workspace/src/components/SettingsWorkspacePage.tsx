@@ -9,7 +9,7 @@ import {
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
 import { FolderBrowserModal } from './FolderBrowserModal';
-import { SettingsApplicationsSection } from './SettingsApplicationsSection';
+import { SettingsProgramSection } from './SettingsProgramSection';
 
 interface SettingsWorkspacePageProps {
   readOnly: boolean;
@@ -182,7 +182,7 @@ export function SettingsWorkspacePage({ readOnly, onWorkspaceChanged }: Settings
         )}
       </section>
 
-      <SettingsApplicationsSection readOnly={readOnly} />
+      <SettingsProgramSection readOnly={readOnly} />
 
       <FolderBrowserModal open={browseOpen} onClose={() => setBrowseOpen(false)} onSelect={(root) => void addWorkspace(root)} />
     </div>

@@ -442,7 +442,7 @@ export class ProviderStore {
         }
       }
     }
-    const masterKey = this.masterKeyStore.getOrCreate();
+    const masterKey = this.masterKeyStore.getOrCreate({ replaceUnreadable: true });
     for (const [id, entry] of Object.entries(vault.entries)) {
       encDoc.entries[id] = {
         api_key_enc: encryptSecretWithKey(entry.api_key, masterKey),
