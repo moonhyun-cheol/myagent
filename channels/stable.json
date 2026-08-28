@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 6,
+    "update_sequence": 7,
     "minimum_supported_sequence": 1,
-    "version": "1.0.2",
+    "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T00:52:13.784Z",
+    "published_at": "2026-08-28T01:32:36.030Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-6",
-      "name": "MYAgent-v1.0.2-delta.zip",
-      "size": 193899794,
-      "sha256": "3b275a26a4e1a6ae5c2036f48d68b1921abb1b4802a364c1434e3bdd8497946f"
+      "release_tag": "update-7",
+      "name": "MYAgent-v1.0.3-delta.zip",
+      "size": 193903995,
+      "sha256": "0a8dace4e02c6583e1328e24ad7105a919bf484fed135a86101fab6f650e24d0"
     },
-    "payload_manifest_sha256": "340bb7b06c5aa83483cb9bfc0092ae4a8aaa054c35d65af86b392581fca102b2",
-    "release_notes": "1.0.2 seq 6: License file gate off by default. Use the company OpenRouter key in Settings."
+    "payload_manifest_sha256": "394f0a5688c47de783c2aee1843dd74ac89075ff0cba8f8f80bdbce20bc25281",
+    "release_notes": "모델 피커를 GPT 5.6 sol/luna 일반 버전, Claude Fable 5, Opus 4.8, DeepSeek V4 Pro, Sonar, Grok multi-agent로 정리했습니다. Terra·Gemini·Qwen·Kimi·Veo와 GPT Pro 계열은 제외합니다. 작업 오브젝트·트레이 유지·키 복구도 포함합니다."
   },
-  "signature": "srmqbx8xHy7ZPHjtYZOml2fZd11GrzmfntMd+ufx3cJ/AX0/juOaujLNx+ZBl2nt5kx2fsCl6Y5SmBc8ii7EaJGZa6Ed8if8kC6DMBES9bfrl0wQpr5i43wdiw2OZrU3UtEMdbXLZ1x2MwLwJ8yMW5057c0TyZwtSuGo/rAKTj2/2ugr4OWUYaA741jG2gTogJbEzg3bUUPm8hS1P5dN46vy+20nPd6JFYdAlHS5g4PD8Ix6UD38q6AVyiCZJV8VVWqyduLralB3o0P32kIDW1GeGzD5PM/mbvWq0hcpXdxnkNpiQltE10TC8QhLvSqY1TlN0+mTPKhbPy4tbiLHQjNvOjqt2BKoia8STOlDFzJge29BMdlm8yPn31gYBj/8w1dnt6qLdH8OOFvAkoKd41drqO61iqeq57XL/dLsO4wPlX4T9AtzroI/NTUcOBIL7KM7v/assqH4/aJEj5WDvNQ8ZcrQlMa/5Cfv65yN6PDCQRhhIcbDAtKz+0LssPVQ"
+  "signature": "t0PtUPIox8sAA5QoftgM/R+W/bbl14hsD13o3hB8H2+1kesCGfFeL+4voC0XVhnwRG1lg+/GzAIqSgqZM4T92QSuJqcltqc6alCkBeCRPMDBtm5gJrcuUQcCesQkehr/hPRoULihoRB4opGPkFsPvlSNO2B5GZ9ZjK+8NkfnhGrlud5pgY/yWEFp4qnvf3Elzzyqd4J3jV1YDqJDpDR33jHIqunl3dL8t2acjQyoSTniCSueiu8OOYQcLogGJu7IS+I3zVJ3Igsnp6kYMmSZHxFIgOxplMOGd1iG/o6LXhvEEBUXyhm67EG26xVGIGyZnIrSgGfXUSqdD/m7CO42UmPT1/uhTAoPkio4BC8lL9s7Q5JUmELZKVD3pCPfvgxr5msAXcK8SXyCIsWbYBstLKz6Eyz0pLGeGaZYSJBcmtJA8OI0qxVtAOcWZmn/NKRwcj2/o/IxJMlg1ogV9vjWXAzjklsQaEYqJH/TVKTP5A4Of0RF6+7KonHy6ODFHpgC"
 }
