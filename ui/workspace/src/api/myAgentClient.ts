@@ -104,7 +104,7 @@ export interface SkillListItem {
   id: string;
   label: string;
   mode: string;
-  source: 'bundled' | 'user';
+  source: 'bundled' | 'user' | 'organization';
   editable: boolean;
   removable?: boolean;
   install_kind?: 'prompt' | 'package';
@@ -256,14 +256,124 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
   };
 }
 
-export async function fetchLicense(): Promise<{ mode: string; features: string[] }> {
+export interface LicenseStatusPayload {
+  mode: string;
+  features: string[];
+  reason?: string;
+  org_id?: string;
+  expires_at?: string;
+  valid?: boolean;
+  enforced?: boolean;
+}
+
+export async function fetchLicense(): Promise<LicenseStatusPayload> {
   const res = await fetch('/license/status');
   if (!res.ok) throw new Error(`라이선스 확인 실패 (${res.status})`);
   const data = await res.json();
   return {
     mode: data.mode ?? 'unknown',
     features: data.features ?? [],
+    reason: data.reason,
+    org_id: data.org_id,
+    expires_at: data.expires_at,
+    valid: data.valid,
+    enforced: data.enforced === true,
   };
+}
+
+export interface SetupStatusPayload {
+  needs_license: boolean;
+  license_mode: string;
+  license_reason?: string;
+  org_id?: string;
+  activation_mode: 'central' | 'file' | 'none';
+  activation_server_url?: string | null;
+  activation_error?: string | null;
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatusPayload> {
+  const res = await fetch('/setup/status');
+  if (!res.ok) throw new Error(`설정 상태 확인 실패 (${res.status})`);
+  return (await res.json()) as SetupStatusPayload;
+}
+
+export async function activateLicense(): Promise<SetupStatusPayload> {
+  const res = await fetch('/setup/activate', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.message || data.error || `활성화 실패 (${res.status})`);
+  }
+  return (data.status ?? data) as SetupStatusPayload;
+}
+
+export async function importLicensePath(licensePath: string): Promise<{ ok: true; org_id: string }> {
+  const res = await fetch('/setup/import-license', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ license_path: licensePath }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `라이선스 등록 실패 (${res.status})`);
+  return data as { ok: true; org_id: string };
+}
+
+export async function importLicenseFile(file: File): Promise<{ ok: true; org_id: string }> {
+  const body = new FormData();
+  body.append('license', file, file.name || 'license.ocx');
+  const res = await fetch('/setup/import-license', { method: 'POST', body });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `라이선스 등록 실패 (${res.status})`);
+  return data as { ok: true; org_id: string };
+}
+
+export interface OptionalRuntimeCatalogFeature {
+  id: string;
+  label: string;
+  summary: string;
+  detail?: string;
+}
+
+export interface OptionalRuntimeStatusItem {
+  id: string;
+  label: string;
+  summary: string;
+  detail?: string;
+  size_hint?: string;
+  selected: boolean;
+  installed: boolean;
+  missing_markers: string[];
+}
+
+export interface OptionalRuntimesPayload {
+  catalog: {
+    core_features: OptionalRuntimeCatalogFeature[];
+    license_features: OptionalRuntimeCatalogFeature[];
+    later_streams: OptionalRuntimeCatalogFeature[];
+    optional_runtimes: OptionalRuntimeCatalogFeature[];
+  };
+  selection: { selected: string[]; skipped: string[] };
+  optionals: OptionalRuntimeStatusItem[];
+}
+
+export async function fetchOptionalRuntimes(): Promise<OptionalRuntimesPayload> {
+  const res = await fetch('/setup/optional-runtimes');
+  if (!res.ok) throw new Error(`기능 목록 실패 (${res.status})`);
+  return (await res.json()) as OptionalRuntimesPayload;
+}
+
+export async function installOptionalRuntimes(ids: string[]): Promise<{
+  ok: boolean;
+  installed: string[];
+  log: string;
+}> {
+  const res = await fetch('/setup/optional-runtimes/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `기능 설치 실패 (${res.status})`);
+  return data as { ok: boolean; installed: string[]; log: string };
 }
 
 export async function ensureSession(): Promise<string> {
@@ -428,7 +538,7 @@ export async function setSessionPreferredModel(
     body: JSON.stringify({ model }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `대화 모델 저장 실패 (${res.status})`);
+  if (!res.ok) throw new Error(data.message || data.error || `선호 모델 저장 실패 (${res.status})`);
   return data as SessionRecord;
 }
 
@@ -844,6 +954,56 @@ export async function listSkills(): Promise<SkillListItem[]> {
   if (!res.ok) throw new Error(`스킬 목록 실패 (${res.status})`);
   const data = await res.json();
   return (data.skills ?? []) as SkillListItem[];
+}
+
+export interface OrganizationModuleStatus {
+  installed: {
+    id: string;
+    version: string;
+    update_sequence: number;
+    required_core_api: string;
+    update_feed_url?: string;
+    capabilities: string[];
+    root: string;
+  } | null;
+}
+
+export interface OrganizationModuleUpdate {
+  sequence: number;
+  version: string;
+  channel: string;
+  assetName: string;
+  feedUrl: string;
+}
+
+export async function fetchOrganizationModule(): Promise<OrganizationModuleStatus> {
+  const res = await fetch('/organization-module');
+  if (!res.ok) throw new Error(`조직 모듈 상태 실패 (${res.status})`);
+  return (await res.json()) as OrganizationModuleStatus;
+}
+
+export async function checkOrganizationModule(): Promise<OrganizationModuleUpdate | null> {
+  const res = await fetch('/organization-module/check', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `조직 모듈 확인 실패 (${res.status})`);
+  return (data.update ?? null) as OrganizationModuleUpdate | null;
+}
+
+export async function applyOrganizationModule(): Promise<void> {
+  const res = await fetch('/organization-module/apply', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `조직 모듈 업데이트 실패 (${res.status})`);
+}
+
+export async function installOrganizationModule(zipPath: string): Promise<OrganizationModuleStatus['installed']> {
+  const res = await fetch('/organization-module/install', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ zip_path: zipPath }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `회사 팩 설치 실패 (${res.status})`);
+  return (data.installed ?? null) as OrganizationModuleStatus['installed'];
 }
 
 export async function fetchSkill(id: string): Promise<SkillListItem> {
