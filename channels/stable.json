@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 7,
+    "update_sequence": 8,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T01:32:36.030Z",
+    "published_at": "2026-08-28T03:08:18.489Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-7",
+      "release_tag": "update-8",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 193903995,
-      "sha256": "0a8dace4e02c6583e1328e24ad7105a919bf484fed135a86101fab6f650e24d0"
+      "size": 193908462,
+      "sha256": "2f017b7cb02970a05357b39ce52ae49094f81f0970567799755134c7ecc128a7"
     },
-    "payload_manifest_sha256": "394f0a5688c47de783c2aee1843dd74ac89075ff0cba8f8f80bdbce20bc25281",
-    "release_notes": "모델 피커를 GPT 5.6 sol/luna 일반 버전, Claude Fable 5, Opus 4.8, DeepSeek V4 Pro, Sonar, Grok multi-agent로 정리했습니다. Terra·Gemini·Qwen·Kimi·Veo와 GPT Pro 계열은 제외합니다. 작업 오브젝트·트레이 유지·키 복구도 포함합니다."
+    "payload_manifest_sha256": "a0823e3ed0d18acb524eed970dc6bec574504deb2160e1de2d4852421c6d38ff",
+    "release_notes": "1.0.3 seq 8: CQR_PA archive port — agent context profiles, session preferred model, settings refactor, model curation, update progress UI, tray preference, DPAPI key recovery, and workspace UX polish."
   },
-  "signature": "t0PtUPIox8sAA5QoftgM/R+W/bbl14hsD13o3hB8H2+1kesCGfFeL+4voC0XVhnwRG1lg+/GzAIqSgqZM4T92QSuJqcltqc6alCkBeCRPMDBtm5gJrcuUQcCesQkehr/hPRoULihoRB4opGPkFsPvlSNO2B5GZ9ZjK+8NkfnhGrlud5pgY/yWEFp4qnvf3Elzzyqd4J3jV1YDqJDpDR33jHIqunl3dL8t2acjQyoSTniCSueiu8OOYQcLogGJu7IS+I3zVJ3Igsnp6kYMmSZHxFIgOxplMOGd1iG/o6LXhvEEBUXyhm67EG26xVGIGyZnIrSgGfXUSqdD/m7CO42UmPT1/uhTAoPkio4BC8lL9s7Q5JUmELZKVD3pCPfvgxr5msAXcK8SXyCIsWbYBstLKz6Eyz0pLGeGaZYSJBcmtJA8OI0qxVtAOcWZmn/NKRwcj2/o/IxJMlg1ogV9vjWXAzjklsQaEYqJH/TVKTP5A4Of0RF6+7KonHy6ODFHpgC"
+  "signature": "J+UsVx07zJ2z/2y8iO7FBr2PeWj9Z6J3xe9Rm3SMqKp5YetiWBD9Z1dhaOcdazna26Yi5b8S2EIn+BLYOe8TIZgBivs6+5zpIh52tb3GasJ8aO3VxIApHZqHIpWJSycTboi2fMYmXBf6CaIYUvtSdS64PhlELs8H5pvJG9yYdvKN/8AYF9TTJSiZH5hhtXvC3cG1iuE6kT70fzlFLV9qRTngKLTGx0FPHrcXSWh5tcPnIP+cIDpxCRHwYHzaqrWaurzF9hSVnV1m+wmTnQGzHP2BZ7WLvXYzWqMojQcDrjgbs3dF8k+hatoSExoVwLluIO2zErqdRst45/BQEjSaskswRUgeHJ8SU69vmDoK1XR6iK4yuFuuCNOuwblAV1AnNUYGC//mZovK236LgfS6EhPDXeZs4RpIvNaduWAR+JRksEIpanoB1hIMtqReqHdn1naEvkTTVLq+ss0aswf8ZC6NoTBwZ7w+PimdgHs8Kh4+lyF48iy+4yWQvsoWaJ3W"
 }
