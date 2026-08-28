@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 9,
+    "update_sequence": 10,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T03:49:16.033Z",
+    "published_at": "2026-08-28T04:23:59.751Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-9",
+      "release_tag": "update-10",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 193911558,
-      "sha256": "e9e8760de1676dad3a2f11260f63f23a073852128136458a1637a4c37cc81112"
+      "size": 193905145,
+      "sha256": "a8dbef789d776ef9bf188d43f82ea44fa991e207e233872c302b003953088f85"
     },
-    "payload_manifest_sha256": "f01b17296e9e6064e00396e751f37fa88794a1352153286cd529bdc18f524c20",
-    "release_notes": "1.0.3 seq 9: Organization-module OpenClaw routing - org automaton slash manifest overlay, /cqr/adapter/request to Bulbasaur :8790, deploy-overrides merge."
+    "payload_manifest_sha256": "6e29200e299102b871aae0eb1f175a871b4f2dc4575735502037368d396066bd",
+    "release_notes": "라이선스 게이트 제거. 조직 모듈 ZIP 설치 API/UI 복구. 회사 팩 추가 Not found 수정."
   },
-  "signature": "pIJpKWZIvEmjrOGIAxGxotCIpVHg6SILlYq67BCNAtlnBGUqyCDRB4/LmVBn2ida3ZSw7l2u9qtH9dp8bzAMjbdSaMbc1YfEv46oKYBnJiGUB7Z46HYYn/QgPHCmqjHbA3IPf2yfuRnBLN/SnF2FQsZlyZRc0ZCbNfceZyoU47ry6ZcoDa2diH7vbtEVUen2LcaCsZR+P2JER47nsQ6GnfO0yu4IGOT8DP8bpchKJxZy5nkftJEOymOq2lGQ05ZySFu8Z76bbOix2gUvnLC3IPnnaDmJ3/AJM+Mjxufi+H3WtdDgLqCnrMIpZZbiTF2MDTh62GwRvGSMMr3cXj5lr+ggzIxWr0GZIw0CDmSWQRu/fQSWz2jGRRmQoIMA6NFTOYmH/S6Bizyl/nr0dLDqVa5WubCjjPq09dVfOTM6mdllF8i+9E3wcd/P/7esEHUBW2e6kxGMBLCL1lMpzijkTIRsucR4qRlQmBBhHMvZByHj0OIgJDv2ObMtSNx77xMg"
+  "signature": "PQ2Eklr9ZPRhT7ffyNlK1k3LDM8/ast4G/MrGwClL13TGyeXcscKsi7E0Kbaa2h1dEd6UiP3AT8XcvW6gWXrVTfXaT0ATDzFI8B2SRAiW9htsAzGSgjRvQiCbe9zrsCUCVPDrVoM2boQe1oa/pPEyOfXiQW/3Bpme1cCOMaMEeE6xLN49hjinRSmkpIDMNIpDN6a50YROKRJoTvwKUV/Z9dpLVDCpsKxrdT4x+Nw9MHQwrYt7TOcFRYkAJ1Qxy+aVsC0X4iFElg8l7qqCxxs2eIIuuHaSfdOLLblQP61Agt24X3h6j/F1bWTE17H54HnUfyaw3Wop3NT8Aqcdg3rVFk9MBeIAYx3+WUAusFuznh+IGaVTNp050zupqOR2Wdpv2YeqSSp1QCXXu1sQx84nl53wv3nopr2BosOl7rrxFKjkw3w19GNslWdNeCu0f3o85RAoaJS3jhKe+rT2A6Szocb4eyLlniaw33wIsPEVHL9Yj54T5ASbPVe1/GtJGPF"
 }
