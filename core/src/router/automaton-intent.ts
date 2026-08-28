@@ -13,17 +13,17 @@ export interface AutomatonIntentResult {
 }
 
 /** Explicit slash commands are structural input, not inferred user intent. */
-export function peekAutomatonIntent(message: string): AutomatonIntentResult | null {
+export function peekAutomatonIntent(message: string, cqrRoot?: string): AutomatonIntentResult | null {
   const trimmed = message.trim();
   if (!trimmed.startsWith('/')) return null;
 
-  const match = getSlashAutomatonPatterns().find(({ pattern }) => pattern.test(trimmed));
+  const match = getSlashAutomatonPatterns(cqrRoot).find(({ pattern }) => pattern.test(trimmed));
   if (!match) return null;
 
   return {
     action: 'run',
     toolId: match.toolId,
-    commandText: buildAutomatonCommandText(match.toolId, trimmed),
+    commandText: buildAutomatonCommandText(match.toolId, trimmed, cqrRoot),
     confidence: 1,
     layer: 'explicit',
   };

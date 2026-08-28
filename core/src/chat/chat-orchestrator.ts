@@ -132,7 +132,7 @@ export class ChatOrchestrator {
     }
 
     // Slash commands are structural input, not natural-language keyword routing.
-    const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message) : null;
+    const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message, this.cqrRoot) : null;
     const quickAutomaton = peek ? automatonIntentToRoute(peek) : null;
     if (quickAutomaton && peek) {
       return {
