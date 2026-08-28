@@ -14,7 +14,7 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 | Product UI | `ui/workspace` | React workspace — the only UI at `/` |
 | Shell (WPF) | `shell/CqrPa.Shell` | Custom title chrome (`MainWindow.xaml`) |
 | Core API | `core/src` | Routes in `core/src/routes/dispatch.ts` |
-| Rulebook | `rulebook/docs` | Specs + CURRENT_STATUS |
+| Rulebook | `../RULEBOOK/MY_CUSTOM_CODEX` (via `.rulebook-link.yml`) | **GitHub 미포함.** 로컬 generated는 `rulebook/docs/generated/` (gitignore) |
 
 ## Hard rules
 
@@ -65,5 +65,5 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 - Video attachments: `core/src/attachments/video-keyframes.ts` (+ `text-extract.ts`) — ffmpeg keyframes → vision; with attachments, do not `intent-clarify` for missing file/URL (R-067)
 - LLM wire log (OpenAI request/response): `MY_AGENT_LLM_LOG=1` → `data/logs/llm-wire.jsonl` (`full` for longer bodies)
 - API dispatch: `core/src/routes/dispatch.ts`
-- Status: `rulebook/docs/01_CURRENT_STATUS.md`
+- Status: `../RULEBOOK/MY_CUSTOM_CODEX/docs/01_CURRENT_STATUS.md` (로컬 RULEBOOK, GitHub 아님)
 - **Project structure:** `rulebook/docs/ops/STRUCTURE.md`

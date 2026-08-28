@@ -71,6 +71,12 @@ logs/
 명령모음-*.txt
 .rulebook-link.yml
 
+# ===== Rulebook (canonical source: ../RULEBOOK — never commit generated) =====
+rulebook/docs/generated/
+rulebook/docs/*.md
+!rulebook/docs/plans/
+rulebook/reports/
+
 # ===== 로그 =====
 *.log
 
