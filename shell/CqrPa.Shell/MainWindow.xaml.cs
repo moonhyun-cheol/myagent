@@ -632,6 +632,12 @@ public partial class MainWindow : Window
         Focus();
     }
 
+    internal void PrepareForUpdateExit()
+    {
+        _allowExit = true;
+        DisposeTrayIcon();
+    }
+
     private void ExitFromTray()
     {
         _allowExit = true;

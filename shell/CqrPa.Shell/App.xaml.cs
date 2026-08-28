@@ -8,6 +8,7 @@ namespace CqrPa.Shell;
 public partial class App : Application
 {
     private ApiProcessHost? _api;
+    private SingleInstanceGuard? _singleInstance;
     private bool _updateCheckStarted;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -24,6 +25,12 @@ public partial class App : Application
             return;
         }
 
+        if (!SingleInstanceGuard.TryBecomePrimary(root, out _singleInstance))
+        {
+            Shutdown(0);
+            return;
+        }
+
         _api = new ApiProcessHost(root);
         if (!_api.Start())
         {
@@ -35,6 +42,13 @@ public partial class App : Application
         // Show the shell immediately. MainWindow owns the non-blocking health/loading state,
         // so a cold Node/WebView start never looks like a failed double-click.
         var win = new MainWindow(root, _api.Port, _api);
+        _singleInstance?.SetActivateHandler(() =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (MainWindow is MainWindow mainWindow) mainWindow.RestoreFromTray();
+            });
+        });
         MainWindow = win;
         win.ContentRendered += async (_, _) =>
         {
@@ -75,6 +89,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _singleInstance?.Dispose();
         _api?.Dispose();
         base.OnExit(e);
     }
@@ -133,6 +148,7 @@ public partial class App : Application
                 progressWindow);
             progressWindow.SetStatus("설치를 시작하고 앱을 다시 실행합니다…");
             progressWindow.DisableCancel();
+            if (owner is MainWindow updateMainWindow) updateMainWindow.PrepareForUpdateExit();
             updateService.LaunchUpdater(downloaded);
             updaterLaunched = true;
             Shutdown(0);

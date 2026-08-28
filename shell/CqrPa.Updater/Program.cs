@@ -66,7 +66,7 @@ internal static class Program
                 if (current.Sequence < update.MinimumSupportedSequence)
                     throw new InvalidOperationException("Installed version is too old for this direct update.");
 
-                WaitForParent(parentPid);
+                ProductProcessStop.StopAll(root, parentPid, Log);
                 var transaction = TransactionalInstaller.Apply(root, update);
                 Process? restarted = null;
                 try
@@ -210,22 +210,6 @@ internal static class Program
         var hash = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(root.ToUpperInvariant())));
         return $@"Local\MYAgent_Update_{hash[..24]}";
-    }
-
-    private static void WaitForParent(int? parentPid)
-    {
-        if (parentPid is null) return;
-        try
-        {
-            using var parent = Process.GetProcessById(parentPid.Value);
-            Log($"Waiting for MY Agent process {parentPid.Value} to exit.");
-            if (!parent.WaitForExit((int)TimeSpan.FromSeconds(30).TotalMilliseconds))
-                throw new TimeoutException("MY Agent did not exit before the update timeout.");
-        }
-        catch (ArgumentException)
-        {
-            // The parent already exited.
-        }
     }
 
     private static (int Sequence, string Version, int Port) ReadInstalledProduct(string root)
