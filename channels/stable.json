@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 8,
+    "update_sequence": 9,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T03:08:18.489Z",
+    "published_at": "2026-08-28T03:49:16.033Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-8",
+      "release_tag": "update-9",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 193908462,
-      "sha256": "2f017b7cb02970a05357b39ce52ae49094f81f0970567799755134c7ecc128a7"
+      "size": 193911558,
+      "sha256": "e9e8760de1676dad3a2f11260f63f23a073852128136458a1637a4c37cc81112"
     },
-    "payload_manifest_sha256": "a0823e3ed0d18acb524eed970dc6bec574504deb2160e1de2d4852421c6d38ff",
-    "release_notes": "1.0.3 seq 8: CQR_PA archive port — agent context profiles, session preferred model, settings refactor, model curation, update progress UI, tray preference, DPAPI key recovery, and workspace UX polish."
+    "payload_manifest_sha256": "f01b17296e9e6064e00396e751f37fa88794a1352153286cd529bdc18f524c20",
+    "release_notes": "1.0.3 seq 9: Organization-module OpenClaw routing - org automaton slash manifest overlay, /cqr/adapter/request to Bulbasaur :8790, deploy-overrides merge."
   },
-  "signature": "J+UsVx07zJ2z/2y8iO7FBr2PeWj9Z6J3xe9Rm3SMqKp5YetiWBD9Z1dhaOcdazna26Yi5b8S2EIn+BLYOe8TIZgBivs6+5zpIh52tb3GasJ8aO3VxIApHZqHIpWJSycTboi2fMYmXBf6CaIYUvtSdS64PhlELs8H5pvJG9yYdvKN/8AYF9TTJSiZH5hhtXvC3cG1iuE6kT70fzlFLV9qRTngKLTGx0FPHrcXSWh5tcPnIP+cIDpxCRHwYHzaqrWaurzF9hSVnV1m+wmTnQGzHP2BZ7WLvXYzWqMojQcDrjgbs3dF8k+hatoSExoVwLluIO2zErqdRst45/BQEjSaskswRUgeHJ8SU69vmDoK1XR6iK4yuFuuCNOuwblAV1AnNUYGC//mZovK236LgfS6EhPDXeZs4RpIvNaduWAR+JRksEIpanoB1hIMtqReqHdn1naEvkTTVLq+ss0aswf8ZC6NoTBwZ7w+PimdgHs8Kh4+lyF48iy+4yWQvsoWaJ3W"
+  "signature": "pIJpKWZIvEmjrOGIAxGxotCIpVHg6SILlYq67BCNAtlnBGUqyCDRB4/LmVBn2ida3ZSw7l2u9qtH9dp8bzAMjbdSaMbc1YfEv46oKYBnJiGUB7Z46HYYn/QgPHCmqjHbA3IPf2yfuRnBLN/SnF2FQsZlyZRc0ZCbNfceZyoU47ry6ZcoDa2diH7vbtEVUen2LcaCsZR+P2JER47nsQ6GnfO0yu4IGOT8DP8bpchKJxZy5nkftJEOymOq2lGQ05ZySFu8Z76bbOix2gUvnLC3IPnnaDmJ3/AJM+Mjxufi+H3WtdDgLqCnrMIpZZbiTF2MDTh62GwRvGSMMr3cXj5lr+ggzIxWr0GZIw0CDmSWQRu/fQSWz2jGRRmQoIMA6NFTOYmH/S6Bizyl/nr0dLDqVa5WubCjjPq09dVfOTM6mdllF8i+9E3wcd/P/7esEHUBW2e6kxGMBLCL1lMpzijkTIRsucR4qRlQmBBhHMvZByHj0OIgJDv2ObMtSNx77xMg"
 }
