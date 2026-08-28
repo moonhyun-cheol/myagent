@@ -1,10 +1,14 @@
 #requires -Version 5.1
-# MY Agent install — user-writable per-user default (no administrator required)
+# MY Agent install — ASCII-first default (C:\MYAgent), no administrator required
 param(
   [string]$SourceDir = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
   [string]$TargetDir = $env:MY_AGENT_INSTALL_TARGET,
-  [switch]$Interactive
+  [switch]$Interactive,
+  [string]$OptionalRuntimes = '',
+  [switch]$AllOptional
 )
+. (Join-Path $PSScriptRoot 'optional-runtimes.ps1')
+. (Join-Path $PSScriptRoot 'install-paths.ps1')
 
 $ErrorActionPreference = 'Stop'
 
@@ -51,15 +55,6 @@ function Test-IsDriveRoot([string]$target) {
   if (-not $t) { return $false }
   $root = Get-FullPath ([IO.Path]::GetPathRoot($t))
   return $t -eq $root
-}
-
-function Test-IsNewFolderOnDriveRoot([string]$target) {
-  $t = Get-FullPath $target
-  if (-not $t) { return $false }
-  $parent = Get-FullPath ([IO.Path]::GetDirectoryName($t))
-  $root = Get-FullPath ([IO.Path]::GetPathRoot($t))
-  if (-not $parent -or $parent -ne $root) { return $false }
-  return -not (Test-Path -LiteralPath $t)
 }
 
 function Test-InstallFolderWritable([string]$folder) {
@@ -126,13 +121,14 @@ function Repair-CopiedTree([string]$folder) {
   }
 }
 
-$defaultPath = if ($env:MY_AGENT_INSTALL_DEFAULT) { $env:MY_AGENT_INSTALL_DEFAULT } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\MY Agent' }
-
 if (Test-IsElevated) {
   Write-Host 'ERROR: Do not run install.bat as administrator.'
   Write-Host 'Right-click install.bat and run it as the employee Windows user so data\vault stays writable.'
   exit 1
 }
+
+$source = Get-FullPath ((Resolve-Path -LiteralPath $SourceDir).Path)
+$defaultPath = Get-DefaultInstallPath -AvoidPath $source
 
 if ($TargetDir) {
   $target = $TargetDir
@@ -140,7 +136,6 @@ if ($TargetDir) {
   $target = $defaultPath
   Write-Host "Install target: $target"
 }
-$source = Get-FullPath ((Resolve-Path -LiteralPath $SourceDir).Path)
 $targetFull = Get-FullPath $target
 $resolvedTarget = Resolve-Path -LiteralPath $target -ErrorAction SilentlyContinue
 if ($resolvedTarget) {
@@ -182,17 +177,12 @@ if (Test-IsShellDumpFolder $targetFull) {
 }
 if (Test-IsDriveRoot $targetFull) {
   Write-Host "ERROR: Do not install to a drive root ($targetFull)."
-  Write-Host "Use the user folder $defaultPath. Do not use C:\"
-  exit 1
-}
-if (Test-IsNewFolderOnDriveRoot $targetFull) {
-  Write-Host "ERROR: Windows blocks new folders directly under a drive root ($targetFull)."
-  Write-Host "Use the user folder $defaultPath"
+  Write-Host "Use a folder such as $defaultPath, not $targetFull itself."
   exit 1
 }
 if (Test-IsProtectedSystemFolder $targetFull) {
   Write-Host "ERROR: Do not install under Program Files, Windows, or ProgramData ($targetFull)."
-  Write-Host "Use the user folder $defaultPath"
+  Write-Host "Use a folder such as $defaultPath"
   exit 1
 }
 
@@ -210,7 +200,7 @@ function Should-SkipRel([string]$rel) {
 }
 
 if (-not (Test-InstallFolderWritable $targetFull)) {
-  throw "ERROR: Install folder is not writable: $targetFull. Pick a user folder (not C:\). Do not run as administrator."
+  throw "ERROR: Install folder is not writable: $targetFull. Example: $defaultPath. Do not run as administrator."
 }
 
 $cacheRoot = Join-Path $targetFull 'tools\cache'
@@ -262,38 +252,9 @@ if (Test-Path -LiteralPath $bootstrapNode) {
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$bootstrapPlaywright = Join-Path $targetFull 'tools\bootstrap-playwright-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapPlaywright) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing Playwright (web_dev browser tools, ~300MB)...'
-  & $bootstrapPlaywright -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] Playwright (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
-
-$bootstrapFfmpeg = Join-Path $targetFull 'tools\bootstrap-ffmpeg-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapFfmpeg) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing ffmpeg (video attachment keyframes)...'
-  & $bootstrapFfmpeg -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] ffmpeg (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
-
-$bootstrapOss = Join-Path $targetFull 'tools\bootstrap-oss-sidecars-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapOss) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  Write-Host ''
-  Write-Host 'Installing OSS sidecars (markitdown, repomix, ast-grep)...'
-  & $bootstrapOss -Root $targetFull
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-} elseif ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -eq '1') {
-  Write-Host ''
-  Write-Host '[SKIP] OSS sidecars (MY_AGENT_INSTALL_SKIP_OPTIONAL=1)'
-}
+$selectedOptionals = Resolve-OptionalRuntimeSelection -Root $targetFull -OptionalRuntimes $OptionalRuntimes -AllOptional:$AllOptional -ApplyCatalogDefaults:(-not $PSBoundParameters.ContainsKey('OptionalRuntimes'))
+Save-OptionalRuntimeSelection -Root $targetFull -Selected $selectedOptionals
+Install-SelectedOptionalRuntimes -Root $targetFull -Selected $selectedOptionals
 
 $bootstrapNpmDeps = Join-Path $targetFull 'tools\bootstrap-npm-deps-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNpmDeps) {
@@ -314,7 +275,7 @@ Desktop shortcut: MY Agent.lnk
 
 First run: optional activation and provider setup.
 Organization skills are installed separately through their signed module stream.
-Slim zip: first install may need internet for Node, ffmpeg, Playwright Chromium, and OSS sidecars (markitdown/repomix/ast-grep). Token-gated MCP is not auto-installed.
+Slim zip: first install may need internet for Node. Optional extras (ffmpeg, Playwright, OSS sidecars) download only if checked. Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
 

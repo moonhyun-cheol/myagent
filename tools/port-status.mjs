@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { keepRuleFor, loadPortKeepPolicy } from './port-keep-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = JSON.parse(readFileSync(path.join(root, 'repo-target.json'), 'utf8'));
@@ -46,6 +47,7 @@ const here = new Set(gitFiles(root));
 const crlfOnly = [];
 const missingHere = [];
 const diffs = [];
+const policy = loadPortKeepPolicy(root);
 
 for (const file of legacyFiles) {
   const dest = path.join(root, file);
@@ -62,6 +64,20 @@ for (const file of legacyFiles) {
   }
   diffs.push({ file, apply: classify(file) });
 }
+
+function keepMeta(file) {
+  const rule = keepRuleFor(file, policy);
+  return rule ? { file, keep: rule.id, reason: rule.reason } : null;
+}
+
+const coreDiffs = diffs.filter((row) => row.apply === 'core');
+const keepLocal = coreDiffs.map((row) => keepMeta(row.file)).filter(Boolean);
+const keepIds = new Set(keepLocal.map((row) => row.file));
+const applyCore = coreDiffs.filter((row) => !keepIds.has(row.file)).map((row) => row.file);
+const missingCore = missingHere.filter((row) => row.apply === 'core');
+const keepMissing = missingCore.map((row) => keepMeta(row.file)).filter(Boolean);
+const keepMissingIds = new Set(keepMissing.map((row) => row.file));
+const missingInCore = missingCore.filter((row) => !keepMissingIds.has(row.file)).map((row) => row.file);
 
 const report = {
   schema: 'my-agent-port-status/v1',
@@ -81,19 +97,23 @@ const report = {
     compared: legacyFiles.length,
     content_differ: diffs.length,
     crlf_only: crlfOnly.length,
-    missing_in_core: missingHere.length,
+    keep_local: keepLocal.length,
+    apply_core: applyCore.length,
+    missing_in_core: missingInCore.length,
   },
-  apply_core: diffs.filter((row) => row.apply === 'core').map((row) => row.file),
+  keep_local: keepLocal,
+  apply_core: applyCore,
   apply_org: [
     ...diffs.filter((row) => row.apply === 'org').map((row) => row.file),
     ...missingHere.filter((row) => row.apply === 'org').map((row) => row.file),
   ],
-  missing_in_core: missingHere.filter((row) => row.apply === 'core').map((row) => row.file),
+  missing_in_core: missingInCore,
 };
 
 console.log(JSON.stringify(report, null, 2));
 console.log('');
 console.log(`port-status: CQR_PA ${report.legacy.version} seq ${report.legacy.update_sequence} → ${report.target.github} ${report.target.version} seq ${report.target.update_sequence}`);
+console.log(`keep local (policy):    ${report.keep_local.length}  (do not copy)`);
 console.log(`content diffs for CORE: ${report.apply_core.length}  (apply in this repo)`);
 console.log(`content diffs for ORG:  ${report.apply_org.length}  (apply in myagent-org agent-module/)`);
 console.log(`CRLF-only ignored:      ${report.counts.crlf_only}`);

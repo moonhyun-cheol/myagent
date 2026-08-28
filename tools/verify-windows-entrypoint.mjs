@@ -78,20 +78,72 @@ const installer = read('tools/install/install.ps1');
 assert.match(installer, /Join-Path \$targetFull 'MYAgent\.exe'/);
 assert.match(installer, /\$shortcut\.TargetPath = \$productExe/);
 assert.match(installer, /Test-IsDriveRoot/);
-assert.match(installer, /Test-IsNewFolderOnDriveRoot/);
+assert.match(installer, /Get-DefaultInstallPath/);
+assert.doesNotMatch(
+  installer,
+  /Test-IsNewFolderOnDriveRoot/,
+  'C:\\MYAgent must be allowed when writable; do not block new folders on the drive root',
+);
 assert.match(installer, /Test-IsElevated/);
 assert.match(installer, /Test-IsProtectedSystemFolder/);
 assert.match(installer, /Test-IsShellDumpFolder/);
 assert.match(installer, /Grant-CurrentUserModify/);
 assert.match(installer, /npm_config_cache/);
 assert.match(installer, /cannot be inside the unzipped app folder/);
+assert.match(installer, /OptionalRuntimes/);
+assert.match(installer, /Save-OptionalRuntimeSelection/);
+assert.match(installer, /Install-SelectedOptionalRuntimes/);
+assert.match(installer, /install-paths\.ps1/);
+
+const installPaths = read('tools/install/install-paths.ps1');
+assert.match(installPaths, /function Get-DefaultInstallPath/);
+assert.match(installPaths, /Join-Path \$sys \$name/);
+assert.match(installPaths, /\$env:PUBLIC/);
+assert.match(installPaths, /Get-ProductInstallFolderName/);
+
+const optionalCatalog = JSON.parse(read('core/config/defaults/optional-runtimes.json'));
+assert.ok(Array.isArray(optionalCatalog.core_features) && optionalCatalog.core_features.length >= 5);
+assert.deepEqual(
+  optionalCatalog.optional_runtimes.map((item) => item.id).sort(),
+  ['ast_grep', 'ffmpeg', 'markitdown', 'playwright', 'repomix'],
+);
+const optionalHelper = read('tools/install/optional-runtimes.ps1');
+assert.match(optionalHelper, /function Get-OptionalRuntimeCatalog/);
+assert.match(optionalHelper, /function Get-DefaultOptionalRuntimeIds/);
+assert.match(optionalHelper, /ApplyCatalogDefaults/);
+assert.match(optionalHelper, /function Save-OptionalRuntimeSelection/);
+assert.match(read('tools/install/install-optional.ps1'), /Install-SelectedOptionalRuntimes/);
+
+const launchCqr = read('tools/launch-cqr.ps1');
+assert.match(launchCqr, /Read-OptionalRuntimeSelection/);
+assert.doesNotMatch(launchCqr, /bootstrap-pipeline-if-needed/);
+assert.doesNotMatch(launchCqr, /runtime\\ffmpeg\\ffmpeg\.exe/);
 assert.doesNotMatch(
   installer,
   /Source folder cannot be inside the install target/,
   'must allow install to a parent of the unzipped zip (e.g. C:\\app while zip lives in C:\\app\\MY Agent-*-install-slim\\app)',
 );
 
+const playwrightBootstrap = read('tools/bootstrap-playwright.ps1');
+assert.match(
+  playwrightBootstrap,
+  /Invoke-CqrNative -FilePath \$nodeExe -ArgumentList @\(\$cliJs, 'install', 'chromium'\)/,
+);
+assert.doesNotMatch(
+  playwrightBootstrap,
+  /Join-Path \$Root 'runtime\\node\\npx\.cmd'/,
+  'Chromium install must not call npx.cmd (Hangul profile / no PATH node)',
+);
+
 const installUi = read('tools/install/install-ui.ps1');
+assert.match(installUi, /Could not run Node \(not a network error\)/);
+assert.match(installUi, /Get-DefaultInstallPath/);
+assert.doesNotMatch(installUi, /Test-IsNewFolderOnDriveRoot/);
+assert.match(installUi, /function Show-FeatureChecklist/);
+assert.match(installUi, /\$script:featureHelpMap/);
+assert.match(installUi, /DefaultSelected/);
+assert.match(installUi, /passOptionalRuntimesArg/);
+assert.match(installUi, /What this is/);
 for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
   assert.ok(
     !/[^\x00-\x7F]/.test(m[1]),
@@ -112,5 +164,12 @@ assert.match(bundleVerify, /path: 'MYAgent\.Updater\.exe'/);
 const updater = read('tools/update/apply-delta.ps1');
 assert.match(updater, /'MYAgent\.exe'/);
 assert.match(updater, /'MYAgent\.Updater\.exe'/);
+
+const portPolicy = JSON.parse(read('tools/port-keep-policy.json'));
+assert.ok(
+  portPolicy.keep.some((rule) => (rule.prefixes || []).includes('tools/install/')),
+  'port-apply must not overwrite the install checklist',
+);
+assert.match(read('tools/port-apply.mjs'), /from '\.\/port-keep-policy\.mjs'/);
 
 console.log('verify-windows-entrypoint: ok');

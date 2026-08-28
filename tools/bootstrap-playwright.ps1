@@ -34,6 +34,13 @@ if (-not $nodeExe -or -not (Test-Path -LiteralPath $nodeExe)) {
   Write-Error 'bootstrap-playwright: Node not found. Run tools\bootstrap-node.ps1 first or install Node 22+.'
 }
 
+# Hangul profile / no system Node: npx.cmd falls back to PATH "node" and cmd fails.
+# Keep portable node first on PATH for any child that still spawns `node`.
+$nodeDir = Split-Path -Parent $nodeExe
+if ($nodeDir) {
+  $env:PATH = $nodeDir + [IO.Path]::PathSeparator + $env:PATH
+}
+
 New-Item -ItemType Directory -Force -Path $browsersDir | Out-Null
 $env:PLAYWRIGHT_BROWSERS_PATH = $browsersDir
 $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '0'
@@ -61,15 +68,13 @@ try {
   }
 
   Write-Host "bootstrap-playwright: downloading Chromium -> $browsersDir"
-  $npx = Join-Path $Root 'runtime\node\npx.cmd'
+  # Call node.exe + cli.js (same as npm-cli). Do not use npx.cmd: %~dp0 / PATH
+  # fallback breaks on non-ASCII user profiles when Node is not on PATH.
   $cliJs = Join-Path $Root 'node_modules\playwright\cli.js'
-  if (Test-Path -LiteralPath $npx) {
-    $code = Invoke-CqrNative -FilePath $npx -ArgumentList @('playwright', 'install', 'chromium')
-  } elseif (Test-Path -LiteralPath $cliJs) {
-    $code = Invoke-CqrNative -FilePath $nodeExe -ArgumentList @($cliJs, 'install', 'chromium')
-  } else {
+  if (-not (Test-Path -LiteralPath $cliJs)) {
     Write-Error 'bootstrap-playwright: playwright CLI not found after package install'
   }
+  $code = Invoke-CqrNative -FilePath $nodeExe -ArgumentList @($cliJs, 'install', 'chromium')
   if ($code -ne 0) { exit $code }
 
   Set-Content -LiteralPath $chromiumMarker -Value (Get-Date -Format o) -Encoding UTF8

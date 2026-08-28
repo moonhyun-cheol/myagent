@@ -28,6 +28,15 @@ assert.deepEqual(
   ['vendor/newest', 'vendor/newer'],
   'recent discovery must use provider publication metadata and omit undated guesses',
 );
+assert.deepEqual(
+  selectRecentRemoteModelIds([
+    { id: 'openai/gpt-5.6-sol-pro', created_at: 400 },
+    { id: 'openai/gpt-5.6-sol', created_at: 300 },
+    { id: 'openai/gpt-5.6-terra-pro', created_at: 200 },
+  ], 12),
+  ['openai/gpt-5.6-sol'],
+  'recent discovery must not reintroduce GPT Pro/Terra SKUs',
+);
 
 const app = read('shell/CqrPa.Shell/App.xaml.cs');
 assert.doesNotMatch(app, /WaitForHealth\(/, 'WPF startup must not block before showing the window');
@@ -87,6 +96,29 @@ const curateConfig = JSON.parse(read('core/config/defaults/openwebui-model-curat
 assert.ok(
   Object.values(curateConfig.categories).every((category) => !Object.hasOwn(category, 'label')),
   'internal model categories must not carry user-facing explanations',
+);
+assert.deepEqual(
+  curateConfig.pinned_suffixes,
+  [
+    'openai.gpt-5.6-sol',
+    'openai.gpt-5.6-luna',
+    'anthropic.claude-fable-5',
+    'anthropic.claude-opus-4.8',
+    'deepseek.deepseek-v4-pro',
+    'perplexity.sonar-deep-research',
+    'x-ai.grok-4.20-multi-agent',
+    'google.gemini-3-pro-image',
+  ],
+);
+assert.equal(
+  curateConfig.pinned_suffixes.some((id) => /terra|(sol|luna)-pro/.test(id)),
+  false,
+  'company defaults must use GPT regular SKUs, not terra/pro',
+);
+const portPolicy = JSON.parse(read('tools/port-keep-policy.json'));
+assert.ok(
+  portPolicy.keep.some((rule) => (rule.files || []).includes('core/config/defaults/openwebui-model-curate.json')),
+  'CQR_PA port-apply must not overwrite the company model matrix',
 );
 const modal = read('ui/workspace/src/components/ModelManagementModal.tsx');
 for (const marker of ['MY OpenRouter', 'OpenAI', 'Anthropic', 'Gemini', '기타 호환 API']) {

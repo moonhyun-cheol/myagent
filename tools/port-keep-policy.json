@@ -1,0 +1,108 @@
+{
+  "schema": "my-agent-port-keep/v1",
+  "accepts_legacy_edits": false,
+  "legacy": {
+    "role": "private-archive",
+    "name": "CQR_PA",
+    "use": "cherry-pick shared engine bugfixes only"
+  },
+  "criteria": {
+    "keep": "MY Agent owns the product contract. Do not overwrite identity, company model matrix, install/first-run UX, public exe/update entry, or the settings/model center. CQR_PA is a frozen archive, not the live product.",
+    "apply": "Copy from CQR_PA only when the file is shared engine (agent loop, tools, security, routes) and this repo does not own the product contract for that path.",
+    "org": "Organization/brand/automaton files never land in this repo. Those go to myagent-org (apply_org).",
+    "when_unsure": "Keep local. Add a keep rule with a reason. Do not expand EXTRA to UI or install files."
+  },
+  "keep": [
+    {
+      "id": "identity",
+      "reason": "This repo's name, version, GitHub target, and public docs.",
+      "files": [
+        "manifest.json",
+        "repo-target.json",
+        "VERSION.txt",
+        "AGENTS.md",
+        "README.md",
+        "package.json"
+      ]
+    },
+    {
+      "id": "port_policy",
+      "reason": "The keep policy itself must not be replaced by the archive copier.",
+      "files": [
+        "tools/port-keep-policy.json",
+        "tools/port-keep-policy.mjs",
+        "tools/port-apply.mjs",
+        "tools/port-status.mjs",
+        "tools/verify-port-keep-policy.mjs"
+      ]
+    },
+    {
+      "id": "company_matrix",
+      "reason": "MY Agent model SKUs, provider defaults, and generated facts. Archive still has terra/pro and CQR labels.",
+      "files": [
+        "core/config/defaults/openwebui-model-curate.json",
+        "core/config/defaults/model-context-limits.json",
+        "core/config/defaults/providers.json",
+        "core/config/defaults/deploy-defaults.json",
+        "core/config/defaults/product-facts.json",
+        "core/config/defaults/ui-facts.json"
+      ]
+    },
+    {
+      "id": "install_first_run",
+      "reason": "Install checklist and first-run optional downloads. Archive install UI has no picker and force-downloads extras.",
+      "prefixes": ["tools/install/"],
+      "files": [
+        "install.bat",
+        "tools/launch-cqr.ps1",
+        "core/config/defaults/optional-runtimes.json"
+      ]
+    },
+    {
+      "id": "public_entry",
+      "reason": "MYAgent.exe, bin/my-agent, desktop shortcut, and update channels. Archive still ships cqr-pa paths.",
+      "prefixes": ["channels/"],
+      "files": [
+        "tools/launch-shell.ps1",
+        "tools/desktop-shortcut.ps1",
+        "tools/publish.mjs",
+        "tools/publish-delta.mjs",
+        "tools/build-windows-exe.mjs",
+        "tools/shell-publish.mjs",
+        "tools/updater-publish.mjs",
+        "shell/CqrPa.Shell/App.xaml.cs",
+        "shell/CqrPa.Shell/UpdateService.cs",
+        "shell/CqrPa.Shell/UpdateProgressWindow.xaml",
+        "shell/CqrPa.Shell/UpdateProgressWindow.xaml.cs",
+        "shell/CqrPa.Updater/Program.cs"
+      ]
+    },
+    {
+      "id": "product_ui",
+      "reason": "Settings and model center already rebuilt for MY Agent. Archive EXTRA used to copy old Settings pages over them.",
+      "files": [
+        "ui/workspace/src/components/ModelManagementModal.tsx",
+        "ui/workspace/src/components/SettingsModal.tsx",
+        "ui/workspace/src/components/SettingsAgentPage.tsx",
+        "ui/workspace/src/components/SettingsGeneralPage.tsx",
+        "ui/workspace/src/components/SettingsFeaturesPage.tsx",
+        "ui/workspace/src/components/MutateReviewPane.tsx",
+        "core/src/models/model-picker.ts",
+        "core/src/providers/remote-model-curate.ts"
+      ]
+    },
+    {
+      "id": "contract_verify",
+      "reason": "Verify scripts that enforce the keep rules. If the archive overwrites them, the next port is unguarded.",
+      "files": [
+        "tools/verify-startup-model-center.mjs",
+        "tools/verify-windows-entrypoint.mjs"
+      ]
+    }
+  ],
+  "extra_from_legacy": [
+    "core/src/agent/agent-context-profile.ts",
+    "tools/verify-agent-context-profiles.mjs",
+    "tools/verify-session-preferred-model.mjs"
+  ]
+}

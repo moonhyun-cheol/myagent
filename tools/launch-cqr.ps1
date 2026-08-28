@@ -22,15 +22,6 @@ function Get-NormalizedRoot([string]$path) {
 function Test-NeedsFirstRunBootstrap([string]$AppRoot) {
   if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'runtime\node\node.exe'))) { return $true }
 
-  $venvPy = Join-Path $AppRoot 'runtime\pipeline-venv\Scripts\python.exe'
-  if (-not (Test-Path -LiteralPath $venvPy)) { return $true }
-
-  if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'runtime\ffmpeg\ffmpeg.exe'))) { return $true }
-
-  $pwPkg = Join-Path $AppRoot 'node_modules\playwright\package.json'
-  $chromiumMarker = Join-Path $AppRoot 'runtime\playwright\browsers\.chromium-installed'
-  if (-not ((Test-Path -LiteralPath $pwPkg) -and (Test-Path -LiteralPath $chromiumMarker))) { return $true }
-
   if (-not (Test-Path -LiteralPath (Join-Path $AppRoot 'core\dist\main.js'))) { return $true }
 
   $shellCandidates = @(
@@ -203,22 +194,20 @@ function Invoke-BootstrapWithSplash {
         throw 'Portable Node missing: runtime\node\node.exe'
       }
 
-      $bootstrapPipeline = Join-Path $Root 'tools\bootstrap-pipeline-if-needed.ps1'
-      & $setStatus 'Setting up Python environment (internet required, may take several minutes)...'
-      Invoke-BootstrapScript -ScriptPath $bootstrapPipeline -StepLabel 'Pipeline venv bootstrap' -AppRoot $Root.TrimEnd('\')
-
-      $bootstrapPlaywright = Join-Path $Root 'tools\bootstrap-playwright-if-needed.ps1'
-      & $setStatus 'Setting up Playwright browser (~300MB, internet required)...'
-      Invoke-BootstrapScript -ScriptPath $bootstrapPlaywright -StepLabel 'Playwright bootstrap' -AppRoot $Root.TrimEnd('\')
-
-      $bootstrapFfmpeg = Join-Path $Root 'tools\bootstrap-ffmpeg-if-needed.ps1'
-      & $setStatus 'Setting up ffmpeg (video keyframes, internet required)...'
-      Invoke-BootstrapScript -ScriptPath $bootstrapFfmpeg -StepLabel 'ffmpeg bootstrap' -AppRoot $Root.TrimEnd('\')
-
-      if ($env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-        $bootstrapOss = Join-Path $Root 'tools\bootstrap-oss-sidecars-if-needed.ps1'
-        & $setStatus 'Setting up OSS sidecars (markitdown / repomix / ast-grep)...'
-        Invoke-BootstrapScript -ScriptPath $bootstrapOss -StepLabel 'OSS sidecars bootstrap' -AppRoot $Root.TrimEnd('\')
+      $optionalHelper = Join-Path $Root 'tools\install\optional-runtimes.ps1'
+      if (Test-Path -LiteralPath $optionalHelper) {
+        . $optionalHelper
+        $wanted = @()
+        $sel = Read-OptionalRuntimeSelection $Root.TrimEnd('\')
+        if ($sel) {
+          $wanted = @($sel.selected | Where-Object { $_ })
+        } else {
+          $wanted = @(Get-DefaultOptionalRuntimeIds $Root.TrimEnd('\'))
+        }
+        if ($wanted.Count -gt 0) {
+          & $setStatus 'Installing selected optional features...'
+          Install-SelectedOptionalRuntimes -Root $Root.TrimEnd('\') -Selected $wanted
+        }
       }
 
       $bootstrapNpmDeps = Join-Path $Root 'tools\bootstrap-npm-deps-if-needed.ps1'
@@ -271,13 +260,24 @@ if (Test-NeedsFirstRunBootstrap $Root) {
 }
 
 $bootstrapPlaywright = Join-Path $Root 'tools\bootstrap-playwright-if-needed.ps1'
-if (Test-Path -LiteralPath $bootstrapPlaywright) {
+$optionalHelper = Join-Path $Root 'tools\install\optional-runtimes.ps1'
+$wantPlaywright = $false
+if (Test-Path -LiteralPath $optionalHelper) {
+  . $optionalHelper
+  $wantPlaywright = Test-OptionalRuntimeSelected -Root $Root.TrimEnd('\') -Id 'playwright'
+}
+if ((Test-Path -LiteralPath $bootstrapPlaywright) -and $wantPlaywright) {
   & $bootstrapPlaywright -Root $Root.TrimEnd('\') | Out-Null
 }
 
-$bootstrapOss = Join-Path $Root 'tools\bootstrap-oss-sidecars-if-needed.ps1'
-if ((Test-Path -LiteralPath $bootstrapOss) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
-  & $bootstrapOss -Root $Root.TrimEnd('\') | Out-Null
+if ((Test-Path -LiteralPath $optionalHelper) -and $env:MY_AGENT_INSTALL_SKIP_OPTIONAL -ne '1') {
+  $sidecarIds = @()
+  foreach ($id in @('markitdown', 'repomix', 'ast_grep')) {
+    if (Test-OptionalRuntimeSelected -Root $Root.TrimEnd('\') -Id $id) { $sidecarIds += $id }
+  }
+  if ($sidecarIds.Count -gt 0) {
+    Install-SelectedOptionalRuntimes -Root $Root.TrimEnd('\') -Selected $sidecarIds
+  }
 }
 
 $bootstrapNpmDeps = Join-Path $Root 'tools\bootstrap-npm-deps-if-needed.ps1'

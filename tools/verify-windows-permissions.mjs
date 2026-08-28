@@ -76,10 +76,10 @@ try {
   assert.match(client, /fetch\('\/config\/workspace-capabilities'\)/);
   assert.match(routes, /capabilities\.mode !== 'read_write'/);
   assert.match(orchestrator, /approvalReq\.delegable === true/);
-  assert.match(installer, /GetFolderPath\('LocalApplicationData'\)/);
-  assert.match(installer, /cqr-pa-install-probe/);
+  assert.match(installer, /Get-DefaultInstallPath/);
+  assert.match(installer, /my-agent-install-probe/);
   assert.match(installer, /Test-IsDriveRoot/);
-  assert.match(installer, /Test-IsNewFolderOnDriveRoot/);
+  assert.doesNotMatch(installer, /Test-IsNewFolderOnDriveRoot/);
   assert.match(installer, /Test-IsElevated/);
   assert.match(installer, /Test-IsProtectedSystemFolder/);
   assert.match(installer, /Grant-CurrentUserModify/);

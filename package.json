@@ -21,6 +21,7 @@
     "verify:local-nops-user-id": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-nops-user-id.mjs",
     "verify:windows-permissions": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-windows-permissions.mjs",
     "verify:windows-entrypoint": "node tools/verify-windows-entrypoint.mjs",
+    "verify:port-keep": "node tools/verify-port-keep-policy.mjs",
     "verify:brand-manual": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-brand-manual-context.mjs",
     "verify:startup-model-center": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-startup-model-center.mjs",
     "verify:session-execution-policy": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-session-execution-policy.mjs",

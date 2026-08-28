@@ -70,7 +70,7 @@ if exist "%~dp0app\tools\install\install.ps1" (
 if exist "%INSTALL_UI%" (
   powershell -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%INSTALL_UI%" -SourceDir "%SOURCE%"
 ) else (
-  echo MY Agent install - default folder is %LOCALAPPDATA%\Programs\MY Agent
+  echo MY Agent install - default folder is %SystemDrive%\MYAgent
   powershell -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_PS1%" -SourceDir "%SOURCE%"
 )
 if errorlevel 1 pause

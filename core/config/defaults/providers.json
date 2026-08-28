@@ -25,7 +25,7 @@
       "name": "OpenAI",
       "kind": "openai_compatible",
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5.6-terra-pro",
+      "default_model": "gpt-5.6-sol",
       "wire_api": "responses"
     },
     {

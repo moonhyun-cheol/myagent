@@ -15,6 +15,8 @@ export interface CurateConfig {
   max_models: number;
   openrouter_prefix: string;
   hard_exclude: string[];
+  /** Substring/regex cuts for discovery and quota fill. Pinned models still win. */
+  exclude_patterns?: string[];
   /** Matrix models always included in the curated picker when available remotely. */
   pinned_suffixes?: string[];
   /** When true, picker shows only pinned_suffixes (workspace matrix), no quota fill. */
@@ -120,8 +122,10 @@ export function classifyModel(modelId: string, cfg = loadCurateConfig()): ModelC
   return 'general';
 }
 
-function isHardExcluded(modelId: string, cfg: CurateConfig): boolean {
-  return cfg.hard_exclude.includes(modelId);
+export function isHardExcluded(modelId: string, cfg = loadCurateConfig()): boolean {
+  if (cfg.hard_exclude.includes(modelId)) return true;
+  const hay = `${modelId} ${shortModelName(modelId, cfg)}`;
+  return matchesAny(hay, cfg.exclude_patterns ?? []);
 }
 
 function familyPatternIndex(modelId: string, pattern: string, cfg: CurateConfig): number {

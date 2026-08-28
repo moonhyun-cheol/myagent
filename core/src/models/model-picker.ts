@@ -11,6 +11,7 @@ import {
   curateRemoteModels,
   defaultCompanyModelIds,
   describeRemoteModels,
+  isHardExcluded,
   loadCurateConfig,
   pickModelForMode,
   type CuratedModel,
@@ -76,8 +77,10 @@ const remoteModelCache = new Map<
 
 /** Keep discovery compact and use provider publication metadata instead of model-name guesses. */
 export function selectRecentRemoteModelIds(models: RemoteModelInfo[], limit = 12): string[] {
+  const cfg = loadCurateConfig();
   return models
     .filter((model) => model.created_at != null)
+    .filter((model) => !isHardExcluded(model.id, cfg))
     .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
     .slice(0, limit)
     .map((model) => model.id);
