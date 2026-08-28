@@ -20,8 +20,11 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(root, 'deploy', 'output');
 const productManifestPath = path.join(root, 'manifest.json');
+const productManifest = JSON.parse(readFileSync(productManifestPath, 'utf8'));
 const githubRepository = String(
-  process.env.MY_AGENT_UPDATE_GITHUB_REPO ?? 'moonhyun-cheol/MY_CUSTOM_CODEX',
+  process.env.MY_AGENT_UPDATE_GITHUB_REPO
+  ?? productManifest.update_repository
+  ?? 'moonhyun-cheol/myagent',
 ).trim();
 const privateKeyPath = path.resolve(
   process.env.MY_AGENT_UPDATE_SIGNING_KEY
@@ -41,7 +44,7 @@ if (!existsSync(publicKeyPath)) {
   fail(`update signing public key missing: ${publicKeyPath}`);
 }
 
-const product = JSON.parse(readFileSync(productManifestPath, 'utf8'));
+const product = productManifest;
 const updateSequence = Number(product.update_sequence);
 const minimumSupportedSequence = Number(product.minimum_supported_sequence ?? 1);
 const version = String(product.version ?? '').trim();
