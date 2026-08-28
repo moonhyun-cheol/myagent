@@ -141,21 +141,6 @@ export function checkDeployParity(root, options = {}) {
     }
   }
 
-  if (!options.skipDevLicense) {
-    const examplePath = path.join(root, 'data', 'vault', 'license.ocx.example');
-    const exampleFeatures = readLicenseFeatures(examplePath);
-    if (!exampleFeatures) {
-      errors.push(`license.ocx.example missing or invalid (${examplePath})`);
-    } else {
-      const missing = missingFeatures(exampleFeatures);
-      if (missing.length) {
-        errors.push(
-          `license.ocx.example missing features (dev != deploy): ${missing.join(', ')} — run: node tools/cqr-admin.mjs issue --out data/vault/license.ocx.example --days 3650`,
-        );
-      }
-    }
-  }
-
   const srcPem = path.join(appDir, 'core', 'config', 'defaults', 'license-public.pem');
   const distPem = path.join(appDir, 'core', 'dist', 'config', 'defaults', 'license-public.pem');
   if (!existsSync(srcPem)) {

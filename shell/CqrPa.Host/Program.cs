@@ -13,11 +13,6 @@ internal static class Program
         var root = ResolveCqrRoot();
         Environment.SetEnvironmentVariable("MY_AGENT_ROOT", root);
 
-        if (args.Contains("--import-license", StringComparer.OrdinalIgnoreCase))
-        {
-            return ImportLicense(args, root);
-        }
-
         var port = DefaultPort;
         var nodeScript = Path.Combine(root, "core", "dist", "main.js");
         if (!File.Exists(nodeScript))
@@ -130,30 +125,5 @@ internal static class Program
             }
         }
         return false;
-    }
-
-    private static int ImportLicense(string[] args, string root)
-    {
-        var idx = Array.FindIndex(args, a => a.Equals("--import-license", StringComparison.OrdinalIgnoreCase));
-        if (idx < 0 || idx + 1 >= args.Length)
-        {
-            Console.Error.WriteLine("Usage: cqr-pa.exe --import-license <path-to-license.ocx>");
-            return 1;
-        }
-
-        var src = Path.GetFullPath(args[idx + 1]);
-        if (src.StartsWith(@"\\nas", StringComparison.OrdinalIgnoreCase) ||
-            src.StartsWith(@"\\nas3", StringComparison.OrdinalIgnoreCase))
-        {
-            Console.Error.WriteLine("NAS paths are forbidden.");
-            return 1;
-        }
-
-        var vault = Path.Combine(root, "data", "vault");
-        Directory.CreateDirectory(vault);
-        var dest = Path.Combine(vault, "license.ocx");
-        File.Copy(src, dest, overwrite: true);
-        Console.WriteLine($"Imported license -> {dest}");
-        return 0;
     }
 }

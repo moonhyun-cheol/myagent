@@ -66,6 +66,15 @@ import {
   isLabSmokePluginId,
   ensureShippedProductPlugins,
 } from '../agent/agent-plugin-store.js';
+import {
+  describeOrganizationModuleStatus,
+  installOrganizationModule,
+  OrganizationModuleError,
+} from '../updates/organization-module-installer.js';
+import {
+  applyOrganizationModuleUpdate,
+  checkOrganizationModuleUpdate,
+} from '../updates/organization-module-feed.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
 import type { ApiContext } from '../http/api-context.js';
@@ -151,6 +160,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/projects',
     '/workspace',
     '/error-report',
+    '/organization-module',
     '/assets/',
   ];
   return roots.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
@@ -965,42 +975,20 @@ export async function dispatchApiRequest(
 
       if (method === 'POST' && url.pathname === '/setup/activate') {
         const result = await setup.tryCentralActivation();
-        license.reload();
         setup.syncProviderRegistry();
         await setup.ensureOpenClawAdapter();
         const st = setup.getStatus();
-        if (!result.license && st.needs_license) {
+        if (!result.activated && st.activation_error) {
           return sendJson(res, 502, {
             error: 'ACTIVATION_FAILED',
-            message: st.activation_error ?? '사내 활성화 서버에서 라이선스를 받지 못했습니다.',
+            message: st.activation_error,
             activation_server_url: st.activation_server_url,
           });
         }
         return sendJson(res, 200, { ok: true, ...result, status: st });
       }
 
-      if (method === 'POST' && url.pathname === '/setup/import-license') {
-        let raw = '';
-        const ct = req.headers['content-type'] ?? '';
-        if (ct.includes('multipart/form-data')) {
-          const files = await parseMultipart(req);
-          const file = files.find((f) => f.fieldName === 'license' || f.filename.endsWith('.ocx'));
-          if (!file) return sendJson(res, 400, { error: 'FILE_MISSING' });
-          raw = file.data.toString('utf8');
-        } else {
-          const body = JSON.parse(await readBody(req)) as { license?: string };
-          raw = body.license ?? '';
-        }
-        if (!raw.trim()) return sendJson(res, 400, { error: 'LICENSE_EMPTY' });
-        const result = setup.importLicense(raw);
-        return sendJson(res, 200, result);
-      }
-
       if (method === 'POST' && url.pathname === '/setup/import-bundle') {
-        const lic = license.getStatus();
-        if (lic.mode !== 'full') {
-          return sendJson(res, 403, { error: 'LICENSE_REQUIRED', message: '먼저 license.ocx를 등록하세요.' });
-        }
         license.assertFeature('manager');
         const overwrite = url.searchParams.get('overwrite') === '1';
         let raw = '';
@@ -1672,6 +1660,56 @@ export async function dispatchApiRequest(
           return sendJson(res, 201, rec);
         } catch (e: unknown) {
           if (e instanceof ProjectStoreError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'GET' && url.pathname === '/organization-module') {
+        return sendJson(res, 200, describeOrganizationModuleStatus(cqrRoot));
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/check') {
+        try {
+          const update = await checkOrganizationModuleUpdate(cqrRoot);
+          return sendJson(res, 200, { update });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/apply') {
+        try {
+          const installed = await applyOrganizationModuleUpdate(cqrRoot);
+          return sendJson(res, 200, { installed });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-module/install') {
+        try {
+          const body = JSON.parse(await readBody(req)) as { zip_path?: string };
+          if (!body.zip_path?.trim()) {
+            return sendJson(res, 400, {
+              error: 'MODULE_ZIP_PATH_REQUIRED',
+              message: '회사 팩 ZIP 파일 경로를 입력하세요.',
+            });
+          }
+          const result = installOrganizationModule({
+            cqrRoot,
+            zipPath: body.zip_path.trim().replace(/^"|"$/g, ''),
+          });
+          return sendJson(res, 201, { installed: result.installed });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationModuleError) {
             return sendJson(res, 400, { error: e.code, message: e.message });
           }
           throw e;

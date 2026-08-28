@@ -24,13 +24,6 @@ public partial class App : Application
             return;
         }
 
-        if (args.Contains("--import-license", StringComparer.OrdinalIgnoreCase))
-        {
-            var code = LicenseImporter.Run(args, root);
-            Shutdown(code);
-            return;
-        }
-
         _api = new ApiProcessHost(root);
         if (!_api.Start())
         {

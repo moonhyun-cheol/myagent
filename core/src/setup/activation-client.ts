@@ -10,7 +10,6 @@ export interface OpenClawAdapterProvision {
 
 export interface ActivationResponse {
   ok: boolean;
-  license?: string;
   keys_bundle?: string;
   openclaw_adapter?: OpenClawAdapterProvision;
   error?: string;
@@ -23,7 +22,6 @@ export interface ActivationResult {
   bundle: boolean;
   error?: string;
   server_url?: string;
-  license?: string;
   keys_bundle?: string;
   openclaw_adapter?: OpenClawAdapterProvision;
 }
@@ -79,7 +77,9 @@ export async function requestCentralActivation(cqrRoot: string): Promise<Activat
     });
 
     const data = (await res.json()) as ActivationResponse;
-    if (!res.ok || !data.ok || !data.license?.trim()) {
+    const hasPayload =
+      Boolean(data.keys_bundle?.trim()) || Boolean(normalizeOpenClawAdapter(data.openclaw_adapter));
+    if (!res.ok || !data.ok || !hasPayload) {
       return {
         attempted: true,
         activated: false,
@@ -94,7 +94,6 @@ export async function requestCentralActivation(cqrRoot: string): Promise<Activat
       activated: true,
       bundle: Boolean(data.keys_bundle?.trim()),
       server_url: serverUrl,
-      license: data.license,
       keys_bundle: data.keys_bundle,
       openclaw_adapter: normalizeOpenClawAdapter(data.openclaw_adapter),
     };
@@ -112,9 +111,6 @@ export async function requestCentralActivation(cqrRoot: string): Promise<Activat
   }
 }
 
-/**
- * Already-licensed PCs: pull OpenClaw URL+token on install/update without re-issuing license.
- */
 export async function requestOpenClawAdapterProvision(
   cqrRoot: string,
 ): Promise<{ ok: boolean; adapter?: OpenClawAdapterProvision; error?: string; server_url?: string }> {

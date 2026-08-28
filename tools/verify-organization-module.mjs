@@ -274,12 +274,10 @@ try {
 
   const skipPrev = process.env.MY_AGENT_UPDATE_CHECK;
   process.env.MY_AGENT_UPDATE_CHECK = '0';
-  const skipped = await feedMod.maybeApplyOrganizationModuleOnLaunch(installRoot, { licensed: true });
+  const skipped = await feedMod.maybeApplyOrganizationModuleOnLaunch(installRoot);
   assert.equal(skipped.applied, false);
   if (skipPrev === undefined) delete process.env.MY_AGENT_UPDATE_CHECK;
   else process.env.MY_AGENT_UPDATE_CHECK = skipPrev;
-  const unlicensed = await feedMod.maybeApplyOrganizationModuleOnLaunch(installRoot, { licensed: false });
-  assert.equal(unlicensed.applied, false);
   const publish = readFileSync(
     path.join(root, '..', 'MY_CUSTOM_CODEX-COMPANY', 'tools', 'publish-module-update.mjs'),
     'utf8',

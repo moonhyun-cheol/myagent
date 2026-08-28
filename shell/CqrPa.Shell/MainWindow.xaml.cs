@@ -492,11 +492,12 @@ public partial class MainWindow : Window
         var purpose = request.TryGetProperty("purpose", out var purposeProperty)
             ? purposeProperty.GetString()
             : null;
-        if (string.IsNullOrWhiteSpace(requestId) || purpose != "skillZip") return;
+        if (string.IsNullOrWhiteSpace(requestId)) return;
+        if (purpose is not ("skillZip" or "organizationModuleZip")) return;
 
         var dialog = new OpenFileDialog
         {
-            Title = "설치할 스킬 ZIP 선택",
+            Title = purpose == "organizationModuleZip" ? "설치할 회사 팩 ZIP 선택" : "설치할 스킬 ZIP 선택",
             Filter = "ZIP 압축 파일 (*.zip)|*.zip",
             DefaultExt = ".zip",
             AddExtension = true,

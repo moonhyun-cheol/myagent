@@ -178,9 +178,7 @@ const LAUNCH_UPDATE_TIMEOUT_MS = 15_000;
 
 export async function maybeApplyOrganizationModuleOnLaunch(
   cqrRoot: string,
-  opts: { licensed: boolean },
 ): Promise<{ applied: boolean; version?: string; error?: string }> {
-  if (!opts.licensed) return { applied: false };
   const check = String(process.env.MY_AGENT_UPDATE_CHECK ?? '').trim();
   if (check === '0') return { applied: false };
   try {

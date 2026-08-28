@@ -91,8 +91,6 @@ export function ModelManagementModal({
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const refreshModelPicker = useWorkspaceStore((s) => s.refreshModelPicker);
-  const licenseMode = useWorkspaceStore((s) => s.licenseMode);
-  const readOnly = licenseMode !== null && licenseMode !== 'full';
 
   const refresh = async () => {
     const next = await listProviders();
@@ -321,7 +319,7 @@ export function ModelManagementModal({
         <div className="mt-3 flex gap-2">
           <button
             type="button"
-            disabled={busy || readOnly}
+            disabled={busy}
             onClick={() => void connect(provider, companyProvider)}
             className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50"
           >
@@ -467,10 +465,10 @@ export function ModelManagementModal({
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-5 py-4 shadow-sm lg:col-span-2">
                 <p className="text-sm text-muted">변경 내용은 이 PC의 사용자 설정에만 저장됩니다.</p>
                 <div className="flex gap-2">
-                  <button type="button" disabled={busy || readOnly} onClick={() => void persistCompanyModels(true)} className="rounded-lg border border-line bg-panel px-4 py-2.5 text-sm font-medium text-muted hover:bg-panel-2 disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void persistCompanyModels(true)} className="rounded-lg border border-line bg-panel px-4 py-2.5 text-sm font-medium text-muted hover:bg-panel-2 disabled:opacity-50">
                     기본 세트 복원
                   </button>
-                  <button type="button" disabled={busy || readOnly} onClick={() => void persistCompanyModels(false)} className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-dim disabled:opacity-50">
+                  <button type="button" disabled={busy} onClick={() => void persistCompanyModels(false)} className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:bg-accent-dim disabled:opacity-50">
                     선택 저장
                   </button>
                 </div>
@@ -623,7 +621,7 @@ export function ModelManagementModal({
                         className="rounded-lg border border-line bg-ink px-3 py-2 text-xs outline-none focus:border-accent"
                       />
                     ))}
-                    <button type="button" disabled={busy || readOnly} onClick={() => void addCustom()} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50">호환 연결 추가</button>
+                    <button type="button" disabled={busy} onClick={() => void addCustom()} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:opacity-50">호환 연결 추가</button>
                   </div>
                 ) : null}
                 <div className="mb-4 grid gap-2 md:grid-cols-2">

@@ -1,5 +1,4 @@
 import type { ServerResponse } from 'node:http';
-import { LicenseGateError } from '../license/types.js';
 import { ProviderError } from '../providers/types.js';
 import { ModelUploadError } from '../models/model-upload.js';
 import { UploadError } from '../attachments/attachment-service.js';
@@ -8,13 +7,7 @@ import { sendJson } from './json.js';
 
 export function handleApiError(res: ServerResponse, e: unknown): void {
   if (e instanceof SetupError) {
-    const status =
-      e.code === 'LICENSE_MACHINE_MISMATCH' ||
-      e.code === 'LICENSE_MACHINE_REQUIRED' ||
-      e.code === 'LICENSE_USER_MISMATCH'
-        ? 403
-        : 400;
-    sendJson(res, status, { error: e.code, message: e.message });
+    sendJson(res, 400, { error: e.code, message: e.message });
     return;
   }
   if (e instanceof ProviderError) {
@@ -26,10 +19,6 @@ export function handleApiError(res: ServerResponse, e: unknown): void {
   if (e instanceof ModelUploadError) {
     const status = e.code === 'FILE_TOO_LARGE' ? 413 : 400;
     sendJson(res, status, { error: e.code, message: e.message });
-    return;
-  }
-  if (e instanceof LicenseGateError) {
-    sendJson(res, 403, { error: e.code, message: e.message });
     return;
   }
   if (e instanceof UploadError) {

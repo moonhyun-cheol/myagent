@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { BootstrapPaths } from '../bootstrap.js';
-import type { FileLicenseGate } from '../license/file-license-gate.js';
+import type { ILicenseGate } from '../license/types.js';
 import type { AttachmentService } from '../attachments/attachment-service.js';
 import type { ModelRegistry } from '../models/model-registry.js';
 import type { ModelUploadService } from '../models/model-upload.js';
@@ -20,7 +20,7 @@ export interface ApiContext {
   /** The only product UI build (`ui/workspace/dist`). */
   workspaceUiDir: string;
   userConfigPath: string;
-  license: FileLicenseGate;
+  license: ILicenseGate;
   getOverrides: () => UserOverrides;
   attachments: AttachmentService;
   modelRegistry: ModelRegistry;

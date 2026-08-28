@@ -256,37 +256,11 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
   };
 }
 
-export interface LicenseStatusPayload {
-  mode: string;
-  features: string[];
-  reason?: string;
-  org_id?: string;
-  expires_at?: string;
-  valid?: boolean;
-  enforced?: boolean;
-}
-
-export async function fetchLicense(): Promise<LicenseStatusPayload> {
-  const res = await fetch('/license/status');
-  if (!res.ok) throw new Error(`라이선스 확인 실패 (${res.status})`);
-  const data = await res.json();
-  return {
-    mode: data.mode ?? 'unknown',
-    features: data.features ?? [],
-    reason: data.reason,
-    org_id: data.org_id,
-    expires_at: data.expires_at,
-    valid: data.valid,
-    enforced: data.enforced === true,
-  };
-}
-
 export interface SetupStatusPayload {
   needs_license: boolean;
   license_mode: string;
-  license_reason?: string;
   org_id?: string;
-  activation_mode: 'central' | 'file' | 'none';
+  activation_mode: 'central' | 'none';
   activation_server_url?: string | null;
   activation_error?: string | null;
 }
@@ -295,35 +269,6 @@ export async function fetchSetupStatus(): Promise<SetupStatusPayload> {
   const res = await fetch('/setup/status');
   if (!res.ok) throw new Error(`설정 상태 확인 실패 (${res.status})`);
   return (await res.json()) as SetupStatusPayload;
-}
-
-export async function activateLicense(): Promise<SetupStatusPayload> {
-  const res = await fetch('/setup/activate', { method: 'POST' });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.message || data.error || `활성화 실패 (${res.status})`);
-  }
-  return (data.status ?? data) as SetupStatusPayload;
-}
-
-export async function importLicensePath(licensePath: string): Promise<{ ok: true; org_id: string }> {
-  const res = await fetch('/setup/import-license', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ license_path: licensePath }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `라이선스 등록 실패 (${res.status})`);
-  return data as { ok: true; org_id: string };
-}
-
-export async function importLicenseFile(file: File): Promise<{ ok: true; org_id: string }> {
-  const body = new FormData();
-  body.append('license', file, file.name || 'license.ocx');
-  const res = await fetch('/setup/import-license', { method: 'POST', body });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `라이선스 등록 실패 (${res.status})`);
-  return data as { ok: true; org_id: string };
 }
 
 export interface OptionalRuntimeCatalogFeature {

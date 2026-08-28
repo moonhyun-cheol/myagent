@@ -366,8 +366,6 @@ interface WorkspaceState {
   activeWorkspaceProjectId: string | null;
   skillMode: string | null;
   skillLabel: string | null;
-  licenseMode: string | null;
-  licenseEnforced: boolean;
   pendingAttachments: PendingAttachment[];
   /** Composer @ chips — workspace relative paths. */
   pendingContextPaths: string[];
@@ -396,8 +394,6 @@ interface WorkspaceState {
   /** Reload /models/picker into the chat header dropdown. Returns option count. */
   refreshModelPicker: (refreshRemote?: boolean) => Promise<number>;
   setApiStatus: (online: boolean, error?: string | null) => void;
-  setLicenseMode: (mode: string | null) => void;
-  setLicenseEnforced: (enforced: boolean) => void;
   setPreviewPaneOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   clearTerminalAttention: () => void;
@@ -1008,8 +1004,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     activeWorkspaceProjectId: null,
     skillMode: null,
     skillLabel: null,
-    licenseMode: null,
-    licenseEnforced: false,
     pendingAttachments: [],
     pendingContextPaths: [],
     pendingMutateReview: null,
@@ -1138,8 +1132,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       return models.length;
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
-    setLicenseMode: (licenseMode) => set({ licenseMode }),
-    setLicenseEnforced: (licenseEnforced) => set({ licenseEnforced }),
     setPreviewPaneOpen: (previewPaneOpen) => set({ previewPaneOpen }),
     setTerminalOpen: (terminalOpen) => {
       try {
@@ -1327,9 +1319,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     uploadFiles: async (files) => {
       if (!files.length) return;
-      if (get().licenseMode && get().licenseMode !== 'full') {
-        throw new Error('라이선스 필요');
-      }
       const uploaded = await uploadAttachments(files);
       const items: PendingAttachment[] = uploaded.map((u, i) => {
         const file = files[i];

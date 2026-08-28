@@ -60,15 +60,13 @@ export async function createApiServer(port: number) {
       return pid ? projectStore.resolveWorkspaceRootForProject(pid) : null;
     },
   );
-  const setup = new SetupService(paths.vaultDir, cqrRoot, license, providerStore);
+  const setup = new SetupService(paths.vaultDir, cqrRoot, providerStore);
   providerStore.migrateVaultIfNeeded();
   setup.tryAutoImportFromRoot();
   void setup.tryCentralActivation().then(async () => {
-    license.reload();
     setup.syncProviderRegistry();
     await setup.ensureOpenClawAdapter();
   });
-  license.reload();
   setup.syncProviderRegistry();
   void setup.ensureOpenClawAdapter();
   const llamaBinary = findLlamaServerBinary(cqrRoot);

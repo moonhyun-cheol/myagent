@@ -10,7 +10,6 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { useWorkspaceStore } from '../store/workspaceStore';
 import { ModelManagementModal } from './ModelManagementModal';
 import { SettingsAgentPage } from './SettingsAgentPage';
 import { SettingsGeneralPage } from './SettingsGeneralPage';
@@ -112,8 +111,7 @@ function matchesSection(definition: SettingsSectionDef, query: string): boolean 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [activeSectionId, setActiveSectionId] = useState<string>('general');
   const [query, setQuery] = useState('');
-  const licenseMode = useWorkspaceStore((state) => state.licenseMode);
-  const readOnly = licenseMode !== null && licenseMode !== 'full';
+  const readOnly = false;
 
   const filteredSections = useMemo(
     () => SETTINGS_SECTIONS.filter((section) => matchesSection(section, query)),

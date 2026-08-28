@@ -8,42 +8,18 @@ export type LicenseFeature =
   | 'browser_automation'
   | 'chat';
 
-export type LicenseMode = 'full' | 'read_only';
-
-export interface LicensePayload {
-  v: number;
-  org_id: string;
-  features: LicenseFeature[];
-  issued_at: string;
-  expires_at: string;
-  machine_hint?: string | null;
-  /** AD account binding: DOMAIN\\user */
-  user_hint?: string | null;
-  nonce?: string;
-}
+export type LicenseMode = 'full';
 
 export interface LicenseStatus {
   mode: LicenseMode;
   valid: boolean;
-  reason?: string;
   features: LicenseFeature[];
   org_id?: string;
-  expires_at?: string;
-}
-
-export class LicenseGateError extends Error {
-  readonly httpStatus = 403;
-  readonly code: string;
-
-  constructor(message = 'License required — read-only mode', code = 'LICENSE_READ_ONLY') {
-    super(message);
-    this.name = 'LicenseGateError';
-    this.code = code;
-  }
 }
 
 export interface ILicenseGate {
   getStatus(): LicenseStatus;
+  reload(): LicenseStatus;
   assertWritable(): void;
   assertFeature(feature: LicenseFeature): void;
   hasFeature(feature: LicenseFeature): boolean;

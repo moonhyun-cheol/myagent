@@ -34,8 +34,6 @@ const steps = [
   ['build', () => runTool('build.mjs')],
   ['deploy-parity', () => runTool('verify-deploy-parity.mjs', verifyEnv)],
   ['nas', () => runTool('verify-no-nas-paths.mjs', verifyEnv)],
-  ['readonly', () => runTool('verify-read-only-mode.mjs', verifyEnv)],
-  ['license', () => runTool('verify-license.mjs', verifyEnv)],
   ['attachments', () => runTool('verify-attachments.mjs', verifyEnv)],
   ['models', () => runTool('verify-models.mjs', verifyEnv)],
   ['image-gen-retry', () => runTool('verify-image-gen-retry.mjs', verifyEnv)],
@@ -48,10 +46,8 @@ const steps = [
   ['providers', () => runTool('verify-providers.mjs', verifyEnv)],
   ['phase6', () => runTool('verify-phase6.mjs', verifyEnv)],
   ['phase7', () => runTool('verify-phase7.mjs', verifyEnv)],
-  ['phase8', () => runTool('verify-phase8.mjs', verifyEnv)],
   ['phase9', () => runTool('verify-phase9.mjs', verifyEnv)],
   ['phase10', () => runTool('verify-phase10.mjs', verifyEnv)],
-  ['phase11', () => runTool('verify-phase11.mjs', verifyEnv)],
   ['playwright', () => runTool('verify-playwright.mjs', verifyEnv)],
 ];
 
