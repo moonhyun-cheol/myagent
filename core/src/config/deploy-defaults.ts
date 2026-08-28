@@ -23,6 +23,10 @@ export interface DeployDefaults {
   openclaw_actor_id?: string;
   openclaw_fallback_local?: boolean;
   web_search_auto?: boolean;
+  /** When true, license file gate is enforced (default off in stable). */
+  license_enforcement?: boolean;
+  /** Organization brand manual URL fallback when no org module is installed. */
+  brand_manual_url?: string;
   note?: string;
 }
 
