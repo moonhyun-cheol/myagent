@@ -64,6 +64,9 @@ public partial class UpdateProgressWindow : Window, IProgress<UpdateDownloadProg
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // Keep the download window alive while work is in progress. Closing it
+        // cancels the download instead of tearing the app down. App.xaml.cs calls
+        // AllowClose() only after the user accepted an update and the updater is launched.
         if (_allowClose) return;
         e.Cancel = true;
         Canceled?.Invoke();

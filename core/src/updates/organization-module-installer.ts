@@ -38,10 +38,18 @@ export interface OrganizationModuleInfo {
   update_channel?: string;
   brand_manual_url?: string;
   capabilities: string[];
+  /** Optional per-capability versions. Missing ids inherit the pack version. */
+  capability_versions?: Record<string, string>;
+}
+
+export interface OrganizationModuleComponent {
+  id: string;
+  version: string;
 }
 
 export interface InstalledOrganizationModule extends OrganizationModuleInfo {
   root: string;
+  components: OrganizationModuleComponent[];
 }
 
 interface PayloadFile {
@@ -102,6 +110,28 @@ export function resolveOrganizationModulePublicKey(cqrRoot: string): string {
   );
 }
 
+function parseCapabilityVersions(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!id.trim() || typeof value !== 'string' || !value.trim()) continue;
+    out[id.trim()] = value.trim();
+  }
+  return out;
+}
+
+export function listOrganizationModuleComponents(
+  capabilities: string[],
+  packVersion: string,
+  capabilityVersions?: Record<string, string>,
+): OrganizationModuleComponent[] {
+  const versions = capabilityVersions ?? {};
+  return capabilities.map((id) => ({
+    id,
+    version: versions[id]?.trim() || packVersion,
+  }));
+}
+
 export function readInstalledOrganizationModule(cqrRoot: string): InstalledOrganizationModule | null {
   const root = path.join(cqrRoot, ...MODULE_INSTALL_ROOT.split('/'));
   const moduleJsonPath = path.join(root, 'module.json');
@@ -109,11 +139,15 @@ export function readInstalledOrganizationModule(cqrRoot: string): InstalledOrgan
   try {
     const doc = JSON.parse(readFileSync(moduleJsonPath, 'utf8')) as OrganizationModuleInfo;
     if (doc.kind !== 'organization-module') return null;
+    const capabilities = Array.isArray(doc.capabilities) ? doc.capabilities : [];
+    const capability_versions = parseCapabilityVersions(doc.capability_versions);
     return {
       ...doc,
       update_sequence: requirePositiveInt(doc.update_sequence, 'update_sequence'),
-      capabilities: Array.isArray(doc.capabilities) ? doc.capabilities : [],
+      capabilities,
+      capability_versions,
       root,
+      components: listOrganizationModuleComponents(capabilities, doc.version, capability_versions),
     };
   } catch {
     return null;

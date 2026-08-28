@@ -31,8 +31,20 @@ const {
   sha256Bytes,
   sha256File,
 } = cryptoMod;
-const { installOrganizationModule, readInstalledOrganizationModule } = installerMod;
+const { installOrganizationModule, readInstalledOrganizationModule, listOrganizationModuleComponents } = installerMod;
 const { listAllSkills, getSkillSystemPrompt, listBundledSkills } = registryMod;
+
+assert.deepEqual(
+  listOrganizationModuleComponents(
+    ['skills', 'automaton-routing'],
+    '1.0.0-beta.1',
+    { 'automaton-routing': '2' },
+  ),
+  [
+    { id: 'skills', version: '1.0.0-beta.1' },
+    { id: 'automaton-routing', version: '2' },
+  ],
+);
 
 function walkFiles(dir, prefix = '') {
   const out = [];
@@ -185,7 +197,10 @@ try {
     publicKeyPem: publicPem,
   });
   assert.equal(installed.installed.update_sequence, 2);
-  assert.ok(readInstalledOrganizationModule(installRoot));
+  assert.deepEqual(installed.installed.components, [
+    { id: 'skills', version: '1.0.1' },
+    { id: 'brand-context', version: '1.0.1' },
+  ]);
 
   const skills = listAllSkills(installRoot);
   const orgSkill = skills.find((skill) => skill.id === 'market_research' && skill.source === 'organization');
@@ -262,8 +277,8 @@ try {
   const skillsUi = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'SettingsSkillsPage.tsx'), 'utf8');
   assert.match(skillsUi, /purpose: 'organizationModuleZip'/);
   assert.match(skillsUi, /data-testid="organization-module-install"/);
-  assert.match(skillsUi, /organization-skill-\$\{skill\.id\}/);
-  assert.match(skillsUi, /채팅에 사용/);
+  assert.match(skillsUi, /data-testid="organization-module-components"/);
+  assert.match(skillsUi, /ORGANIZATION_COMPONENT_LABELS/);
   const shell = readFileSync(path.join(root, 'shell', 'CqrPa.Shell', 'MainWindow.xaml.cs'), 'utf8');
   assert.match(shell, /organizationModuleZip/);
   const apiServer = readFileSync(path.join(root, 'core', 'src', 'api-server.ts'), 'utf8');

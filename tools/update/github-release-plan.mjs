@@ -8,6 +8,10 @@ export function validateGitHubRepository(repository) {
   return value;
 }
 
+export function formatGitHubReleaseTitle(version, updateSequence) {
+  return `MY Agent ${String(version ?? '').trim()} (update ${updateSequence})`;
+}
+
 export function validateGitHubBranch(branch) {
   const value = String(branch ?? '').trim();
   if (!value || value.startsWith('-') || value.includes('..') || /[\s~^:?*\[\]\\]/.test(value)) {
@@ -52,9 +56,9 @@ export function buildGitHubReleasePlan({
     '--repo',
     repo,
     '--title',
-    `MY Agent ${safeVersion}`,
+    formatGitHubReleaseTitle(safeVersion, updateSequence),
     '--notes',
-    releaseNotes || `MY Agent ${safeVersion} secure update`,
+    releaseNotes || formatGitHubReleaseTitle(safeVersion, updateSequence),
   ];
   if (safeChannel !== 'stable') releaseArgs.push('--prerelease');
 

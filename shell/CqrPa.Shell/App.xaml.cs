@@ -34,7 +34,11 @@ public partial class App : Application
         _api = new ApiProcessHost(root);
         if (!_api.Start())
         {
-            MessageBox.Show("API 시작 실패. 설치 파일이 손상되었을 수 있습니다. MY Agent를 다시 설치하세요.", "MY Agent", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(
+                "API를 시작하지 못했습니다. 설치가 손상됐거나 Node 런타임을 찾지 못했습니다.",
+                "MY Agent",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
             Shutdown(1);
             return;
         }
@@ -148,9 +152,13 @@ public partial class App : Application
                 progressWindow);
             progressWindow.SetStatus("설치를 시작하고 앱을 다시 실행합니다…");
             progressWindow.DisableCancel();
+            // Download/apply windows cancel close so a running job is not torn down.
+            // An accepted update is the one case that must fully exit so files can be replaced.
+            progressWindow.AllowClose();
             if (owner is MainWindow updateMainWindow) updateMainWindow.PrepareForUpdateExit();
             updateService.LaunchUpdater(downloaded);
             updaterLaunched = true;
+            progressWindow.Close();
             Shutdown(0);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

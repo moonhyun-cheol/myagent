@@ -62,7 +62,7 @@ export function loadAutomatonToolManifest(cqrRoot?: string): AutomatonToolsManif
   const key = cqrRoot?.trim() || '';
   if (cached && cachedKey === key) return cached;
   const coreTools = readCoreAutomatonTools();
-  const orgTools = key ? loadOrganizationAutomatonTools(key) : [];
+  const orgTools = loadOrganizationAutomatonTools(key);
   cachedKey = key;
   cached = {
     version: 2,

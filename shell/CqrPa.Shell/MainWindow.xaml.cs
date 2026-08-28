@@ -634,6 +634,7 @@ public partial class MainWindow : Window
 
     internal void PrepareForUpdateExit()
     {
+        // Tray close must not swallow Application.Shutdown during an accepted update.
         _allowExit = true;
         DisposeTrayIcon();
     }
@@ -647,6 +648,8 @@ public partial class MainWindow : Window
 
     private void OnWindowClosing(object? sender, CancelEventArgs e)
     {
+        // User close during normal work hides to tray. Explicit tray Exit and
+        // accepted updates set _allowExit so the process can actually stop.
         if (_allowExit || !_minimizeToTrayOnClose)
         {
             DisposeTrayIcon();

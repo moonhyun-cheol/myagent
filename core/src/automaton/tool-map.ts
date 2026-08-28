@@ -1,6 +1,4 @@
-import { getAutomatonToolIds, isAutomatonToolId } from './tool-catalog.js';
-
-export const AUTOMATON_TOOL_IDS = getAutomatonToolIds();
+import { isAutomatonToolId } from './tool-catalog.js';
 
 export interface AutomatonCommandConfig {
   commandId: string;
@@ -53,8 +51,8 @@ export function buildCliArguments(
   return cli;
 }
 
-export function isAutomatonTool(toolId: string | undefined): toolId is string {
-  return isAutomatonToolId(toolId);
+export function isAutomatonTool(toolId: string | undefined, cqrRoot?: string): toolId is string {
+  return isAutomatonToolId(toolId, cqrRoot);
 }
 
 export function buildAutomatonToolArgs(

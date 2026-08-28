@@ -228,8 +228,8 @@ internal sealed class UpdateService
         {
             FileName = downloaded.UpdaterPath,
             WorkingDirectory = downloaded.Directory,
-            UseShellExecute = false,
-            CreateNoWindow = false,
+            UseShellExecute = true,
+            CreateNoWindow = true,
         };
         start.ArgumentList.Add("--root");
         start.ArgumentList.Add(_root);

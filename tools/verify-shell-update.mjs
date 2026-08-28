@@ -25,14 +25,19 @@ const appSource = read('shell/CqrPa.Shell/App.xaml.cs');
 const serviceSource = read('shell/CqrPa.Shell/UpdateService.cs');
 const verifierSource = read('shell/CqrPa.Shell/UpdateFeedVerifier.cs');
 const singleInstanceSource = read('shell/CqrPa.Shell/SingleInstanceGuard.cs');
-const updaterSource = read('shell/CqrPa.Updater/Program.cs');
+const updaterSource = read('shell/CqrPa.Updater/UpdateRunner.cs');
 const processStopSource = read('shell/CqrPa.Updater/ProductProcessStop.cs');
+const updaterUiSource = read('shell/CqrPa.Updater/UpdateApplyWindow.xaml');
 assert.match(appSource, /ContentRendered/);
 assert.match(appSource, /CheckForUpdatesAsync/);
 assert.match(appSource, /MessageBoxButton\.YesNo/);
 assert.match(appSource, /LaunchUpdater/);
 assert.match(appSource, /SingleInstanceGuard/);
 assert.match(appSource, /PrepareForUpdateExit/);
+assert.match(
+  appSource,
+  /DisableCancel\(\)[\s\S]*AllowClose\(\)[\s\S]*PrepareForUpdateExit[\s\S]*LaunchUpdater[\s\S]*Shutdown\(0\)/,
+);
 assert.match(singleInstanceSource, /TryBecomePrimary/);
 assert.match(singleInstanceSource, /EventWaitHandle/);
 assert.match(serviceSource, /raw\.githubusercontent\.com/);
@@ -40,8 +45,13 @@ assert.match(serviceSource, /release-assets\.githubusercontent\.com/);
 assert.match(serviceSource, /--parent-pid/);
 assert.match(serviceSource, /CryptographicOperations\.FixedTimeEquals/);
 assert.match(updaterSource, /ProductProcessStop\.StopAll/);
+assert.match(updaterSource, /cqr_root/);
 assert.match(processStopSource, /entireProcessTree: true/);
 assert.match(processStopSource, /StopAllMyAgentProcesses/);
+assert.match(processStopSource, /ShouldStopNodeOnPort/);
+assert.match(processStopSource, /api-port\.json/);
+assert.match(updaterUiSource, /MY Agent 업데이트/);
+assert.match(updaterUiSource, /IsIndeterminate="True"/);
 assert.match(verifierSource, /RSA-PSS-SHA256/);
 assert.match(verifierSource, /RSASignaturePadding\.Pss/);
 

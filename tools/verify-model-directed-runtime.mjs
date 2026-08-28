@@ -92,6 +92,7 @@ assert.doesNotMatch(orchestrator, /preserveRecentToolFailureContext/);
 assert.doesNotMatch(orchestrator, /resolveUnifiedIntent|intent-clarify/);
 assert.match(orchestrator, /if \(explicitMode\)/);
 assert.match(orchestrator, /peekAutomatonIntent/);
+assert.match(orchestrator, /isAutomatonTool\(tool,\s*this\.cqrRoot\)/);
 assert.match(automatonIntent, /getSlashAutomatonPatterns/);
 assert.doesNotMatch(automatonIntent, /chatCompletion|scoreToolsBySimilarity|resolveAutomatonIntent|intent_phrases|intent_patterns/);
 assert.match(orchestrator, /routing\.mode === 'web_dev' && !workspaceAgentAvailable/);

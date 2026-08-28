@@ -32,6 +32,7 @@ data/agent-constraints/
 data/agent-embeddings/
 data/audit/
 data/logs/
+data/runtime/
 data/cache/
 data/_p2_loop_fixture/
 data/_agent_eval/

@@ -8,11 +8,25 @@ import {
   importSkillPackage,
   installOrganizationModule,
   listSkills,
+  type OrganizationModuleComponent,
   type OrganizationModuleStatus,
   type OrganizationModuleUpdate,
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
+
+const ORGANIZATION_COMPONENT_LABELS: Record<string, string> = {
+  skills: '스킬',
+  'brand-context': '브랜드 컨텍스트',
+  'research-pipeline': '리서치 파이프라인',
+  'brand-knowledge': '브랜드 지식',
+  'automaton-routing': '오토마톤 라우팅',
+};
+
+function organizationComponents(installed: NonNullable<OrganizationModuleStatus['installed']>): OrganizationModuleComponent[] {
+  if (installed.components?.length) return installed.components;
+  return (installed.capabilities ?? []).map((id) => ({ id, version: installed.version }));
+}
 
 interface SettingsSkillsPageProps {
   readOnly: boolean;
@@ -94,6 +108,10 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const installed = useMemo(() => skills.filter((skill) => skill.source === 'user'), [skills]);
   const bundled = useMemo(() => skills.filter((skill) => skill.source === 'bundled'), [skills]);
   const organization = useMemo(() => skills.filter((skill) => skill.source === 'organization'), [skills]);
+  const installedComponents = useMemo(
+    () => (moduleStatus?.installed ? organizationComponents(moduleStatus.installed) : []),
+    [moduleStatus],
+  );
 
   const openZipPicker = () => {
     if (readOnly || busy) return;
@@ -291,10 +309,39 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           </button>
         </div>
         {moduleStatus?.installed ? (
-          <p className="font-mono text-xs text-muted">
-            {moduleStatus.installed.version} · 시퀀스 {moduleStatus.installed.update_sequence}
-            {moduleStatus.installed.capabilities.length ? ` · ${moduleStatus.installed.capabilities.join(', ')}` : ''}
-          </p>
+          <div className="space-y-3">
+            <p className="font-mono text-xs text-muted">
+              {moduleStatus.installed.version} · 시퀀스 {moduleStatus.installed.update_sequence}
+            </p>
+            {installedComponents.length > 0 ? (
+              <div
+                data-testid="organization-module-components"
+                className="overflow-hidden rounded-xl border border-line bg-[#fafbf8]"
+              >
+                <div className="flex items-center justify-between border-b border-line px-3 py-2">
+                  <p className="text-[11px] font-semibold tracking-wide text-muted">포함된 모듈</p>
+                  <p className="text-[11px] text-muted">{installedComponents.length}개</p>
+                </div>
+                <ul>
+                  {installedComponents.map((item) => (
+                    <li
+                      key={item.id}
+                      data-testid={`organization-module-component-${item.id}`}
+                      className="flex items-baseline justify-between gap-3 border-t border-line px-3 py-2 first:border-t-0"
+                    >
+                      <span className="min-w-0">
+                        <span className="text-sm font-medium text-text">
+                          {ORGANIZATION_COMPONENT_LABELS[item.id] ?? item.id}
+                        </span>
+                        <span className="ml-2 font-mono text-[11px] text-muted">{item.id}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs text-text">{item.version}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <p className="text-sm text-muted">아직 회사 팩이 없습니다. 위에서 ZIP을 고른 뒤 추가하세요.</p>
         )}

@@ -1,11 +1,19 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text.Json;
 
 namespace CqrPa.Shell;
 
 internal sealed class ApiProcessHost : IDisposable
 {
+    private const int DefaultPort = 10200;
+    private const int ReuseWindow = 32;
+    private const int SearchWindow = 2048;
+    /// <summary>Central activation-server default; skip unless this install prefers it.</summary>
+    private const int ActivationServerDefaultPort = 10201;
+
     private Process? _process;
     private readonly string _root;
     private readonly string _expectedVersion;
@@ -15,12 +23,13 @@ internal sealed class ApiProcessHost : IDisposable
     public TimeSpan RecommendedHealthTimeout =>
         _restartedAfterVersionMismatch ? TimeSpan.FromSeconds(90) : TimeSpan.FromSeconds(60);
 
-    public int Port { get; } = 10200;
+    public int Port { get; private set; } = DefaultPort;
 
     public ApiProcessHost(string root)
     {
         _root = root;
         _expectedVersion = ReadManifestVersion(root);
+        Port = ReadManifestPort(root);
         Environment.SetEnvironmentVariable("MY_AGENT_ROOT", root);
     }
 
@@ -30,19 +39,17 @@ internal sealed class ApiProcessHost : IDisposable
         if (!File.Exists(script))
             return false;
 
-        var existing = ProbeHealth();
-        if (existing.Ok && existing.Version == _expectedVersion)
-        {
-            var distMtimeMs = new DateTimeOffset(File.GetLastWriteTimeUtc(script)).ToUnixTimeMilliseconds();
-            if (existing.DistMtimeMs.HasValue && existing.DistMtimeMs.Value >= distMtimeMs)
-                return true;
+        var decision = ResolveOwnedPort(script);
+        Port = decision.Port;
+        PersistRuntimePort(Port);
 
-            ForceKillNodeListenersOnPort(Port);
-            WaitForPortFree(Port, TimeSpan.FromSeconds(5));
-        }
-        else if (existing.Ok && existing.Version != _expectedVersion)
+        if (decision.ReuseExisting)
+            return true;
+
+        if (decision.KillExisting)
         {
-            _restartedAfterVersionMismatch = true;
+            if (decision.VersionMismatch)
+                _restartedAfterVersionMismatch = true;
             ForceKillNodeListenersOnPort(Port);
             WaitForPortFree(Port, TimeSpan.FromSeconds(5));
         }
@@ -81,7 +88,7 @@ internal sealed class ApiProcessHost : IDisposable
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            var h = ProbeHealth();
+            var h = ProbeHealth(Port);
             if (IsReady(h))
                 return true;
             Thread.Sleep(200);
@@ -94,7 +101,7 @@ internal sealed class ApiProcessHost : IDisposable
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            var h = await Task.Run(ProbeHealth);
+            var h = await Task.Run(() => ProbeHealth(Port));
             if (IsReady(h))
                 return true;
             await Task.Delay(200);
@@ -102,15 +109,99 @@ internal sealed class ApiProcessHost : IDisposable
         return false;
     }
 
-    private bool IsReady((bool Ok, string? Version, string? CqrRoot, long? DistMtimeMs) health)
+    private readonly record struct PortDecision(
+        int Port,
+        bool ReuseExisting,
+        bool KillExisting,
+        bool VersionMismatch);
+
+    private PortDecision ResolveOwnedPort(string script)
     {
-        if (!health.Ok || string.IsNullOrWhiteSpace(health.CqrRoot))
+        var preferred = ReadManifestPort(_root);
+        var distMtimeMs = new DateTimeOffset(File.GetLastWriteTimeUtc(script)).ToUnixTimeMilliseconds();
+        var listening = ListListeningPorts();
+
+        if (TryOwnPort(preferred, listening, distMtimeMs, out var owned))
+            return owned;
+
+        var recorded = ReadPersistedRuntimePort(_root);
+        if (recorded is int recordedPort
+            && recordedPort != preferred
+            && TryOwnPort(recordedPort, listening, distMtimeMs, out owned))
+        {
+            return owned;
+        }
+
+        for (var offset = 1; offset < ReuseWindow; offset++)
+        {
+            var port = preferred + offset;
+            if (port > 65535) break;
+            if (TryOwnPort(port, listening, distMtimeMs, out owned))
+                return owned;
+        }
+
+        for (var offset = 0; offset < SearchWindow; offset++)
+        {
+            var port = preferred + offset;
+            if (port > 65535) break;
+            if (port != preferred && port == ActivationServerDefaultPort)
+                continue;
+            if (listening.Contains(port))
+                continue;
+            if (!CanBindLoopback(port))
+                continue;
+            return new PortDecision(port, ReuseExisting: false, KillExisting: false, VersionMismatch: false);
+        }
+
+        return new PortDecision(
+            BindEphemeralLoopback(),
+            ReuseExisting: false,
+            KillExisting: false,
+            VersionMismatch: false);
+    }
+
+    private bool TryOwnPort(
+        int port,
+        HashSet<int> listening,
+        long distMtimeMs,
+        out PortDecision decision)
+    {
+        decision = default;
+        if (!listening.Contains(port))
             return false;
 
+        var existing = ProbeHealth(port);
+        if (!existing.Ok || !SameProductRoot(existing.CqrRoot))
+            return false;
+
+        if (existing.Version == _expectedVersion
+            && existing.DistMtimeMs.HasValue
+            && existing.DistMtimeMs.Value >= distMtimeMs)
+        {
+            decision = new PortDecision(port, ReuseExisting: true, KillExisting: false, VersionMismatch: false);
+            return true;
+        }
+
+        decision = new PortDecision(
+            port,
+            ReuseExisting: false,
+            KillExisting: true,
+            VersionMismatch: existing.Version != _expectedVersion);
+        return true;
+    }
+
+    private bool IsReady((bool Ok, string? Version, string? CqrRoot, long? DistMtimeMs) health)
+    {
+        return health.Ok && SameProductRoot(health.CqrRoot);
+    }
+
+    private bool SameProductRoot(string? actual)
+    {
+        if (string.IsNullOrWhiteSpace(actual)) return false;
         try
         {
             var expectedRoot = Path.GetFullPath(_root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var actualRoot = Path.GetFullPath(health.CqrRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var actualRoot = Path.GetFullPath(actual).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             return string.Equals(expectedRoot, actualRoot, StringComparison.OrdinalIgnoreCase);
         }
         catch
@@ -119,12 +210,12 @@ internal sealed class ApiProcessHost : IDisposable
         }
     }
 
-    private (bool Ok, string? Version, string? CqrRoot, long? DistMtimeMs) ProbeHealth()
+    private (bool Ok, string? Version, string? CqrRoot, long? DistMtimeMs) ProbeHealth(int port)
     {
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-            var json = http.GetStringAsync($"http://127.0.0.1:{Port}/health").GetAwaiter().GetResult();
+            var json = http.GetStringAsync($"http://127.0.0.1:{port}/health").GetAwaiter().GetResult();
             if (!json.Contains("MY Agent", StringComparison.Ordinal))
                 return (false, null, null, null);
             using var doc = JsonDocument.Parse(json);
@@ -139,6 +230,127 @@ internal sealed class ApiProcessHost : IDisposable
         {
             return (false, null, null, null);
         }
+    }
+
+    private void PersistRuntimePort(int port)
+    {
+        try
+        {
+            var directory = Path.Combine(_root, "data", "runtime");
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(
+                Path.Combine(directory, "api-port.json"),
+                JsonSerializer.Serialize(new { port, cqr_root = _root }));
+        }
+        catch
+        {
+            // Runtime port is a hint for the updater; startup must not fail on it.
+        }
+    }
+
+    private static int? ReadPersistedRuntimePort(string root)
+    {
+        try
+        {
+            var path = Path.Combine(root, "data", "runtime", "api-port.json");
+            if (!File.Exists(path)) return null;
+            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            if (doc.RootElement.TryGetProperty("port", out var value)
+                && value.TryGetInt32(out var port)
+                && port is >= 1 and <= 65535)
+            {
+                return port;
+            }
+        }
+        catch
+        {
+            // Last-run port is a hint only.
+        }
+        return null;
+    }
+
+    private static bool CanBindLoopback(int port)
+    {
+        try
+        {
+            var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start();
+            listener.Stop();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
+
+    private static int BindEphemeralLoopback()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private static HashSet<int> ListListeningPorts()
+    {
+        var ports = new HashSet<int>();
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "netstat",
+                Arguments = "-ano",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return ports;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(3000);
+
+            foreach (var line in output.Split('\n'))
+            {
+                if (!line.Contains("LISTENING", StringComparison.OrdinalIgnoreCase)) continue;
+                var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) continue;
+                var colon = parts[1].LastIndexOf(':');
+                if (colon < 0) continue;
+                if (int.TryParse(parts[1][(colon + 1)..], out var port) && port is >= 1 and <= 65535)
+                    ports.Add(port);
+            }
+        }
+        catch { /* ignore */ }
+
+        return ports;
+    }
+
+    private static int ReadManifestPort(string root)
+    {
+        try
+        {
+            var path = Path.Combine(root, "manifest.json");
+            if (!File.Exists(path)) return DefaultPort;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (doc.RootElement.TryGetProperty("api_port_default", out var value)
+                && value.TryGetInt32(out var port)
+                && port is >= 1 and <= 65535)
+            {
+                return port;
+            }
+        }
+        catch
+        {
+            // Fall back to the product default.
+        }
+        return DefaultPort;
     }
 
     private static string ReadManifestVersion(string root)

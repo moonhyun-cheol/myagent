@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -11,11 +11,14 @@ async function importDist(relative) {
   return import(pathToFileURL(path.join(distRoot, relative)).href);
 }
 
-const { resetAutomatonToolManifestCache, peekAutomatonIntent } = await Promise.all([
+const { resetAutomatonToolManifestCache, peekAutomatonIntent, isAutomatonTool } = await Promise.all([
   importDist('automaton/tool-catalog.js'),
+  importDist('automaton/tool-map.js'),
   importDist('router/automaton-intent.js'),
-]).then(([catalog, intent]) => ({ ...catalog, ...intent }));
+]).then(([catalog, toolMap, intent]) => ({ ...catalog, ...toolMap, ...intent }));
 
+const prev = process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
+delete process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
 resetAutomatonToolManifestCache();
 const neutral = peekAutomatonIntent('/반품율분석 text: OVERALL');
 assert.equal(neutral, null, 'neutral core must not route company slash commands');
@@ -42,7 +45,6 @@ writeFileSync(
   'utf8',
 );
 
-const prev = process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
 process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT = orgRoot;
 resetAutomatonToolManifestCache();
 try {
@@ -50,6 +52,34 @@ try {
   assert.ok(hit, 'org module slash manifest must route /반품율분석');
   assert.equal(hit.toolId, 'amazon_return_manager_direct');
   assert.equal(hit.commandText, '/반품율분석 text: OVERALL');
+  assert.equal(
+    isAutomatonTool(hit.toolId, sandbox),
+    true,
+    'orchestrator guard must accept the peeked org tool when cqrRoot is passed',
+  );
+  assert.equal(
+    isAutomatonTool(hit.toolId),
+    true,
+    'env-based org overlay must still resolve without repeating cqrRoot',
+  );
+
+  delete process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
+  const bundledRoot = path.join(sandbox, 'bundled-product');
+  const bundledOrg = path.join(bundledRoot, 'modules', 'organization');
+  mkdirSync(bundledOrg, { recursive: true });
+  writeFileSync(
+    path.join(bundledOrg, 'automaton-tools.manifest.json'),
+    readFileSync(path.join(orgRoot, 'automaton-tools.manifest.json'), 'utf8'),
+  );
+  resetAutomatonToolManifestCache();
+  const bundledHit = peekAutomatonIntent('/반품율분석 text: OVERALL', bundledRoot);
+  assert.ok(bundledHit, 'bundled modules/organization must route /반품율분석');
+  assert.equal(bundledHit.toolId, 'amazon_return_manager_direct');
+  assert.equal(
+    isAutomatonTool(bundledHit.toolId, bundledRoot),
+    true,
+    'production bundled overlay must pass the orchestrator guard with cqrRoot',
+  );
 } finally {
   if (prev === undefined) delete process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
   else process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT = prev;

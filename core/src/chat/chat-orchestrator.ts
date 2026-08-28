@@ -122,15 +122,6 @@ export class ChatOrchestrator {
       layer: 'default',
     };
 
-    // Structured API modes remain available, but the removed UI code mode has
-    // no special branch. Workspace association selects the agent plane.
-    if (explicitMode) {
-      return {
-        routing: { mode: explicitMode, matched_tool: explicitMode, confidence: 1, layer: 'explicit' },
-        automatonText: message,
-      };
-    }
-
     // Slash commands are structural input, not natural-language keyword routing.
     const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message, this.cqrRoot) : null;
     const quickAutomaton = peek ? automatonIntentToRoute(peek) : null;
@@ -138,6 +129,15 @@ export class ChatOrchestrator {
       return {
         routing: quickAutomaton,
         automatonText: peek.commandText ?? message,
+      };
+    }
+
+    // Structured API modes remain available, but the removed UI code mode has
+    // no special branch. Workspace association selects the agent plane.
+    if (explicitMode) {
+      return {
+        routing: { mode: explicitMode, matched_tool: explicitMode, confidence: 1, layer: 'explicit' },
+        automatonText: message,
       };
     }
 
@@ -151,7 +151,7 @@ export class ChatOrchestrator {
     options?: { onStatus?: (text: string) => void; onThought?: (text: string) => void },
   ): Promise<ChatResponse> {
     const tool = routing.matched_tool;
-    if (!tool || !isAutomatonTool(tool)) {
+    if (!tool || !isAutomatonTool(tool, this.cqrRoot)) {
       const content = '**automaton 라우팅 오류** — direct command tool을 찾지 못했습니다.';
       this.sessionStore.append(sessionId, {
         role: 'assistant',
@@ -217,6 +217,7 @@ export class ChatOrchestrator {
       progressFile,
       openclaw,
       fallbackLocal: defaults.openclaw_fallback_local !== false && Boolean(automatonRoot),
+      cqrRoot: this.cqrRoot,
     });
     return {
       role: 'assistant',
@@ -236,6 +237,7 @@ export class ChatOrchestrator {
       progressFile?: string;
       openclaw: ReturnType<typeof resolveOpenClawAdapterConfig>;
       fallbackLocal: boolean;
+      cqrRoot: string;
     },
   ): Promise<void> {
     try {
@@ -244,6 +246,7 @@ export class ChatOrchestrator {
         openclaw: job.openclaw,
         preferRemote: Boolean(job.openclaw),
         fallbackLocal: job.fallbackLocal,
+        cqrRoot: job.cqrRoot,
       });
     } catch (err: unknown) {
       const content = [

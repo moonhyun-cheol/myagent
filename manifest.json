@@ -3,7 +3,7 @@
   "version": "1.0.3",
   "build": "stable",
   "update_channel": "stable",
-  "update_sequence": 11,
+  "update_sequence": 12,
   "minimum_supported_sequence": 1,
   "update_repository": "moonhyun-cheol/myagent",
   "update_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/stable.json",

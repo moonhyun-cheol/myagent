@@ -909,8 +909,14 @@ export interface OrganizationModuleStatus {
     required_core_api: string;
     update_feed_url?: string;
     capabilities: string[];
+    components: OrganizationModuleComponent[];
     root: string;
   } | null;
+}
+
+export interface OrganizationModuleComponent {
+  id: string;
+  version: string;
 }
 
 export interface OrganizationModuleUpdate {

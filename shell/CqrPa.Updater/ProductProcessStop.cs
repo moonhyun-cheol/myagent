@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 using System.Text.Json;
 
 namespace CqrPa.Updater;
@@ -9,13 +10,13 @@ internal static class ProductProcessStop
     {
         WaitForParentGracefully(parentPid, log);
         StopMatchedProcesses(root, log);
-        StopNodeListeners(ReadApiPort(root), log);
+        StopNodeListeners(root, log);
         WaitForExit(root, TimeSpan.FromSeconds(15), log);
         if (AnyProductProcessRunning(root))
         {
-            log("Some MY Agent processes remain; stopping all MYAgent processes as fallback.");
-            StopAllMyAgentProcesses(log);
-            StopNodeListeners(ReadApiPort(root), log);
+            log("Some MY Agent processes remain; retrying this installation only.");
+            StopAllMyAgentProcesses(root, log);
+            StopNodeListeners(root, log);
             WaitForExit(root, TimeSpan.FromSeconds(10), log);
         }
     }
@@ -47,9 +48,9 @@ internal static class ProductProcessStop
         }
     }
 
-    private static void StopAllMyAgentProcesses(Action<string> log)
+    private static void StopAllMyAgentProcesses(string root, Action<string> log)
     {
-        foreach (var process in Process.GetProcessesByName("MYAgent"))
+        foreach (var process in FindProductProcesses(root))
         {
             if (process.Id == Environment.ProcessId) continue;
             log($"Stopping MYAgent process {process.Id} (fallback).");
@@ -57,8 +58,12 @@ internal static class ProductProcessStop
         }
     }
 
-    private static void StopNodeListeners(int port, Action<string> log)
+    private static void StopNodeListeners(string root, Action<string> log)
     {
+        var port = ReadListeningPort(root);
+        if (!ShouldStopNodeOnPort(root, port, log))
+            return;
+
         foreach (var pid in FindListeningPids(port))
         {
             if (pid == Environment.ProcessId) continue;
@@ -73,6 +78,58 @@ internal static class ProductProcessStop
             {
                 // Process already exited.
             }
+        }
+    }
+
+    private static bool ShouldStopNodeOnPort(string root, int port, Action<string> log)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var json = http.GetStringAsync($"http://127.0.0.1:{port}/health").GetAwaiter().GetResult();
+            using var document = JsonDocument.Parse(json);
+            var cqrRoot = document.RootElement.TryGetProperty("cqr_root", out var value)
+                ? value.GetString()
+                : null;
+            if (SameProductRoot(root, cqrRoot)) return true;
+            log($"Port {port} is owned by another process; leaving it running.");
+            return false;
+        }
+        catch
+        {
+            return PortRecordedByThisInstall(root, port);
+        }
+    }
+
+    private static bool PortRecordedByThisInstall(string root, int port)
+    {
+        try
+        {
+            var runtimePath = Path.Combine(root, "data", "runtime", "api-port.json");
+            if (!File.Exists(runtimePath)) return false;
+            using var runtime = JsonDocument.Parse(File.ReadAllBytes(runtimePath));
+            return runtime.RootElement.TryGetProperty("port", out var value)
+                && value.TryGetInt32(out var recorded)
+                && recorded == port;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SameProductRoot(string root, string? actual)
+    {
+        if (string.IsNullOrWhiteSpace(actual)) return false;
+        try
+        {
+            var expectedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var actualRoot = Path.GetFullPath(actual).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(expectedRoot, actualRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -95,7 +152,7 @@ internal static class ProductProcessStop
             }
             catch
             {
-                matched = process;
+                // Accessing MainModule can fail; do not treat an unknown MYAgent as this install.
             }
 
             if (matched is not null) yield return matched;
@@ -143,13 +200,33 @@ internal static class ProductProcessStop
         }
     }
 
-    private static int ReadApiPort(string root)
+    internal static int ReadListeningPort(string root)
     {
+        try
+        {
+            var runtimePath = Path.Combine(root, "data", "runtime", "api-port.json");
+            if (File.Exists(runtimePath))
+            {
+                using var runtime = JsonDocument.Parse(File.ReadAllBytes(runtimePath));
+                if (runtime.RootElement.TryGetProperty("port", out var runtimePort)
+                    && runtimePort.TryGetInt32(out var parsedRuntimePort)
+                    && parsedRuntimePort is >= 1 and <= 65535)
+                {
+                    return parsedRuntimePort;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to the manifest default.
+        }
+
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "manifest.json")));
             if (document.RootElement.TryGetProperty("api_port_default", out var portValue)
-                && portValue.TryGetInt32(out var parsedPort))
+                && portValue.TryGetInt32(out var parsedPort)
+                && parsedPort is >= 1 and <= 65535)
             {
                 return parsedPort;
             }

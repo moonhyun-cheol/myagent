@@ -42,6 +42,17 @@ assert.match(windowXaml, /x:Name="StartupRetryButton"/);
 assert.match(windowCode, /WaitForHealthAsync/);
 assert.match(shellHost, /if \(IsReady\(h\)\)/, 'shell readiness must use API health and matching product root');
 assert.match(shellHost, /string\.Equals\(expectedRoot, actualRoot, StringComparison\.OrdinalIgnoreCase\)/);
+assert.match(shellHost, /SameProductRoot/);
+assert.match(shellHost, /ResolveOwnedPort/);
+assert.match(shellHost, /ActivationServerDefaultPort/);
+assert.match(shellHost, /BindEphemeralLoopback/);
+assert.match(shellHost, /SearchWindow = 2048/);
+assert.doesNotMatch(shellHost, /Unavailable: true/, 'must keep looking for a free port instead of giving up');
+assert.doesNotMatch(
+  shellHost,
+  /return new PortDecision\(preferred, ReuseExisting: false, KillExisting: true/,
+  'must not steal 10200 when every candidate port is occupied',
+);
 assert.doesNotMatch(shellHost, /if \(h\.Ok && h\.Version == _expectedVersion\)/, 'version skew must not trap the shell behind the loading overlay');
 assert.match(windowCode, /OnWorkspaceNavigationCompleted/);
 

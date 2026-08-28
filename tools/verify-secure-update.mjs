@@ -21,7 +21,7 @@ import {
   sha256Bytes,
   verifySignedEnvelope,
 } from './update/update-signing.mjs';
-import { buildGitHubReleasePlan } from './update/github-release-plan.mjs';
+import { buildGitHubReleasePlan, formatGitHubReleaseTitle } from './update/github-release-plan.mjs';
 
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-secure-update-'));
 
@@ -113,6 +113,14 @@ try {
     releaseNotes: 'Fixture release',
   });
   assert.equal(releasePlan.tag, 'update-7');
+  assert.equal(
+    formatGitHubReleaseTitle(feed.version, feed.update_sequence),
+    'MY Agent 0.9.1-beta (update 7)',
+  );
+  assert.equal(
+    releasePlan.release_args[releasePlan.release_args.indexOf('--title') + 1],
+    'MY Agent 0.9.1-beta (update 7)',
+  );
   assert.equal(
     releasePlan.raw_feed_url,
     'https://raw.githubusercontent.com/moonhyun-cheol/MY_CUSTOM_CODEX/main/channels/beta.json',

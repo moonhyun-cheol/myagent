@@ -231,6 +231,7 @@ export async function dispatchApiRequest(
           product: 'MY Agent',
           version: appVersion,
           cqr_root: cqrRoot,
+          port,
           dist_mtime_ms: distMtimeMs,
           ui: 'workspace',
           ui_ready: workspaceReady,

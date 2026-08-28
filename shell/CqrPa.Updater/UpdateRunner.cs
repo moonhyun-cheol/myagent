@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,11 +7,11 @@ using System.Text.Json;
 
 namespace CqrPa.Updater;
 
-internal static class Program
+internal sealed class UpdateRunner
 {
-    private static StreamWriter? _log;
+    private StreamWriter? _log;
 
-    public static int Main(string[] args)
+    public int Run(string[] args, Action<string, string?>? reportStatus = null)
     {
         try
         {
@@ -29,16 +30,8 @@ internal static class Program
                     ? configuredRestart!
                     : Path.Combine(root, "MYAgent.exe"));
 
-            try
-            {
-                Console.Title = "MY Agent 업데이트 중";
-            }
-            catch
-            {
-                // Console title is best effort when launched without a console.
-            }
-            Console.WriteLine("MY Agent 업데이트를 적용하는 중입니다. 이 창을 닫지 마세요.");
             InitializeLog(root);
+            Status(reportStatus, "업데이트를 준비하는 중…");
             Log($"Updater starting. verify_only={verifyOnly}");
             ValidateInputs(root, feedPath, zipPath, publicKeyPath, restartExe, verifyOnly);
 
@@ -52,6 +45,7 @@ internal static class Program
             Directory.CreateDirectory(stageRoot);
             try
             {
+                Status(reportStatus, "업데이트 파일 확인 중…");
                 var update = UpdateProtocol.VerifyAndExtract(feedPath, zipPath, publicKeyPath, stageRoot);
                 Log($"Verified update sequence={update.Sequence} version={update.Version}");
                 if (verifyOnly)
@@ -66,12 +60,16 @@ internal static class Program
                 if (current.Sequence < update.MinimumSupportedSequence)
                     throw new InvalidOperationException("Installed version is too old for this direct update.");
 
+                Status(reportStatus, "MY Agent 종료 중…", "실행 중인 앱을 안전하게 종료합니다.");
                 ProductProcessStop.StopAll(root, parentPid, Log);
+                Status(reportStatus, "업데이트 적용 중…", "파일을 교체하고 있습니다.");
                 var transaction = TransactionalInstaller.Apply(root, update);
                 Process? restarted = null;
                 try
                 {
+                    Status(reportStatus, "앱 다시 시작 중…", "MY Agent를 실행합니다.");
                     restarted = StartProduct(restartExe, root);
+                    Status(reportStatus, "시작 확인 중…", "업데이트가 정상 적용됐는지 확인합니다.");
                     if (!WaitForHealthAsync(
                             root,
                             update.Version,
@@ -81,11 +79,13 @@ internal static class Program
                         throw new InvalidOperationException("Updated application did not pass the health check.");
                     transaction.Commit();
                     Log("Update committed after health verification.");
+                    Status(reportStatus, "업데이트가 완료되었습니다.", "MY Agent가 다시 시작되었습니다.");
                     return 0;
                 }
                 catch
                 {
                     TryStop(restarted);
+                    Status(reportStatus, "업데이트를 되돌리는 중…");
                     transaction.Rollback();
                     Log("Update rolled back.");
                     try
@@ -117,6 +117,12 @@ internal static class Program
         {
             _log?.Dispose();
         }
+    }
+
+    private void Status(Action<string, string?>? reportStatus, string status, string? detail = null)
+    {
+        reportStatus?.Invoke(status, detail);
+        Log(detail is null ? status : $"{status} {detail}");
     }
 
     private static Dictionary<string, string?> ParseArgs(string[] args)
@@ -176,7 +182,7 @@ internal static class Program
         }
     }
 
-    private static void InitializeLog(string root)
+    private void InitializeLog(string root)
     {
         try
         {
@@ -198,11 +204,10 @@ internal static class Program
         }
     }
 
-    private static void Log(string message)
+    private void Log(string message)
     {
         var line = $"{DateTimeOffset.UtcNow:O} {message}";
         _log?.WriteLine(line);
-        Console.WriteLine(line);
     }
 
     private static string BuildMutexName(string root)
@@ -237,7 +242,6 @@ internal static class Program
             WorkingDirectory = root,
             UseShellExecute = true,
         }) ?? throw new InvalidOperationException("MY Agent could not be restarted.");
-        Log($"Started MY Agent process {process.Id}.");
         return process;
     }
 
@@ -248,14 +252,18 @@ internal static class Program
             return false;
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
         var deadline = DateTimeOffset.UtcNow + timeout;
+        var expectedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         while (DateTimeOffset.UtcNow < deadline)
         {
             try
             {
+                var port = ProductProcessStop.ReadListeningPort(root);
                 var health = await client.GetFromJsonAsync<JsonElement>(
-                    $"http://127.0.0.1:{installed.Port}/health");
+                    $"http://127.0.0.1:{port}/health");
                 if (health.TryGetProperty("version", out var version)
-                    && string.Equals(version.GetString(), expectedVersion, StringComparison.Ordinal))
+                    && string.Equals(version.GetString(), expectedVersion, StringComparison.Ordinal)
+                    && health.TryGetProperty("cqr_root", out var cqrRoot)
+                    && SameProductRoot(expectedRoot, cqrRoot.GetString()))
                 {
                     return true;
                 }
@@ -267,6 +275,20 @@ internal static class Program
             await Task.Delay(500);
         }
         return false;
+    }
+
+    private static bool SameProductRoot(string expectedRoot, string? actual)
+    {
+        if (string.IsNullOrWhiteSpace(actual)) return false;
+        try
+        {
+            var actualRoot = Path.GetFullPath(actual).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(expectedRoot, actualRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void TryStop(Process? process)

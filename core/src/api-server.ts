@@ -184,6 +184,13 @@ export async function createApiServer(port: number) {
 export function startApiServer(port = 10200): void {
   void (async () => {
     const server = await createApiServer(port);
+    server.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`MY Agent API port ${port} is already in use`);
+        process.exit(1);
+      }
+      throw err;
+    });
     server.listen(port, '127.0.0.1', () => {
       console.log(`MY Agent API http://127.0.0.1:${port}`);
     });

@@ -40,6 +40,8 @@ export interface AutomatonDispatchOptions {
   openclaw?: OpenClawAdapterConfig | null;
   /** On remote failure, fall back to local spawn (default true). */
   fallbackLocal?: boolean;
+  /** Product root so org overlay tools (slash commands) resolve. */
+  cqrRoot?: string;
 }
 
 let sharedSession: AutomatonMcpSession | null = null;
@@ -182,7 +184,7 @@ export async function dispatchAutomatonTool(
   configuredRoot?: string,
   options?: AutomatonDispatchOptions,
 ): Promise<AutomatonDispatchResult> {
-  if (!isAutomatonTool(matchedTool)) {
+  if (!isAutomatonTool(matchedTool, options?.cqrRoot)) {
     throw new Error(`not an automaton tool: ${matchedTool}`);
   }
 
