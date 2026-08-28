@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 12,
+    "update_sequence": 13,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T05:44:02.446Z",
+    "published_at": "2026-08-28T06:18:07.912Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-12",
+      "release_tag": "update-13",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 266848700,
-      "sha256": "626223bce3e9f017973ace7df9af1b466d27378062174cd251f0c796b946818e"
+      "size": 266848473,
+      "sha256": "3921dd7f9fa3fba20d0697cd267b02e457c6656a72a167a6431490c3483b1511"
     },
-    "payload_manifest_sha256": "a1e157230b2d297f4bbdd48ab7df47762fe460cda4bded0336e01207519ac9b6",
-    "release_notes": "같은 PC에서 10200이 이미 쓰이면 빈 로컬 포트를 고르고 남의 프로세스는 건드리지 않습니다. 슬래시 자동화는 조직 모듈 카탈로그를 봅니다. 업데이트 수락 후 셸이 종료되고 업데이터는 진행 창으로 적용합니다. 설정에서 조직 모듈 구성 요소 버전을 볼 수 있습니다."
+    "payload_manifest_sha256": "925f6ea300415681cbead66dd8d015083c9669e92800e3643a12f6dc30d7c74e",
+    "release_notes": ""
   },
-  "signature": "JuJuBhQW/yo7pU1rWPhDzhze2hKSOWPCjvyrCmjd4cKtx952anUfYaN9LOG2/NOSQDg+dQ6zMdN+ASeuoxfxLVxWBEMqDW9c0LxGqxaWn2zc7u5TVlc2Tctm3CkMQilpsxQAwILLCdA/G528EZYW210EFDREPjsqa4r/DVEoRCuo2nik0PrKfPcl47kYh9ZhN8gCNFpUE5B/Z5Mv3iQDOMp/q040+mDsfMplwg7/JhOXuTKUJrimyTM54JHj2svKwXa/jsJ7BxD0h6JFZcZJcnB7d2vmkNdnq++n3SJ/BprVqXYUjyoJo5QO8pDi9tAHBi7dGp30iCh4pxXgSuFLzCOspWtD5iGSAWlf6I2LDk1JrFhyAAQDL4uKu6vOqjo+xdtUqu25ld8rcMKCS2EfuRPkgWbqU2SPjnrVXS84dfb83cCXS7SKK6sZyX56Gbb/F6E45MzL9i80qEQkJYtf+8PYiEkiD19Q8GNF8LeSbQGRT03xZXTzsWJj3bmNBrrZ"
+  "signature": "n1ogNj3Z8Iox+5X689V66kUfGfgQARTEdzWJt1fX+k53a3VmsaFPgGWV2dR6CfIEXdK23YNPczKvbPiD+5Liex2K3q8DKSr6cS991bgxLIxmdaeEvDFkvtP5BGB+bY8PgbeTehoVJibbPeaJyj9DYBmxOYSw2F9P/YYcGH295T5vRJM9RVnOrx5kPpwRgk8x/ozBNuvECqW7Cr/bDthDYY4NTcEZ/2JGub4wi+OvHykft7mOvPHdyWyCBHImEM50fGpfsmQP+pd3ae9LMDNCv9p9vytzPolJM+fSmE8en7SVYXklQEBSNVCGmHzw4YNJ0s1ozHYP5a2rFKyiSvA7dUYZ/LPsZdv+FE4lG8AOMRctBm+gsRsAtm1QAE8MZOxg+OOSkRULZISMWaBbL3xfzUKlXqZRdLZfvyVd4kjCuGSZ6ZrJM/2mWi41bCx7qtXvOpw8Rf45CUNUgPpSbc5NfMeFXA4GKC7xsPZTz9HKYVW5hpFW+JnGdFsqlIlP9PeV"
 }
