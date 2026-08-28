@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import { loadOrganizationDeployOverrides } from './organization-deploy-overrides.js';
 
 export interface DeployDefaults {
   ollama_base_url?: string;
@@ -86,6 +87,9 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
   ) {
     doc.openclaw_gate_signing_private_key = process.env.GATE_CONTEXT_SIGNING_PRIVATE_KEY?.trim();
   }
+
+  const orgOverrides = loadOrganizationDeployOverrides(cqrRoot);
+  doc = { ...doc, ...orgOverrides };
 
   return doc;
 }

@@ -43,6 +43,9 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
 
 {
   assert.equal(resolveOpenClawWorkflow('organization-tool'), null);
+  const { resetOpenClawWorkflowMapCache } = await import('../core/dist/automaton/openclaw-workflow-map.js');
+  resetOpenClawWorkflowMapCache();
+  assert.ok(resolveOpenClawWorkflow('amazon_return_manager_direct', root));
 }
 
 {

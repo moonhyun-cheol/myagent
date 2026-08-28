@@ -14,11 +14,13 @@ import { resolveAutomatonToolTimeoutMs } from './timeouts.js';
 export interface OpenClawAdapterConfig {
   baseUrl: string;
   token: string;
-  /** Optional signing key for POST /adapter/request. */
+  /** Optional legacy client-side signing — prefer empty + /cqr/adapter/request. */
   signingPrivateKeyHex?: string;
   actorId?: string;
   guildId?: string;
   channelId?: string;
+  /** Prefer server-signed /cqr/adapter/request (default true). */
+  useCqrEntry?: boolean;
   enabled?: boolean;
 }
 
@@ -29,6 +31,7 @@ export function resolveOpenClawAdapterConfig(input: {
   actorId?: string;
   guildId?: string;
   channelId?: string;
+  useCqrEntry?: boolean;
   cqrRoot?: string;
   vaultDir?: string;
 }): OpenClawAdapterConfig | null {
@@ -60,9 +63,10 @@ export function resolveOpenClawAdapterConfig(input: {
     baseUrl,
     token,
     signingPrivateKeyHex: signingPrivateKeyHex || undefined,
-    actorId: process.env.MY_AGENT_OPENCLAW_ACTOR_ID?.trim() || input.actorId || 'my-agent',
-    guildId: process.env.MY_AGENT_OPENCLAW_GUILD_ID?.trim() || input.guildId || 'my-agent',
-    channelId: process.env.MY_AGENT_OPENCLAW_CHANNEL_ID?.trim() || input.channelId || 'my-agent-chat',
+    actorId: process.env.MY_AGENT_OPENCLAW_ACTOR_ID?.trim() || input.actorId || 'cqr-pa',
+    guildId: process.env.MY_AGENT_OPENCLAW_GUILD_ID?.trim() || input.guildId || 'cqr-pa',
+    channelId: process.env.MY_AGENT_OPENCLAW_CHANNEL_ID?.trim() || input.channelId || 'cqr-pa-chat',
+    useCqrEntry: input.useCqrEntry !== false,
     enabled: true,
   };
 }
@@ -94,7 +98,8 @@ function buildRawRequest(
   workflowToolId: string;
   taskProfileId: string;
 } {
-  const workflow = resolveOpenClawWorkflow(toolId);
+  const cqrRoot = process.env.MY_AGENT_ROOT?.trim();
+  const workflow = resolveOpenClawWorkflow(toolId, cqrRoot);
   if (!workflow) {
     throw new AutomatonDispatchError(
       'MCP_SPAWN_FAILED',
@@ -102,7 +107,7 @@ function buildRawRequest(
     );
   }
 
-  const requestId = `req-${randomUUID()}`;
+  const requestId = `cqr-${randomUUID()}`;
   const transactionId = `txn-${randomUUID()}`;
   const requestedText = message.trim();
   const args = {
@@ -119,10 +124,10 @@ function buildRawRequest(
     rawRequest: {
       transaction_id: transactionId,
       request_id: requestId,
-      actor_id: cfg.actorId ?? 'my-agent',
-      platform: 'my_agent',
-      guild_id: cfg.guildId ?? 'my-agent',
-      channel_id: cfg.channelId ?? 'my-agent-chat',
+      actor_id: cfg.actorId ?? 'cqr-pa',
+      platform: 'cqr_pa',
+      guild_id: cfg.guildId ?? 'cqr-pa',
+      channel_id: cfg.channelId ?? 'cqr-pa-chat',
       actor_tier: 'operator',
       task_profile_id: workflow.task_profile_id,
       tool_id: workflow.tool_id,
@@ -135,13 +140,13 @@ function buildRawRequest(
       requested_scope: {},
       dispatch: {
         execution_plan_id: `plan-${randomUUID()}`,
-        operation_fingerprint: 'my-agent-automaton',
+        operation_fingerprint: 'cqr-pa-automaton',
         approval_token_ref: 'n/a',
       },
       response: {
         response_receipt_id: randomUUID(),
         created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        binding_hash: 'my-agent',
+        binding_hash: 'cqr-pa',
       },
       desired_transition: 'complete',
       reconciliation_verdict: 'pass',
@@ -248,29 +253,41 @@ export async function dispatchAutomatonToolRemote(
   options?: AutomatonDispatchOptions,
 ): Promise<AutomatonDispatchResult> {
   const built = buildRawRequest(matchedTool, message, cfg);
+  const useCqrEntry = cfg.useCqrEntry !== false;
   const timeoutMs = resolveAutomatonToolTimeoutMs(matchedTool);
 
-  const url = `${cfg.baseUrl}/adapter/request`;
-  const body: Record<string, unknown> = {
-    raw_request: built.rawRequest,
-    callback_url: '',
-    token_refs: [],
-  };
-  if (cfg.signingPrivateKeyHex) {
+  let url: string;
+  let body: Record<string, unknown>;
+
+  if (useCqrEntry || !cfg.signingPrivateKeyHex) {
+    url = `${cfg.baseUrl}/cqr/adapter/request`;
+    body = {
+      raw_request: built.rawRequest,
+      callback_url: '',
+      token_refs: [],
+    };
+    options?.onStatus?.('OpenClaw CQR Adapter (:8790) 요청 중…');
+  } else {
     const gatePayload = buildGateCommandContextPayload({
       requestId: built.requestId,
       transactionId: built.transactionId,
-      actorId: cfg.actorId ?? 'my-agent',
+      actorId: cfg.actorId ?? 'cqr-pa',
       guildId: cfg.guildId,
       channelId: cfg.channelId,
       taskProfileId: built.taskProfileId,
       toolId: built.workflowToolId,
       ttlSeconds: 3_600,
-      platform: 'my_agent',
+      platform: 'cqr_pa',
     });
-    body.gate_command_context = signGateCommandContext(gatePayload, cfg.signingPrivateKeyHex);
+    url = `${cfg.baseUrl}/adapter/request`;
+    body = {
+      raw_request: built.rawRequest,
+      callback_url: '',
+      token_refs: [],
+      gate_command_context: signGateCommandContext(gatePayload, cfg.signingPrivateKeyHex),
+    };
+    options?.onStatus?.('OpenClaw Adapter (:8790) 요청 중…');
   }
-  options?.onStatus?.('OpenClaw Adapter 요청 중…');
 
   options?.onThought?.(`request_id=${built.requestId} tool=${matchedTool} url=${url}`);
 
@@ -304,10 +321,10 @@ export async function dispatchAutomatonToolRemote(
   if (res.status === 401) {
     throw new AutomatonDispatchError('MCP_SPAWN_FAILED', 'OpenClaw Adapter unauthorized (token)');
   }
-  if (res.status === 404) {
+  if (res.status === 404 && useCqrEntry) {
     throw new AutomatonDispatchError(
       'MCP_SPAWN_FAILED',
-      'OpenClaw /adapter/request 없음 — Adapter API를 최신으로 재기동하세요',
+      'OpenClaw /cqr/adapter/request 없음 — Adapter API를 최신으로 재기동하세요',
     );
   }
   if (res.status === 403) {
