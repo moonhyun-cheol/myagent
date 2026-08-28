@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-26T07:34:27.133Z",
+  "generated_at": "2026-08-28T03:02:56.191Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
@@ -19,7 +19,7 @@
     "confirm_dialog_helper": "ui/workspace/src/lib/confirmDialog.ts",
     "nav_sidebar": "ui/workspace/src/components/GeminiNavSidebar.tsx",
     "projects_tree": "ui/workspace/src/components/ProjectsTree.tsx",
-    "nav_uses_confirm_dialog": true,
+    "nav_uses_confirm_dialog": false,
     "nav_uses_window_confirm": false,
     "tree_uses_confirm_dialog": true
   },
