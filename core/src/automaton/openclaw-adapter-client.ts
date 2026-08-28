@@ -40,16 +40,16 @@ export function resolveOpenClawAdapterConfig(input: {
   const vault = vaultDir ? readOpenClawAdapterVault(vaultDir) : null;
   const baseUrl = (
     process.env.OPENCLAW_ADAPTER_BASE_URL?.trim()
-    || input.baseUrl?.trim()
     || vault?.base_url?.trim()
+    || input.baseUrl?.trim()
     || ''
   ).replace(/\/+$/, '');
   const token = (
     process.env.OPENCLAW_ADAPTER_TOKEN?.trim()
     || process.env.MAIN_API_TOKEN?.trim()
     || process.env.MANAGER_API_TOKEN?.trim()
-    || input.token?.trim()
     || vault?.token?.trim()
+    || input.token?.trim()
     || ''
   );
   const signingPrivateKeyHex = (

@@ -50,7 +50,6 @@ import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool } from '../automaton/adapter.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
-import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
@@ -182,20 +181,9 @@ export class ChatOrchestrator {
         vaultDir,
       });
     let openclaw = resolveOpenclaw();
-    if (defaults.openclaw_adapter_base_url?.trim() && !openclaw) {
-      options?.onStatus?.('OpenClaw 토큰을 활성화 서버에서 받는 중…');
-      const pulled = await ensureOpenClawAdapterVault(this.cqrRoot, vaultDir);
-      openclaw = resolveOpenclaw();
-      if (!openclaw) {
-        const hint = pulled.error ? ` (${pulled.error})` : '';
-        throw new Error(
-          `OpenClaw URL은 있으나 토큰이 없습니다${hint}. 활성화 서버(${defaults.activation_server_url ?? '미설정'})가 켜져 있는지 확인하거나, data/vault/openclaw-adapter.json 에 {"token":"..."} 또는 env OPENCLAW_ADAPTER_TOKEN 을 넣으세요.`,
-        );
-      }
-    }
     if (!openclaw && !automatonRoot) {
       throw new Error(
-        'Automaton not configured — set openclaw_adapter_base_url + OPENCLAW_ADAPTER_TOKEN (or data/vault/openclaw-adapter.json), or LIVE_AUTOMATON_ROOT',
+        'Automaton not configured — data/vault/openclaw-adapter.json 에 {"base_url":"http://ADAPTER-PC:8790","token":"..."} 또는 env OPENCLAW_ADAPTER_BASE_URL + OPENCLAW_ADAPTER_TOKEN',
       );
     }
     const progressFile = automatonRoot

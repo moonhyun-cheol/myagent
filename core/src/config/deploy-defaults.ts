@@ -53,6 +53,10 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
     }
   }
 
+  // File defaults < organization overlay < env (tests/operators can disable activation).
+  const orgOverrides = loadOrganizationDeployOverrides(cqrRoot);
+  doc = { ...doc, ...orgOverrides };
+
   // Windows drops env vars set to an empty string across process spawns, so an explicit
   // sentinel is the only reliable way for callers (verify scripts, offline runs) to turn
   // central activation off.
@@ -85,9 +89,6 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
   ) {
     doc.openclaw_gate_signing_private_key = process.env.GATE_CONTEXT_SIGNING_PRIVATE_KEY?.trim();
   }
-
-  const orgOverrides = loadOrganizationDeployOverrides(cqrRoot);
-  doc = { ...doc, ...orgOverrides };
 
   return doc;
 }
