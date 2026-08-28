@@ -621,7 +621,7 @@ public partial class MainWindow : Window
         _trayIcon = null;
     }
 
-    private void RestoreFromTray()
+    internal void RestoreFromTray()
     {
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
