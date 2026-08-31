@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 15,
+    "update_sequence": 16,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-31T00:57:27.459Z",
+    "published_at": "2026-08-31T01:42:38.798Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-15",
+      "release_tag": "update-16",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 266852768,
-      "sha256": "ea34ddf05f1164e3f9edf56493177f4b5a41e60181b82fbda4012d653d90c63a"
+      "size": 266853974,
+      "sha256": "c0b25c5f437242d8fda58ab69bbe217908ff0c844e63b2d67624458c4b69dfa9"
     },
-    "payload_manifest_sha256": "12cb2e8de67b53748b1cbb0e0b972d85a55f5095ad2cbe65ba893d421dd470d1",
-    "release_notes": ""
+    "payload_manifest_sha256": "fb5a65610c9360ad6b6054be67be9fdabb5aa733f94db94e154bd3b887d453e2",
+    "release_notes": "OpenClaw slash jobs attach the local NOPSPro user so /CTR results arrive as 쪽지. Adapter failures now surface in chat instead of stopping at the ACK."
   },
-  "signature": "uMylRq5nUw+KaXmG/Abl4vO+mtemB5OSkBGeBzxUH7SRimufgF4x+Otv8PFQc6I0bNC6zEDMhckdhcizGAV4s//JQ/rXRXKU8flt+nVIC2M4nkdKDuyM2RVnIq69RIbRF6/c3CP6ZbaZEiQqLYWhC2FO9sUnuv09kGpfZtloVICTenfq5mMUs89cnsDZZ8XsPfOp9BxcJ8HQ6Joaqn9fUSNMHVQi+87pv4cBqfJJJe9bmvYmR2xW/bJpxAhFBObWmuf4VDmmEh8oNRbXyBLQDQceAB1FlnyYpCuLTdeK6+zzZriKgI6m3ZdmemBntp19OZzqvBuTO/D3FX+KlBb5c2dB3vNLFrnXvm2H/cy46ViKWFjs5PnY9cdq1Q+BPUOr5yyCGlW08nH5Cu2LOen2GPc2+w8bwvHaXsIdWJt81kGwK3b53xaYlcU81AcZbe8ky5rJ0gN3NPkuK2QgtNYz8VxWaB7nk/ASMho0UCmHZs0A+Rgitqr7+HlFd9dZiTDf"
+  "signature": "cLbRbioxebP517idC/R83dbkaH6Gqo2BvmtFsx7q6L0hfyvMVQh7wN8uK1otlfZDl36yuLFxU/QfbNfBYC788YSXaRPzT8SyuvaDf4ePBsU1YPfkzmglFDooiAuCOZYN7g65HtnjMkC0THXm2Nv9gEqBxAqyXPfnyFW8e6bWzFqQ1gh2oCKYZojiCEs9Aq8doSk8WqmEXMGdtZ6vT21RVFUDuia8AQ4ctvNDkhq+pcDAtMxXhRHoFCcexQX1mr4wtpvI0TD/lZ5DAnRPKgSBib5tQIDc5NY0CH0isC9R/ZSxFzeEuNa04Nc/68Cpg7L5Hg4OQXummt1cP14pnyurmw9jv80GjKNFVS5sX50wFcRy2VjQ21u9lW4OFPqHfbjpi2YLs4AZvdSx5wcS/Jf3e75Kl8l5HRjIkACimCjnoe4cUfVzo0xAITQEn9AbqDrhz7IPVFX8Cg3yY1uy65onZ0yPzz2BbqY22F4vgJpA5NICF5Ahj5/LsqQRZ9R1DJ7R"
 }
