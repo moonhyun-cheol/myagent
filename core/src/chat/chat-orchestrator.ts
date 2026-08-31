@@ -49,7 +49,10 @@ import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool, AUTOMATON_UNCONFIGURED_MESSAGE } from '../automaton/adapter.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
+import { automatonBackgroundNeedsChatFollowUp } from '../automaton/format-result.js';
+import { readLocalNopsUserId } from '../automaton/local-nops-user-id.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
+import { resolveOpenClawWorkflow } from '../automaton/openclaw-workflow-map.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
@@ -194,11 +197,36 @@ export class ChatOrchestrator {
         model: 'automaton/error',
       };
     }
+    if (openclaw && !resolveOpenClawWorkflow(tool, this.cqrRoot)) {
+      const content = [
+        '**업무 명령 실행 실패**',
+        '',
+        `접수: \`${message.trim()}\``,
+        `OpenClaw remote map 없음: ${tool}`,
+      ].join('\n');
+      this.sessionStore.append(sessionId, {
+        role: 'assistant',
+        content,
+        at: new Date().toISOString(),
+        model: 'automaton/error',
+        mode: 'automaton_direct',
+      });
+      return {
+        role: 'assistant',
+        content,
+        mode: 'automaton_direct',
+        routing,
+        model: 'automaton/error',
+      };
+    }
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)
       : undefined;
-    const ack = buildAutomatonAckContent(message, tool);
-    options?.onStatus?.('접수됨 — 회신은 놉스 프로 쪽지');
+    const nopsUserId = readLocalNopsUserId();
+    const ack = buildAutomatonAckContent(message, tool, { nopsUserId });
+    options?.onStatus?.(
+      nopsUserId ? '접수됨 — 회신은 놉스 프로 쪽지' : '접수됨 — 쪽지 수신자 없음, 결과는 이 대화에 남김',
+    );
     this.sessionStore.append(sessionId, {
       role: 'assistant',
       content: ack,
@@ -237,13 +265,39 @@ export class ChatOrchestrator {
     },
   ): Promise<void> {
     try {
-      await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
+      const result = await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
         progressFile: job.progressFile,
         openclaw: job.openclaw,
         preferRemote: Boolean(job.openclaw),
         fallbackLocal: job.fallbackLocal,
         cqrRoot: job.cqrRoot,
       });
+      const nopsUserId = readLocalNopsUserId();
+      if (!automatonBackgroundNeedsChatFollowUp(result.envelope, nopsUserId)) return;
+      const status = String(result.envelope?.status ?? '').trim().toLowerCase();
+      const quietOk = ['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(status);
+      const content = quietOk && !nopsUserId
+        ? [
+          '**쪽지 수신자를 찾지 못했습니다.** 실행 결과를 이 대화에 표시합니다.',
+          '',
+          result.content,
+        ].join('\n')
+        : result.content;
+      this.sessionStore.append(sessionId, {
+        role: 'assistant',
+        content,
+        at: new Date().toISOString(),
+        model: `automaton/${job.tool}`,
+        mode: 'automaton_direct',
+      });
+      if (!quietOk) {
+        this.autoReportError({
+          subject: 'MY Agent 오류 [automaton_direct]',
+          summary: content,
+          mode: 'automaton_direct',
+          rawError: status || content.slice(0, 500),
+        });
+      }
     } catch (err: unknown) {
       const content = [
         '**업무 명령 실행 실패**',

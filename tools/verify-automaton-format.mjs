@@ -10,6 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
   formatAutomatonEnvelope,
   pickAutomatonUserFacingText,
+  automatonBackgroundNeedsChatFollowUp,
 } = await import(pathToFileURL(path.join(root, 'core/dist/automaton/format-result.js')).href);
 
 const samplePayload = {
@@ -68,5 +69,9 @@ assert.ok(body.length > 120, 'body has business content');
   assert.doesNotMatch(cleaned, /completed successfully/);
   assert.doesNotMatch(cleaned, /작업 실행 결과/);
 }
+
+assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'ok' }, 'JEWEL9505'), false);
+assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'ok' }, ''), true);
+assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'denied' }, 'JEWEL9505'), true);
 
 console.log('verify-automaton-format: ok');

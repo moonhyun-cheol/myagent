@@ -7,6 +7,7 @@ import {
   buildGateCommandContextPayload,
   signGateCommandContext,
 } from './openclaw-gate-context.js';
+import { attachLocalNopsUserId } from './local-nops-user-id.js';
 import { readOpenClawAdapterVault } from './openclaw-adapter-vault.js';
 import { resolveOpenClawWorkflow } from './openclaw-workflow-map.js';
 import { resolveAutomatonToolTimeoutMs } from './timeouts.js';
@@ -87,10 +88,17 @@ export async function probeOpenClawAdapterHealth(baseUrl: string): Promise<{
   }
 }
 
-function buildRawRequest(
+export interface OpenClawRawRequestBuildOptions {
+  cqrRoot?: string;
+  /** Test injection. Production omits this and reads the local NOPSPro login. */
+  nopsUserId?: string;
+}
+
+export function buildOpenClawRawRequest(
   toolId: string,
   message: string,
   cfg: OpenClawAdapterConfig,
+  options?: OpenClawRawRequestBuildOptions,
 ): {
   rawRequest: Record<string, unknown>;
   requestId: string;
@@ -98,7 +106,7 @@ function buildRawRequest(
   workflowToolId: string;
   taskProfileId: string;
 } {
-  const cqrRoot = process.env.MY_AGENT_ROOT?.trim();
+  const cqrRoot = options?.cqrRoot?.trim() || process.env.MY_AGENT_ROOT?.trim() || '';
   const workflow = resolveOpenClawWorkflow(toolId, cqrRoot);
   if (!workflow) {
     throw new AutomatonDispatchError(
@@ -116,41 +124,44 @@ function buildRawRequest(
     manager_request_text: requestedText,
   };
 
+  const rawRequest: Record<string, unknown> = {
+    transaction_id: transactionId,
+    request_id: requestId,
+    actor_id: cfg.actorId ?? 'cqr-pa',
+    platform: 'cqr_pa',
+    guild_id: cfg.guildId ?? 'cqr-pa',
+    channel_id: cfg.channelId ?? 'cqr-pa-chat',
+    actor_tier: 'operator',
+    task_profile_id: workflow.task_profile_id,
+    tool_id: workflow.tool_id,
+    approval_token: '',
+    approval_token_ref: '',
+    incident_reference: '',
+    args,
+    requested_text: requestedText,
+    token_scope: {},
+    requested_scope: {},
+    dispatch: {
+      execution_plan_id: `plan-${randomUUID()}`,
+      operation_fingerprint: 'cqr-pa-automaton',
+      approval_token_ref: 'n/a',
+    },
+    response: {
+      response_receipt_id: randomUUID(),
+      created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      binding_hash: 'cqr-pa',
+    },
+    desired_transition: 'complete',
+    reconciliation_verdict: 'pass',
+  };
+  attachLocalNopsUserId(rawRequest, args, options?.nopsUserId);
+
   return {
     requestId,
     transactionId,
     workflowToolId: workflow.tool_id,
     taskProfileId: workflow.task_profile_id,
-    rawRequest: {
-      transaction_id: transactionId,
-      request_id: requestId,
-      actor_id: cfg.actorId ?? 'cqr-pa',
-      platform: 'cqr_pa',
-      guild_id: cfg.guildId ?? 'cqr-pa',
-      channel_id: cfg.channelId ?? 'cqr-pa-chat',
-      actor_tier: 'operator',
-      task_profile_id: workflow.task_profile_id,
-      tool_id: workflow.tool_id,
-      approval_token: '',
-      approval_token_ref: '',
-      incident_reference: '',
-      args,
-      requested_text: requestedText,
-      token_scope: {},
-      requested_scope: {},
-      dispatch: {
-        execution_plan_id: `plan-${randomUUID()}`,
-        operation_fingerprint: 'cqr-pa-automaton',
-        approval_token_ref: 'n/a',
-      },
-      response: {
-        response_receipt_id: randomUUID(),
-        created_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        binding_hash: 'cqr-pa',
-      },
-      desired_transition: 'complete',
-      reconciliation_verdict: 'pass',
-    },
+    rawRequest,
   };
 }
 
@@ -252,7 +263,9 @@ export async function dispatchAutomatonToolRemote(
   cfg: OpenClawAdapterConfig,
   options?: AutomatonDispatchOptions,
 ): Promise<AutomatonDispatchResult> {
-  const built = buildRawRequest(matchedTool, message, cfg);
+  const built = buildOpenClawRawRequest(matchedTool, message, cfg, {
+    cqrRoot: options?.cqrRoot,
+  });
   const useCqrEntry = cfg.useCqrEntry !== false;
   const timeoutMs = resolveAutomatonToolTimeoutMs(matchedTool);
 

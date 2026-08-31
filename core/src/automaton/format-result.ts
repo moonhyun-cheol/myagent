@@ -244,3 +244,25 @@ export function formatAutomatonEnvelope(
 
   return lines.join('\n');
 }
+
+const AUTOMATON_QUIET_STATUSES = new Set([
+  'ok',
+  'success',
+  'completed',
+  'accepted',
+  'queued',
+  'running',
+]);
+
+/**
+ * Background slash jobs ACK immediately. Chat must still get a follow-up when
+ * the adapter failed, or when NOPSPro 쪽지 has no recipient.
+ */
+export function automatonBackgroundNeedsChatFollowUp(
+  envelope: Record<string, unknown> | undefined,
+  nopsUserId?: string,
+): boolean {
+  const status = String(envelope?.status ?? '').trim().toLowerCase();
+  if (!status || !AUTOMATON_QUIET_STATUSES.has(status)) return true;
+  return !String(nopsUserId ?? '').trim();
+}
