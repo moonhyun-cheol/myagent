@@ -47,14 +47,14 @@ import {
 import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
-import { dispatchAutomatonTool } from '../automaton/adapter.js';
+import { dispatchAutomatonTool, AUTOMATON_UNCONFIGURED_MESSAGE } from '../automaton/adapter.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
-import { peekAutomatonIntent, automatonIntentToRoute } from '../router/automaton-intent.js';
+import { resolveSlashRoute, SLASH_COMMAND_UNREGISTERED_MESSAGE } from '../router/automaton-intent.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -122,14 +122,9 @@ export class ChatOrchestrator {
     };
 
     // Slash commands are structural input, not natural-language keyword routing.
-    const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message, this.cqrRoot) : null;
-    const quickAutomaton = peek ? automatonIntentToRoute(peek) : null;
-    if (quickAutomaton && peek) {
-      return {
-        routing: quickAutomaton,
-        automatonText: peek.commandText ?? message,
-      };
-    }
+    // 미등록 slash도 automaton_direct로 고정해 LLM(chat/web_dev)으로 폴백하지 않는다.
+    const slashRoute = resolveSlashRoute(message, this.cqrRoot);
+    if (slashRoute) return slashRoute;
 
     // Structured API modes remain available, but the removed UI code mode has
     // no special branch. Workspace association selects the agent plane.
@@ -151,7 +146,7 @@ export class ChatOrchestrator {
   ): Promise<ChatResponse> {
     const tool = routing.matched_tool;
     if (!tool || !isAutomatonTool(tool, this.cqrRoot)) {
-      const content = '**automaton 라우팅 오류** — direct command tool을 찾지 못했습니다.';
+      const content = SLASH_COMMAND_UNREGISTERED_MESSAGE;
       this.sessionStore.append(sessionId, {
         role: 'assistant',
         content,
@@ -182,9 +177,22 @@ export class ChatOrchestrator {
       });
     let openclaw = resolveOpenclaw();
     if (!openclaw && !automatonRoot) {
-      throw new Error(
-        'Automaton not configured — data/vault/openclaw-adapter.json 에 {"base_url":"http://ADAPTER-PC:8790","token":"..."} 또는 env OPENCLAW_ADAPTER_BASE_URL + OPENCLAW_ADAPTER_TOKEN',
-      );
+      // 실행 통로가 없으면 LLM 폴백 없이 미설정 안내로 종료한다 (throw → SSE 오류 대신 정상 응답).
+      const content = AUTOMATON_UNCONFIGURED_MESSAGE;
+      this.sessionStore.append(sessionId, {
+        role: 'assistant',
+        content,
+        at: new Date().toISOString(),
+        model: 'automaton/error',
+        mode: 'automaton_direct',
+      });
+      return {
+        role: 'assistant',
+        content,
+        mode: 'automaton_direct',
+        routing,
+        model: 'automaton/error',
+      };
     }
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)

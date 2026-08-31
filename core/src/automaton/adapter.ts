@@ -25,6 +25,10 @@ import {
   type OpenClawAdapterConfig,
 } from './openclaw-adapter-client.js';
 
+/** 실행 통로(OpenClaw 어댑터/로컬 automaton) 미설정 안내 — LLM 폴백 대신 이 메시지로 종료한다. */
+export const AUTOMATON_UNCONFIGURED_MESSAGE =
+  '**automaton 미설정** — 실행 통로(OpenClaw 어댑터 또는 로컬 automaton)가 없습니다. data/vault/openclaw-adapter.json 에 {"base_url":"http://ADAPTER-PC:8790","token":"..."} 를 넣거나 env OPENCLAW_ADAPTER_BASE_URL + OPENCLAW_ADAPTER_TOKEN 을 설정하세요.';
+
 export interface AutomatonDispatchResult {
   tool: string;
   envelope: Record<string, unknown>;

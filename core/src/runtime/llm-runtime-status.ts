@@ -2,6 +2,7 @@ import type { ProviderStore } from '../providers/provider-store.js';
 import { loadUserOverrides } from '../config/user-overrides.js';
 import { resolveCodeAgentProvider } from '../chat/modes/workspace-agent.js';
 import { prefersClientToolProtocol } from '../agent/code-agent.js';
+import { resolveInstalledOllamaModel } from '../providers/ollama-models.js';
 
 export interface OllamaRuntimeProbe {
   configured: boolean;
@@ -43,14 +44,6 @@ export interface LlmRuntimeStatus {
   warnings: string[];
 }
 
-function ollamaModelInstalled(models: string[], modelId: string): boolean {
-  const want = modelId.trim();
-  if (!want) return false;
-  if (models.includes(want)) return true;
-  const base = want.split(':')[0];
-  return models.some((m) => m === want || m.startsWith(`${base}:`));
-}
-
 async function probeOllama(
   providerStore: ProviderStore,
 ): Promise<OllamaRuntimeProbe> {
@@ -85,7 +78,8 @@ async function probeOllama(
     const names = (data.models ?? [])
       .map((m) => m.name)
       .filter((n): n is string => Boolean(n));
-    const installed = ollamaModelInstalled(names, modelId);
+    const remapped = resolveInstalledOllamaModel(modelId, names);
+    const installed = Boolean(remapped);
     return {
       configured: true,
       base_url: resolved.baseUrl,
@@ -94,9 +88,11 @@ async function probeOllama(
       model_installed: installed,
       model_count: names.length,
       models_sample: names.slice(0, 8),
-      note: installed
-        ? `OK · ${names.length} models`
-        : `reachable but model '${modelId}' not found (${names.length} installed)`,
+      note: remapped && remapped !== modelId
+        ? `OK · '${modelId}' → '${remapped}'`
+        : installed
+          ? `OK · ${names.length} models`
+          : `reachable but model '${modelId}' not found (${names.length} installed)`,
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

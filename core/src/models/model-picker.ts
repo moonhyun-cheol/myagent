@@ -17,6 +17,11 @@ import {
   type CuratedModel,
   type ModeHint,
 } from '../providers/remote-model-curate.js';
+import {
+  listOllamaModelNames,
+  peekCachedOllamaModelNames,
+  resolveInstalledOllamaModel,
+} from '../providers/ollama-models.js';
 
 export interface ModelPickerOption {
   value: string;
@@ -101,6 +106,42 @@ export function parseProviderPreference(
     providerId: rest.slice(0, at),
     modelId: decodeURIComponent(rest.slice(at + 1)),
   };
+}
+
+function ollamaPickerOptions(
+  providerId: string,
+  providerName: string,
+  installed: string[],
+  fallbackModel?: string,
+): ModelPickerOption[] {
+  const names = installed.length ? installed : (fallbackModel?.trim() ? [fallbackModel.trim()] : []);
+  return names.map((model) => ({
+    value: encodeProviderModelPick(providerId, model),
+    label: `${providerName} · ${model}`,
+    kind: 'provider',
+    access_mode: 'local',
+    provider_id: providerId,
+    configured: true,
+  }));
+}
+
+async function listInstalledOllamaNames(providerStore: ProviderStore): Promise<string[]> {
+  const resolved = providerStore.resolveProvider('ollama');
+  if (!resolved) return peekCachedOllamaModelNames();
+  return listOllamaModelNames(resolved.baseUrl);
+}
+
+function remapOllamaModelId(
+  providerStore: ProviderStore,
+  providerId: string,
+  modelId?: string,
+): string | undefined {
+  if (providerId !== 'ollama') return modelId;
+  const resolved = providerStore.resolveProvider('ollama', modelId);
+  const installed = peekCachedOllamaModelNames(resolved?.baseUrl);
+  if (!installed.length) return modelId;
+  const configured = modelId?.trim() || resolved?.modelId || '';
+  return resolveInstalledOllamaModel(configured, installed) ?? modelId;
 }
 
 function getCachedCurated(providerId: string): CuratedModel[] {
@@ -191,6 +232,13 @@ export async function buildModelPicker(
   if (!localOnly) {
     for (const def of catalog) {
       if (!configured.has(def.id)) continue;
+      if (def.id === 'ollama') {
+        const secret = providerStore.getSecret(def.id);
+        const fallback = secret?.model_id || def.default_model;
+        const installed = await listInstalledOllamaNames(providerStore);
+        options.push(...ollamaPickerOptions(def.id, def.name, installed, fallback));
+        continue;
+      }
       // Matrix-only still allows personal OpenAI-compatible endpoints the user registered.
       if (
         matrixPickerOnly
@@ -288,6 +336,13 @@ export async function buildModelPicker(
     for (const def of catalog) {
       if (!configured.has(def.id)) continue;
       if (!isProviderAllowedLocalOnly(def.id, catalog)) continue;
+      if (def.id === 'ollama') {
+        const secret = providerStore.getSecret(def.id);
+        const fallback = secret?.model_id || def.default_model;
+        const installed = await listInstalledOllamaNames(providerStore);
+        options.push(...ollamaPickerOptions(def.id, def.name, installed, fallback));
+        continue;
+      }
       const secret = providerStore.getSecret(def.id);
       const model = secret?.model_id || def.default_model;
       if (!model) continue;
@@ -340,7 +395,11 @@ function resolveAutoProviderModel(
   const def = providerStore.getDefinition(defaultProvider);
   if (!def?.custom) {
     const secret = providerStore.getSecret(defaultProvider);
-    const model = secret?.model_id || def?.default_model;
+    const model = remapOllamaModelId(
+      providerStore,
+      defaultProvider,
+      secret?.model_id || def?.default_model,
+    );
     const resolved = providerStore.resolveProvider(defaultProvider, model || undefined);
     if (!resolved) return null;
     return {
@@ -418,6 +477,10 @@ export async function resolveChatModelAsync(
   if ((preference === 'auto' || !preference) && opts?.mode && !localOnly) {
     await warmRemoteModelCache(providerStore);
   }
+  if (preference === 'auto' || !preference || preference.startsWith('provider:ollama')) {
+    const ollama = providerStore.resolveProvider('ollama');
+    if (ollama) await listOllamaModelNames(ollama.baseUrl);
+  }
   return resolveChatModel(preference, registry, overrides, providerStore, opts);
 }
 
@@ -439,7 +502,8 @@ export function resolveChatModel(
     if (localOnly && !isProviderAllowedLocalOnly(providerId, providerStore.listDefinitions())) {
       return null;
     }
-    const resolved = providerStore.resolveProvider(providerId, modelOverride);
+    const modelId = remapOllamaModelId(providerStore, providerId, modelOverride);
+    const resolved = providerStore.resolveProvider(providerId, modelId);
     if (!resolved) return null;
     return {
       display: `${resolved.def.name}/${resolved.modelId}`,
