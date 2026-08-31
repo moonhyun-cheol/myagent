@@ -26,6 +26,8 @@ export interface WorkspaceNode {
   kind: ProjectKind;
   parent_id?: string | null;
   folder_path?: string | null;
+  /** Accessible palette id used by workspace/project labels. */
+  color?: ProjectColor | null;
   created_at: string;
   updated_at: string;
   sessions: SessionSummary[];

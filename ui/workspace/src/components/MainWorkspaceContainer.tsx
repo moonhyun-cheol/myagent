@@ -13,13 +13,15 @@ import {
   syncMinimizeToTrayOnClose,
 } from '../lib/appPreferences';
 import { ChatPane } from './ChatPane';
-import { GeminiNavSidebar } from './GeminiNavSidebar';
+import { GeminiNavSidebar, type AppSurface } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
 import { MediaPane } from './MediaPane';
 import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
+import { SchedulerSurface } from './SchedulerSurface';
 import { TerminalPane } from './TerminalPane';
+import { MutateReviewPane } from './MutateReviewPane';
 import { WorkspaceObjectsPane, type TodoProgressItem } from './WorkspaceObjectsPane';
 
 const PREVIEW_MODES: { id: WorkspaceMode; label: string; icon: typeof Browser }[] = [
@@ -110,6 +112,7 @@ function PreviewBody() {
   const mode = useWorkspaceStore((s) => s.mode);
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
+  const pendingMutateReview = useWorkspaceStore((s) => s.pendingMutateReview);
   const todoItems = useMemo<TodoProgressItem[]>(() => {
     // To-do는 도구 호출 기록이 아니라 모델이 답변에서 구분한 과제·목표를 보여준다.
     const sourceTurn = [...chat]
@@ -305,7 +308,13 @@ function PreviewBody() {
         {previewDisplayActions}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} /> : null}
+        {mode === 'objects' ? (
+          pendingMutateReview ? (
+            <MutateReviewPane />
+          ) : (
+            <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} />
+          )
+        ) : null}
         {mode === 'canvas' ? <MultiModalCanvas /> : null}
         {mode === 'media' ? <MediaPane /> : null}
         {mode === 'browser' ? <BrowserPane /> : null}
@@ -487,6 +496,7 @@ export function MainWorkspaceContainer() {
   }, []);
   const previewPaneOpen = useWorkspaceStore((s) => s.previewPaneOpen);
   const setMode = useWorkspaceStore((s) => s.setMode);
+  const [activeSurface, setActiveSurface] = useState<AppSurface>('chat');
   const detachedMode = new URLSearchParams(window.location.search).get('preview') as WorkspaceMode | null;
 
   useEffect(() => {
@@ -506,24 +516,33 @@ export function MainWorkspaceContainer() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-ink text-text">
       <div className="flex min-h-0 flex-1">
-        <GeminiNavSidebar />
+        <GeminiNavSidebar
+          activeSurface={activeSurface}
+          onSurfaceChange={setActiveSurface}
+          automationUnreadCount={0}
+        />
         <div className="min-h-0 min-w-0 flex-1">
-          {previewPaneOpen ? (
-            <ResizableSplit
-              className="h-full"
-              axis="horizontal"
-              initial={420}
-              min={280}
-              max={900}
-              reverse
-              first={<ChatPane />}
-              second={<PreviewPane />}
-            />
-          ) : (
-            <div className="h-full min-w-0">
-              <ChatPane />
-            </div>
-          )}
+          <div className={activeSurface === 'chat' ? 'h-full min-h-0' : 'hidden'} aria-hidden={activeSurface !== 'chat'}>
+            {previewPaneOpen ? (
+              <ResizableSplit
+                className="h-full"
+                axis="horizontal"
+                initial={420}
+                min={280}
+                max={900}
+                reverse
+                first={<ChatPane />}
+                second={<PreviewPane />}
+              />
+            ) : (
+              <div className="h-full min-w-0">
+                <ChatPane />
+              </div>
+            )}
+          </div>
+          <div className={activeSurface === 'scheduler' ? 'h-full min-h-0' : 'hidden'} aria-hidden={activeSurface !== 'scheduler'}>
+            <SchedulerSurface />
+          </div>
         </div>
       </div>
 

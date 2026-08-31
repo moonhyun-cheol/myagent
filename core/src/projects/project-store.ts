@@ -272,6 +272,7 @@ export class ProjectStore {
       kind: this.resolveKind(rec),
       parent_id: rec.parent_id ?? null,
       folder_path: rec.folder_path ?? null,
+      color: rec.color ?? null,
       created_at: rec.created_at,
       updated_at: rec.updated_at,
       sessions: nodeSessions,

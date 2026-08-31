@@ -886,11 +886,12 @@ export function ChatPane() {
       <div className="relative flex h-10 shrink-0 items-center gap-1.5 border-b border-line px-3">
         <select
           value={selectedModel}
+          disabled={busy}
           onChange={(e) => {
             void setSelectedModel(e.target.value);
           }}
-          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent"
-          title="모델"
+          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent disabled:opacity-50"
+          title={busy ? '응답 생성 중에는 모델을 변경할 수 없습니다.' : '모델'}
         >
           {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
             <option value={selectedModel}>{selectedModel} · 현재 목록에 없음</option>

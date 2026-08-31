@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly WindowPlacementStore _windowPlacement;
     private CoreWebView2? _browserCore;
     private Forms.NotifyIcon? _trayIcon;
+    private Forms.ContextMenuStrip? _trayMenu;
     private bool _allowExit;
     private bool _minimizeToTrayOnClose = LoadMinimizeToTrayPreference();
 
@@ -211,6 +212,9 @@ public partial class MainWindow : Window
                         && minimizeProperty.ValueKind is JsonValueKind.True or JsonValueKind.False
                         && minimizeProperty.GetBoolean();
                     SetMinimizeToTrayOnClose(minimizeToTray);
+                    break;
+                case "app.notification.show":
+                    ShowSystemNotification(root);
                     break;
                 case "filePicker.open":
                     // Let WebView2 finish dispatching the message before entering a modal
@@ -594,10 +598,10 @@ public partial class MainWindow : Window
     {
         if (_trayIcon is not null) return;
 
-        var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("MY Agent 열기", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("종료", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
+        _trayMenu = new Forms.ContextMenuStrip();
+        _trayMenu.Items.Add("MY Agent 열기", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
+        _trayMenu.Items.Add(new Forms.ToolStripSeparator());
+        _trayMenu.Items.Add("종료", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
 
         var icon = !string.IsNullOrWhiteSpace(Environment.ProcessPath)
             ? System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath)
@@ -606,17 +610,49 @@ public partial class MainWindow : Window
         {
             Text = "MY Agent",
             Icon = icon ?? SystemIcons.Application,
-            ContextMenuStrip = menu,
             Visible = true,
         };
+        _trayIcon.MouseUp += OnTrayIconMouseUp;
         _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreFromTray);
+        _trayIcon.BalloonTipClicked += (_, _) => Dispatcher.Invoke(RestoreFromTray);
+    }
+
+    private void OnTrayIconMouseUp(object? sender, Forms.MouseEventArgs e)
+    {
+        if (e.Button != Forms.MouseButtons.Right || _trayMenu is null) return;
+        _trayMenu.Show(Forms.Cursor.Position);
+    }
+
+    private void ShowSystemNotification(JsonElement message)
+    {
+        EnsureTrayIcon();
+        if (_trayIcon is null) return;
+
+        var title = message.TryGetProperty("title", out var titleProperty)
+            ? titleProperty.GetString() ?? "MY Agent"
+            : "MY Agent";
+        var body = message.TryGetProperty("message", out var messageProperty)
+            ? messageProperty.GetString() ?? string.Empty
+            : string.Empty;
+        var kind = message.TryGetProperty("kind", out var kindProperty)
+            ? kindProperty.GetString()
+            : null;
+
+        _trayIcon.BalloonTipTitle = title.Length > 63 ? title[..63] : title;
+        _trayIcon.BalloonTipText = body.Length > 255 ? body[..255] : body;
+        _trayIcon.BalloonTipIcon = kind is "approval" or "error"
+            ? Forms.ToolTipIcon.Warning
+            : Forms.ToolTipIcon.Info;
+        _trayIcon.ShowBalloonTip(kind == "approval" ? 10_000 : 5_000);
     }
 
     private void DisposeTrayIcon()
     {
         if (_trayIcon is null) return;
         _trayIcon.Visible = false;
-        _trayIcon.ContextMenuStrip?.Dispose();
+        _trayIcon.MouseUp -= OnTrayIconMouseUp;
+        _trayMenu?.Dispose();
+        _trayMenu = null;
         _trayIcon.Icon?.Dispose();
         _trayIcon.Dispose();
         _trayIcon = null;

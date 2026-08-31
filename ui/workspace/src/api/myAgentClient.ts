@@ -1,6 +1,7 @@
 /** MY Agent API client — Vite proxies these to :10200 */
 
 import { confirmDialog } from '../lib/confirmDialog';
+import { dismissUserNotification, showUserNotification } from '../lib/userNotifications';
 
 const SESSION_KEY = 'my-agent-workspace-session';
 const LEGACY_SESSION_KEY = 'cqr-workspace-session';
@@ -38,15 +39,27 @@ async function askToolApprovalDecision(
     ? '\n\n허용 범위: 현재 작업이 끝날 때까지 해당 위치의 읽기만 허용'
     : '\n\n허용 범위: 이번 실행 1회';
   const approvalMessage = `${accessLabel}\n\n${summary}${targetText}${expiryText}`;
-  return confirmDialog({
-    title: danger ? '위험 작업 승인' : '접근 승인',
-    message: `${danger ? '[위험] ' : ''}${approvalMessage}`,
-    danger,
-    confirmLabel: '승인',
-    cancelLabel: '거절',
-    presentation: 'approval',
-    ...sticky,
+  const notificationId = showUserNotification({
+    kind: 'approval',
+    title: danger ? '위험 작업 승인이 필요합니다' : '승인이 필요합니다',
+    message: summary,
+    persistent: true,
+    actionLabel: '검토하기',
+    system: 'always',
   });
+  try {
+    return await confirmDialog({
+      title: danger ? '위험 작업 승인' : '접근 승인',
+      message: `${danger ? '[위험] ' : ''}${approvalMessage}`,
+      danger,
+      confirmLabel: '승인',
+      cancelLabel: '거절',
+      presentation: 'approval',
+      ...sticky,
+    });
+  } finally {
+    dismissUserNotification(notificationId);
+  }
 }
 
 export type ChatApiMode =

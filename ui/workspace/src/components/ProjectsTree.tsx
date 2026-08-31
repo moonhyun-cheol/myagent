@@ -1,4 +1,5 @@
 import {
+  Archive,
   CaretDown,
   CaretRight,
   ChatTeardropText,
@@ -32,11 +33,47 @@ import { FolderBrowserModal } from './FolderBrowserModal';
 
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
+const PINNED_NODES_KEY = 'my-agent-workspace-pinned-nodes';
 const PROJECT_COLORS: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
 const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
   gray: '#94a3b8', red: '#f87171', orange: '#fb923c', yellow: '#facc15',
   green: '#4ade80', teal: '#2dd4bf', blue: '#60a5fa', pink: '#f472b6',
 };
+const SIDEBAR_MENU_OPEN_EVENT = 'cqr:sidebar-menu-open';
+
+function useExclusiveSidebarMenu(menuId: string) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const closeForOtherMenu = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== menuId) setMenuOpen(false);
+    };
+    const closeFromOutside = (event: PointerEvent) => {
+      const owner = event.target instanceof Element
+        ? event.target.closest('[data-sidebar-menu-id]')?.getAttribute('data-sidebar-menu-id')
+        : null;
+      if (owner !== menuId) setMenuOpen(false);
+    };
+
+    window.addEventListener(SIDEBAR_MENU_OPEN_EVENT, closeForOtherMenu);
+    document.addEventListener('pointerdown', closeFromOutside);
+    return () => {
+      window.removeEventListener(SIDEBAR_MENU_OPEN_EVENT, closeForOtherMenu);
+      document.removeEventListener('pointerdown', closeFromOutside);
+    };
+  }, [menuId]);
+
+  const openMenu = () => {
+    window.dispatchEvent(new CustomEvent<string>(SIDEBAR_MENU_OPEN_EVENT, { detail: menuId }));
+    setMenuOpen(true);
+  };
+  const toggleMenu = () => {
+    if (menuOpen) setMenuOpen(false);
+    else openMenu();
+  };
+
+  return { menuOpen, setMenuOpen, openMenu, toggleMenu };
+}
 
 function loadCollapsed(): Set<string> {
   try {
@@ -52,6 +89,19 @@ function loadCollapsed(): Set<string> {
 
 function saveCollapsed(ids: Set<string>) {
   localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+}
+
+function loadPinnedNodes(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(PINNED_NODES_KEY) ?? '[]');
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pinnedFirst<T extends { id: string }>(items: T[], pinned: string[]): T[] {
+  return [...items].sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)));
 }
 
 interface ProjectsTreeProps {
@@ -72,6 +122,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
   const [tree, setTree] = useState<WorkspaceTreePayload | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());
   const [pinned, setPinned] = useState<string[]>(() => getPinnedSessionIds());
+  const [pinnedNodes, setPinnedNodes] = useState<string[]>(loadPinnedNodes);
   const [browseOpen, setBrowseOpen] = useState(false);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
@@ -101,6 +152,23 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     const next = pinned.includes(id) ? pinned.filter((item) => item !== id) : [id, ...pinned];
     setPinned(next);
     setPinnedSessionIds(next);
+  };
+
+  const toggleNodePin = (id: string) => {
+    setPinnedNodes((current) => {
+      const next = current.includes(id) ? current.filter((item) => item !== id) : [id, ...current];
+      localStorage.setItem(PINNED_NODES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const changeNodeColor = async (id: string, color: ProjectColor) => {
+    try {
+      await updateProject(id, { color });
+      await refresh();
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : '컬러 라벨 변경 실패');
+    }
   };
 
   const toggle = (id: string) => {
@@ -321,6 +389,18 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     return (n.children ?? []).some(matchNode);
   };
 
+  // 작업 폴더와 독립 프로젝트는 화면에서 하나의 최상위 목록이다.
+  // 종류별로 따로 정렬하면 프로젝트를 고정해도 작업 폴더 아래에 남으므로,
+  // 원래 서버 순서를 보존한 채 통합한 다음 고정 항목만 앞으로 이동한다.
+  const topLevelNodes = pinnedFirst([
+    ...(tree?.workspace_trees ?? [])
+      .filter(matchNode)
+      .map((node) => ({ id: node.id, kind: 'workspace' as const, node })),
+    ...(tree?.projects ?? [])
+      .filter((project) => !q || project.title.toLowerCase().includes(q) || project.sessions.some(matchSession))
+      .map((project) => ({ id: project.id, kind: 'project' as const, project })),
+  ], pinnedNodes);
+
   return (
     <div className={embedded ? "border-t border-line" : "flex h-full min-h-0 flex-col"}>
       <div className="group flex h-9 shrink-0 items-center border-b border-line px-3">
@@ -347,7 +427,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         </div>
       </div>
 
-      <div className={embedded ? "px-2 py-1.5" : "min-h-0 flex-1 overflow-y-auto px-2 py-1.5"}>
+      <div className={embedded ? "flex flex-col px-2 py-1.5" : "flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1.5"}>
         {(tree?.standalone_sessions ?? []).filter(matchSession).length > 0 ? (
           <div className="mb-1">
             <div className="flex h-8 items-center gap-1 rounded-md px-1 text-[12px] text-muted">
@@ -373,39 +453,44 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
             </div>
           </div>
         ) : null}
-        {(tree?.workspace_trees ?? []).filter(matchNode).map((root) => (
-          <TreeNode
-            key={root.id}
-            node={root}
-            workspaceRoot={root}
-            depth={0}
-            collapsed={collapsed}
-            activeSessionId={activeSessionId}
-            activeWorkspaceId={tree?.active_workspace_project_id ?? null}
-            matchSession={matchSession}
-            matchNode={matchNode}
-            onToggle={toggle}
-            onActivateWorkspace={(n) => void onActivateWorkspace(n)}
-            onOpenNodeChat={(n) => void openNodeChat(n)}
-            onSelectSession={(s, wsRoot) => void onSelectSessionUnderWorkspace(s, wsRoot)}
-            onDeleteSession={(id) => void onDeleteSession(id)}
-            onNewChat={(id) => void onNewChatIn(id)}
-            onAddFolder={(id) => void onAddFolder(id)}
-            onRenameNode={(n) => void onRenameNode(n)}
-            onDeleteNode={(n) => void onDeleteNode(n)}
-          />
-        ))}
+        {topLevelNodes.map((entry) => {
+          if (entry.kind === 'workspace') {
+            const root = entry.node;
+            return (
+              <TreeNode
+                key={root.id}
+                node={root}
+                workspaceRoot={root}
+                depth={0}
+                collapsed={collapsed}
+                pinnedNodes={pinnedNodes}
+                activeSessionId={activeSessionId}
+                activeWorkspaceId={tree?.active_workspace_project_id ?? null}
+                matchSession={matchSession}
+                matchNode={matchNode}
+                onToggle={toggle}
+                onActivateWorkspace={(n) => void onActivateWorkspace(n)}
+                onOpenNodeChat={(n) => void openNodeChat(n)}
+                onSelectSession={(s, wsRoot) => void onSelectSessionUnderWorkspace(s, wsRoot)}
+                onDeleteSession={(id) => void onDeleteSession(id)}
+                onNewChat={(id) => void onNewChatIn(id)}
+                onAddFolder={(id) => void onAddFolder(id)}
+                onRenameNode={(n) => void onRenameNode(n)}
+                onDeleteNode={(n) => void onDeleteNode(n)}
+                onTogglePin={toggleNodePin}
+                onChangeColor={(id, color) => void changeNodeColor(id, color)}
+              />
+            );
+          }
 
-        {(tree?.projects ?? []).length > 0 ? (
-          <>
-            {tree!.projects
-              .filter((p) => !q || p.title.toLowerCase().includes(q) || p.sessions.some(matchSession))
-              .map((p) => (
+          const p = entry.project;
+          return (
                 <ProjectBlock
                   key={p.id}
                   id={p.id}
                   title={p.title}
                   color={p.color ?? 'gray'}
+                  pinned={pinnedNodes.includes(p.id)}
                   sessions={p.sessions}
                   collapsed={collapsed.has(p.id)}
                   activeSessionId={activeSessionId}
@@ -433,15 +518,16 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                     children: [],
                     session_count: p.sessions.length,
                   })}
+                  onTogglePin={() => toggleNodePin(p.id)}
+                  onChangeColor={(color) => void changeNodeColor(p.id, color)}
                   onDelete={() =>
                     void deleteProject(p.id).then(refresh).catch((err) => {
                       onMessage?.(err instanceof Error ? err.message : '삭제 실패');
                     })
                   }
                 />
-              ))}
-          </>
-        ) : null}
+          );
+        })}
 
         {(tree?.workspace_trees?.length ?? 0) === 0 && (tree?.projects?.length ?? 0) === 0 ? (
           <p className="px-2 py-4 text-[11px] text-muted">
@@ -464,6 +550,7 @@ function TreeNode({
   workspaceRoot,
   depth,
   collapsed,
+  pinnedNodes,
   activeSessionId,
   activeWorkspaceId,
   matchSession,
@@ -477,11 +564,14 @@ function TreeNode({
   onAddFolder,
   onRenameNode,
   onDeleteNode,
+  onTogglePin,
+  onChangeColor,
 }: {
   node: WorkspaceNode;
   workspaceRoot: WorkspaceNode;
   depth: number;
   collapsed: Set<string>;
+  pinnedNodes: string[];
   activeSessionId: string | null;
   activeWorkspaceId: string | null;
   matchSession: (s: SessionSummary) => boolean;
@@ -495,21 +585,35 @@ function TreeNode({
   onAddFolder: (parentId: string) => void;
   onRenameNode: (node: WorkspaceNode) => void;
   onDeleteNode: (node: WorkspaceNode) => void;
+  onTogglePin: (id: string) => void;
+  onChangeColor: (id: string, color: ProjectColor) => void;
 }) {
   const isOpen = !collapsed.has(node.id);
   const isContainer = node.kind === 'workspace_root' || node.kind === 'folder';
-  const isActiveRoot = node.kind === 'workspace_root' && node.id === activeWorkspaceId;
+  // A workspace is context, not a second selection. Highlight it only when no chat is selected.
+  const isFocusedRoot = node.kind === 'workspace_root'
+    && node.id === activeWorkspaceId
+    && activeSessionId === null;
   const [labelColor, setLabelColor] = useState<ProjectColor>(node.color ?? 'gray');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = `workspace-node:${node.id}`;
+  const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const isPinned = pinnedNodes.includes(node.id);
   const pad = 8 + depth * 10;
 
   return (
-    <div className="mb-0.5">
+    <div
+      className="mb-0.5"
+      data-sidebar-menu-id={menuId}
+    >
       <div
         className={`group relative flex h-8 items-center gap-0.5 rounded-md pr-1 text-[12px] transition before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded ${
-          isActiveRoot ? 'bg-accent/10 text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
+          isFocusedRoot ? 'bg-accent/10 text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
         }`}
         style={{ paddingLeft: pad }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          openMenu();
+        }}
       >
         <button
           type="button"
@@ -519,22 +623,13 @@ function TreeNode({
         >
           {isOpen ? <CaretDown size={12} /> : <CaretRight size={12} />}
         </button>
-        <button
-          type="button"
-          className="shrink-0 rounded p-0.5"
-          title="컬러 라벨 변경"
-          aria-label={`${node.title} 컬러 라벨 변경`}
-          onClick={() => {
-            const next = PROJECT_COLORS[(PROJECT_COLORS.indexOf(labelColor) + 1) % PROJECT_COLORS.length];
-            setLabelColor(next);
-            void updateProject(node.id, { color: next });
-          }}
-        >
+        <span className="shrink-0 p-0.5" aria-label={`${node.title} 컬러 라벨`}>
           <FolderSimple size={16} className="shrink-0" weight="fill" style={{ color: PROJECT_COLOR_HEX[labelColor] }} />
-        </button>
+        </span>
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"
+          aria-current={isFocusedRoot ? 'page' : undefined}
           title={
             node.kind === 'workspace_root'
               ? `${node.folder_path || node.title} (클릭하면 이 폴더 채팅을 엽니다)`
@@ -546,6 +641,15 @@ function TreeNode({
           }}
         >
           {node.title}
+        </button>
+        <button
+          type="button"
+          className={`shrink-0 rounded p-1 transition hover:bg-ink ${isPinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
+          title={isPinned ? '고정 해제' : '상단에 고정'}
+          aria-label={isPinned ? `${node.title} 고정 해제` : `${node.title} 상단에 고정`}
+          onClick={() => onTogglePin(node.id)}
+        >
+          <PushPin size={12} weight={isPinned ? 'fill' : 'regular'} />
         </button>
         <button
           type="button"
@@ -570,20 +674,34 @@ function TreeNode({
             className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
             title="더보기"
             aria-label="더보기"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={toggleMenu}
           >
             <DotsThree size={14} weight="bold" />
           </button>
           {menuOpen ? (
-            <div className="absolute right-0 top-7 z-30 w-36 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
-              <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                <ChatTeardropText size={13} />새 세션
-              </button>
-              {isContainer ? (
-                <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                  <FolderPlus size={13} />하위 폴더
+            <div className="absolute right-0 top-7 z-30 w-44 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+              <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
+              <div className="grid grid-cols-8 gap-1 px-2 pb-2">
+                {PROJECT_COLORS.map((color) => (
+                  <button key={color} type="button" title={`${color} 라벨`} aria-label={`${color} 라벨`} className={`h-4 w-4 rounded-full border ${labelColor === color ? 'border-text' : 'border-transparent'}`} style={{ backgroundColor: PROJECT_COLOR_HEX[color] }} onClick={() => { setLabelColor(color); setMenuOpen(false); onChangeColor(node.id, color); }} />
+                ))}
+              </div>
+              <div className="border-t border-line pt-1">
+                <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
+                <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+              </div>
+              <div className="mt-1 border-t border-line pt-1">
+                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
+                  <ChatTeardropText size={13} />새 세션
                 </button>
-              ) : null}
+                {isContainer ? (
+                  <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
+                    <FolderPlus size={13} />하위 폴더
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
@@ -601,13 +719,14 @@ function TreeNode({
               onDelete={() => onDeleteSession(s.id)}
             />
           ))}
-          {(node.children ?? []).filter(matchNode).map((child) => (
+          {pinnedFirst((node.children ?? []).filter(matchNode), pinnedNodes).map((child) => (
             <TreeNode
               key={child.id}
               node={child}
               workspaceRoot={workspaceRoot}
               depth={depth + 1}
               collapsed={collapsed}
+              pinnedNodes={pinnedNodes}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorkspaceId}
               matchSession={matchSession}
@@ -621,6 +740,8 @@ function TreeNode({
               onAddFolder={onAddFolder}
               onRenameNode={onRenameNode}
               onDeleteNode={onDeleteNode}
+              onTogglePin={onTogglePin}
+              onChangeColor={onChangeColor}
             />
           ))}
         </div>
@@ -633,6 +754,7 @@ function ProjectBlock({
   id,
   title,
   color,
+  pinned,
   sessions,
   collapsed,
   activeSessionId,
@@ -644,10 +766,13 @@ function ProjectBlock({
   onNewChat,
   onRename,
   onDelete,
+  onTogglePin,
+  onChangeColor,
 }: {
   id: string;
   title: string;
   color: ProjectColor;
+  pinned: boolean;
   sessions: SessionSummary[];
   collapsed: boolean;
   activeSessionId: string | null;
@@ -659,15 +784,19 @@ function ProjectBlock({
   onNewChat: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onTogglePin: () => void;
+  onChangeColor: (color: ProjectColor) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menuId = `project:${id}`;
+  const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const [labelColor, setLabelColor] = useState(color);
   return (
-    <div className="mb-0.5">
-      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text">
+    <div className="mb-0.5" data-sidebar-menu-id={menuId}>
+      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); openMenu(); }}>
         <button type="button" className="rounded p-0.5" onClick={onToggle} aria-label={collapsed ? '펼치기' : '접기'}>
           {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
         </button>
-        <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX[color] }} />
+        <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX[labelColor] }} />
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"
@@ -675,6 +804,15 @@ function ProjectBlock({
           onClick={onOpenChat}
         >
           {title}
+        </button>
+        <button
+          type="button"
+          className={`shrink-0 rounded p-1 transition hover:bg-ink ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}
+          title={pinned ? '고정 해제' : '상단에 고정'}
+          aria-label={pinned ? `${title} 고정 해제` : `${title} 상단에 고정`}
+          onClick={onTogglePin}
+        >
+          <PushPin size={12} weight={pinned ? 'fill' : 'regular'} />
         </button>
         <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="이름 변경" onClick={onRename}>
           <PencilSimple size={12} />
@@ -688,14 +826,26 @@ function ProjectBlock({
           <Trash size={12} />
         </button>
         <div className="relative">
-          <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={() => setMenuOpen((open) => !open)}>
+          <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={toggleMenu}>
             <DotsThree size={14} weight="bold" />
           </button>
           {menuOpen ? (
-            <div className="absolute right-0 top-7 z-30 w-32 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
-              <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                <ChatTeardropText size={13} />새 세션
-              </button>
+            <div className="absolute right-0 top-7 z-30 w-44 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+              <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
+              <div className="grid grid-cols-8 gap-1 px-2 pb-2">
+                {PROJECT_COLORS.map((nextColor) => (
+                  <button key={nextColor} type="button" title={`${nextColor} 라벨`} aria-label={`${nextColor} 라벨`} className={`h-4 w-4 rounded-full border ${labelColor === nextColor ? 'border-text' : 'border-transparent'}`} style={{ backgroundColor: PROJECT_COLOR_HEX[nextColor] }} onClick={() => { setLabelColor(nextColor); setMenuOpen(false); onChangeColor(nextColor); }} />
+                ))}
+              </div>
+              <div className="border-t border-line pt-1">
+                <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
+                <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+              </div>
+              <div className="mt-1 border-t border-line pt-1">
+                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 세션</button>
+              </div>
             </div>
           ) : null}
         </div>
