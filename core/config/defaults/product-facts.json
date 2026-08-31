@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-31T00:28:39.408Z",
+  "generated_at": "2026-08-31T03:11:38.855Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
