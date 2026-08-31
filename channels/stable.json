@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 14,
+    "update_sequence": 15,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-28T07:35:43.416Z",
+    "published_at": "2026-08-31T00:57:27.459Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-14",
+      "release_tag": "update-15",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 266848727,
-      "sha256": "8bf26f17f5b9a598d49460eb1a4cb141e71c91986edb1360749b8a5da6eead7f"
+      "size": 266852768,
+      "sha256": "ea34ddf05f1164e3f9edf56493177f4b5a41e60181b82fbda4012d653d90c63a"
     },
-    "payload_manifest_sha256": "7791722787ce0e41205ab07d56564d8e87ecc9d4b2612b35a1a59117d211370d",
-    "release_notes": "Hangul-safe install: portable Node for Chromium, default to C:\\MYAgent."
+    "payload_manifest_sha256": "12cb2e8de67b53748b1cbb0e0b972d85a55f5095ad2cbe65ba893d421dd470d1",
+    "release_notes": ""
   },
-  "signature": "br77n9zM3ZbsjGy8PHx4FCHDiSYgpoXHbNOXCrNKpP3zoAP2b0XifQJRrYV+UZXbsoarlVB1vCInIsAsBvtjXCfgpsbUsS9NoCc5h5hC/Ufl8wDC2ywN5vPOtc0KM/qOJi7p5g2osaFPCswcLZWjQEHkQJQBClYkvmWDPkeRKJklsvIudReqYgStx49iD7KKAXDa+YA+K2dBTspo0mVIkRAnKQ6/m5tTPMxWCcxbXoXJD5001C4R7TflMaEBryOu7I1VcYbP8IeOhe9wBh4dhVXggaVhZBq+iR/31ye4aZfjSvMtQtIrV0PgfKaOfuXZszZcGWQ8/WWidgeJwHeqedq+L/pdYgFDJT3DGUmam5mDmfcPTVnRsTwo+xhP4SuO+BNcVEY7fSeAdAu2+mKaUjrNYTDeEjYCrlw1AarpKt55b7E8246cBgCNS4B5QlK3+Ts8hCoCnvUkFADEGvWHkr+rZ6U9o3AsA2gDUYVDLmebEPCQe+zMpx8CTt6hyl65"
+  "signature": "uMylRq5nUw+KaXmG/Abl4vO+mtemB5OSkBGeBzxUH7SRimufgF4x+Otv8PFQc6I0bNC6zEDMhckdhcizGAV4s//JQ/rXRXKU8flt+nVIC2M4nkdKDuyM2RVnIq69RIbRF6/c3CP6ZbaZEiQqLYWhC2FO9sUnuv09kGpfZtloVICTenfq5mMUs89cnsDZZ8XsPfOp9BxcJ8HQ6Joaqn9fUSNMHVQi+87pv4cBqfJJJe9bmvYmR2xW/bJpxAhFBObWmuf4VDmmEh8oNRbXyBLQDQceAB1FlnyYpCuLTdeK6+zzZriKgI6m3ZdmemBntp19OZzqvBuTO/D3FX+KlBb5c2dB3vNLFrnXvm2H/cy46ViKWFjs5PnY9cdq1Q+BPUOr5yyCGlW08nH5Cu2LOen2GPc2+w8bwvHaXsIdWJt81kGwK3b53xaYlcU81AcZbe8ky5rJ0gN3NPkuK2QgtNYz8VxWaB7nk/ASMho0UCmHZs0A+Rgitqr7+HlFd9dZiTDf"
 }
