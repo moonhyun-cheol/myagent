@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 18,
+    "update_sequence": 19,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-09-01T01:00:25.286Z",
+    "published_at": "2026-09-01T01:51:03.248Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-18",
+      "release_tag": "update-19",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 267108143,
-      "sha256": "40293a7a4f60cca1b343adce7e49afdb55423602d56ca27f45c3b7dd176b5df8"
+      "size": 267128620,
+      "sha256": "df9b112467554a60bda1937f816955ea6d1f510e2bbdbafdbaa2d7aa5cfb2f9c"
     },
-    "payload_manifest_sha256": "8b9ab7238380511afc729ca09fc105e0df2d1aa0a5f386e44cc2b6583d9efb80",
+    "payload_manifest_sha256": "32b640ad94ea5f7247248e48657e93a078e51662a88d014383eeaac9e581b942",
     "release_notes": "Personal scheduler backend with automation feed and approval-gated tools. User memory panel with session context injection. Legacy web_landing/prompt_master routing removed. Reasoning collapse UI and unified right-panel tabs."
   },
-  "signature": "vA7cfo93nZThEPbdSwC1lpUvp1WKJCw7NDnpKALkz/6ODSLjfIC2dAaK/xGFrVLk6cIwng378yYHKFmUEjRNXsSTw1kdWS7b/uBQNzECf/v9M2JlvjvSZBzVOhHwq0C2k5Qw5rc3O9NQ2CVSjvtLWN6dd+ny/tpRF0x21Co4u1F/YVcgCMbaBbPjVg3tgQjN2kahELzCciC+AdL7zUiOrW8QujugoKa3DipYCyo9PC0bdTfF50BzCUxHb3p6/5F7mgtDa2V3kGABbVDY3Z1Enmr7QByWfTW9rMHyjHDsSRdJtivJgNfMDhPWc7q3uARVECQ8gQ+p1hCir+zs2cO4/5/PxXQsGHs4h28G4Md0fDXd88n5EOWcAK4MCXqBcUyqvR1cjcv1V1gVhRAS2POPoa6polFPu3CKs74XyDTYpFtfLcBoJZ7041152Ja/gUytVg+6VhbOtqHlhMD/xqZLjaXocTvjCmt5ppbClMxGBO8FPKqleM9V0RioJSExsqo/"
+  "signature": "YjLK4KpRozsNDSEZCFdwFAFKohE7zTmDRVJzUx7krhVZ3mkJYVk+q40X7UoXQ8OR6KYjScoN4worgZw/4WtA9j09FQ0BQWm1Fp+bYUTwEVBRVF3cibmgOZ4qZka6Xx/Z4UMgNgdTxZLiw1vQl2WNag9R8kPuHarUQa5PO51B53O8JaARr7ht2X4mADXLGD7VAvb75Wpx8FfacfHsSPCHB7uZ7Wtpg7JfyxcbB6qVJhLTHzQkL0AI4BsVTlZW0/4RzxoCfjI9Q0ONqvdPsd7hMh1nac9i1tUgGj8yJ2EWz9UlZQz64iWukFfp88r2bxD7FhlzG3xu049gceTJU8/T9+xz+T60rUL+1wOf5CLXPeCgL01QxVMAjJpXWbQSfTYlqw1nb9KorTY22Z9xsSfatYrlozB1VwUuImrmpzozuXCtaRbii6M5UVd6FkcvOFmrxSBYG8seRzmmFql3Z+gTDXYUmrb44sUoIHE6CU/E6fCLi0NFtxPnY32Rz7xRgPEH"
 }
