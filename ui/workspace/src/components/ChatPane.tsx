@@ -4,6 +4,7 @@ import {
   CircleNotch,
   File as FileIcon,
   FilmStrip,
+  Hammer,
   Paperclip,
   PaperPlaneTilt,
   Browser,
@@ -34,6 +35,7 @@ import {
   summarizeSession,
   type ApprovalLevel,
   type ReasoningLevel,
+  type WorkspaceBehavior,
 } from '../api/myAgentClient';
 import {
   filesFromClipboard,
@@ -73,6 +75,8 @@ const reasoningLabel = (value: string | null | undefined) =>
   value === 'auto' ? '자동' : value === 'low' ? '낮음' : value === 'medium' ? '중간' : value === 'high' ? '높음' : value ? value : '모델 관리';
 const approvalLabel = (value: ApprovalLevel) =>
   value === 'autopilot' ? 'Autopilot' : value === 'delegate' ? '나 대신 승인' : '승인 요청';
+const workspaceBehaviorLabel = (value: WorkspaceBehavior | undefined) =>
+  value === 'plan' ? 'Plan' : value === 'ask' ? 'Ask' : 'Agent';
 
 function isImageAttachment(mime?: string, name?: string): boolean {
   if (mime?.startsWith('image/')) return true;
@@ -206,6 +210,7 @@ export function ChatPane() {
   const contextBudget = useWorkspaceStore((s) => s.contextBudget);
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
+  const buildFromPlan = useWorkspaceStore((s) => s.buildFromPlan);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
@@ -967,6 +972,7 @@ export function ChatPane() {
           title="현재 채팅의 추론 수준과 작업 권한"
         >
           추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
+          {' · '}{workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)}
           {' · '}{approvalLabel(activeExecutionPolicy.approval)}
         </button>
         {policyOpen ? (
@@ -978,6 +984,28 @@ export function ChatPane() {
             <p className="text-sm font-semibold text-text">현재 채팅 실행 정책</p>
             <p className="mt-1 text-[11px] leading-5 text-muted">변경값은 이 채팅에만 저장되며 실행 중인 작업에는 영향을 주지 않습니다.</p>
             <label className="mt-4 block text-xs font-medium text-text">
+              작업 방식
+              <select
+                data-testid="chat-workspace-behavior"
+                value={activeExecutionPolicy.workspace_behavior ?? 'agent'}
+                disabled={busy}
+                onChange={(event) => {
+                  const workspace_behavior = event.target.value as WorkspaceBehavior;
+                  void setExecutionPolicy({
+                    workspace_behavior,
+                    autopilot: workspace_behavior === 'plan' || workspace_behavior === 'ask'
+                      ? 'off'
+                      : activeExecutionPolicy.autopilot,
+                  });
+                }}
+                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+              >
+                <option value="agent">Agent — 코드 수정·검증</option>
+                <option value="plan">Plan — read-only 설계</option>
+                <option value="ask">Ask — 도구 없이 설명</option>
+              </select>
+            </label>
+            <label className="mt-3 block text-xs font-medium text-text">
               추론 수준
               <select
                 data-testid="chat-reasoning-level"
@@ -1241,6 +1269,30 @@ export function ChatPane() {
                     ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
                     : ''
                   : renderMessageText(turn.text)}
+                {turn.role === 'assistant' &&
+                turn.planBuildOffer &&
+                !turn.planBuilt &&
+                !busy &&
+                turn.completedAt &&
+                turn.text &&
+                turn.text !== '작업 중…' ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
+                    <button
+                      type="button"
+                      data-testid="plan-build-button"
+                      onClick={() => void buildFromPlan(turn.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-accent/60 bg-accent/12 px-3 py-1.5 text-sm font-semibold text-accent-dim transition-colors hover:bg-accent/20 hover:border-accent"
+                    >
+                      <Hammer size={15} weight="bold" />
+                      Build
+                    </button>
+                    <span className="text-[11px] text-muted">
+                      {turn.planConstraintsLocked === false
+                        ? 'P0 미추출 — 그래도 Build 가능'
+                        : 'Agent 모드로 PLAN 구현'}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}

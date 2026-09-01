@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-01T00:57:58.046Z",
+  "generated_at": "2026-09-01T01:42:44.983Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -33,6 +33,7 @@
       "/health",
       "/automations",
       "/memory",
+      "/profiles",
       "/fs",
       "/setup",
       "/browser",
@@ -43,7 +44,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 85,
+    "route_count": 88,
     "routes": [
       {
         "method": "GET",
@@ -368,6 +369,21 @@
       {
         "method": "POST",
         "path": "/organization-module/install",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/profiles",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/restore-last",
         "match": "exact"
       },
       {

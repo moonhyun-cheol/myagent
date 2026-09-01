@@ -1,4 +1,5 @@
 import type { PlaywrightSession } from '../browser/playwright-session.js';
+import type { WorkspaceBehavior } from '../execution-policy.js';
 
 export interface AgentToolDefinition {
   type: 'function';
@@ -22,6 +23,8 @@ export interface AgentToolContext {
   allowLocalhost?: boolean;
   /** Cancel long-running tools (run_terminal). */
   signal?: AbortSignal;
+  /** Plan mode blocks mutating tools at execute time. */
+  workspaceBehavior?: WorkspaceBehavior;
   /** Live evidence callback used by model-authored task completion. */
   getRunEvidence?: () => {
     mutatedPaths: string[];

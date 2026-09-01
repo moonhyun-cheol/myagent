@@ -4,6 +4,7 @@ import type { ToolApprovalRequest } from './tool-approval.js';
 import type { AgentRuntimeHooks } from './agent-hooks.js';
 import type { AgentToolPack } from './agent-tool-pack.js';
 import type { AgentRole } from './agent-mar-types.js';
+import type { WorkspaceBehavior } from '../execution-policy.js';
 import type { ProviderWireApi } from '../providers/types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 
@@ -79,6 +80,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   extraSystemNotes?: string[];
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */
   autopilot?: boolean;
+  /** Session/UI workspace behavior (plan = read-only tools, ask = N/A on tool plane). */
+  workspaceBehavior?: WorkspaceBehavior;
   /**
    * When true, skip appending mutated paths to session meta inside finish
    * (Supervisor / MAR records via appendRoleContribution).

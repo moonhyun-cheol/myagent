@@ -13,6 +13,10 @@ export interface SessionMessage {
    * Used for guardrail / hallucination-block notices that would pollute later turns.
    */
   model_exclude?: boolean;
+  /** Workspace behavior active when this assistant reply was produced (Plan Build UI). */
+  workspace_behavior?: ExecutionPolicy['workspace_behavior'];
+  /** Plan turn: locked-constraints extract succeeded (weak UI signal; Build still allowed). */
+  plan_constraints_locked?: boolean;
 }
 
 export type ResponsesStateMode = 'provider_state' | 'client_replay';

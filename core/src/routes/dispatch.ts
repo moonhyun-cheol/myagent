@@ -26,6 +26,17 @@ import {
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
+import {
+  AgentProfileError,
+  applyAgentProfile,
+  deleteAgentProfile,
+  getAppliedProfileState,
+  hasProfileLastState,
+  listAgentProfiles,
+  restoreAgentProfileLastState,
+  saveAgentProfile,
+  type AgentProfile,
+} from '../config/agent-profile-store.js';
 import { testOllamaReachable } from '../inference/local-llama-runtime.js';
 import type { ModelKind } from '../models/types.js';
 import { buildModelPicker, invalidateRemoteModelCache } from '../models/model-picker.js';
@@ -156,6 +167,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/health',
     '/automations',
     '/memory',
+    '/profiles',
     '/fs',
     '/setup',
     '/browser',
@@ -1987,6 +1999,79 @@ export async function dispatchApiRequest(
             return sendJson(res, 400, { error: e.code, message: e.message });
           }
           throw e;
+        }
+      }
+
+      // --- Work profiles (data/profile — local presets, not org module) ---
+      if (method === 'GET' && url.pathname === '/profiles') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, {
+          profiles: listAgentProfiles(cqrRoot),
+          applied: getAppliedProfileState(cqrRoot),
+          can_restore: hasProfileLastState(cqrRoot),
+        });
+      }
+
+      if (method === 'POST' && url.pathname === '/profiles') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as Partial<AgentProfile> & { id: string };
+          const rec = saveAgentProfile(cqrRoot, body);
+          return sendJson(res, 201, rec);
+        } catch (e: unknown) {
+          if (e instanceof AgentProfileError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/profiles/restore-last') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as { confirm?: boolean };
+          return sendJson(res, 200, restoreAgentProfileLastState(cqrRoot, body));
+        } catch (e: unknown) {
+          if (e instanceof AgentProfileError) {
+            const status = e.code === 'PROFILE_NO_LAST_STATE' ? 404 : 400;
+            return sendJson(res, status, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      {
+        const applyMatch = url.pathname.match(/^\/profiles\/([a-z0-9][a-z0-9_-]{0,63})\/apply$/);
+        if (method === 'POST' && applyMatch) {
+          license.assertWritable();
+          license.assertFeature('chat');
+          try {
+            const body = JSON.parse(await readBody(req)) as { confirm?: boolean };
+            const skills = listAllSkills(cqrRoot);
+            const result = applyAgentProfile(cqrRoot, {
+              id: applyMatch[1],
+              confirm: body.confirm,
+              knownSkillIds: skills.map((s) => s.id),
+              knownSkillModes: skills.map((s) => s.mode),
+            });
+            return sendJson(res, 200, result);
+          } catch (e: unknown) {
+            if (e instanceof AgentProfileError) {
+              const status = e.code === 'PROFILE_NOT_FOUND' ? 404 : 400;
+              return sendJson(res, status, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
+        }
+        const delMatch = url.pathname.match(/^\/profiles\/([a-z0-9][a-z0-9_-]{0,63})$/);
+        if (method === 'DELETE' && delMatch) {
+          license.assertWritable();
+          license.assertFeature('chat');
+          const removed = deleteAgentProfile(cqrRoot, delMatch[1]);
+          if (!removed) return sendJson(res, 404, { error: 'PROFILE_NOT_FOUND' });
+          return sendJson(res, 200, { ok: true, id: delMatch[1] });
         }
       }
 

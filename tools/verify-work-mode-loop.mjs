@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CODE_AGENT_TOOLS } from '../core/dist/agent/tools.js';
 import { codingPlanLockEnabled } from '../core/dist/providers/harness-policy.js';
+import { defaultExecutionPolicyFromConfig } from '../core/dist/execution-policy.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = relative => readFileSync(path.join(root, relative), 'utf8');
@@ -31,5 +32,7 @@ for (const relative of [
 
 assert.equal(codingPlanLockEnabled({}), false);
 assert.equal(codingPlanLockEnabled({ MY_AGENT_CODE_PLAN_LOCK: '1' }), true);
+const lockedDefault = defaultExecutionPolicyFromConfig({}, { MY_AGENT_CODE_PLAN_LOCK: '1' });
+assert.equal(lockedDefault.workspace_behavior, 'plan');
 
 console.log('verify-work-mode-loop: ok (model-directed runtime + full tool schema)');

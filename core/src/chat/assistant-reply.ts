@@ -3,6 +3,7 @@
  */
 import type { SessionStore } from '../sessions/session-store.js';
 import type { ChatMode } from '../router/types.js';
+import type { ExecutionPolicy } from '../execution-policy.js';
 import {
   applyChatOutletFilter,
   looksLikeTruncatedAssistantReply,
@@ -35,6 +36,8 @@ export function appendAssistantReply(
     emptyFallback?: string;
     /** Used for Korean-vs-Chinese outlet language warning */
     userMessage?: string;
+    workspace_behavior?: ExecutionPolicy['workspace_behavior'];
+    plan_constraints_locked?: boolean;
   },
 ): string {
   let content = scrubAssistantContent(opts.content, sessionId, opts.userMessage);
@@ -48,6 +51,10 @@ export function appendAssistantReply(
     model: opts.model,
     mode: opts.mode,
     ...(opts.image_urls?.length ? { image_urls: opts.image_urls } : {}),
+    ...(opts.workspace_behavior ? { workspace_behavior: opts.workspace_behavior } : {}),
+    ...(typeof opts.plan_constraints_locked === 'boolean'
+      ? { plan_constraints_locked: opts.plan_constraints_locked }
+      : {}),
   });
   return content;
 }

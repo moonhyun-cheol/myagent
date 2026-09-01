@@ -64,4 +64,6 @@ export interface ChatResponse {
   web_search?: { applied: boolean; source_count: number };
   /** Workspace paths mutated this code-agent turn (UI Preview auto-open). */
   mutatedPaths?: string[];
+  /** Plan mode: locked-constraints extract succeeded (weak UI signal). */
+  planConstraintsLocked?: boolean;
 }

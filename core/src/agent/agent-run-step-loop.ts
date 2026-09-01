@@ -86,6 +86,7 @@ import {
   createWorkspaceCheckpoint,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
+import { behaviorSkipsSilentVerify } from './agent-runtime-facts.js';
 import { runWorkspaceDiagnostics } from './run-diagnostics.js';
 import { runWorkspaceTests, detectTestRunner } from './run-tests.js';
 import type { CodeAgentResult } from './agent-run-types.js';
@@ -1028,7 +1029,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });
     }
 
-    if (syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
+    const skipSilentVerify = behaviorSkipsSilentVerify(
+      state.opts.workspaceBehavior ?? 'agent',
+      state.opts.cqrRoot,
+    );
+
+    if (!skipSilentVerify && syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
       state.reportStatus('verify · syntax gate (broken)');
       state.evidenceDiagOk = false;
       state.silentVerifyAttempts += 1;
@@ -1064,7 +1070,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     // Workspace file mutates only — plugin_install writes cqrRoot/data, not the coding workspace.
     // Silent tsc after install confuses models into narrating without calling plugin_*.
     if (
-      mutatedOkThisStep
+      !skipSilentVerify
+      && mutatedOkThisStep
       && state.mutatedPathsThisRun.size > 0
       && state.silentVerifyAttempts < state.maxVerify
     ) {
@@ -1151,7 +1158,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         state.evidenceDiagOk === 'weak' ? 'verify · weak' : 'verify · pass',
       );
     } else if (
-      mutatedOkThisStep
+      !skipSilentVerify
+      && mutatedOkThisStep
       && state.silentVerifyAttempts >= state.maxVerify
       && !state.verifyExhaustedNotified
     ) {

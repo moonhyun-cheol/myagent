@@ -74,6 +74,12 @@ export interface ChatTurn {
   imageUrls?: string[];
   /** User-turn attachment labels (display only) */
   attachmentNames?: string[];
+  /** Plan mode: show Build → Agent handoff under this assistant bubble. */
+  planBuildOffer?: boolean;
+  /** User clicked Build for this plan turn. */
+  planBuilt?: boolean;
+  /** Weak signal: P0 locked-constraints extract succeeded (Build still allowed if false). */
+  planConstraintsLocked?: boolean;
 }
 
 export interface CanvasCardData extends Record<string, unknown> {

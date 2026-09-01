@@ -156,7 +156,7 @@ async function runCodeSpecialist(
       agentId,
       parentRunId,
       applyOutcomeGate: false, // Supervisor gate only
-      forceToolPack: toolPackForRole(role, plan.toolPack),
+      forceToolPack: opts.forceToolPack ?? toolPackForRole(role, plan.toolPack),
       maxSteps: maxStepsForRole(role),
       extraSystemNotes: [
         ...(opts.extraSystemNotes ?? []),

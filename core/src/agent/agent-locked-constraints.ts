@@ -235,7 +235,7 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
   let artifactPartial: Partial<ArtifactContract> = {};
 
   const fieldRe =
-    /^(?:P0\s*제약[^:]*|신규\s*\/\s*기존|신규\/기존|손대지\s*말\s*것|진입점|데이터\s*출처|요구\s*체크|artifactKind|runtimeSurface|requiredSecrets)\s*[:：]\s*(.*)$/i;
+    /^(?:P0(?:\s*제약[^:]*)?|신규\s*\/\s*기존|신규\/기존|손대지\s*말\s*것|진입점|데이터\s*출처|요구\s*체크|artifactKind|runtimeSurface|requiredSecrets)\s*[:：]\s*(.*)$/i;
 
   for (const raw of t.split(/\r?\n/)) {
     const line = raw.trim().replace(/^[-*•]\s*/, '').trim();
@@ -246,10 +246,47 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
     const label = line.split(/[:：]/)[0]?.toLowerCase() ?? '';
     const value = (m[1] ?? '').trim();
     if (!value || /^[\(（]?잠금[\)）]?$/.test(value)) continue;
-    if (/신규|기존/.test(label)) {
+    if (/신규|기존/.test(label) && !/^p0\b/i.test(label)) {
       if (/신규\s*분리|새\s*프로그램|별도/.test(value)) mode = 'new_separate';
       else if (/기존\s*수정|개조/.test(value)) mode = 'modify_existing';
       else if (inferModeFromText(value) !== 'unknown') mode = inferModeFromText(value);
+    } else if (/^p0(\s*제약.*)?$/i.test(label)) {
+      // Compact PLAN P0: 신규/기존 | artifactKind | 손대지 말 것: x | 진입점: y | …
+      if (/신규\s*분리|새\s*프로그램|별도/.test(value)) mode = 'new_separate';
+      else if (/기존\s*수정|개조|기존/.test(value) && !/신규/.test(value.split('|')[0] ?? '')) {
+        mode = 'modify_existing';
+      } else if (inferModeFromText(value) !== 'unknown') {
+        mode = inferModeFromText(value);
+      } else if (/신규/.test(value)) {
+        mode = 'new_separate';
+      }
+      for (const part of value.split('|').map((p) => p.trim()).filter(Boolean)) {
+        const kv = part.match(/^(손대지\s*말\s*것|do-not-touch|진입점|artifactKind|runtimeSurface|필수\s*env|requiredSecrets)\s*[:：]\s*(.+)$/i);
+        if (kv) {
+          const k = kv[1].toLowerCase();
+          const v = kv[2].trim();
+          if (/손대지|do-not-touch/i.test(k)) {
+            for (const p of v.split(/[,，、|;]/)) {
+              const pathPart = p.trim().replace(/^[`'"\[]+|[`'"\]]+$/g, '');
+              if (pathPart && !/^없음$/.test(pathPart)) doNotTouch.push(pathPart.slice(0, 200));
+            }
+          } else if (/진입/.test(k)) {
+            entry = v.slice(0, 200);
+          } else if (/artifactkind/i.test(k)) {
+            artifactPartial.artifactKind = v as ArtifactKind;
+          } else if (/runtimesurface/i.test(k)) {
+            artifactPartial.runtimeSurface = v as RuntimeSurface;
+          } else if (/requiredsecrets|필수/i.test(k)) {
+            if (!/^없음$/.test(v)) {
+              artifactPartial.requiredSecrets = v.split(/[,，、|;]/).map((s) => s.trim()).filter(Boolean);
+            }
+          }
+          continue;
+        }
+        if (/^(ui_|shell_|core_|node_|unknown)/i.test(part) || /^(react|wpf|api)\b/i.test(part)) {
+          if (!artifactPartial.artifactKind) artifactPartial.artifactKind = part as ArtifactKind;
+        }
+      }
     } else if (/손대지/.test(label)) {
       for (const part of value.split(/[,，、|;]/)) {
         const p = part.trim().replace(/^[`'"\[]+|[`'"\]]+$/g, '');

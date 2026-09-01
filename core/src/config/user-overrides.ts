@@ -34,6 +34,8 @@ export interface UserOverrides {
   agent_autopilot?: boolean | null;
   /** Default reasoning for newly created chats. Existing sessions keep their snapshot. */
   agent_reasoning?: ReasoningLevel;
+  /** Default workspace behavior for new chats: agent | plan | ask. */
+  agent_default_workspace_behavior?: 'agent' | 'plan' | 'ask';
   /** Delegate only non-destructive writes contained by the selected local workspace. */
   approval_delegation?: 'off' | 'safe_local' | 'auto_review';
 }

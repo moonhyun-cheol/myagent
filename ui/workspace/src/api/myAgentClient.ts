@@ -85,6 +85,8 @@ export interface SessionMessage {
   model?: string;
   mode?: string;
   image_urls?: string[];
+  workspace_behavior?: WorkspaceBehavior;
+  plan_constraints_locked?: boolean;
 }
 
 export interface SessionRecord {
@@ -102,10 +104,12 @@ export interface SessionRecord {
 export type ReasoningLevel = 'auto' | 'low' | 'medium' | 'high';
 export type AgentAutopilotMode = 'auto' | 'on' | 'off';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
+export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';
 export interface ExecutionPolicy {
   reasoning: ReasoningLevel;
   autopilot: AgentAutopilotMode;
   approval: ApprovalLevel;
+  workspace_behavior?: WorkspaceBehavior;
 }
 export interface EffectiveExecutionPolicy {
   reasoning: string | null;
@@ -238,6 +242,7 @@ export interface StreamHandlers {
     mode?: string;
     mutatedPaths?: string[];
     checkpointId?: string;
+    planConstraintsLocked?: boolean;
   }) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
@@ -1477,6 +1482,8 @@ export async function streamChat(
           mode: evt.mode as string | undefined,
           mutatedPaths: mutatedPaths.length ? mutatedPaths : undefined,
           checkpointId,
+          planConstraintsLocked:
+            typeof evt.planConstraintsLocked === 'boolean' ? evt.planConstraintsLocked : undefined,
         });
       } else if (type === 'error') {
         handlers.onError?.(String(evt.message ?? '오류'));
@@ -1747,4 +1754,86 @@ export async function importSkillPackage(zipPath: string): Promise<SkillListItem
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `스킬 설치 실패 (${res.status})`);
   return data as SkillListItem;
+}
+
+/** Work profile (data/profile — local preset, separate from org module zip). */
+export interface AgentProfile {
+  id: string;
+  label: string;
+  description?: string;
+  version: 2;
+  ui: { default_skill_mode?: string; pinned_skill_ids: string[] };
+  plugins: { enable: Record<string, boolean> };
+  tools?: { preferred_plugin_ids: string[] };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentProfileApplied {
+  profile_id: string;
+  ui: AgentProfile['ui'];
+  applied_at: string;
+}
+
+export interface ProfileApplyResult {
+  ok: boolean;
+  profile_id: string;
+  toggled: Array<{ id: string; enabled: boolean }>;
+  warnings: string[];
+}
+
+export async function fetchProfiles(): Promise<{
+  profiles: AgentProfile[];
+  applied: AgentProfileApplied | null;
+  can_restore: boolean;
+}> {
+  const res = await fetch('/profiles');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `프로필 조회 실패 (${res.status})`);
+  return {
+    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+    applied: data.applied ?? null,
+    can_restore: data.can_restore === true,
+  };
+}
+
+export async function saveProfile(
+  profile: Partial<AgentProfile> & { id: string },
+): Promise<AgentProfile> {
+  const res = await fetch('/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `프로필 저장 실패 (${res.status})`);
+  return data as AgentProfile;
+}
+
+export async function applyProfile(id: string): Promise<ProfileApplyResult> {
+  const res = await fetch(`/profiles/${encodeURIComponent(id)}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `프로필 적용 실패 (${res.status})`);
+  return data as ProfileApplyResult;
+}
+
+export async function restoreProfileLastState(): Promise<ProfileApplyResult> {
+  const res = await fetch('/profiles/restore-last', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `되돌리기 실패 (${res.status})`);
+  return data as ProfileApplyResult;
+}
+
+export async function deleteProfile(id: string): Promise<void> {
+  const res = await fetch(`/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `프로필 삭제 실패 (${res.status})`);
 }

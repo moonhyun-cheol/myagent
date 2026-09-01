@@ -14,6 +14,7 @@ import {
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
+import { SettingsProfilesSection } from './SettingsProfilesSection';
 
 const ORGANIZATION_COMPONENT_LABELS: Record<string, string> = {
   skills: '스킬',
@@ -246,6 +247,8 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           {message}
         </p>
       ) : null}
+
+      <SettingsProfilesSection readOnly={readOnly} />
 
       <section className="mb-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">

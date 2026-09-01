@@ -70,6 +70,7 @@ import {
   shouldRunWorkspaceAgent,
   runWorkspaceCodeAgent,
   promoteWorkspaceAgentRouting,
+  shouldEnterWorkspaceToolPlane,
 } from './modes/workspace-agent.js';
 import { appendAssistantReply } from './assistant-reply.js';
 import {
@@ -403,14 +404,17 @@ export class ChatOrchestrator {
     }
 
     if (
-      shouldRunWorkspaceAgent(
-        this.configPath,
-        this.sessionStore,
-        this.projectStore,
-        sessionId,
-        routing.mode,
-        message,
-        explicitMode,
+      shouldEnterWorkspaceToolPlane(
+        shouldRunWorkspaceAgent(
+          this.configPath,
+          this.sessionStore,
+          this.projectStore,
+          sessionId,
+          routing.mode,
+          message,
+          explicitMode,
+        ),
+        requestedExecutionPolicy,
       )
     ) {
       return runWorkspaceCodeAgent({
@@ -613,14 +617,17 @@ export class ChatOrchestrator {
     }
 
     if (
-      shouldRunWorkspaceAgent(
-        this.configPath,
-        this.sessionStore,
-        this.projectStore,
-        sessionId,
-        routing.mode,
-        message,
-        explicitMode,
+      shouldEnterWorkspaceToolPlane(
+        shouldRunWorkspaceAgent(
+          this.configPath,
+          this.sessionStore,
+          this.projectStore,
+          sessionId,
+          routing.mode,
+          message,
+          explicitMode,
+        ),
+        requestedExecutionPolicy,
       )
     ) {
       const agentRouting = promoteWorkspaceAgentRouting(routing);
@@ -643,7 +650,12 @@ export class ChatOrchestrator {
           mode: agentRouting.mode,
         });
         userAppended = true;
-        sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
+        sseEvent(res, {
+          type: 'status',
+          text: requestedExecutionPolicy.workspace_behavior === 'plan'
+            ? 'Plan · read-only 설계 (코드 탐색만)'
+            : '코드 에이전트 · 도구 실행 중…',
+        });
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
         const runAgentOnce = async (attempt = 1) =>
@@ -857,6 +869,9 @@ export class ChatOrchestrator {
           mode: full.mode,
           ...(donePaths.length ? { mutatedPaths: donePaths } : {}),
           ...(checkpointId ? { checkpointId } : {}),
+          ...((full as { planConstraintsLocked?: boolean }).planConstraintsLocked !== undefined
+            ? { planConstraintsLocked: (full as { planConstraintsLocked?: boolean }).planConstraintsLocked }
+            : {}),
         });
       } catch (e: unknown) {
         if (isAbortError(e) || signal?.aborted) {

@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-01T01:42:05.400Z",
+  "note": "Build-generated. Re-run: node tools/sync-agent-runtime-facts.mjs",
+  "mutating_tools": [
+    "apply_patch",
+    "delete_file",
+    "edit_file",
+    "git_commit",
+    "git_init",
+    "git_stage",
+    "plugin_install",
+    "plugin_set_enabled",
+    "rename_file",
+    "write_file"
+  ],
+  "tool_packs": {
+    "read_only": {
+      "include": [
+        "read_file",
+        "list_directory",
+        "search_files",
+        "query_repo_map",
+        "search_embeddings",
+        "git_status",
+        "git_diff",
+        "git_log",
+        "git_show",
+        "git_blame",
+        "git_history_tree",
+        "remote_git_inspect",
+        "ast_grep_search",
+        "repomix_pack",
+        "markitdown_convert",
+        "plugin_list",
+        "task_history_search",
+        "task_history_detail",
+        "active_task"
+      ]
+    },
+    "files": {
+      "extends": "read_only",
+      "include_all_code_agent": true
+    }
+  },
+  "behaviors": {
+    "agent": {
+      "tool_pack": "files+browser",
+      "verify": "full",
+      "autopilot_allowed": true
+    },
+    "plan": {
+      "tool_pack": "read_only",
+      "verify": "none",
+      "autopilot_allowed": false,
+      "system_skill": "skills/plan-mode.md",
+      "persist_locked_constraints": true,
+      "ui_handoff": "build",
+      "build_prompt": "위 PLAN을 Agent 모드로 구현해 주세요. Locked P0·대상 파일·단계만 따르고, Exit Gate 1개만 닫으세요. PLAN에 없는 리팩터·범위 확장 금지. verify로 증거를 남기세요."
+    },
+    "ask": {
+      "tool_plane": false,
+      "context": "workspace_snippet"
+    }
+  },
+  "system_skills": {
+    "plan_mode": "skills/plan-mode.md"
+  }
+}

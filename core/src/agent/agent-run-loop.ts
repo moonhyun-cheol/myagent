@@ -59,6 +59,7 @@ import {
 } from './agent-llm-step.js';
 import { packIncludesBrowser } from './agent-tool-pack.js';
 import { loadUiFacts } from './agent-grounding.js';
+import { behaviorAllowsAutopilot, resolveBehaviorToolPack } from './agent-runtime-facts.js';
 import {
   autopilotMaxSteps,
   formatAutopilotSystemNote,
@@ -208,15 +209,23 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const guard = { allowNas };
 
   const playwrightAvailable = isPlaywrightAvailable(opts.cqrRoot);
+  const workspaceBehavior = opts.workspaceBehavior ?? 'agent';
   let autopilot = resolveAutopilotEnabled(
     process.env,
     typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
     opts.userMessage,
     { codeSession: true },
   );
+  if (!behaviorAllowsAutopilot(workspaceBehavior, opts.cqrRoot)) {
+    autopilot = false;
+  }
   const toolPack =
     opts.forceToolPack
-    ?? (playwrightAvailable ? 'files+browser' : 'files');
+    ?? resolveBehaviorToolPack(
+      workspaceBehavior,
+      opts.cqrRoot,
+      playwrightAvailable ? 'files+browser' : 'files',
+    );
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
@@ -613,6 +622,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     sessionId: opts.sessionId,
     allowLocalhost: opts.playwrightAllowLocalhost,
     signal: opts.signal,
+    workspaceBehavior: opts.workspaceBehavior ?? 'agent',
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,

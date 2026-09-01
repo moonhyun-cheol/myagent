@@ -16,21 +16,23 @@ const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-session-policy-'));
 
 try {
   const store = new SessionStore(temp, temp);
-  store.ensure('chat-a', { execution_policy: { reasoning: 'high', autopilot: 'on', approval: 'autopilot' } });
-  store.ensure('chat-b', { execution_policy: { reasoning: 'low', autopilot: 'off', approval: 'ask' } });
-  store.setExecutionPolicy('chat-a', { reasoning: 'medium', autopilot: 'auto', approval: 'delegate' });
+  store.ensure('chat-a', { execution_policy: { reasoning: 'high', autopilot: 'on', approval: 'autopilot', workspace_behavior: 'agent' } });
+  store.ensure('chat-b', { execution_policy: { reasoning: 'low', autopilot: 'off', approval: 'ask', workspace_behavior: 'plan' } });
+  store.setExecutionPolicy('chat-a', { reasoning: 'medium', autopilot: 'auto', approval: 'delegate', workspace_behavior: 'agent' });
 
-  assert.deepEqual(store.load('chat-a')?.execution_policy, { reasoning: 'medium', autopilot: 'auto', approval: 'delegate' });
-  assert.deepEqual(store.load('chat-b')?.execution_policy, { reasoning: 'low', autopilot: 'off', approval: 'ask' });
+  assert.deepEqual(store.load('chat-a')?.execution_policy, { reasoning: 'medium', autopilot: 'auto', approval: 'delegate', workspace_behavior: 'agent' });
+  assert.deepEqual(store.load('chat-b')?.execution_policy, { reasoning: 'low', autopilot: 'off', approval: 'ask', workspace_behavior: 'plan' });
   assert.deepEqual(defaultExecutionPolicyFromConfig({ agent_reasoning: 'high', agent_autopilot: true, approval_delegation: 'safe_local' }), {
     reasoning: 'high',
     autopilot: 'on',
     approval: 'autopilot',
+    workspace_behavior: 'agent',
   });
   assert.deepEqual(normalizeExecutionPolicy({ reasoning: 'bad', autopilot: 'bad', approval: 'bad' }), {
     reasoning: 'auto',
     autopilot: 'auto',
     approval: 'ask',
+    workspace_behavior: 'agent',
   });
   assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'gpt-5.6' }), 'high');
   assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'llama3' }), null);
@@ -38,11 +40,11 @@ try {
   assert.equal(resolveSessionReasoningEffort('high', {}, { providerId: 'anthropic', modelId: 'claude-3-haiku' }), null);
 
   const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
-  const client = readFileSync(path.join(root, 'ui/workspace/src/api/cqrClient.ts'), 'utf8');
+  const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
   const workspace = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
   const orchestrator = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
   const anthropic = readFileSync(path.join(root, 'core/src/providers/anthropic-messages.ts'), 'utf8');
-  for (const marker of ['chat-execution-policy', 'chat-reasoning-level', 'chat-approval-level']) {
+  for (const marker of ['chat-execution-policy', 'chat-reasoning-level', 'chat-approval-level', 'chat-workspace-behavior']) {
     assert.ok(ui.includes(marker), `chat policy UI marker missing: ${marker}`);
   }
   assert.match(client, /body\.execution_policy = opts\.execution_policy/);

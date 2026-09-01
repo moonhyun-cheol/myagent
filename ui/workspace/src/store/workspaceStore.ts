@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, validHttpUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
 import { showUserNotification } from '../lib/userNotifications';
+import {
+  PLAN_BUILD_USER_MESSAGE,
+  shouldOfferPlanBuild,
+} from '../lib/plan-build';
 import type {
   AiWorkMode,
   ChatTurn,
@@ -214,6 +218,11 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       imageUrls: urls.length ? urls : undefined,
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
+      planBuildOffer: shouldOfferPlanBuild(messages, i),
+      planConstraintsLocked:
+        m.role === 'assistant' && typeof m.plan_constraints_locked === 'boolean'
+          ? m.plan_constraints_locked
+          : undefined,
     };
   });
 }
@@ -447,6 +456,8 @@ interface WorkspaceState {
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
   sendAiMessage: (text: string, modelOverride?: string) => Promise<void>;
+  /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
+  buildFromPlan: (assistantTurnId: string) => Promise<void>;
   stopAiMessage: () => void;
   undoLastTurn: () => Promise<string | null>;
 }
@@ -602,9 +613,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const finishedJob = liveJobs.get(sid);
     if (finishedJob) {
       const completedAt = new Date().toISOString();
-      const completedChat = finishedJob.chat.map((turn) =>
-        turn.id === finishedJob.assistantId ? { ...turn, completedAt } : turn,
-      );
+      const isPlanRun = finishedJob.executionPolicy.workspace_behavior === 'plan';
+      const completedChat = finishedJob.chat.map((turn) => {
+        if (turn.id !== finishedJob.assistantId) return turn;
+        const next: ChatTurn = { ...turn, completedAt };
+        if (isPlanRun && turn.text?.trim() && turn.text !== '(빈 응답)' && turn.text !== '(중지됨)') {
+          next.planBuildOffer = true;
+        }
+        return next;
+      });
       patchLiveChat(sid, completedChat);
     }
     liveJobs.delete(sid);
@@ -865,7 +882,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 : info.mode === 'image_gen'
                   ? 'image'
                   : 'text';
-              patchAssistant({ mode: resolvedMode });
+              patchAssistant({
+                mode: resolvedMode,
+                ...(typeof info.planConstraintsLocked === 'boolean'
+                  ? { planConstraintsLocked: info.planConstraintsLocked }
+                  : {}),
+              });
               for (const path of info.mutatedPaths ?? []) {
                 const rel = String(path ?? '').replace(/\\/g, '/').trim();
                 if (rel) mutatedWorkspacePaths.add(rel);
@@ -1006,7 +1028,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     openGateText: '',
     contextBudget: null,
     selectedModel: 'auto',
-    activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
+    activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
     effectiveExecutionPolicy: null,
     modelOptions: [{ id: 'auto', label: '기본 (자동)' }],
     apiOnline: null,
@@ -1367,13 +1389,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       cacheActiveSessionView();
       const id = await createSession(projectId);
       const rec = await fetchSession(id);
+      const policy = rec.execution_policy ?? {
+        reasoning: 'auto' as const,
+        autopilot: 'auto' as const,
+        approval: 'ask' as const,
+        workspace_behavior: 'agent' as const,
+      };
       set({
         activeSessionId: id,
         activeProjectId: projectId,
         activeWorkspaceProjectId: rec.workspace_project_id ?? null,
         chat: [],
         selectedModel: readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
-        activeExecutionPolicy: rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
+        activeExecutionPolicy: {
+          ...policy,
+          workspace_behavior: policy.workspace_behavior ?? 'agent',
+        },
         effectiveExecutionPolicy: null,
         canUndo: false,
         assets: [],
@@ -1395,6 +1426,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         activeProjectId: null,
         activeWorkspaceProjectId: null,
         chat: [],
+        // First-time / empty composer must not inherit Plan/Ask from the previous chat.
+        activeExecutionPolicy: {
+          reasoning: 'auto',
+          autopilot: 'auto',
+          approval: 'ask',
+          workspace_behavior: 'agent',
+        },
         effectiveExecutionPolicy: null,
         canUndo: false,
         assets: [],
@@ -1419,7 +1457,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activeProjectId: snapshot?.activeProjectId ?? null,
           activeWorkspaceProjectId: snapshot?.activeWorkspaceProjectId ?? null,
           chat: live?.chat ?? snapshot?.chat ?? [],
-          activeExecutionPolicy: live?.executionPolicy ?? snapshot?.activeExecutionPolicy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
+          activeExecutionPolicy: live?.executionPolicy ?? snapshot?.activeExecutionPolicy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: live?.effectiveExecutionPolicy ?? snapshot?.effectiveExecutionPolicy ?? null,
           canUndo: live ? false : (snapshot?.canUndo ?? false),
           assets: snapshot?.assets ?? [],
@@ -1433,7 +1471,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activeProjectId: null,
           activeWorkspaceProjectId: null,
           chat: [],
-          activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
+          activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: null,
           canUndo: false,
           assets: [],
@@ -1453,7 +1491,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           selectedModel: rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
           activeWorkspaceProjectId: rec.workspace_project_id ?? null,
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
-          activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask' },
+          activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,
           canUndo: currentLive ? false : messages.some((m) => m.role === 'user'),
           assets: currentLive && previous
@@ -1893,9 +1931,40 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if ((!trimmed && !attachmentIds.length)) return;
 
       let sid = get().activeSessionId;
+      let createdFreshSession = false;
       if (!sid) {
         sid = await createSession(get().activeProjectId);
+        createdFreshSession = true;
         set({ activeSessionId: sid });
+      }
+      if (createdFreshSession) {
+        // New session uses PC default (agent). Do not leak Plan/Ask from a cleared previous chat.
+        try {
+          const rec = await fetchSession(sid);
+          const policy = rec.execution_policy ?? {
+            reasoning: 'auto' as const,
+            autopilot: 'auto' as const,
+            approval: 'ask' as const,
+            workspace_behavior: 'agent' as const,
+          };
+          set({
+            activeExecutionPolicy: {
+              ...policy,
+              workspace_behavior: policy.workspace_behavior ?? 'agent',
+            },
+            effectiveExecutionPolicy: null,
+          });
+        } catch {
+          set({
+            activeExecutionPolicy: {
+              reasoning: 'auto',
+              autopilot: 'auto',
+              approval: 'ask',
+              workspace_behavior: 'agent',
+            },
+            effectiveExecutionPolicy: null,
+          });
+        }
       }
       if (liveJobs.has(sid) || get().sessionPhases[sid]) {
         const queued: QueuedMessage = {
@@ -1978,6 +2047,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         streamAbort: abort,
       });
       void runJob(sid);
+    },
+
+    buildFromPlan: async (assistantTurnId) => {
+      const sid = get().activeSessionId;
+      if (!sid || get().busy) return;
+      const turn = get().chat.find((t) => t.id === assistantTurnId);
+      if (!turn || turn.role !== 'assistant' || !turn.planBuildOffer || turn.planBuilt) return;
+
+      const nextChat = get().chat.map((t) =>
+        t.id === assistantTurnId ? { ...t, planBuilt: true, planBuildOffer: false } : t,
+      );
+      set({ chat: nextChat });
+      const cached = sessionViewCache.get(sid);
+      if (cached) sessionViewCache.set(sid, { ...cached, chat: nextChat });
+
+      const priorAutopilot = get().activeExecutionPolicy.autopilot;
+      await get().setExecutionPolicy({
+        workspace_behavior: 'agent',
+        autopilot:
+          get().activeExecutionPolicy.workspace_behavior === 'plan' ||
+          get().activeExecutionPolicy.workspace_behavior === 'ask'
+            ? 'auto'
+            : priorAutopilot,
+      });
+
+      await get().sendAiMessage(PLAN_BUILD_USER_MESSAGE);
     },
 
     stopAiMessage: () => {

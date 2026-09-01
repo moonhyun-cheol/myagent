@@ -11,6 +11,7 @@ import {
 import { getCodeAgentToolsForPack, type AgentToolPack } from './agent-tool-pack.js';
 import { listEnabledPluginToolDefinitions } from './agent-plugin-store.js';
 import { listUserMcpToolDefinitions } from './user-mcp.js';
+import { mutatingToolNames } from './agent-runtime-facts.js';
 import type { AgentToolDefinition } from './agent-tool-types.js';
 
 export {
@@ -20,15 +21,49 @@ export {
 };
 export type { AgentToolCall, AgentToolContext, AgentToolDefinition } from './agent-tool-types.js';
 
-function mergePluginTools(cqrRoot: string, base: AgentToolDefinition[]): AgentToolDefinition[] {
+function stripMutatingTools(
+  cqrRoot: string,
+  tools: AgentToolDefinition[],
+): AgentToolDefinition[] {
+  const mutating = mutatingToolNames(cqrRoot);
+  return tools.filter((t) => !mutating.has(t.function.name));
+}
+
+function mergePluginTools(
+  cqrRoot: string,
+  base: AgentToolDefinition[],
+  opts?: { stripMutating?: boolean },
+): AgentToolDefinition[] {
   try {
+    let merged = base;
     const plugins = listEnabledPluginToolDefinitions(cqrRoot);
-    if (!plugins.length) return base;
-    const names = new Set(base.map((t) => t.function.name));
-    const extra = plugins.filter((t) => !names.has(t.function.name));
-    return extra.length ? [...base, ...extra] : base;
+    if (plugins.length) {
+      const names = new Set(merged.map((t) => t.function.name));
+      const extra = plugins.filter((t) => !names.has(t.function.name));
+      if (extra.length) merged = [...merged, ...extra];
+    }
+    return opts?.stripMutating ? stripMutatingTools(cqrRoot, merged) : merged;
   } catch {
-    return base;
+    return opts?.stripMutating ? stripMutatingTools(cqrRoot, base) : base;
+  }
+}
+
+async function mergeMcpTools(
+  cqrRoot: string,
+  base: AgentToolDefinition[],
+  opts?: { stripMutating?: boolean },
+): Promise<AgentToolDefinition[]> {
+  try {
+    let merged = base;
+    const mcpTools = await listUserMcpToolDefinitions(cqrRoot);
+    if (mcpTools.length) {
+      const names = new Set(merged.map((t) => t.function.name));
+      const extra = mcpTools.filter((t) => !names.has(t.function.name));
+      if (extra.length) merged = [...merged, ...extra];
+    }
+    return opts?.stripMutating ? stripMutatingTools(cqrRoot, merged) : merged;
+  } catch {
+    return opts?.stripMutating ? stripMutatingTools(cqrRoot, base) : base;
   }
 }
 
@@ -43,23 +78,15 @@ export function getCodeAgentTools(cqrRoot: string): AgentToolDefinition[] {
 /** Prefer this at run start — includes user MCP tools (may spawn/list). */
 export async function getCodeAgentToolsAsync(cqrRoot: string): Promise<AgentToolDefinition[]> {
   const base = getCodeAgentTools(cqrRoot);
-  try {
-    const mcpTools = await listUserMcpToolDefinitions(cqrRoot);
-    if (!mcpTools.length) return base;
-    const names = new Set(base.map((t) => t.function.name));
-    const extra = mcpTools.filter((t) => !names.has(t.function.name));
-    return extra.length ? [...base, ...extra] : base;
-  } catch {
-    return base;
-  }
+  return mergeMcpTools(cqrRoot, base);
 }
 
 export function getCodeAgentToolsByPack(
   cqrRoot: string,
   pack: AgentToolPack,
 ): AgentToolDefinition[] {
-  const base = getCodeAgentToolsForPack(pack, isPlaywrightAvailable(cqrRoot));
-  return mergePluginTools(cqrRoot, base);
+  const base = getCodeAgentToolsForPack(pack, isPlaywrightAvailable(cqrRoot), cqrRoot);
+  return mergePluginTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 
 export async function getCodeAgentToolsByPackAsync(
@@ -67,15 +94,7 @@ export async function getCodeAgentToolsByPackAsync(
   pack: AgentToolPack,
 ): Promise<AgentToolDefinition[]> {
   const base = getCodeAgentToolsByPack(cqrRoot, pack);
-  try {
-    const mcpTools = await listUserMcpToolDefinitions(cqrRoot);
-    if (!mcpTools.length) return base;
-    const names = new Set(base.map((t) => t.function.name));
-    const extra = mcpTools.filter((t) => !names.has(t.function.name));
-    return extra.length ? [...base, ...extra] : base;
-  } catch {
-    return base;
-  }
+  return mergeMcpTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 
 export function getCodeAgentToolNamesFromTools(tools: AgentToolDefinition[]): string[] {
