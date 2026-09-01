@@ -121,9 +121,6 @@ const model =
   || process.env.CQR_OWUI_MODEL?.trim()
   || '';
 
-process.env.MY_AGENT_MULTI_AGENT = '0';
-process.env.MY_AGENT_MANDATORY_CRITIC = '0';
-
 const t0 = Date.now();
 const statuses = [];
 try {
@@ -150,7 +147,6 @@ try {
     maxSteps: 10,
     forceToolPack: 'web_dev',
     mutationsOverride: true,
-    applyOutcomeGate: false,
     onToolApproval: async () => true,
     onStatus: (s) => {
       const line = String(s).slice(0, 200);

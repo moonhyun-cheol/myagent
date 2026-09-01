@@ -7,8 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { CODE_AGENT_TOOLS } from '../core/dist/agent/tools.js';
 import {
   contentLooksLikeToolMimic,
-  contentLooksLikeToolNotFoundPoison,
-  sanitizeToolNotFoundPoison,
 } from '../core/dist/agent/tool-content-guards.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,7 +19,5 @@ for (const required of ['read_file', 'search_files', 'run_terminal', 'apply_patc
 }
 
 assert.equal(contentLooksLikeToolMimic('TOOL_CALL: {"name":"read_file"}'), true);
-assert.equal(contentLooksLikeToolNotFoundPoison('Tool not found: read_file'), true);
-assert.equal(sanitizeToolNotFoundPoison('Tool not found: read_file'), null);
 
 console.log('verify-capability-policy: ok (schema-directed capabilities)');

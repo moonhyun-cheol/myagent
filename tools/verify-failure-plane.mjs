@@ -8,8 +8,6 @@ const {
   classifyLlmFailure,
   isInfraLlmFailure,
   mustNotDemoteToolPlaneToChat,
-  roleFailureMustAbortTurn,
-  roleFailureMaySoftSkip,
   contentLooksLikeLeakedRoleInfraFailure,
   wrapAsInfraError,
   TOOL_PLANE_NO_WORKSPACE_REFUSAL,
@@ -29,9 +27,6 @@ assert.equal(classifyLlmFailure(new Error('syntax oops')), 'other');
 assert.equal(mustNotDemoteToolPlaneToChat(true), true);
 assert.equal(mustNotDemoteToolPlaneToChat(false), false);
 
-assert.equal(roleFailureMustAbortTurn('coder'), true);
-assert.equal(roleFailureMustAbortTurn('planner'), true);
-assert.equal(roleFailureMaySoftSkip('reviewer'), true);
 
 assert.equal(
   contentLooksLikeLeakedRoleInfraFailure('coder 실패: OWUI_GATEWAY_TIMEOUT (504)'),
@@ -56,9 +51,9 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
     mutatedPaths: ['app.js'],
     kind: 'infra',
   });
-  assert.match(body, /인프라 오류/);
+  assert.match(body, /AI 공급자 오류/);
   assert.match(body, /app\.js/);
-  assert.match(body, /자동 재시도/);
+  assert.match(body, /자동으로 재시도/);
   assert.equal(toolPlaneInfraRetryLimit({}), 2);
   assert.equal(toolPlaneInfraRetryLimit({ MY_AGENT_TOOL_PLANE_INFRA_RETRIES: '4' }), 4);
   assert.equal(toolPlaneAutoResumeLimit({}), 2);
@@ -69,13 +64,6 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
     shouldAutoResumeAfterInfra({}),
     false,
     'empty meta must not auto-resume (infra retries cover cold 504)',
-  );
-  assert.equal(
-    shouldAutoResumeAfterInfra({
-      openGate: { status: 'open', gate: '중단 복구: hello' },
-    }),
-    false,
-    'openGate-only must not auto-resume thrash',
   );
 }
 
@@ -147,9 +135,7 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
   const dump =
     '[read_file meta] path=core/src/foo.ts lines=40\n' + 'const x = 1;\n'.repeat(500);
   const out = truncateToolResultForLlm(dump, 'read_file');
-  assert.match(out, /read_file summary/);
-  assert.match(out, /foo\.ts/);
-  assert.ok(out.length < dump.length / 2);
+  assert.equal(out, dump, 'read_file content under the context budget stays intact');
 
   const jsonBig = JSON.stringify({
     ok: true,

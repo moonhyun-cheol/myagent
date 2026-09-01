@@ -52,8 +52,6 @@ export interface PerfEnvSnapshot {
   tool_protocol?: 'api' | 'client' | string;
   /** From MY_AGENT_REASONING_EFFORT (null/omit when off). */
   reasoning_effort?: string | null;
-  /** From MY_AGENT_MAR_LIGHT. */
-  mar_light?: boolean;
   /** Effective Autopilot (env or user override). */
   autopilot?: boolean;
   /** From MY_AGENT_OWUI_PROTOCOL. */
@@ -183,7 +181,6 @@ export function collectPerfEnv(partial?: Partial<PerfEnvSnapshot>): PerfEnvSnaps
     wire_api: partial?.wire_api,
     tool_protocol: partial?.tool_protocol ?? partial?.protocol,
     reasoning_effort: partial?.reasoning_effort,
-    mar_light: partial?.mar_light,
     autopilot: partial?.autopilot,
     owui_protocol: partial?.owui_protocol,
   };

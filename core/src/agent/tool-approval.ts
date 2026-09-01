@@ -198,6 +198,10 @@ export function resolveToolApproval(id: string, approved: boolean): boolean {
   return true;
 }
 
+export function countPendingToolApprovals(): number {
+  return pending.size;
+}
+
 export const DEFAULT_LARGE_WRITE_CHARS = 40_000;
 /** apply_patch HITL threshold (higher — patches are hunk-scoped vs full rewrite). */
 export const DEFAULT_LARGE_PATCH_CHARS = 80_000;

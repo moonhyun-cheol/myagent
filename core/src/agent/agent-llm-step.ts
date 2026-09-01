@@ -59,9 +59,6 @@ function llmExtras(opts: CodeAgentOptions, modelId?: string) {
   const harness = harnessCompletionExtras(process.env, {
     providerId: opts.providerId,
     modelId,
-    forCodeAgent: true,
-    simpleEdit: false,
-    simpleTask: false,
   });
   return {
     wireApi: opts.wireApi ?? 'chat_completions',

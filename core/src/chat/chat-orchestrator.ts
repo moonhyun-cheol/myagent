@@ -24,11 +24,6 @@ import {
   isStreamableLlmSkillMode,
 } from '../skills/chat-skill-flow.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
-import {
-  augmentWithWebSearch,
-  mergeSearchContext,
-  shouldAutoWebSearch,
-} from '../skills/web-search-augment.js';
 import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-session-log.js';
 import { waitForToolApproval } from '../agent/tool-approval.js';
 import { reviewToolApproval } from '../agent/approval-auto-review.js';
@@ -50,6 +45,7 @@ import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool } from '../automaton/adapter.js';
+import { beginActiveWork, endActiveWork } from '../system/active-work-registry.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
 import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
@@ -58,6 +54,7 @@ import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { peekAutomatonIntent, automatonIntentToRoute } from '../router/automaton-intent.js';
+import { withAutomatonBackground } from '../system/automaton-background-registry.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -241,6 +238,7 @@ export class ChatOrchestrator {
       fallbackLocal: boolean;
     },
   ): Promise<void> {
+    await withAutomatonBackground(async () => {
     try {
       await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
         progressFile: job.progressFile,
@@ -269,6 +267,7 @@ export class ChatOrchestrator {
         rawError: err instanceof Error ? err.message : String(err),
       });
     }
+    });
   }
 
   private autoReportError(payload: {
@@ -294,6 +293,9 @@ export class ChatOrchestrator {
         model: 'filter/inlet',
       };
     }
+    const chatWorkKey = `chat:${sessionId}`;
+    beginActiveWork(chatWorkKey, 'chat');
+    try {
     const message = inlet.text;
     const explicitMode = normalizeMode(req.mode);
     const hasAttachments = (req.attachments?.length ?? 0) > 0;
@@ -476,10 +478,6 @@ export class ChatOrchestrator {
         attachmentChars: attachmentCtx ? String(attachmentCtx).length : 0,
       },
     });
-    const search = await augmentWithWebSearch(message, this.providerStore, {
-      explicit: req.web_search === true,
-      cqrRoot: this.cqrRoot,
-    });
     const workspaceCtx = buildWorkspaceContext(
       this.configPath,
       this.sessionStore,
@@ -489,7 +487,7 @@ export class ChatOrchestrator {
       routing.mode,
     );
     const hasWorkspaceContext = Boolean(workspaceCtx);
-    const mergedCtx = mergeSearchContext(attachmentCtx || undefined, search.context, workspaceCtx || undefined);
+    const mergedCtx = [attachmentCtx, workspaceCtx].filter(Boolean).join('\n\n');
     const history = applyHistoryContentBudget(
       sanitizeHistoryForModel(
         this.sessionStore.recentMessages(sessionId, getHistoryTurns(process.env, histBudget)).slice(0, -1),
@@ -533,10 +531,10 @@ export class ChatOrchestrator {
       model: chatResult.model,
       image: finalized.imageUrls[0] ? { url: finalized.imageUrls[0] } : undefined,
       images: finalized.imageUrls.map((url) => ({ url })),
-      web_search: search.applied
-        ? { applied: true, source_count: search.sourceCount }
-        : undefined,
     };
+    } finally {
+      endActiveWork(chatWorkKey);
+    }
   }
 
   async handleStream(req: ChatRequest, sessionId: string, res: ServerResponse, signal?: AbortSignal): Promise<void> {
@@ -552,6 +550,9 @@ export class ChatOrchestrator {
       sseDone(res);
       return;
     }
+    const streamWorkKey = `chat:${sessionId}`;
+    beginActiveWork(streamWorkKey, 'chat_stream');
+    try {
     for (const w of inlet.warnings ?? []) {
       sseEvent(res, { type: 'thought', text: applyChatStreamFilter(w), label: 'filter' });
     }
@@ -863,10 +864,15 @@ export class ChatOrchestrator {
           typeof checkpointIdRaw === 'string' && checkpointIdRaw.trim()
             ? checkpointIdRaw.trim()
             : undefined;
+        const lastUsage = loadAgentRunMeta(this.cqrRoot, sessionId).lastPerf?.usage;
+        const lastProcessedTokens = lastUsage
+          ? Math.max(0, (lastUsage.prompt_tokens ?? 0) + (lastUsage.completion_tokens ?? 0))
+          : undefined;
         sseEvent(res, {
           type: 'done',
           model: full.model,
           mode: full.mode,
+          ...(lastProcessedTokens !== undefined ? { lastProcessedTokens } : {}),
           ...(donePaths.length ? { mutatedPaths: donePaths } : {}),
           ...(checkpointId ? { checkpointId } : {}),
           ...((full as { planConstraintsLocked?: boolean }).planConstraintsLocked !== undefined
@@ -1023,24 +1029,7 @@ export class ChatOrchestrator {
         attachmentChars: attachmentCtx ? String(attachmentCtx).length : 0,
       },
     });
-    const willSearch = shouldAutoWebSearch(message, this.cqrRoot, req.web_search === true);
-    if (willSearch) {
-      sseEvent(res, { type: 'status', text: '웹 검색 중…' });
-    } else {
-      sseEvent(res, { type: 'status', text: statusLabelForMode(routing.mode) });
-    }
-    const search = await augmentWithWebSearch(message, this.providerStore, {
-      explicit: req.web_search === true,
-      cqrRoot: this.cqrRoot,
-    });
-    if (willSearch && search.applied) {
-      sseEvent(res, {
-        type: 'status',
-        text: `검색 완료 (${search.sourceCount}건) · 답변 생성 중…`,
-      });
-    } else if (willSearch) {
-      sseEvent(res, { type: 'status', text: '답변 생성 중…' });
-    }
+    sseEvent(res, { type: 'status', text: statusLabelForMode(routing.mode) });
     const workspaceCtx = buildWorkspaceContext(
       this.configPath,
       this.sessionStore,
@@ -1050,7 +1039,7 @@ export class ChatOrchestrator {
       routing.mode,
     );
     const hasWorkspaceContext = Boolean(workspaceCtx);
-    const mergedCtx = mergeSearchContext(attachmentCtx || undefined, search.context, workspaceCtx || undefined);
+    const mergedCtx = [attachmentCtx, workspaceCtx].filter(Boolean).join('\n\n');
     const history = applyHistoryContentBudget(
       sanitizeHistoryForModel(
         this.sessionStore.recentMessages(sessionId, getHistoryTurns(process.env, histBudget)).slice(0, -1),
@@ -1110,7 +1099,6 @@ export class ChatOrchestrator {
           type: 'done',
           model: out.model,
           mode: routing.mode,
-          web_search: search.applied ? { applied: true, source_count: search.sourceCount } : undefined,
         });
         sseDone(res);
         return;
@@ -1179,6 +1167,9 @@ export class ChatOrchestrator {
       });
       sseEvent(res, { type: 'error', message: msg });
       sseDone(res);
+    }
+    } finally {
+      endActiveWork(streamWorkKey);
     }
   }
 

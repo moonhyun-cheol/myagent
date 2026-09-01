@@ -18,7 +18,6 @@ const { resolveCodeOwuiProtocolMode, owuiPrefersClientToolProtocol } = await imp
 );
 const { prefersClientToolProtocol } = await import('../core/dist/agent/agent-tool-protocol.js');
 const { executeAgentTool } = await import('../core/dist/agent/agent-tool-execute.js');
-const { planMarRoles } = await import('../core/dist/agent/agent-mar-roles.js');
 const { formatAgentPhaseStatus, formatElapsedDuration } = await import(
   '../core/dist/agent/agent-status-report.js'
 );
@@ -64,11 +63,9 @@ assert.equal(
 );
 assert.equal(formatElapsedDuration(0), '0분 0초');
 assert.equal(formatElapsedDuration(72), '1분 12초');
-const { sanitizeToolNotFoundPoison, contentLooksLikeToolNotFoundPoison, sanitizeFinalAgentContent } = await import(
+const { sanitizeFinalAgentContent } = await import(
   '../core/dist/agent/tool-content-guards.js'
 );
-assert.equal(contentLooksLikeToolNotFoundPoison('Error: Tool not found: edit_file'), true);
-assert.equal(sanitizeToolNotFoundPoison('Error: Tool not found: edit_file'), null);
 {
   const scrubbed = sanitizeFinalAgentContent(
     'done\nTOOL_CALL: {"name":"write_file","arguments":{}}\nERROR: WIRING_SMOKE missing #app\nANSWER_SYNTH_X',
@@ -113,20 +110,6 @@ assert.equal(sanitizeToolNotFoundPoison('Error: Tool not found: edit_file'), nul
   assert.ok(/다음\s*조치/i.test(scrubDone), 'response structure remains model-owned');
   assert.ok(/변경\s*증거|mutate:\s*1\s*paths/i.test(scrubDone), 'semantic footer remains intact');
 }
-
-const mar = planMarRoles('app.js에 주석 한 줄 추가해줘');
-assert.ok(mar.roles.includes('coder'));
-assert.ok(!mar.roles.includes('planner'), 'simple edit must not dual-planner');
-
-const marGreen = planMarRoles(
-  '빈 워크스페이스에 index.html styles.css app.js README.md docs/MARKET_REPORT.md 를 한 번에 만들어.',
-  { codeSession: true },
-);
-assert.ok(marGreen.roles.includes('coder'));
-assert.ok(
-  !marGreen.roles.includes('planner'),
-  'greenfield must skip dual planner (stream/latency)',
-);
 
 const ws = mkdtempSync(path.join(tmpdir(), 'cqr-coding-iq-'));
 try {

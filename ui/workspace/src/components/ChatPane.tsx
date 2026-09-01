@@ -252,6 +252,19 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
+  const draftsBySessionRef = useRef<Map<string, string>>(new Map());
+  const draftSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = draftSessionRef.current;
+    const next = activeSessionId ?? null;
+    if (prev === next) {
+      if (next) draftsBySessionRef.current.set(next, draft);
+      return;
+    }
+    if (prev) draftsBySessionRef.current.set(prev, draft);
+    draftSessionRef.current = next;
+    setDraft(next ? draftsBySessionRef.current.get(next) ?? '' : '');
+  }, [activeSessionId, draft]);
   const [messageReferences, setMessageReferences] = useState<MessageReference[]>([]);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [pasteHint, setPasteHint] = useState<string | null>(null);
@@ -1187,21 +1200,13 @@ export function ChatPane() {
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
-                {turn.role === 'assistant' && (turn.thought?.trim() || turn.progressSteps?.length) ? (
+                {turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim()) ? (
                   <details
                     className="group mb-3 border-b border-line/70 pb-3"
                     open={busy && !turn.completedAt}
                   >
                     <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
-                      <span>
-                        {busy && !turn.completedAt
-                          ? statusText
-                            ? `작업 중 · ${statusText.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}`
-                            : '작업 중'
-                          : formatWorkDuration(turn.startedAt, turn.completedAt)
-                            ? `${formatWorkDuration(turn.startedAt, turn.completedAt)} 동안 작업함`
-                            : '작업 과정'}
-                      </span>
+                      <span>모델 응답</span>
                       <CaretDown
                         size={13}
                         className="transition-transform duration-150 group-open:rotate-180"
@@ -1209,16 +1214,6 @@ export function ChatPane() {
                       />
                     </summary>
                     <div className="mt-3 space-y-3 border-l border-line/70 pl-3 text-[13px] leading-relaxed text-muted">
-                      {turn.progressSteps?.length ? (
-                        <ol className="space-y-1.5">
-                          {turn.progressSteps.map((step, index) => (
-                            <li key={`${index}-${step}`} className="flex items-start gap-2">
-                              <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-muted/60" aria-hidden="true" />
-                              <span>{step.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}</span>
-                            </li>
-                          ))}
-                        </ol>
-                      ) : null}
                       {turn.thought?.trim() ? (
                         <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-text/75">
                           {turn.thought.trim()}
@@ -1366,27 +1361,26 @@ export function ChatPane() {
 
       <div className="border-t border-line bg-panel/65 px-5 py-4 backdrop-blur-xl">
         <div className="mx-auto max-w-2xl">
-          {contextBudget && contextBudget.budgetChars > 0 ? (
-            <p
-              className={`mb-2 text-[10px] tabular-nums text-muted ${
-                contextBudget.usedChars / contextBudget.budgetChars < 0.7 &&
-                !contextBudget.compressed
-                  ? 'sr-only'
-                  : ''
-              }`}
+          {contextBudget && contextBudget.contextLength > 0 ? (
+            <div
+              className="mb-2 flex justify-end gap-3 text-[10px] tabular-nums text-muted"
               data-testid="context-budget-gauge"
               title={
                 contextBudget.fallback128k
-                  ? 'model context seed miss → 128k fallback'
-                  : undefined
+                  ? '모델 컨텍스트 정보를 찾지 못해 128k 기준값을 사용 중입니다.'
+                  : '전달 예정은 압축 후 대화 기록 문자 수를 토큰으로 환산한 추정치입니다.'
               }
             >
-              ctx {Math.round((contextBudget.usedChars / contextBudget.budgetChars) * 100)}% ·{' '}
-              {(contextBudget.usedChars / 1000).toFixed(1)}k/
-              {(contextBudget.budgetChars / 1000).toFixed(1)}k
-              {contextBudget.compressed ? ' · compressed' : ''}
-              {contextBudget.fallback128k ? ' · fallback128k' : ''}
-            </p>
+              <span>전체 컨텍스트 {(contextBudget.contextLength / 1000).toFixed(0)}k</span>
+              <span>전달 예정 ≈{Math.ceil(contextBudget.usedChars / 4).toLocaleString()}</span>
+              <span>
+                직전 처리{' '}
+                {contextBudget.lastProcessedTokens === null
+                  ? '—'
+                  : contextBudget.lastProcessedTokens.toLocaleString()}
+              </span>
+              {contextBudget.compressed ? <span className="text-amber-300">압축됨</span> : null}
+            </div>
           ) : null}
           {pasteHint ? (
             <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>

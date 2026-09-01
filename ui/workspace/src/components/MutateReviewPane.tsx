@@ -44,6 +44,14 @@ export function MutateReviewPane() {
   const [diffMode, setDiffMode] = useState<DiffMode>('unified');
 
   useEffect(() => {
+    void fetch('/system/ui-busy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mutate_review_pending: Boolean(pendingMutateReview) }),
+    }).catch(() => {});
+  }, [pendingMutateReview]);
+
+  useEffect(() => {
     if (!pendingMutateReview) {
       setReviewSelected([]);
       setDiffPath(null);

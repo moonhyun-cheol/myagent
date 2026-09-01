@@ -70,42 +70,35 @@ function withEnv(patch, fn) {
     {
       MY_AGENT_REASONING_EFFORT: undefined,
       MY_AGENT_HISTORY_TURNS: undefined,
-      MY_AGENT_MAR_LIGHT: undefined,
       MY_AGENT_OWUI_PROTOCOL: undefined,
       MY_AGENT_OWUI_TEXT_TOOLS: undefined,
     },
     () => {
       assert.equal(resolveReasoningEffort(), 'high');
       assert.equal(
-        resolveCodeReasoningEffort({}, { simpleEdit: true }),
-        'low',
-        'simple code edit defaults to low reasoning',
+        resolveCodeReasoningEffort({}),
+        'high',
+        'code reasoning follows the configured default without task heuristics',
       );
       assert.equal(
-        resolveCodeReasoningEffort({}, { simpleEdit: false }),
-        'medium',
-        'interactive code agent defaults to medium reasoning',
-      );
-      assert.equal(
-        resolveCodeReasoningEffortForModel({}, { modelId: 'gpt-5.6-sol-pro', simpleTask: true }),
-        null,
-        'pro-labelled endpoints own their reasoning budget unless explicitly overridden',
+        resolveCodeReasoningEffortForModel({}, { modelId: 'gpt-5.6-sol-pro' }),
+        'high',
+        'model labels do not silently remove the configured effort',
       );
       assert.equal(
         resolveCodeReasoningEffortForModel(
           { MY_AGENT_REASONING_EFFORT: 'high' },
-          { modelId: 'gpt-5.6-sol-pro', simpleTask: true },
+          { modelId: 'gpt-5.6-sol-pro' },
         ),
         'high',
         'explicit operator effort still wins for pro endpoints',
       );
       assert.equal(
-        resolveCodeReasoningEffort({ MY_AGENT_REASONING_EFFORT: 'high' }, { simpleEdit: true }),
+        resolveCodeReasoningEffort({ MY_AGENT_REASONING_EFFORT: 'high' }),
         'high',
-        'explicit env wins over simple-edit medium',
+        'explicit operator effort is preserved',
       );
       assert.equal(getHistoryTurns(), 40);
-      assert.equal(loadHarnessPolicy().marLight, true);
       assert.equal(resolveOwuiProtocolMode(), 'text');
       assert.equal(resolveCodeOwuiProtocolMode(), 'api', 'code OWUI default native tools');
       assert.equal(
@@ -371,28 +364,9 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
       'incomplete multi-path',
     );
   }
-  const { contentLooksLikeToolNotFoundPoison, sanitizeToolNotFoundPoison } = await import(
-    '../core/dist/agent/tool-content-guards.js'
-  );
-  assert.equal(contentLooksLikeToolNotFoundPoison('Tool not found: read_file'), true);
-  assert.equal(sanitizeToolNotFoundPoison('Tool not found: read_file'), null);
   assert.equal(
     shouldOrInContinuityAutopilot({
       currentlyEnabled: false,
-      mutationsAllowed: true,
-      openGate: true,
-      sessionContinuity: false,
-      optsAutopilot: undefined,
-      env: { MY_AGENT_CODE_AUTOPILOT: undefined },
-    }),
-    true,
-    'openGate OR-in CODE autopilot',
-  );
-  assert.equal(
-    shouldOrInContinuityAutopilot({
-      currentlyEnabled: false,
-      mutationsAllowed: true,
-      openGate: false,
       sessionContinuity: true,
       optsAutopilot: false,
       env: {},
@@ -515,9 +489,7 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
   const inspectDump =
     '[read_file meta] path=styles.css lines=168\n' + ':root { color: red; }\n'.repeat(400);
   const truncated = truncateToolResultForLlm(inspectDump, 'read_file');
-  assert.match(truncated, /read_file summary/);
-  assert.match(truncated, /styles\.css/);
-  assert.ok(truncated.length < 4_000, 'inspect dump must shrink well below 48k');
+  assert.equal(truncated, inspectDump, 'read_file content under the context budget stays intact');
 }
 
 console.log('verify-harness-policy: ok');

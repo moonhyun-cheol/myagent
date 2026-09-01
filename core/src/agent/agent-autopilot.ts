@@ -38,12 +38,11 @@ export function resolveAutopilotEnabled(
 }
 
 /**
- * OR-in continuous run when a Session Exit Gate is open or bare 「이어서」 continuity applies.
+ * OR-in continuous run only when the user explicitly asks to continue.
  * Respects Manager hard-off (`optsAutopilot === false`) and `MY_AGENT_CODE_AUTOPILOT=0`.
  */
 export function shouldOrInContinuityAutopilot(opts: {
   currentlyEnabled: boolean;
-  openGate: boolean;
   sessionContinuity: boolean;
   /** Explicit Manager / caller lock; `undefined` = heuristic miss (may OR-in). */
   optsAutopilot?: boolean | null;
@@ -51,7 +50,7 @@ export function shouldOrInContinuityAutopilot(opts: {
 }): boolean {
   if (opts.currentlyEnabled) return true;
   if (opts.optsAutopilot === false) return false;
-  if (!opts.openGate && !opts.sessionContinuity) return false;
+  if (!opts.sessionContinuity) return false;
   return envFlagOn((opts.env ?? process.env).MY_AGENT_CODE_AUTOPILOT, true);
 }
 
@@ -59,7 +58,7 @@ export function formatAutopilotSystemNote(): string {
   return [
     '## Autopilot ON',
     'Finish in THIS run — no 「다음 조치」 pause. discover→mutate→verify→repair, then answer in the model-chosen form.',
-    'Open Exit Gate: close that gate only. Honor do-not-touch constraints. No invented URLs.',
+    'Honor do-not-touch constraints and the latest user request. No invented URLs.',
   ].join('\n');
 }
 

@@ -4,9 +4,10 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — product version `1.0.3`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 19), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
+- `manifest.json` — product version `1.0.3`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 20), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
 - **Work kits:** 설정 → 스킬 → 작업 환경. 목록=원격 피드(`MY_AGENT_WORK_KIT_CATALOG_FEED_URL` / `work_kit_catalog_feed_url`); locker=per-shelf 설치 캐시. 서버 이전: `MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE` + `MY_AGENT_UPDATE_TRUSTED_HOSTS`. Apply=pull+enable+pin+`loadWorkKitContextNote`. 코어=`profile-shelves/_template`만. **Not** org module ZIP.
 - **Update hosts (R-614):** feed/asset allowlist = configured feed host ∪ GitHub defaults ∪ `MY_AGENT_UPDATE_TRUSTED_HOSTS`/`FEED_HOSTS`/`ASSET_HOSTS`; non-GitHub assets via `MY_AGENT_UPDATE_ASSET_URL_TEMPLATE`. Current public GitHub deploy needs no env change.
+- **Core live update (R-605):** WPF `UpdatePollingService` — startup+1h feed poll (`MY_AGENT_UPDATE_POLL_INTERVAL_MS`, default 3600000), idle gate `GET /system/update-gate`, then Yes/No→`MYAgent.Updater`. `MY_AGENT_UPDATE_CHECK=0` off. Tray keeps polling; `PrepareForUpdateExit` on apply.
 - **Org automaton (회사 모듈):** slash·OpenClaw·Bulbasaur URL은 `MY_CUSTOM_CODEX-COMPANY/agent-module/` (`automaton-tools.manifest.json`, `openclaw-workflow-map.json`, `deploy-overrides.json`). 중립 코어는 overlay **로더만**. 미설치여도 `organization_module_feed_url` / `MY_AGENT_ORGANIZATION_MODULE_FEED_URL`로 피드 조회·받기 가능 (설정→스킬→모듈 확인). 기동 자동 적용은 **이미 설치된** 모듈만.
 - **CQR_PA port:** `tools/port-keep-policy.json`. 아카이브는 공유 엔진 버그픽스만 가져온다. 제품 신원·모델 매트릭스·설치/첫실행·공개 엔트리·설정/모델 센터는 덮지 않는다.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. Plan → `read_only` pack + `skills/plan-mode.md`. Ask → no tool plane. Do not regex-judge from message text.
@@ -36,7 +37,7 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 12. **Preserve + new** — If the user asks to keep existing and add new, create a separate folder/entry; never rewrite the existing program in place.
 13. **Outcome (live vs verify)** — 라이브 에이전트 루프는 `evaluateOutcomeGate()`를 호출하지 않는다. 모델이 도구 없이 산문으로 멈추면 그게 완료다. 로컬은 silent verify, post-mutate 구문 게이트(`ERROR: SYNTAX_BROKEN`), Exit Gate 노트만 집행한다. `evaluateOutcomeGate`는 `tools/verify-*.mjs` 전용. 예전 라이브 outcome-policy 모듈은 제거됨 (`verify-model-directed-runtime.mjs` retired list).
 14. **No-tools done / assumed smoke** — 「도구 쓰지 마 + 완료 보고」→ `도구 없이 완료 보고 불가. 미반영.` Assumed smoke tables without command stdout are blocked. Reviews must re-read session-mutated paths.
-15. **Session Exit Gate** — `openGate`는 `data/agent-run-meta/`에 persist되고 다음 턴 시스템 노트로 주입된다 (`agent-open-gate.ts`). 라이브 `planMarRoles`/`runMultiAgent`는 항상 `['coder']`라 Critic이 게이트를 열지 않는다. Artifact contract: `agent-artifact-contract.ts` + `domain-connectors.json`. Verify: `verify:artifact-contract` + `verify:domain-registry`. Claim helpers: `agent-claim-gates.ts`. Runtime smoke: `agent-runtime-smoke.ts`.
+15. **Session continuity** — 명시적 「이어서」만 이전 읽기·수정 경로를 연속성으로 쓴다. OpenGate/Critic 상태를 새 요청에 주입하지 않는다. Artifact contract: `agent-artifact-contract.ts` + `domain-connectors.json`. Verify: `verify:artifact-contract` + `verify:domain-registry`. Claim helpers: `agent-claim-gates.ts`.
 16. **Do not defer debug to the user** — no 「콘솔 보세요 / app.js 확인해야」; fix in-session. Self-correct status: 「해결 중…」.
 
 ## Where to look
@@ -51,17 +52,17 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
  - disable: `MY_AGENT_EMBEDDINGS=0`
 - Tool registry: `agent-tool-definitions.ts` + `agent-tool-registry.ts`; normalize/parse: `agent-tool-normalize.ts`; façade: `tools.ts`
 - Agentic planner note: `core/src/agent/agent-planner.ts`
-- Outcome gate (verify scripts only): `core/src/agent/agent-outcome-gate.ts` — **not** called from `agent-run-step-loop.ts`
+- Outcome gate (verify scripts only): `core/src/agent/agent-outcome-gate.ts` — **not** called from live `agent-run-step-loop.ts`
 - Post-mutate syntax gate: `core/src/agent/agent-post-mutate-syntax.ts` (`ERROR: SYNTAX_BROKEN` on `.js`/`.json`; duplicate module-scope decls on `.ts`/`.tsx`)
 - Diagnostics UI tsc: `run-diagnostics.ts` — when mutate paths include `ui/workspace/src/`, use `npm --prefix ui/workspace exec -- tsc -b` (root tsconfig is core-only)
 - Structure / OWUI TEXT: ADR-004 + `rulebook/docs/plans/2026-07-27-agent-structure-improvement-plan.md`
-- Multi-agent wrapper (ADR-005): `agent-mar-runtime.ts` — `MY_AGENT_MULTI_AGENT=0`이면 `runCodeAgent` 직행. 기본 on이어도 `planMarRoles`/`runMultiAgent`는 항상 `roles: ['coder']` (`reason: model_directed_single_agent`). `MY_AGENT_MANDATORY_CRITIC`는 라이브 역할 플랜을 바꾸지 않는다.
-- **Model-directed runtime:** 작업 의도·도구 선택·완결성은 모델이 판단한다. 로컬 런타임은 전체 도구 스키마, 실행 정책, 승인, 경로 보안, 결과 증거만 관리한다. **Artifact contract:** `agent-artifact-contract.ts` + **domain registry** `domain-connectors.json` / `agent-domain-registry.ts`. Verify: `verify:artifact-contract` + `verify:domain-registry`.
+- Multi-agent wrapper (ADR-005): `agent-mar-runtime.ts` is a thin `runCodeAgent()` façade. MAR planner/reviewer/role files were removed.
+- **Model-directed runtime:** 작업 의도·도구 선택·완결성은 모델이 판단한다. 로컬 런타임은 전체 도구 스키마, 실행 정책, 승인, 경로 보안, 결과 증거만 관리한다. **Artifact contract:** `agent-artifact-contract.ts` + **domain registry** `domain-connectors.json` / `agent-domain-registry.ts`. Verify: `verify:artifact-contract` + `verify:domain-registry` + `verify:model-directed-runtime`.
 - **Failure plane (ADR-008):** `agent-failure-plane.ts` — infra≠assistant merge; UI never demotes code→chat; mutate without workspace → policy refuse; **fail/stop persist + tool-plane 1 retry + code final-only bubble**. Verify: `verify:failure-plane`
 - **Harness:** `core/src/providers/harness-policy.ts` — 사용자가 선택한 reasoning/Autopilot/승인 정책만 적용한다. 요청 문구로 reasoning을 낮추거나 툴콜을 합성하지 않는다. Responses/Anthropic Messages에서는 native tools가 필수이며, `TEXT TOOL_CALL`은 Ollama·명시적 구형 Chat Completions 호환에만 허용한다. 로컬은 경로 보안, 승인, 구문·진단·산출물 증거, 인프라 재시도만 담당한다. **Ollama for coding off by default** (`MY_AGENT_ALLOW_OLLAMA_CODE=1` / `local_only` only); silent OWUI→Ollama fallback off (`MY_AGENT_OLLAMA_FALLBACK=1` opt-in).
 - Claim / capability: overclaim·debug-deferral·invented capability gates; self-correct UX 「해결 중…」
 - Perf metrics (P2): `core/src/agent/agent-perf-metrics.ts` → session `lastPerf` + `data/logs/agent-perf.jsonl` + bakeoff `summary.env`/`wall_ms`
-- Session mutate meta / Exit Gate: `core/src/agent/agent-run-meta.ts` + `agent-open-gate.ts` + **session continuity** (`agent-session-continuity.ts`: bare 「이어서」 only; mid-run meta flush; interrupt → resume Exit Gate; seed `WorkspaceReadGate` only on continuity/openGate; skip Understanding/retrieval-first cold start)
+- Session mutate meta / continuity: `core/src/agent/agent-run-meta.ts` + `agent-session-continuity.ts` (bare 「이어서」 only; mid-run meta flush)
 - Reverse-engineering rulebook (runtime-canonical): `.rulebook-link.yml` → `../RULEBOOK/MY_CUSTOM_CODEX`
 - Work-mode loop verify: `npm run verify:work-mode-loop` (coding = AGENT 기본; `wantsExplicitPlanFirst` / `MY_AGENT_CODE_PLAN_LOCK` 골든 포함)
 - Automaton remote (=Discord OpenClaw): `openclaw-adapter-client.ts` → `POST /cqr/adapter/request` (서버 서명). Token: env or `data/vault/openclaw-adapter.json`.

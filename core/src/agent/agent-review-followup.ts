@@ -4,12 +4,6 @@
  */
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { looksLikeAutopilotContinue } from './agent-autopilot-intent.js';
-import {
-  buildOpenGateFromCriticNext,
-  openGateBlocksDoneClaim,
-  parseCriticNext,
-} from './agent-open-gate.js';
-import { loadAgentRunMeta, setSessionOpenGate } from './agent-run-meta.js';
 
 const EXECUTE_PRIOR_REVIEW_RE =
   /^(?:전부\s*수정|모두\s*수정|다\s*고쳐|위\s*(?:내용|항목|미충족).{0,12}수정|미충족.{0,16}수정|추가\s*수정(?:\s*실행)?|개선안\s*(?:대로\s*)?(?:수정|적용|반영)|리뷰\s*(?:대로|결과).{0,8}(?:수정|반영)|fix\s*all|apply\s*(?:the\s*)?(?:fixes|gaps)|address\s*(?:the\s*)?gaps)\s*[.!]?\s*$/i;
@@ -111,16 +105,6 @@ export function withExecutePriorReviewExpansion<
 >(opts: T): T {
   const expanded = expandExecutePriorReviewMessage(opts.userMessage, opts.history);
   if (!expanded) return opts;
-  // Seed session openGate from prior Critic next when none is open yet.
-  if (opts.cqrRoot && opts.sessionId) {
-    const prior = lastAssistantContent(opts.history);
-    const next = parseCriticNext(prior);
-    const existing = loadAgentRunMeta(opts.cqrRoot, opts.sessionId).openGate;
-    if (next && !openGateBlocksDoneClaim(existing)) {
-      const gate = buildOpenGateFromCriticNext(next, { source: 'review_followup' });
-      if (gate) setSessionOpenGate(opts.cqrRoot, opts.sessionId, gate);
-    }
-  }
   return {
     ...opts,
     userMessage: expanded,

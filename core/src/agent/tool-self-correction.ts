@@ -107,7 +107,7 @@ export function formatToolSelfCorrection(
 export function isRecoverableToolFailure(output: string): boolean {
   // Soft exploration re-hit: run continues with mutate instructions — not a failure streak.
   if (/TOOL_LOOP_GUARD/i.test(output) && /,\s*success\)/i.test(output)) return false;
-  if (/ALREADY_READ|ALREADY_SEARCHED/i.test(output)) return false;
+  if (/ALREADY_SEARCHED/i.test(output)) return false;
   // Bare npm package reads: one correction is enough; don't burn the full streak.
   if (/BARE_MODULE_READ/i.test(output)) return false;
   return classifyToolOutputFailure(output) !== null;

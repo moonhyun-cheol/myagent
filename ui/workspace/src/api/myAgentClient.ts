@@ -155,6 +155,59 @@ export interface ProviderPublic {
   note?: string;
 }
 
+export interface AutomationTaskTrigger {
+  type: 'time' | 'sequence' | 'on_action' | 'condition' | 'manual';
+  config: Record<string, unknown>;
+}
+
+export interface AutomationTask {
+  id: string;
+  name: string;
+  description: string;
+  instruction: string;
+  triggers: AutomationTaskTrigger[];
+  enabled: boolean;
+  next_run_at: string | null;
+  misfire_policy: 'skip' | 'run_once';
+  created_at: string;
+  updated_at: string;
+  last_run_at: string | null;
+}
+
+export type AutomationTaskInput = Pick<AutomationTask, 'name' | 'description' | 'instruction' | 'triggers' | 'enabled' | 'misfire_policy'>;
+
+export async function listAutomationTasks(): Promise<AutomationTask[]> {
+  const res = await fetch('/automations/tasks', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`자동화 작업을 불러오지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { tasks?: AutomationTask[] };
+  return Array.isArray(payload.tasks) ? payload.tasks : [];
+}
+
+export async function saveAutomationTask(input: AutomationTaskInput, id?: string): Promise<AutomationTask> {
+  const res = await fetch(id ? `/automations/tasks/${encodeURIComponent(id)}` : '/automations/tasks', {
+    method: id ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`자동화 작업을 저장하지 못했습니다. (${res.status})`);
+  return res.json() as Promise<AutomationTask>;
+}
+
+export async function setAutomationTaskEnabled(id: string, enabled: boolean): Promise<AutomationTask> {
+  const res = await fetch(`/automations/tasks/${encodeURIComponent(id)}/state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) throw new Error(`자동화 작업 상태를 변경하지 못했습니다. (${res.status})`);
+  return res.json() as Promise<AutomationTask>;
+}
+
+export async function runAutomationTask(id: string): Promise<void> {
+  const res = await fetch(`/automations/tasks/${encodeURIComponent(id)}/run`, { method: 'POST' });
+  if (!res.ok) throw new Error(`자동화 작업을 실행하지 못했습니다. (${res.status})`);
+}
+
 export interface AutomationFeedAttachment {
   name: string;
   path?: string;
@@ -232,6 +285,8 @@ export interface StreamHandlers {
   onContextBudget?: (snap: {
     usedChars?: number;
     budgetChars?: number;
+    contextLength?: number;
+    effectiveContextLength?: number;
     compressed?: boolean;
     fallback128k?: boolean;
     modelId?: string | null;
@@ -243,6 +298,7 @@ export interface StreamHandlers {
     mutatedPaths?: string[];
     checkpointId?: string;
     planConstraintsLocked?: boolean;
+    lastProcessedTokens?: number;
   }) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
@@ -614,6 +670,17 @@ export async function summarizeSession(
     summary: String(data.summary ?? ''),
     session_id: typeof data.session_id === 'string' ? data.session_id : null,
   };
+}
+
+export async function renameSession(id: string, title: string): Promise<SessionRecord> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `세션 이름 변경 실패 (${res.status})`);
+  return data as SessionRecord;
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -1488,6 +1555,8 @@ export async function streamChat(
           checkpointId,
           planConstraintsLocked:
             typeof evt.planConstraintsLocked === 'boolean' ? evt.planConstraintsLocked : undefined,
+          lastProcessedTokens:
+            typeof evt.lastProcessedTokens === 'number' ? evt.lastProcessedTokens : undefined,
         });
       } else if (type === 'error') {
         handlers.onError?.(String(evt.message ?? '오류'));

@@ -14,8 +14,6 @@ import {
   parseClientToolCalls,
   enrichClientToolCalls,
   contentLooksLikeToolMimic,
-  contentLooksLikeToolNotFoundPoison,
-  sanitizeToolNotFoundPoison,
   stripToolMimeticNoise,
   toolStatusLabel,
   type AgentToolCall,
@@ -41,7 +39,7 @@ import {
   completeAgentStepWithProtocol,
   contentIsInspectAnswerSynthFailure,
 } from './agent-llm-step.js';
-import { extractUncOrDrivePaths } from '../router/route-task-gate.js';
+import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
 import { diagnosticsEvidenceStatus } from './agent-outcome-gate.js';
 import { formatLockedConstraintsSystemNote } from './agent-locked-constraints.js';
@@ -49,7 +47,6 @@ import {
   formatToolSelfCorrection,
   isRecoverableToolFailure,
 } from './tool-self-correction.js';
-import { BROWSER_CAPTURE_RE, CODE_RESPONSE_STYLE } from '../router/route-heuristics.js';
 import { applyToolSchemaCompat } from './tool-schema-compat.js';
 import {
   createToolLoopGuard,
@@ -72,8 +69,6 @@ import {
 } from '../chat/chat-filters.js';
 import {
   formatSilentVerifyRepairPrompt,
-  formatVerificationWitnessNote,
-  exhaustVerifyWitness,
   isMutatingAgentTool,
   parseVerifyJson,
   recordVerifyWitness,
@@ -86,9 +81,6 @@ import {
   createWorkspaceCheckpoint,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
-import { behaviorSkipsSilentVerify } from './agent-runtime-facts.js';
-import { runWorkspaceDiagnostics } from './run-diagnostics.js';
-import { runWorkspaceTests, detectTestRunner } from './run-tests.js';
 import type { CodeAgentResult } from './agent-run-types.js';
 import {
   collectAutoCheckpointPaths,
@@ -287,47 +279,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       );
       result = step.result;
       if (step.protocol !== state.toolProtocol) state.toolProtocol = step.protocol;
-
-      // OWUI/native sometimes returns prose "Tool not found" with zero tool_calls — sticky TEXT.
-      if (
-        state.toolProtocol === 'api'
-        && !result.tool_calls.length
-        && result.content
-        && contentLooksLikeToolNotFoundPoison(result.content)
-      ) {
-        if (state.nativeToolsLocked) {
-          throw new AgentInfraError('NATIVE_TOOLS_CONTRACT_VIOLATION: provider returned Tool not found prose');
-        }
-        rememberClientToolProtocol(state.protocolCacheKey, 'assistant claimed Tool not found');
-        state.toolProtocol = 'client';
-        state.answerBuf = '';
-        state.reportStatus('Tool not found 환각/게이트웨이 → TEXT TOOL_CALL');
-        state.messages.push({
-          role: 'user',
-          content: [
-              'FALSE: native API tools failed (Tool not found / gateway). Do not repeat that prose.',
-              'Use local TEXT protocol. First line MUST be TOOL_CALL: {"name":"...","arguments":{...}}',
-              'Valid tools run in-process — never claim Tool not found.',
-            ].join('\n'),
-        });
-        result = await waitForModel(
-          formatAgentPhaseStatus({
-            step: state.steps,
-            providerLabel: state.def.name,
-            payloadKb,
-            kind: 'client',
-          }),
-          () =>
-            completeAgentStepClientProtocol(
-              state.baseUrl,
-              state.secret.api_key,
-              state.modelId,
-              state.messages,
-              state.opts,
-              state.toolNames,
-            ),
-        );
-      }
     }
 
     state.lastModel = `${state.def.name}/${result.model}`;
@@ -340,13 +291,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     }
 
     // Non-stream completions never call onContent — mirror Open WebUI text into thought.
-    // Never mirror Tool-not-found poison into the live answer buffer.
     if (result.content?.trim() && !state.answerBuf.trim()) {
-      const mirrored = sanitizeToolNotFoundPoison(result.content.trim());
-      if (mirrored) {
-        state.answerBuf = mirrored;
-        state.publishThoughtPanel();
-      }
+      state.answerBuf = result.content.trim();
+      state.publishThoughtPanel();
     }
 
     // Legacy TEXT mode may embed XML/<invoke> tool mimetics in content. Never
@@ -369,32 +316,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
 
     if (!result.tool_calls.length) {
       let text = (result.content ?? '').trim();
-      if (text && contentLooksLikeToolNotFoundPoison(text)) {
-        const cleaned = sanitizeToolNotFoundPoison(text);
-        if (cleaned == null) {
-          if (state.steps < state.maxSteps) {
-            if (state.nativeToolsLocked) {
-              throw new AgentInfraError('NATIVE_TOOLS_CONTRACT_VIOLATION: poisoned native tool response');
-            }
-            state.reportStatus('Tool not found 오염 답변 차단 — TOOL_CALL 재시도');
-            rememberClientToolProtocol(state.protocolCacheKey, 'poison answer blocked');
-            state.toolProtocol = 'client';
-            state.messages.push({ role: 'assistant', content: text.slice(0, 500) });
-            state.messages.push({
-              role: 'user',
-              content: [
-                  'FALSE: do not tell the user Tool not found. Workspace tools work locally.',
-                  'Emit TOOL_CALL now as the first line.',
-                ].join('\n'),
-            });
-            state.answerBuf = '';
-            continue;
-          }
-          text = '도구 게이트웨이 오류를 감지해 로컬 TOOL_CALL로 전환했습니다. 같은 요청을 다시 보내 주세요.';
-        } else {
-          text = cleaned;
-        }
-      }
       if (!text) {
         state.reportStatus('빈 응답 — 도구 없이 재시도');
         const retry = await completeAgentAnswerStep(
@@ -427,22 +348,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             model: state.lastModel, steps: state.steps
           });
         }
-      }
-
-      // Diagnostics are mechanical evidence only. They are reported to the model
-      // and caller, but local prose heuristics do not reinterpret the conclusion.
-      if (state.mutatedOkRun && state.evidenceDiagOk === null) {
-        state.reportStatus('evidence · diagnostics');
-        const diagRaw = runWorkspaceDiagnostics(state.opts.workspaceRoot, {
-          changedPaths: [...state.mutatedPathsThisRun],
-        });
-        const diag = parseVerifyJson(diagRaw);
-        state.evidenceDiagOk = diagnosticsEvidenceStatus(diag);
-        recordVerifyWitness(state, {
-          kind: 'diagnostics',
-          diag,
-          atStep: state.steps,
-        });
       }
 
       if (text && !state.answerBuf.trim()) {
@@ -522,27 +427,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
 
       const args = parseToolArgs(execCall.function.arguments);
-
-      // Same-run identical read_file: refuse before re-executing (avoids 15KB×N context bloat).
-      // Only paths whose body was fetched this run — session seed must still allow one real read.
-      if (
-        execCall.function.name === 'read_file'
-        && typeof args.path === 'string'
-        && args.path.trim()
-        && state.readBodiesFetchedThisRun.has(normalizeAgentPath(args.path))
-      ) {
-        const rel = normalizeAgentPath(args.path);
-        const output = [
-          'ERROR: ALREADY_READ',
-          `path: ${rel}`,
-          'This path was already read successfully in this run — full content is in prior tool results.',
-          'Do NOT call read_file again on this path. Call edit_file / apply_patch / write_file now, or read a different unread path.',
-        ].join('\n');
-        loopGuard.noteResult(execCall, output);
-        state.reportStatus(`Tool: read_file ${rel} (already read — mutate)`);
-        pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
-        continue;
-      }
 
       // Approval is evaluated before retrieval auto-heal, read-before-write and
       // checkpoint creation. No outside-workspace path may be touched while the
@@ -1029,12 +913,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });
     }
 
-    const skipSilentVerify = behaviorSkipsSilentVerify(
-      state.opts.workspaceBehavior ?? 'agent',
-      state.opts.cqrRoot,
-    );
-
-    if (!skipSilentVerify && syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
+    if (syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
       state.reportStatus('verify · syntax gate (broken)');
       state.evidenceDiagOk = false;
       state.silentVerifyAttempts += 1;
@@ -1067,111 +946,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       continue;
     }
 
-    // Workspace file mutates only — plugin_install writes cqrRoot/data, not the coding workspace.
-    // Silent tsc after install confuses models into narrating without calling plugin_*.
-    if (
-      !skipSilentVerify
-      && mutatedOkThisStep
-      && state.mutatedPathsThisRun.size > 0
-      && state.silentVerifyAttempts < state.maxVerify
-    ) {
-      state.reportStatus('verify · diagnostics (silent)');
-      const diagRaw = runWorkspaceDiagnostics(state.opts.workspaceRoot, {
-        changedPaths: [...state.mutatedPathsThisRun],
-      });
-      const diag = parseVerifyJson(diagRaw);
-      recordVerifyWitness(state, {
-        kind: 'diagnostics',
-        diag,
-        atStep: state.steps,
-      });
-      if (diag && !diag.ok && !diag.skipped) {
-        state.evidenceDiagOk = false;
-        state.silentVerifyAttempts += 1;
-        appendAgentAuditEvent(state.opts.cqrRoot, {
-          type: 'verify_fail',
-          sessionId: state.opts.sessionId,
-          detail: `diagnostics attempt=${state.silentVerifyAttempts}`,
-        });
-        state.messages.push({
-          role: 'user',
-          content: formatSilentVerifyRepairPrompt('diagnostics', {
-              command: diag.command,
-              output: diag.output,
-              attempt: state.silentVerifyAttempts,
-              maxAttempts: state.maxVerify,
-              mutatedPaths: [...state.mutatedPathsThisRun],
-            }),
-        });
-        continue;
-      }
-
-      const testRunner = detectTestRunner(state.opts.workspaceRoot);
-      if (testRunner.command) {
-        state.reportStatus('verify · tests (silent)');
-        const testRaw = runWorkspaceTests(state.opts.workspaceRoot);
-        const testDoc = parseVerifyJson(testRaw);
-        recordVerifyWitness(state, {
-          kind: 'tests',
-          diag: testDoc,
-          atStep: state.steps,
-        });
-        if (testDoc && !testDoc.ok) {
-          state.evidenceDiagOk = false;
-          state.silentVerifyAttempts += 1;
-          appendAgentAuditEvent(state.opts.cqrRoot, {
-            type: 'verify_fail',
-            sessionId: state.opts.sessionId,
-            detail: `tests attempt=${state.silentVerifyAttempts}`,
-          });
-          state.messages.push({
-            role: 'user',
-            content: formatSilentVerifyRepairPrompt('tests', {
-                command: testDoc.command,
-                output: testDoc.output,
-                attempt: state.silentVerifyAttempts,
-                maxAttempts: state.maxVerify,
-                mutatedPaths: [...state.mutatedPathsThisRun],
-              }),
-          });
-          continue;
-        }
-      }
-
-      state.evidenceDiagOk = diagnosticsEvidenceStatus(diag);
-      appendAgentAuditEvent(state.opts.cqrRoot, {
-        type: state.evidenceDiagOk === true
-          ? 'verify_pass'
-          : state.evidenceDiagOk === 'weak'
-            ? 'verify_weak'
-            : 'verify_fail',
-        sessionId: state.opts.sessionId,
-        detail: `after step ${state.steps}`,
-      });
-      if (state.verifyWitness?.ok) {
-        state.messages.push({
-          role: 'user',
-          content: formatVerificationWitnessNote(state.verifyWitness),
-        });
-      }
-      state.reportStatus(
-        state.evidenceDiagOk === 'weak' ? 'verify · weak' : 'verify · pass',
-      );
-    } else if (
-      !skipSilentVerify
-      && mutatedOkThisStep
-      && state.silentVerifyAttempts >= state.maxVerify
-      && !state.verifyExhaustedNotified
-    ) {
-      state.verifyExhaustedNotified = true;
-      state.verifyWitness = exhaustVerifyWitness(state.steps);
-      state.evidenceDiagOk = false;
-      state.ranVerifyCommand = true;
-      state.messages.push({
-        role: 'user',
-        content: 'INTERNAL_VERIFY_EXHAUSTED — stop silent retries. Summarize remaining diagnostics/test failures to the user in Korean. Do NOT claim 완료/수정 완료; report 미검증 if still failing.',
-      });
-    }
   }
 
 

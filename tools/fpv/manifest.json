@@ -64,8 +64,8 @@
     {
       "id": "agent.code",
       "domain": "agent",
-      "label": "Code agent mutate → syntax → outcome → openGate",
-      "proves": ["mutate.disk", "syntax.gate", "outcome.gate"],
+      "label": "Code agent mutate → syntax evidence",
+      "proves": ["mutate.disk", "syntax.gate"],
       "requires": ["plane.coding", "fixture.toy"],
       "l0": [
         "verify:agent-outcome-gate",

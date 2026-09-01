@@ -8,7 +8,13 @@ import {
   UserCircle,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  listAutomationTasks,
+  runAutomationTask,
+  type AutomationTask,
+  type AutomationTaskTrigger,
+} from '../api/myAgentClient';
 
 type SchedulerTab = 'schedules' | 'runs';
 
@@ -82,6 +88,7 @@ export function SchedulerSurface() {
 type TriggerKind = 'Time' | 'Sequence' | 'On action' | 'Condition' | 'Manual';
 
 type ScheduleRow = {
+  id: string;
   name: string;
   description: string;
   triggers: TriggerKind[];
@@ -90,40 +97,29 @@ type ScheduleRow = {
   statusTone: 'green' | 'amber' | 'blue';
 };
 
-const SCHEDULE_ROWS: ScheduleRow[] = [
-  {
-    name: 'CQR Pants Reddit 주간 검색',
-    description: 'Google에서 최근 1주일의 CQR pants 관련 Reddit 결과만 선별합니다.',
-    triggers: ['Time'],
-    nextRun: '다음 주 첫 영업일 · 09:00',
-    status: '활성',
-    statusTone: 'green',
-  },
-  {
-    name: '배포 후 회귀 점검',
-    description: '배포 완료 뒤 핵심 경로를 점검하고 실패 항목을 알려줍니다.',
-    triggers: ['On action', 'Condition'],
-    nextRun: '배포 이벤트 대기',
-    status: '대기',
-    statusTone: 'blue',
-  },
-  {
-    name: '미완료 작업 요약',
-    description: '당일 미완료 작업을 모아 다음 업무 시작 전에 보여줍니다.',
-    triggers: ['Time'],
-    nextRun: '매일 · 18:00',
-    status: '활성',
-    statusTone: 'green',
-  },
-  {
-    name: '긴급 조사 실행',
-    description: '필요할 때 직접 실행해 단일 주제의 조사 결과를 만듭니다.',
-    triggers: ['Manual'],
-    nextRun: '수동 실행',
-    status: '활성',
-    statusTone: 'green',
-  },
-];
+const TRIGGER_KIND: Record<AutomationTaskTrigger['type'], TriggerKind> = {
+  time: 'Time',
+  sequence: 'Sequence',
+  on_action: 'On action',
+  condition: 'Condition',
+  manual: 'Manual',
+};
+
+function taskToRow(task: AutomationTask): ScheduleRow {
+  return {
+    id: task.id,
+    name: task.name,
+    description: task.description || task.instruction,
+    triggers: task.triggers.length > 0
+      ? task.triggers.map((trigger) => TRIGGER_KIND[trigger.type])
+      : ['Manual'],
+    nextRun: task.next_run_at
+      ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(task.next_run_at))
+      : '수동 실행',
+    status: task.enabled ? '활성' : '대기',
+    statusTone: task.enabled ? 'green' : 'blue',
+  };
+}
 
 const TRIGGER_META: Record<TriggerKind, { label: string; className: string }> = {
   Time: { label: 'Time', className: 'border-cyan-600 bg-cyan-500 text-slate-950' },
@@ -134,11 +130,30 @@ const TRIGGER_META: Record<TriggerKind, { label: string; className: string }> = 
 };
 
 function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
+  const [rows, setRows] = useState<ScheduleRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void listAutomationTasks()
+      .then((tasks) => {
+        if (!cancelled) setRows(tasks.map(taskToRow));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : '자동화 작업을 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="예약 작업" value="2" detail="시간 기준 실행" tone="accent" />
-        <SummaryCard label="다음 실행" value="09:00" detail="CQR Pants Reddit 주간 검색" tone="blue" />
+        <SummaryCard label="예약 작업" value={String(rows.length)} detail="등록된 실제 작업" tone="accent" />
+        <SummaryCard label="다음 실행" value={rows[0]?.nextRun ?? '-'} detail={rows[0]?.name ?? '예약 작업 없음'} tone="blue" />
         <SummaryCard label="실행 오류" value="0" detail="최근 7일" tone="green" />
       </div>
 
@@ -149,7 +164,7 @@ function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
             <p className="mt-1 text-xs leading-5 text-muted">작업 설명과 실행 조건을 확인하고, 결과는 작업 뉴스피드로 받습니다.</p>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-muted">
-            <span className="rounded-full border border-line bg-panel px-2.5 py-1 font-medium">화면 예시</span>
+            <span className="rounded-full border border-line bg-panel px-2.5 py-1 font-medium">실제 작업</span>
             <button
               type="button"
               onClick={onCreate}
@@ -170,8 +185,14 @@ function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
         </div>
 
         <div className="divide-y divide-line/80">
-          {SCHEDULE_ROWS.map((row) => (
-            <ScheduleTableRow key={row.name} row={row} />
+          {loading ? (
+            <p className="px-5 py-8 text-center text-xs text-muted">자동화 작업을 불러오는 중입니다.</p>
+          ) : loadError ? (
+            <p role="alert" className="px-5 py-8 text-center text-xs text-red-700">{loadError}</p>
+          ) : rows.length === 0 ? (
+            <p className="px-5 py-8 text-center text-xs text-muted">등록된 자동화 작업이 없습니다.</p>
+          ) : rows.map((row) => (
+            <ScheduleTableRow key={row.id} row={row} />
           ))}
         </div>
       </section>
@@ -220,6 +241,9 @@ function TriggerTag({ kind }: { kind: TriggerKind }) {
 }
 
 function ScheduleTableRow({ row }: { row: ScheduleRow }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [runMessage, setRunMessage] = useState('');
   const statusClass = row.statusTone === 'green'
     ? 'border-emerald-700 bg-emerald-600 text-white'
     : row.statusTone === 'amber'
@@ -247,9 +271,50 @@ function ScheduleTableRow({ row }: { row: ScheduleRow }) {
         {row.status === '활성' ? <CheckCircle size={14} weight="fill" /> : row.status === '대기' ? <UserCircle size={14} /> : <WarningCircle size={14} />}
         <span>{row.status}</span>
       </div>
-      <button type="button" className="hidden rounded-lg border border-transparent p-1.5 text-muted transition hover:border-line hover:bg-white hover:text-text md:block" aria-label={`${row.name} 더보기`}>
-        <DotsThree size={17} weight="bold" />
-      </button>
+      <div
+        className="relative hidden md:block"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          className="rounded-lg border border-transparent p-1.5 text-muted transition hover:border-line hover:bg-white hover:text-text"
+          aria-label={`${row.name} 처리 메뉴`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <DotsThree size={17} weight="bold" />
+        </button>
+        {menuOpen ? (
+          <div role="menu" className="absolute right-0 top-9 z-20 w-36 rounded-xl border border-line bg-white p-1.5 shadow-[0_12px_32px_rgba(23,33,29,0.16)]">
+            <button
+              type="button"
+              role="menuitem"
+              disabled={running}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-text transition hover:bg-panel disabled:cursor-wait disabled:opacity-60"
+              onClick={() => {
+                setRunning(true);
+                setRunMessage('');
+                void runAutomationTask(row.id)
+                  .then(() => {
+                    setRunMessage('실행 요청됨');
+                    setMenuOpen(false);
+                  })
+                  .catch((error: unknown) => {
+                    setRunMessage(error instanceof Error ? error.message : '실행 요청에 실패했습니다.');
+                  })
+                  .finally(() => setRunning(false));
+              }}
+            >
+              <Play size={14} weight="fill" />
+              {running ? '실행 요청 중…' : '즉시 실행'}
+            </button>
+          </div>
+        ) : null}
+        {runMessage ? <span className="sr-only" role="status">{runMessage}</span> : null}
+      </div>
     </article>
   );
 }

@@ -1,6 +1,6 @@
 /**
  * Skill quality honesty gate — always-on.
- * Proves: routing + inject length; never claims inject = business deliverable.
+ * Proves explicit skill prompt loading; never classifies user prose locally.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -11,9 +11,9 @@ function row(item, result, ms, note = '') {
 }
 
 const MATRIX = [
-  { skill: 'web_landing', message: '랜딩 페이지 히어로 HTML 만들어줘', expectMode: 'web_landing' },
   { skill: 'web_dev', message: 'src/app.ts 버그 수정해줘', expectMode: 'web_dev' },
-  { skill: 'prompt_master', message: '미드저니용 룩북 프롬프트', expectMode: 'prompt_master' },
+  { skill: 'image_gen', message: '제품 이미지를 만들어줘', expectMode: 'image_gen' },
+  { skill: 'deep_research', message: '시장 자료를 조사해줘', expectMode: 'deep_research' },
 ];
 
 const BUNDLE_FILES = [
@@ -49,9 +49,6 @@ export async function runSkillQualitySurface(root) {
   );
 
   try {
-    const { matchFastSkillRoutes } = await import(
-      pathToFileURL(path.join(root, 'core/dist/router/route-heuristics.js')).href
-    );
     const { resolveSkillSystemPrompt } = await import(
       pathToFileURL(path.join(root, 'core/dist/skills/chat-skill-flow.js')).href
     );
@@ -59,19 +56,6 @@ export async function runSkillQualitySurface(root) {
     for (const m of MATRIX) {
       const t = Date.now();
       try {
-        const fast = matchFastSkillRoutes(m.message);
-        const mode = fast?.mode || null;
-        if (mode !== m.expectMode) {
-          rows.push(
-            row(
-              `route:${m.skill}`,
-              'fail',
-              Date.now() - t,
-              `expected ${m.expectMode}, got ${mode || 'null'}`,
-            ),
-          );
-          continue;
-        }
         const prompt = resolveSkillSystemPrompt(m.expectMode, root, m.message);
         if (!prompt || prompt.length < 40) {
           rows.push(row(`inject:${m.skill}`, 'fail', Date.now() - t, 'empty/short skill prompt'));
@@ -79,16 +63,16 @@ export async function runSkillQualitySurface(root) {
         }
         rows.push(
           row(
-            `route+inject:${m.skill}`,
+            `explicit-inject:${m.skill}`,
             'pass',
             Date.now() - t,
-            `mode=${mode}; prompt=${prompt.length}c`,
+            `mode=${m.expectMode}; prompt=${prompt.length}c`,
           ),
         );
       } catch (e) {
         rows.push(
           row(
-            `route:${m.skill}`,
+            `inject:${m.skill}`,
             'fail',
             Date.now() - t,
             e instanceof Error ? e.message : String(e),

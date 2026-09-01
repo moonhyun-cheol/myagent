@@ -58,6 +58,8 @@ import { ProjectStoreError } from '../projects/project-store.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
 import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error-report-service.js';
+import { evaluateUpdateGate } from '../system/update-gate.js';
+import { setMutateReviewPending, uiBusySnapshot } from '../system/ui-busy-state.js';
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
@@ -173,6 +175,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/outputs',
     '/admin',
     '/health',
+    '/system',
     '/automations',
     '/memory',
     '/profiles',
@@ -262,6 +265,20 @@ export async function dispatchApiRequest(
           ui_ready: workspaceReady,
           llm_runtime: compactLlmRuntimeStatus(llm),
         });
+      }
+
+      if (method === 'GET' && url.pathname === '/system/update-gate') {
+        return sendJson(res, 200, evaluateUpdateGate({
+          license,
+          personalScheduler,
+          personalSchedulerRuntime,
+        }));
+      }
+
+      if (method === 'POST' && url.pathname === '/system/ui-busy') {
+        const body = JSON.parse(await readBody(req)) as { mutate_review_pending?: boolean };
+        setMutateReviewPending(body.mutate_review_pending === true);
+        return sendJson(res, 200, uiBusySnapshot());
       }
 
       if (method === 'GET' && url.pathname === '/automations/tasks') {
@@ -515,6 +532,17 @@ export async function dispatchApiRequest(
 
       if (method === 'GET' && url.pathname === '/config') {
         return sendJson(res, 200, getOverrides());
+      }
+
+      if (method === 'PUT' && url.pathname === '/config/default-model') {
+        license.assertWritable();
+        license.assertFeature('manager');
+        const body = JSON.parse(await readBody(req)) as { default_model?: unknown };
+        const defaultModel = typeof body.default_model === 'string'
+          ? body.default_model.trim() || 'auto'
+          : 'auto';
+        const next = saveUserOverrides(userConfigPath, { default_model: defaultModel }, cqrRoot);
+        return sendJson(res, 200, next);
       }
 
       if (method === 'PUT' && url.pathname === '/config/local-only') {
@@ -2436,7 +2464,15 @@ export async function dispatchApiRequest(
         if (method === 'PUT') {
           license.assertWritable();
           license.assertFeature('chat');
-          const body = JSON.parse(await readBody(req)) as { project_id?: string | null };
+          const body = JSON.parse(await readBody(req)) as { title?: unknown; project_id?: string | null };
+          if (typeof body.title === 'string') {
+            if (!body.title.trim()) {
+              return sendJson(res, 400, { error: 'INVALID_TITLE', message: '챗 이름을 입력하세요.' });
+            }
+            const rec = sessionStore.rename(sid, body.title);
+            if (!rec) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+            return sendJson(res, 200, sessionStore.publicRecord(rec));
+          }
           if (!('project_id' in body)) {
             return sendJson(res, 400, { error: 'PROJECT_ID_REQUIRED' });
           }

@@ -5,10 +5,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentPerfSnapshot } from './agent-perf-metrics.js';
-import {
-  normalizeSessionOpenGate,
-  type SessionOpenGate,
-} from './agent-open-gate.js';
 
 /** Per-role contribution under a Supervisor parent run (ADR-005 MAR). */
 export interface AgentRoleContribution {
@@ -51,8 +47,6 @@ export interface AgentRunMeta {
   agentId?: string;
   /** Recent role contributions (newest first, capped). */
   roleContributions?: AgentRoleContribution[];
-  /** Single unclosed Exit Gate (Critic next / 다음 수정). */
-  openGate?: SessionOpenGate | null;
   /** Single model-authored task that may survive a blocked/deferred turn. */
   activeTask?: SessionActiveTask | null;
   /**
@@ -67,6 +61,10 @@ export interface AgentRunMeta {
     at: string;
     usedChars: number;
     budgetChars: number;
+    /** Model's full advertised context window, in tokens. */
+    contextLength?: number;
+    /** Context window after output/reasoning reserve, in tokens. */
+    effectiveContextLength?: number;
     compressed: boolean;
     fallback128k: boolean;
     foldedTurns?: number;
@@ -144,8 +142,6 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
     out.agentId = raw.agentId.trim();
   }
   if (contributions?.length) out.roleContributions = contributions;
-  const og = normalizeSessionOpenGate(raw?.openGate ?? null);
-  if (og) out.openGate = og;
   const activeTask = normalizeActiveTask(raw?.activeTask ?? null);
   if (activeTask) out.activeTask = activeTask;
   const pins = Array.isArray(raw?.pinnedFacts)
@@ -166,7 +162,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
   | 'parentRunId'
   | 'agentId'
   | 'roleContributions'
-  | 'openGate'
   | 'activeTask'
   | 'readPaths'
   | 'pinnedFacts'
@@ -179,7 +174,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
     | 'parentRunId'
     | 'agentId'
     | 'roleContributions'
-    | 'openGate'
     | 'activeTask'
     | 'readPaths'
     | 'pinnedFacts'
@@ -190,7 +184,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
   if (prev.parentRunId) out.parentRunId = prev.parentRunId;
   if (prev.agentId) out.agentId = prev.agentId;
   if (prev.roleContributions?.length) out.roleContributions = prev.roleContributions;
-  if (prev.openGate) out.openGate = prev.openGate;
   if (prev.activeTask) out.activeTask = prev.activeTask;
   if (prev.readPaths?.length) out.readPaths = prev.readPaths;
   if (prev.pinnedFacts?.length) out.pinnedFacts = prev.pinnedFacts;
@@ -306,45 +299,6 @@ export function appendRoleContribution(
     agentId: contribution.agentId,
     roleContributions,
   });
-  saveAgentRunMeta(cqrRoot, sessionId, next);
-  return next;
-}
-
-export function setSessionOpenGate(
-  cqrRoot: string,
-  sessionId: string | undefined,
-  gate: SessionOpenGate | null,
-): AgentRunMeta {
-  const prev = loadAgentRunMeta(cqrRoot, sessionId);
-  const normalized = normalizeSessionOpenGate(gate);
-  const next = normalizeMeta({
-    updatedAt: new Date().toISOString(),
-    mutatedPaths: prev.mutatedPaths,
-    ...carryMeta(prev),
-    openGate: normalized,
-  });
-  // Explicit clear: drop openGate when null.
-  if (!normalized) {
-    delete next.openGate;
-  }
-  saveAgentRunMeta(cqrRoot, sessionId, next);
-  return next;
-}
-
-export function clearSessionOpenGate(
-  cqrRoot: string,
-  sessionId: string | undefined,
-  _reason = 'closed',
-): AgentRunMeta {
-  const prev = loadAgentRunMeta(cqrRoot, sessionId);
-  if (!prev.openGate) return prev;
-  const next = normalizeMeta({
-    updatedAt: new Date().toISOString(),
-    mutatedPaths: prev.mutatedPaths,
-    ...carryMeta(prev),
-    openGate: null,
-  });
-  delete next.openGate;
   saveAgentRunMeta(cqrRoot, sessionId, next);
   return next;
 }

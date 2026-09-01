@@ -4,7 +4,7 @@
  *
  *   node tools/lab/daily-smoke.mjs
  *   node tools/lab/daily-smoke.mjs --offline-only
- *   $env:MY_AGENT_API_BASE='http://127.0.0.1:10200'; npm run lab:daily-smoke
+ *   $env:MY_AGENT_API_BASE='http://127.0.0.1:10210'; npm run lab:daily-smoke
  *
  * Exit 0 only when offline green and (if live enabled and API up) live hard bars pass.
  */
@@ -20,7 +20,7 @@ mkdirSync(outDir, { recursive: true });
 const offlineOnly =
   process.argv.includes('--offline-only') || process.env.MY_AGENT_SMOKE_OFFLINE === '1';
 const base = (
-  process.env.MY_AGENT_API_BASE || process.env.CQR_E2E_BASE_URL || 'http://127.0.0.1:10200'
+  process.env.MY_AGENT_API_BASE || process.env.CQR_E2E_BASE_URL || 'http://127.0.0.1:10210'
 ).replace(/\/$/, '');
 const liveChains =
   process.env.MY_AGENT_PATTERN_LIVE_CHAINS
@@ -56,11 +56,6 @@ async function main() {
   rows.push(
     run('verify:capability-policy', [
       path.join(root, 'tools/verify-capability-policy.mjs'),
-    ]),
-  );
-  rows.push(
-    run('verify:agent-outcome-gate', [
-      path.join(root, 'tools/verify-agent-outcome-gate.mjs'),
     ]),
   );
   rows.push(

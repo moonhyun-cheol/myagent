@@ -1,4 +1,3 @@
-using System.Net.Http;
 using System.Windows;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
@@ -9,7 +8,7 @@ public partial class App : Application
 {
     private ApiProcessHost? _api;
     private SingleInstanceGuard? _singleInstance;
-    private bool _updateCheckStarted;
+    private UpdatePollingService? _updatePolling;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -54,12 +53,23 @@ public partial class App : Application
             });
         });
         MainWindow = win;
-        win.ContentRendered += async (_, _) =>
+        var updateService = UpdateService.TryCreate(root);
+        if (updateService is not null)
         {
-            if (_updateCheckStarted) return;
-            _updateCheckStarted = true;
-            await CheckForUpdatesAsync(win, root);
-        };
+            _updatePolling = new UpdatePollingService(win, root, _api.Port, updateService);
+            win.UpdatePolling = _updatePolling;
+            win.ContentRendered += async (_, _) =>
+            {
+                try
+                {
+                    await _updatePolling.StartAsync(CancellationToken.None);
+                }
+                catch (OperationCanceledException)
+                {
+                    /* app closing */
+                }
+            };
+        }
         win.Show();
     }
 
@@ -93,155 +103,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _updatePolling?.Dispose();
         _singleInstance?.Dispose();
         _api?.Dispose();
         base.OnExit(e);
-    }
-
-    private async Task CheckForUpdatesAsync(Window owner, string root)
-    {
-        var updateService = UpdateService.TryCreate(root);
-        if (updateService is null) return;
-        using var cancellation = new CancellationTokenSource();
-        using var downloadCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-        var userAccepted = false;
-        var userCanceledDownload = false;
-        var updaterLaunched = false;
-        UpdateProgressWindow? progressWindow = null;
-        void CancelOnClose(object? _, EventArgs __) => cancellation.Cancel();
-        owner.Closed += CancelOnClose;
-        try
-        {
-            await Task.Delay(750, cancellation.Token);
-            var update = await updateService.CheckAsync(cancellation.Token);
-            if (update is null) return;
-
-            if (owner is MainWindow mainWindow) mainWindow.RestoreFromTray();
-            else
-            {
-                owner.Show();
-                owner.Activate();
-            }
-
-            var notes = string.IsNullOrWhiteSpace(update.ReleaseNotes)
-                ? "안정성 개선 및 최신 구성요소가 포함되어 있습니다."
-                : update.ReleaseNotes.Trim();
-            if (notes.Length > 1200) notes = notes[..1200] + "…";
-            var accepted = MessageBox.Show(
-                owner,
-                $"MY Agent {update.Version} 업데이트가 있습니다.\n\n{notes}\n\n"
-                + "지금 다운로드하고 다시 시작할까요?",
-                "MY Agent 업데이트",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information,
-                MessageBoxResult.Yes);
-            if (accepted != MessageBoxResult.Yes) return;
-
-            userAccepted = true;
-            progressWindow = new UpdateProgressWindow { Owner = owner };
-            progressWindow.Canceled += () =>
-            {
-                userCanceledDownload = true;
-                downloadCancellation.Cancel();
-            };
-            progressWindow.Show();
-            owner.IsEnabled = false;
-            var downloaded = await updateService.DownloadAsync(
-                update,
-                downloadCancellation.Token,
-                progressWindow);
-            progressWindow.SetStatus("설치를 시작하고 앱을 다시 실행합니다…");
-            progressWindow.DisableCancel();
-            // Download/apply windows cancel close so a running job is not torn down.
-            // An accepted update is the one case that must fully exit so files can be replaced.
-            progressWindow.AllowClose();
-            if (owner is MainWindow updateMainWindow) updateMainWindow.PrepareForUpdateExit();
-            updateService.LaunchUpdater(downloaded);
-            updaterLaunched = true;
-            progressWindow.Close();
-            Shutdown(0);
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            // Closing the app cancels a pending check/download without user-facing noise.
-        }
-        catch (OperationCanceledException) when (userCanceledDownload)
-        {
-            ShowUpdateMessage(owner, "업데이트를 취소했습니다. 기존 버전으로 계속 실행합니다.");
-        }
-        catch (UpdateTooOldException error)
-        {
-            updateService.LogFailure("minimum-sequence", error);
-            ShowUpdateMessage(owner, error.Message);
-        }
-        catch (InvalidDataException error)
-        {
-            updateService.LogFailure("security", error);
-            ShowUpdateMessage(
-                owner,
-                "업데이트 파일의 서명을 확인할 수 없어 설치하지 않았습니다. 기존 버전은 그대로 실행됩니다.");
-        }
-        catch (HttpRequestException error)
-        {
-            updateService.LogFailure("network", error);
-            if (userAccepted)
-            {
-                ShowUpdateMessage(
-                    owner,
-                    "업데이트를 다운로드하지 못했습니다. 네트워크를 확인한 뒤 다시 시작해 주세요.\n\n"
-                    + error.Message);
-            }
-        }
-        catch (TaskCanceledException error)
-        {
-            updateService.LogFailure("timeout", error);
-            if (userAccepted && !userCanceledDownload)
-            {
-                ShowUpdateMessage(
-                    owner,
-                    "업데이트 다운로드가 너무 오래 걸려 중단되었습니다. 네트워크를 확인한 뒤 다시 시작해 주세요.");
-            }
-        }
-        catch (Exception error)
-        {
-            updateService.LogFailure("unexpected", error);
-            if (userAccepted)
-            {
-                ShowUpdateMessage(
-                    owner,
-                    "업데이트를 적용하지 못했습니다. 기존 버전으로 계속 실행합니다.\n\n"
-                    + error.Message);
-            }
-        }
-        finally
-        {
-            owner.Closed -= CancelOnClose;
-            if (progressWindow is not null && !updaterLaunched)
-            {
-                progressWindow.AllowClose();
-                progressWindow.Close();
-            }
-            if (owner.IsVisible) owner.IsEnabled = true;
-        }
-    }
-
-    private static void ShowUpdateMessage(Window owner, string message)
-    {
-        if (owner is MainWindow mainWindow) mainWindow.RestoreFromTray();
-        if (owner.IsVisible)
-        {
-            MessageBox.Show(
-                owner,
-                message,
-                "MY Agent 업데이트",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return;
-        }
-        MessageBox.Show(
-            message,
-            "MY Agent 업데이트",
-            MessageBoxButton.OK,
-            MessageBoxImage.Warning);
     }
 }

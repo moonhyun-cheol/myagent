@@ -112,8 +112,6 @@ function runVerifyScript(root, rel, timeoutMs = 120_000) {
 
 export function runAgentGateSuite(root) {
   const scripts = [
-    'tools/verify-multi-agent.mjs',
-    'tools/verify-agent-outcome-gate.mjs',
     'tools/verify-coding-iq.mjs',
     'tools/verify-session-continuity.mjs',
     'tools/verify-work-mode-loop.mjs',
@@ -121,7 +119,6 @@ export function runAgentGateSuite(root) {
     'tools/verify-harness-policy.mjs',
     'tools/verify-turn-decision.mjs',
     'tools/verify-code-agent-loop.mjs',
-    'tools/verify-acceptance-review.mjs',
     'tools/verify-locked-constraints.mjs',
     'tools/verify-harness-goldens.mjs',
     'tools/verify-license.mjs',

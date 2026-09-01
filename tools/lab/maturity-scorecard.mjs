@@ -56,7 +56,7 @@ const repeats = Math.max(
 );
 const target = Number(process.env.MY_AGENT_DIM_TARGET || 95);
 const base = (
-  process.env.MY_AGENT_API_BASE || process.env.CQR_E2E_BASE_URL || 'http://127.0.0.1:10200'
+  process.env.MY_AGENT_API_BASE || process.env.CQR_E2E_BASE_URL || 'http://127.0.0.1:10210'
 ).replace(/\/$/, '');
 const LEDGER_WINDOW = 6;
 
@@ -251,7 +251,6 @@ async function scoreThreePlane(surface) {
 function scoreHarnessL0() {
   const steps = [
     ['capability', 'tools/verify-capability-policy.mjs'],
-    ['outcome_gate', 'tools/verify-agent-outcome-gate.mjs'],
     ['turn', 'tools/verify-turn-decision.mjs'],
     ['work_mode', 'tools/verify-work-mode-loop.mjs'],
     ['terminal_sanitize', 'tools/verify-run-terminal-sanitize.mjs'],

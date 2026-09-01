@@ -182,7 +182,7 @@ function assert(cond, msg) {
   assert(isSoftLoopGuardStop(decision), 'JSON edit fail stays soft');
 }
 
-// Identical successful read_file must block on 2nd call (was unknown → *5 = 15)
+// Successful reads remain model-owned, including an intentional fresh re-read.
 {
   const pathArgs = JSON.stringify({ path: 'ui/workspace/src/components/EditorPane.tsx' });
   const body = 'export function EditorPane() { return null; }\n'.repeat(20);
@@ -205,17 +205,11 @@ function assert(cond, msg) {
     function: { name: 'read_file', arguments: pathArgs },
   };
   const decision = guard.admit(next);
-  assert(decision.triggered, '2nd identical successful read_file blocked');
+  assert(!decision.triggered, '2nd identical successful read_file allowed');
   assert(decision.errorClass === 'success', 'read_file body classified as success');
-  assert(formatLoopGuardStop(decision).includes('edit_file'), 'mutate hint on read loop');
-  assert(isSoftLoopGuardStop(decision), 'success loop is soft (do not abort run)');
-  assert(
-    formatLoopGuardUserMessage(decision).includes('실패가 아님'),
-    'user message distinguishes success re-read from failure',
-  );
 }
 
-// Identical successful search_files must soft-block with read→mutate instructions
+// Successful repeated searches remain model-owned.
 {
   const args = JSON.stringify({ query: 'news', path: '.' });
   const hits = 'server.py:33:def get_news(...)\napp.js: (no match)\n';
@@ -238,27 +232,11 @@ function assert(cond, msg) {
     function: { name: 'search_files', arguments: args },
   };
   const decision = guard.admit(next);
-  assert(decision.triggered, '2nd identical successful search_files blocked');
+  assert(!decision.triggered, '2nd identical successful search_files allowed');
   assert(decision.errorClass === 'success', 'search hits classified as success');
-  assert(isSoftLoopGuardStop(decision), 'search success loop is soft');
-  const soft = formatSoftExplorationLoopCorrection(decision, 'search_files');
-  assert(soft.includes('read_file'), 'soft correction steers to read_file');
-  assert(soft.includes('do not show to user'), 'soft correction forbids dumping to user');
-  assert(formatLoopGuardStop(decision).includes('Search hits'), 'stop hint mentions search hits');
-
-  // Soft TOOL_LOOP_GUARD noteResult must stay success (not flip to validation → re-allow search)
-  guard.noteResult(next, soft);
-  const third = {
-    id: 's3',
-    type: 'function',
-    function: { name: 'search_files', arguments: args },
-  };
-  const again = guard.admit(third);
-  assert(again.triggered, '3rd identical search stays blocked after soft TOOL_LOOP_GUARD note');
-  assert(again.errorClass === 'success', 'soft guard note keeps success class');
 }
 
-// Within one step: first explore admits as unknown, but 2nd identical must still soft-block
+// Within one step, a second successful exploration is also allowed.
 {
   const args = JSON.stringify({ query: 'news', path: '.' });
   const guard = createToolLoopGuard([]);
@@ -276,9 +254,8 @@ function assert(cond, msg) {
     function: { name: 'search_files', arguments: args },
   };
   const second = guard.admit(call2);
-  assert(second.triggered, '2nd identical search in same step blocked after success note');
+  assert(!second.triggered, '2nd identical search in same step allowed after success note');
   assert(second.errorClass === 'success', 'same-step re-search uses success class');
-  assert(isSoftLoopGuardStop(second), 'same-step re-search is soft');
 }
 
 if (failed) {

@@ -374,7 +374,7 @@ function buildPlanMarkdown(meta) {
 
 Generated: ${new Date().toISOString()}
 
-**Product checklist:** absorbed by [three-plane PA vision](../../rulebook/docs/plans/2026-08-11-three-plane-pa-vision.md) (coding / knowledge / secretary Acceptance bars + weekly cadence). Live suite: \`npm run lab:cursor-backtest:live\` (\`:10200\`, restart API after build).
+**Product checklist:** absorbed by [three-plane PA vision](../../rulebook/docs/plans/2026-08-11-three-plane-pa-vision.md) (coding / knowledge / secretary Acceptance bars + weekly cadence). Live suite: \`npm run lab:cursor-backtest:live\` (\`:10210\`, restart API after build).
 
 ## Scope
 
@@ -406,7 +406,7 @@ ${feedback.map((l) => l).join('\n')}
 
 1. Expand \`looksLikeRemoteRepoInspectTask\` if harvest shows GitHub without verb (bare URL only).
 2. Expand \`looksLikeToolTask\` for Korean ops verbs: 「루프 돌려」「백테스트」「검증해」「확인해」 when they imply product verify, not pure chat.
-3. When user says 「니가 터미널에」 without URL, still mark tool plane if prior turn had remote URL (session continuity / openGate style).
+3. When user says 「니가 터미널에」 without URL, preserve explicit prior URL context without classifying the request locally.
 4. \`shouldRunWorkspaceAgent\`: ensure harvest mutate + path questions never demote to brand skill.
 
 ### P2 — Live response backtest (LLM plane)

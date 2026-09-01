@@ -7,7 +7,6 @@ import {
   searchWorkspaceFiles,
   writeWorkspaceFile,
 } from './dev-workspace-fs.js';
-import { isMutatingAgentTool } from './verify-loop.js';
 import { formatEmptyRetrievalHint, formatToolSelfCorrection } from './tool-self-correction.js';
 import { extractPathsFromUserMessage } from './agent-outcome-gate.js';
 import {
@@ -71,7 +70,7 @@ import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { isOfficeBinaryPath, normalizeWindowsPermissionError } from '../security/workspace-capabilities.js';
 import { appendPostMutateSyntaxCheck } from './agent-post-mutate-syntax.js';
-import { appendPostMutateWiringSmoke } from './agent-runtime-smoke.js';
+import { isMutatingAgentTool } from './verify-loop.js';
 import {
   loadAgentRunMeta,
   setSessionActiveTask,
@@ -114,11 +113,7 @@ function appendPostMutateGates(
   paths: string[],
   output: string,
 ): string {
-  return appendPostMutateWiringSmoke(
-    workspaceRoot,
-    paths,
-    appendPostMutateSyntaxCheck(workspaceRoot, paths, output),
-  );
+  return appendPostMutateSyntaxCheck(workspaceRoot, paths, output);
 }
 
 export async function executeAgentTool(

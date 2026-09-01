@@ -126,8 +126,13 @@ export function startAutomatonProgressPolling(
 
     const thoughtText = readActivityLog(progressFile);
     if (thoughtText && thoughtText !== lastThought) {
+      // 로그는 append-only이므로 새로 추가된 suffix(델타)만 전달한다.
+      // (40줄 롤링 윈도로 prefix가 어긋나는 드문 경우에만 전체 스냅샷을 이어붙임)
+      const delta = thoughtText.startsWith(lastThought)
+        ? thoughtText.slice(lastThought.length)
+        : (lastThought ? `\n${thoughtText}` : thoughtText);
       lastThought = thoughtText;
-      handlers.onThought?.(thoughtText);
+      if (delta) handlers.onThought?.(delta);
     }
   };
 
@@ -249,8 +254,12 @@ export async function pollProgressSidecar(
 
     const thoughtText = readActivityLog(progressFile);
     if (thoughtText && thoughtText !== lastThought) {
+      // append-only 로그이므로 새 suffix(델타)만 전달 — UI가 그대로 이어붙일 수 있게.
+      const delta = thoughtText.startsWith(lastThought)
+        ? thoughtText.slice(lastThought.length)
+        : (lastThought ? `\n${thoughtText}` : thoughtText);
       lastThought = thoughtText;
-      onThought?.(thoughtText);
+      if (delta) onThought?.(delta);
       lastProgressMs = Date.now();
     }
 

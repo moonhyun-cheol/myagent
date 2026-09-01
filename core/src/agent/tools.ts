@@ -24,8 +24,6 @@ export {
 export { executeAgentTool } from './agent-tool-execute.js';
 export {
   contentLooksLikeToolMimic,
-  contentLooksLikeToolNotFoundPoison,
-  sanitizeToolNotFoundPoison,
   sanitizeFinalAgentContent,
   stripToolMimeticNoise,
 } from './tool-content-guards.js';

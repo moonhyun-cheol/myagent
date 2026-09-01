@@ -401,10 +401,8 @@ async function main() {
     enrichWorkspaceIndexContext,
   } = await import(pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/agent-workspace-index.js')));
   const {
-    messageLooksErrorish,
     buildCodeAgentUserContent,
     formatMultimodalSystemNote,
-    seedDiagnosticsContext,
   } = await import(pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/agent-multimodal.js')));
 
   writeFileSync(
@@ -423,7 +421,6 @@ async function main() {
     'index.enrich_has_map_or_hits',
     /Repository map|Query search|broken/i.test(enriched),
   );
-  record('multimodal.errorish', messageLooksErrorish('TypeError: x is not a function'));
   record(
     'multimodal.user_parts',
     Array.isArray(
@@ -434,12 +431,6 @@ async function main() {
     'multimodal.system_note',
     formatMultimodalSystemNote(true, true, true).includes('Multimodal'),
   );
-  const seeded = seedDiagnosticsContext(
-    fixTs,
-    'error TS2322',
-    '### err.log\nerror TS2322: Type string is not assignable',
-  );
-  record('multimodal.seed_uses_attachment', /Attachment log|Seeded diagnostics/i.test(seeded));
 
   // 18) repo-map TTL cache + query_repo_map
   const {

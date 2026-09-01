@@ -11,14 +11,12 @@ import {
 import type { UiFacts } from './agent-grounding.js';
 import { formatUiFactsForPrompt } from './agent-grounding.js';
 import {
-  seedDiagnosticsContext,
   buildCodeAgentUserContent,
   formatMultimodalSystemNote,
 } from './agent-multimodal.js';
 import { enrichWorkspaceIndexContext } from './index/public.js';
 import { buildDevWorkspaceContext } from './dev-workspace-fs.js';
-import { extractUncOrDrivePaths } from '../router/route-task-gate.js';
-import { CODE_RESPONSE_STYLE } from '../router/route-heuristics.js';
+import { extractUncOrDrivePaths } from './path-hints.js';
 import {
   formatPatchFormatConstraints,
 } from './agent-planner.js';
@@ -130,11 +128,6 @@ export function buildAgentMessages(
 ): ChatMessage[] {
   rememberMessagePins(opts.cqrRoot, opts.sessionId, opts.userMessage);
   const root = toPosix(path.resolve(opts.workspaceRoot));
-  const seededDiag = seedDiagnosticsContext(
-    opts.workspaceRoot,
-    opts.userMessage,
-    opts.attachmentContext,
-  );
   const hasImages = (opts.imageDataUrls?.length ?? 0) > 0;
   const hasAttach = Boolean(opts.attachmentContext?.trim());
   const protocolLines = useClientToolProtocol
@@ -173,8 +166,6 @@ export function buildAgentMessages(
       content: [
         opts.systemPrompt?.trim() ?? '',
         '',
-        CODE_RESPONSE_STYLE,
-        '',
         'You are one workspace agent. Decide from the conversation whether to explain, inspect, plan, mutate, or call tools.',
         'The local runtime does not classify the request or choose tools for you. Use any available safe tool when it improves the result; do not call tools merely to satisfy a local workflow.',
         'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and an explicit outcome-relevant Acceptance tool, call active_task complete. Automatic diagnostics alone never complete it. User correction may replace/cancel it.',
@@ -185,19 +176,18 @@ export function buildAgentMessages(
         `Available tools: ${toolNames.join(', ')}.`,
         ...protocolLines,
         ...selfUiLines,
-        'Preserve all useful model findings in the final answer. Do not append changed-path or diagnostics boilerplate. Mention a check only when the user asked, it failed, or it directly proves the requested outcome. Reply Korean unless the user writes English.',
+        'Preserve useful findings and answer in the form best suited to the user request.',
         formatPatchFormatConstraints(),
         injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
         injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace) : '',
-        formatMultimodalSystemNote(hasImages, hasAttach, Boolean(seededDiag.trim())),
+        formatMultimodalSystemNote(hasImages, hasAttach, false),
         '',
         useClientToolProtocol
           ? 'Protocol: TOOL_CALL JSON first line (see TOOL_CALL protocol note). No XML/<invoke>.'
           : '',
         'Workspace files (discovery context only; read concrete files before file-content claims):',
         workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),
-        seededDiag,
       ]
         .filter(Boolean)
         .join('\n'),
@@ -355,21 +345,6 @@ function compressJsonToolResult(raw: string, max: number): string | null {
   }
 }
 
-function compressInspectToolResult(raw: string, max: number): string {
-  const pathM = raw.match(/\[read_file meta\]\s*path=([^\s]+)/i);
-  const listM = raw.match(/^\[list_directory[^\]]*\]\s*path=([^\s]+)/i);
-  const path = pathM?.[1] || listM?.[1] || '(unknown)';
-  const nl = raw.indexOf('\n');
-  const body = nl >= 0 ? raw.slice(nl + 1) : raw;
-  const budget = Math.min(1_800, Math.max(400, Math.floor(max * 0.04)));
-  const excerpt =
-    body.length > budget
-      ? `${body.slice(0, budget)}\n…(excerpt ${body.length.toLocaleString()} chars)`
-      : body;
-  const kind = pathM ? 'read_file' : listM ? 'list_directory' : 'inspect';
-  return `[${kind} summary] path=${path}\n${excerpt}`;
-}
-
 function looksLikeLogOrDiff(raw: string): boolean {
   if (/^diff --git /m.test(raw) || /^\+\+\+ |\-\-\- /m.test(raw)) return true;
   if (raw.length > 2_000 && (raw.match(/\n/g)?.length ?? 0) > 40) {
@@ -391,16 +366,6 @@ export function truncateToolResultForLlm(
   const name = toolName ? ` (${toolName})` : '';
   const raw = String(output ?? '');
   if (!raw) return raw;
-
-  const isInspect =
-    toolName === 'read_file'
-    || toolName === 'list_directory'
-    || /^\[read_file meta\]/i.test(raw)
-    || /^\[list_directory/i.test(raw);
-
-  if (isInspect && raw.length > Math.min(max, 4_000)) {
-    return compressInspectToolResult(raw, max);
-  }
 
   if (raw.length <= max) return raw;
 

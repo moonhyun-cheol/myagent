@@ -44,6 +44,8 @@ export function buildSessionHistoryBudgetOpts(input: {
         at: new Date().toISOString(),
         usedChars: s.usedChars,
         budgetChars: s.budgetChars,
+        contextLength: s.contextLength,
+        effectiveContextLength: s.effectiveContextLength,
         compressed: s.compressed,
         fallback128k: s.fallback128k,
         foldedTurns: s.foldedTurns,

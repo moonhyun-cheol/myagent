@@ -22,16 +22,3 @@ export function stripToolMimeticNoise(content: string): string {
 export function sanitizeFinalAgentContent(content: string): string {
   return stripToolMimeticNoise(String(content || ''));
 }
-
-export function contentLooksLikeToolNotFoundPoison(content: string): boolean {
-  return /(?:Tool not found|Unknown tool|unsupported\s+tool|invalid\s+tool)/i.test(content);
-}
-
-export function sanitizeToolNotFoundPoison(content: string): string | null {
-  const cleaned = content
-    .split('\n')
-    .filter((line) => !contentLooksLikeToolNotFoundPoison(line))
-    .join('\n')
-    .trim();
-  return cleaned || null;
-}

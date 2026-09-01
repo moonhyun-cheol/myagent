@@ -21,14 +21,4 @@ export {
 export { runCodeAgent } from './agent-run-loop.js';
 export {
   runMarOrCodeAgent,
-  runMultiAgent,
-  isMultiAgentEnabled,
-  planMarRoles,
 } from './agent-mar-runtime.js';
-export type {
-  AgentRole,
-  HandoffMessage,
-  AgentRunContext,
-  MarRoleResult,
-  MarRunResult,
-} from './agent-mar-types.js';

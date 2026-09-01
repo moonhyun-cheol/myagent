@@ -128,6 +128,7 @@ export class PersonalSchedulerService {
   listTasks(): PersonalSchedulerTask[] { return this.store.listTasks(); }
   getTask(id: string): PersonalSchedulerTask | null { return this.store.getTask(id); }
   listRuns(limit?: number): SchedulerRun[] { return this.store.listRuns(limit); }
+  countActiveRuns(): number { return this.store.countActiveRuns(); }
   listFeed(limit?: number): SchedulerFeedItem[] { return this.store.listFeed(limit); }
 
   isWeeklyTask(task: PersonalSchedulerTask): boolean {

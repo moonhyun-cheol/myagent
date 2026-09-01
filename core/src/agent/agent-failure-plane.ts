@@ -43,16 +43,6 @@ export function isInfraLlmFailure(err: unknown): boolean {
   return classifyLlmFailure(err) === 'infra';
 }
 
-/** Critical MAR roles: infra/other failure aborts the turn (no prose merge). */
-export function roleFailureMustAbortTurn(role: string): boolean {
-  return role === 'coder' || role === 'planner';
-}
-
-/** Soft roles: may skip on infra without aborting a prior successful coder. */
-export function roleFailureMaySoftSkip(role: string): boolean {
-  return role === 'reviewer' || role === 'researcher' || role === 'browser';
-}
-
 /**
  * Client/UI invariant: never retry a tool-plane request as plain chat.
  * (`workspaceStore` historically did code → chat demotion on stream error.)
@@ -121,7 +111,7 @@ export function formatToolPlaneFailureAssistant(opts: {
   if (kind === 'stopped') {
     lines.push('코드 작업이 중지되었습니다.');
   } else if (kind === 'infra') {
-    lines.push('코드 작업이 인프라 오류로 중단되었습니다. (도구 평면 유지 — 일반 채팅으로 강등하지 않음)');
+    lines.push('AI 공급자 오류로 작업이 중단되었습니다. 도구 연결과 작업 상태는 그대로 유지됩니다.');
   } else {
     lines.push('코드 작업이 오류로 중단되었습니다.');
   }
@@ -129,11 +119,11 @@ export function formatToolPlaneFailureAssistant(opts: {
   lines.push(err);
   if (paths.length) {
     lines.push('');
-    lines.push(`이 세션에서 이미 디스크에 반영된 경로(참고): ${paths.join(', ')}`);
+    lines.push(`지금까지 저장된 파일은 유지됩니다: ${paths.join(', ')}`);
   }
   lines.push('');
   lines.push(
-    '앱이 자동 재시도·이어하기를 이미 수행했습니다. 계속 실패하면 잠시 뒤 다시 시도하거나 더 짧은 요청으로 나눠 주세요.',
+    '앱이 자동으로 재시도했습니다. 계속 실패하면 잠시 뒤 다시 시도하거나 요청을 더 짧게 나눠 주세요.',
   );
   lines.push('같은 작업 대화에서 「이어서 진행」하면 현재 작업공간과 맥락을 유지합니다.');
   return lines.join('\n').trim();
@@ -148,7 +138,7 @@ export function toolPlaneInfraRetryLimit(env: NodeJS.ProcessEnv = process.env): 
 
 /**
  * After infra retries exhaust, silently resume the same tool-plane turn up to N times
- * (continuity/openGate already flushed) so the user is not forced to click 「이어서」.
+ * after disk breadcrumbs are flushed so the user is not forced to click 「이어서」.
  */
 export function toolPlaneAutoResumeLimit(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number.parseInt(String(env.MY_AGENT_TOOL_PLANE_AUTO_RESUME ?? '').trim(), 10);
@@ -160,11 +150,9 @@ export function toolPlaneAutoResumeLimit(env: NodeJS.ProcessEnv = process.env): 
 export function shouldAutoResumeAfterInfra(meta: {
   mutatedPaths?: string[] | null;
   readPaths?: string[] | null;
-  openGate?: { status?: string; gate?: string } | null;
 }): boolean {
   // Require real disk breadcrumbs. Infra retries (MY_AGENT_TOOL_PLANE_INFRA_RETRIES)
-  // already cover cold-start 504; auto-resume on empty/openGate-only caused
-  // planner↔HTTP 500 thrash after interrupt Exit Gate poison.
+  // already cover cold-start 504.
   if ((meta.mutatedPaths?.length ?? 0) > 0) return true;
   if ((meta.readPaths?.length ?? 0) > 0) return true;
   return false;

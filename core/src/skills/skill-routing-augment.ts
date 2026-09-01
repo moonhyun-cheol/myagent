@@ -1,8 +1,4 @@
 import type { ChatMode } from '../router/types.js';
-import {
-  CODE_RESPONSE_STYLE,
-  MARKET_RESPONSE_STYLE,
-} from '../router/route-heuristics.js';
 import { WEB_DEV_PRODUCT_UI_HINT } from './web-landing-bundle.js';
 
 const ORCHESTRATOR_LOCK = [
@@ -13,8 +9,6 @@ const ORCHESTRATOR_LOCK = [
 
 const WEB_DEV_CORE = [
   ORCHESTRATOR_LOCK,
-  '',
-  CODE_RESPONSE_STYLE,
   '',
   '## web_dev tool discipline',
   'Use workspace file tools (read_file before edit). For live URL verification use browser_* tools when available.',
@@ -61,8 +55,6 @@ const MODE_AUGMENTS: Partial<Record<ChatMode, string>> = {
   ].join('\n'),
   deep_research: [
     ORCHESTRATOR_LOCK,
-    '',
-    MARKET_RESPONSE_STYLE,
     '',
     '## deep_research focus',
     'Multi-source research report with citations. Not automaton business ops.',

@@ -15,6 +15,7 @@ export class PersonalSchedulerRuntime {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private queue: Promise<void> = Promise.resolve();
+  private executing = 0;
 
   constructor(
     readonly service: PersonalSchedulerService,
@@ -42,6 +43,10 @@ export class PersonalSchedulerRuntime {
   }
 
   isRunning(): boolean { return this.running; }
+
+  isBusy(): boolean {
+    return this.executing > 0;
+  }
 
   async tick(now = new Date(), startup = false): Promise<void> {
     if (!this.running) return;
@@ -85,6 +90,7 @@ export class PersonalSchedulerRuntime {
 
   private async execute(task: PersonalSchedulerTask, run: SchedulerRun): Promise<void> {
     if (!this.running) return;
+    this.executing += 1;
     this.service.markRunning(run.id);
     try {
       const result = await this.executor(task, run);
@@ -92,6 +98,8 @@ export class PersonalSchedulerRuntime {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.service.failRun(run.id, task, message);
+    } finally {
+      this.executing = Math.max(0, this.executing - 1);
     }
   }
 }

@@ -19,19 +19,17 @@ const failurePlane = read('core/src/agent/agent-failure-plane.ts');
 const assistantReply = read('core/src/chat/assistant-reply.ts');
 const deepResearchMode = read('core/src/chat/modes/deep-research.ts');
 const browserAgentMode = read('core/src/chat/modes/browser-agent.ts');
-const marketResearchMode = read('core/src/chat/modes/market-research.ts');
 const workspaceLock = read('core/src/agent/agent-workspace-lock.ts');
 const lockedConstraints = read('core/src/agent/agent-locked-constraints.ts');
 const sessionContinuity = read('core/src/agent/agent-session-continuity.ts');
 const outcomeGate = read('core/src/agent/agent-outcome-gate.ts');
 const runMeta = read('core/src/agent/agent-run-meta.ts');
 const toolDefinitions = read('core/src/agent/agent-tool-definitions.ts');
-const responseStyle = read('core/src/router/route-heuristics.ts');
 const llmStep = read('core/src/agent/agent-llm-step.ts');
-const marRoles = read('core/src/agent/agent-mar-roles.ts');
 const autopilot = read('core/src/agent/agent-autopilot.ts');
 const planner = read('core/src/agent/agent-planner.ts');
-const openGate = read('core/src/agent/agent-open-gate.ts');
+const runHelpers = read('core/src/agent/agent-run-helpers.ts');
+const multimodal = read('core/src/agent/agent-multimodal.ts');
 
 for (const retired of [
   'core/src/agent/agent-work-mode.ts',
@@ -44,6 +42,14 @@ for (const retired of [
   'core/src/chat/failure-followup-routing.ts',
   'core/src/router/unified-intent.ts',
   'core/src/router/unified-intent-catalog.ts',
+  'core/src/agent/agent-gates.ts',
+  'core/src/agent/agent-review-seed.ts',
+  'core/src/router/route-task-gate.ts',
+  'core/src/router/route-heuristics.ts',
+  'core/src/agent/agent-open-gate.ts',
+  'core/src/agent/agent-mar-roles.ts',
+  'core/src/agent/agent-mar-types.ts',
+  'core/src/agent/agent-mar-specialists.ts',
 ]) {
   assert.equal(existsSync(path.join(root, retired)), false, `${retired} must stay deleted`);
 }
@@ -62,13 +68,10 @@ assert.match(runLoop, /formatActiveTaskSystemNote\(activeTask\)/);
 assert.doesNotMatch(runLoop, /const finalContent = stripToolMimeticNoise/);
 assert.match(toolDefinitions, /name: 'active_task'/);
 assert.match(runMeta, /The runtime persists and reinjects[\s\S]*never infers it from user prose/);
-assert.doesNotMatch(responseStyle, /AGENT done replies: 2–4 lines \+ changed paths \+ one verify line/);
-assert.match(responseStyle, /Do not append changed-path, TypeScript diagnostics, build, or verify boilerplate/);
 assert.match(llmStep, /답변 구조와 포함할 정보는 직접 판단하고/);
 assert.match(llmStep, /로컬 런타임이 이를 작업 보고서로 재작성하지 않았습니다/);
 assert.doesNotMatch(llmStep, /파일 변경 완료 —|파일은 있습니다|경로·변경·다음 조치만/);
-assert.doesNotMatch(marRoles, /Final specialist reply: Korean summary \+ changed paths \+ diagnostics/);
-for (const source of [autopilot, planner, openGate]) {
+for (const source of [autopilot, planner]) {
   assert.doesNotMatch(source, /short Korean summary/);
 }
 
@@ -76,10 +79,13 @@ assert.doesNotMatch(stepLoop, /evaluateProseTurn\(/);
 assert.doesNotMatch(stepLoop, /contentLooksLikeTokenSalad\(/);
 assert.match(stepLoop, /toolChoice: 'auto'/);
 assert.doesNotMatch(stepLoop, /work_mode_locked|retrieval_required|autoInvokePendingPlugins|preloadExternalReportGrounding/);
+assert.doesNotMatch(stepLoop, /sanitizeToolNotFoundPoison|contentLooksLikeToolNotFoundPoison/);
+assert.doesNotMatch(stepLoop, /runWorkspaceDiagnostics\(|runWorkspaceTests\(|ERROR: ALREADY_READ/);
+assert.doesNotMatch(runHelpers, /compressInspectToolResult|read_file summary/);
+assert.doesNotMatch(multimodal, /runWorkspaceDiagnostics|seedDiagnosticsContext|messageLooksErrorish/);
 
-assert.doesNotMatch(mar, /evaluateOutcomeGate\(/);
-assert.doesNotMatch(mar, /reviewerBlocksCompletion\(/);
-assert.match(mar, /function applySupervisorOutcomeGate[\s\S]*?return content;/);
+assert.match(mar, /return runCodeAgent\(opts\)/);
+assert.doesNotMatch(mar, /reviewer|critic|VERDICT|openGate/i);
 
 assert.match(approval, /APPROVAL_REVIEW_MODEL_ID = 'openai\/gpt-5\.6-luna'/);
 assert.doesNotMatch(approval, /confidence\s*>?=\s*0\.9/);
@@ -92,7 +98,6 @@ assert.doesNotMatch(orchestrator, /preserveRecentToolFailureContext/);
 assert.doesNotMatch(orchestrator, /resolveUnifiedIntent|intent-clarify/);
 assert.match(orchestrator, /if \(explicitMode\)/);
 assert.match(orchestrator, /peekAutomatonIntent/);
-assert.match(orchestrator, /isAutomatonTool\(tool,\s*this\.cqrRoot\)/);
 assert.match(automatonIntent, /getSlashAutomatonPatterns/);
 assert.doesNotMatch(automatonIntent, /chatCompletion|scoreToolsBySimilarity|resolveAutomatonIntent|intent_phrases|intent_patterns/);
 assert.match(orchestrator, /routing\.mode === 'web_dev' && !workspaceAgentAvailable/);
@@ -103,7 +108,8 @@ assert.match(workspaceLock, /Only an explicit structured path may narrow/);
 assert.doesNotMatch(workspaceLock, /opts\.message|opts\.editorContext|opts\.previousLockedRoot/);
 assert.doesNotMatch(lockedConstraints, /inferArtifactContract\(opts\.userMessage\)|looksLikeDirectionReversal\(opts\.userMessage\)/);
 assert.doesNotMatch(runLoop, /clearInterruptOpenGateIfFreshBrief|shouldSuppressWorkspaceUiBuildGate|evaluateOutcomeGate/);
-assert.match(sessionContinuity, /return openGateBlocksDoneClaim\(opts\.openGate\)/);
+assert.doesNotMatch(runLoop, /formatOpenGateSystemNote|openGateBlocksDoneClaim/);
+assert.doesNotMatch(mar, /critic_structure_forced_fail|setSessionOpenGate|clearSessionOpenGate/);
 assert.match(outcomeGate, /diagnosticsEvidenceStatus/);
 assert.doesNotMatch(chatFilters, /contentLooksLikeTokenSalad\(text\)|contentIsReviewEvasion\(text\)|contentLooksLikeChineseProse\(text\)/);
 assert.match(chatFilters, /SECRET_PATTERNS/);
@@ -113,7 +119,6 @@ assert.doesNotMatch(chatFilters, /replace\(\/\^\\s\*TOOL_CALL|ERROR:\\s\*WIRING_
 assert.doesNotMatch(assistantReply, /looksLikeAcceptanceReviewTask|contentIsReviewEvasion|isHistoryPollutionAssistantContent|withReviewEvasionRetry/);
 assert.doesNotMatch(deepResearchMode, /evaluateSpecializedModeFit|route-task-gate/);
 assert.doesNotMatch(browserAgentMode, /looksLikeProductBuildTask|route-task-gate|로그인\|클릭\|click\|fill/);
-assert.doesNotMatch(marketResearchMode, /looksLikeInspectFilesTask|needsMarketFitClarify|needsMarketBriefClarify|route-task-gate/);
 assert.doesNotMatch(orchestrator, /appendChatResponseStyle|messageNeedsChatCapabilityBoundary|appendChatCapabilityBoundary|route-heuristics/);
 assert.doesNotMatch(failurePlane, /코드 칩/);
 assert.throws(() => read('core/src/router/router-service.ts'), /ENOENT/);

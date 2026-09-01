@@ -37,6 +37,30 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
+/** 기본 삭제는 즉시 unlink 대신 워크스페이스 로컬 휴지통으로 이동 — 실수 시 복구 가능. */
+const TRASH_DIR_REL = '.cqr-pa/trash';
+
+function isInsideTrash(relPosix: string): boolean {
+  return relPosix === TRASH_DIR_REL || relPosix.startsWith(`${TRASH_DIR_REL}/`);
+}
+
+/** Move a file into <workspace>/.cqr-pa/trash/<timestamp>/<relPath>; returns trash-relative path. */
+function moveToWorkspaceTrash(workspaceRoot: string, abs: string, relPath: string): string {
+  const relPosix = toPosix(relPath).replace(/^\.\//, '');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  let destRel = `${TRASH_DIR_REL}/${stamp}/${relPosix}`;
+  let dest = path.join(workspaceRoot, ...destRel.split('/'));
+  let n = 1;
+  while (existsSync(dest)) {
+    destRel = `${TRASH_DIR_REL}/${stamp}-${n}/${relPosix}`;
+    dest = path.join(workspaceRoot, ...destRel.split('/'));
+    n += 1;
+  }
+  mkdirSync(path.dirname(dest), { recursive: true });
+  renameSync(abs, dest);
+  return destRel;
+}
+
 /** Apply sequential edits with exact then fuzzy SEARCH/REPLACE fallback. */
 export function applyEditsToContent(
   content: string,
@@ -349,8 +373,14 @@ export function applyFilePatches(
   for (const op of planned) {
     try {
       if (op.kind === 'delete') {
-        unlinkSync(op.abs);
-        applied.push({ path: op.rel, action: 'delete', message: op.message });
+        const relPosix = toPosix(op.rel).replace(/^\.\//, '');
+        if (isInsideTrash(relPosix)) {
+          unlinkSync(op.abs);
+          applied.push({ path: op.rel, action: 'delete', message: `${op.message} (trash 내부 → 영구 삭제)` });
+        } else {
+          const trashRel = moveToWorkspaceTrash(workspaceRoot, op.abs, op.rel);
+          applied.push({ path: op.rel, action: 'delete', message: `${op.message} → moved to ${trashRel}` });
+        }
         continue;
       }
       if (op.kind === 'move') {
@@ -391,14 +421,27 @@ export function deleteWorkspaceFile(
   workspaceRoot: string,
   relPath: string,
   guard: WorkspaceGuardOptions = {},
-): { ok: boolean; message: string } {
+): { ok: boolean; message: string; trash_path?: string } {
   const abs = resolveDevWorkspaceRelPath(workspaceRoot, relPath, guard);
   if (!existsSync(abs)) return { ok: false, message: `File not found: ${relPath}` };
-  unlinkSync(abs);
+  const relPosix = toPosix(relPath).replace(/^\.\//, '');
+  if (isInsideTrash(relPosix)) {
+    // 휴지통 안에서의 삭제만 영구 삭제로 처리한다.
+    unlinkSync(abs);
+    invalidateWorkspaceSearchCache(workspaceRoot);
+    invalidateRepoMapCache(workspaceRoot);
+    invalidateEmbeddingIndex(workspaceRoot);
+    return { ok: true, message: `Permanently deleted ${relPosix}` };
+  }
+  const trashRel = moveToWorkspaceTrash(workspaceRoot, abs, relPath);
   invalidateWorkspaceSearchCache(workspaceRoot);
   invalidateRepoMapCache(workspaceRoot);
   invalidateEmbeddingIndex(workspaceRoot);
-  return { ok: true, message: `Deleted ${toPosix(relPath)}` };
+  return {
+    ok: true,
+    message: `Moved to trash: ${relPosix} → ${trashRel} (복구: rename_file로 원위치 이동)`,
+    trash_path: trashRel,
+  };
 }
 
 export function renameWorkspaceFile(

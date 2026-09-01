@@ -40,7 +40,6 @@ import {
   formatWorkspaceLockNote,
   resolveTurnWorkspaceLock,
 } from '../../agent/agent-workspace-lock.js';
-import { formatPlannerSystemNote } from '../../agent/agent-mar-roles.js';
 import {
   extractLockedConstraintsFromText,
   loadLockedConstraints,
@@ -325,9 +324,6 @@ export async function runWorkspaceCodeAgent(opts: {
   const reasoningEffort = resolveSessionReasoningEffort(requestedPolicy.reasoning, process.env, {
     providerId: provider.providerId,
     modelId: provider.modelId,
-    forCodeAgent: true,
-    simpleEdit: false,
-    simpleTask: false,
   });
   callbacks?.onExecutionPolicy?.({
     requested: requestedPolicy,
@@ -345,7 +341,7 @@ export async function runWorkspaceCodeAgent(opts: {
   );
 
   const planNotes = workspaceBehavior === 'plan'
-    ? [loadPlanModeSystemNote(cqrRoot) || formatPlannerSystemNote()].filter(Boolean)
+    ? [loadPlanModeSystemNote(cqrRoot)].filter(Boolean)
     : [];
   const workKitNote = loadWorkKitContextNote(cqrRoot);
   const mergedExtraNotes = [

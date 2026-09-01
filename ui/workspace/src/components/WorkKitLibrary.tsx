@@ -274,6 +274,13 @@ function statusLabel(status: ShelfInstallStatus | undefined): string | null {
   }
 }
 
+function resolveInstallStatus(shelf: WorkKitShelf): ShelfInstallStatus {
+  if (shelf.install_status) return shelf.install_status;
+  if (shelf.origin === 'catalog') return 'available';
+  if (shelf.origin === 'locker') return 'installed';
+  return 'available';
+}
+
 function KitCard({
   shelf,
   applied,
@@ -288,7 +295,7 @@ function KitCard({
   onApply: () => void;
 }) {
   const isApplied = applied?.group === shelf.group && applied?.kit_id === shelf.id;
-  const status = shelf.install_status ?? 'installed';
+  const status = resolveInstallStatus(shelf);
   const canApply = status === 'installed' || status === 'update_available';
   const needsInstall = status === 'available' || status === 'update_available';
   const statusText = statusLabel(status);
@@ -325,7 +332,7 @@ function KitCard({
           <button
             type="button"
             data-testid={`profile-picker-install-${shelf.group}-${shelf.id}`}
-            disabled={disabled || status === 'missing_asset'}
+            disabled={disabled}
             onClick={onInstall}
             className="rounded-xl border border-line bg-panel px-4 py-2 text-sm font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
           >

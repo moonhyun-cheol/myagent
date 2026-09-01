@@ -699,8 +699,6 @@ async function main() {
         || publicList[publicList.length - 1]?.id;
       record('llm_wire.provider_registered', Boolean(providerId), providerId || 'none');
 
-      process.env.MY_AGENT_MULTI_AGENT = '0';
-      process.env.MY_AGENT_MANDATORY_CRITIC = '0';
       process.env.MY_AGENT_CODE_OWUI_PROTOCOL = 'api';
 
       const statuses = [];
@@ -720,7 +718,6 @@ async function main() {
         maxSteps: 10,
         forceToolPack: 'web_dev',
         mutationsOverride: true,
-        applyOutcomeGate: false,
         onToolApproval: async () => true,
         onStatus: (s) => statuses.push(String(s)),
       });
@@ -838,8 +835,6 @@ async function main() {
       const providerId = publicList.find((p) => p.user_defined)?.id
         || publicList[publicList.length - 1]?.id;
 
-      process.env.MY_AGENT_MULTI_AGENT = '0';
-      process.env.MY_AGENT_MANDATORY_CRITIC = '0';
       process.env.MY_AGENT_CODE_OWUI_PROTOCOL = 'api';
 
       const statuses = [];
@@ -860,7 +855,6 @@ async function main() {
         maxSteps: 8,
         forceToolPack: 'web_dev',
         mutationsOverride: true,
-        applyOutcomeGate: false,
         onToolApproval: async () => true,
         onStatus: (s) => statuses.push(String(s)),
       });

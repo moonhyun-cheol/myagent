@@ -17,6 +17,7 @@ import {
   createProject,
   deleteProject,
   deleteSession,
+  renameSession,
   fetchWorkspaceTree,
   getPinnedSessionIds,
   getStoredSessionId,
@@ -830,7 +831,8 @@ function ProjectBlock({
                 <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
+            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
               </div>
               <div className="mt-1 border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 세션</button>
@@ -877,6 +879,23 @@ function SessionRow({
   const phase = useWorkspaceStore((s) => s.sessionPhases[session.id]);
   const menuId = `session:${session.id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const [editing, setEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const beginRename = () => {
+    setTitleDraft(session.title || '');
+    setEditing(true);
+  };
+  const commitRename = async () => {
+    const next = titleDraft.trim();
+    setEditing(false);
+    if (!next || next === (session.title || '').trim()) return;
+    try {
+      await renameSession(session.id, next);
+      window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
+    } catch {
+      // 이름 변경 실패 시 기존 제목 유지
+    }
+  };
   return (
     <div
       role="button"
@@ -896,7 +915,24 @@ function SessionRow({
       }`}
       style={{ paddingLeft: indent }}
     >
-      <span className="min-w-0 flex-1 truncate">{session.title || '제목 없음'}</span>
+      {editing ? (
+        <input
+          value={titleDraft}
+          autoFocus
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onBlur={() => void commitRename()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') void commitRename();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          className="min-w-0 flex-1 rounded border border-accent/50 bg-panel px-1 py-0.5 text-[11px] text-text outline-none"
+          aria-label="챗 이름 수정"
+        />
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{session.title || '제목 없음'}</span>
+      )}
       {phase === 'running' ? (
         <span className="shrink-0 text-[9px] text-accent" title="생성 중">
           ●
@@ -927,6 +963,7 @@ function SessionRow({
             {onTogglePin ? (
               <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '고정'}</button>
             ) : null}
+            <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
             <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
           </div>
         ) : null}

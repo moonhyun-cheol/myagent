@@ -105,6 +105,7 @@ export async function sendErrorReportNow(
   }
 }
 
+
 /** Startup compatibility hook. No polling or external transmission occurs. */
 export function startAutoLogReportLoop(_cqrRoot: string, _dataDir: string, _vaultDir: string): void {
   // Runtime exceptions are recorded directly through queueAutoErrorReport.

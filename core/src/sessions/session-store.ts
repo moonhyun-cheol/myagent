@@ -13,6 +13,11 @@ import type {
 import { gcDeletedSessionTemp, pruneSessionTemp } from './session-temp-gc.js';
 
 const MAX_MESSAGES = 80;
+const MAX_SESSION_TITLE_LENGTH = 80;
+
+export function normalizeSessionTitle(title: string): string {
+  return title.replace(/\s+/g, ' ').trim().slice(0, MAX_SESSION_TITLE_LENGTH);
+}
 
 export class SessionStore {
   constructor(
@@ -88,6 +93,17 @@ export class SessionStore {
       project_id: projectId,
       execution_policy: normalizeExecutionPolicy(opts?.execution_policy, DEFAULT_EXECUTION_POLICY),
     };
+    this.save(rec);
+    return rec;
+  }
+
+  rename(id: string, title: string): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    const next = normalizeSessionTitle(title);
+    if (!next) return null;
+    rec.title = next;
+    rec.updated_at = new Date().toISOString();
     this.save(rec);
     return rec;
   }

@@ -31,6 +31,8 @@ public partial class MainWindow : Window
 
     private bool _workspaceLoading;
 
+    internal UpdatePollingService? UpdatePolling { get; set; }
+
     internal MainWindow(string cqrRoot, int port, ApiProcessHost api)
     {
         _cqrRoot = cqrRoot;
@@ -216,6 +218,23 @@ public partial class MainWindow : Window
                 case "app.notification.show":
                     ShowSystemNotification(root);
                     break;
+                case "app.update.check":
+                    UpdatePolling?.TriggerFeedCheck();
+                    break;
+                case "app.update.settings":
+                {
+                    var enabled = !root.TryGetProperty("enabled", out var enabledProperty)
+                        || (enabledProperty.ValueKind is JsonValueKind.True or JsonValueKind.False
+                            && enabledProperty.GetBoolean());
+                    int? pollIntervalMs = null;
+                    if (root.TryGetProperty("pollIntervalMs", out var pollProperty)
+                        && pollProperty.TryGetInt32(out var pollMs))
+                    {
+                        pollIntervalMs = pollMs;
+                    }
+                    UpdatePolling?.ApplySettings(enabled, pollIntervalMs);
+                    break;
+                }
                 case "filePicker.open":
                     // Let WebView2 finish dispatching the message before entering a modal
                     // Win32 loop. Otherwise the picker can be hidden behind custom chrome or

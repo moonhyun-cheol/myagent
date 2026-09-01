@@ -51,6 +51,7 @@ import {
   formatAgentPhaseStatus,
   awaitWithWaitStatus,
 } from './agent-status-report.js';
+import { withActiveWork } from '../system/active-work-registry.js';
 import {
   completeAgentStepClientProtocol,
   completeAgentAnswerStep,
@@ -59,17 +60,13 @@ import {
 } from './agent-llm-step.js';
 import { packIncludesBrowser } from './agent-tool-pack.js';
 import { loadUiFacts } from './agent-grounding.js';
-import { behaviorAllowsAutopilot, resolveBehaviorToolPack } from './agent-runtime-facts.js';
 import {
   autopilotMaxSteps,
   formatAutopilotSystemNote,
   resolveAutopilotEnabled,
   shouldOrInContinuityAutopilot,
 } from './agent-autopilot.js';
-import {
-  formatOpenGateSystemNote,
-  openGateBlocksDoneClaim,
-} from './agent-open-gate.js';
+import { behaviorAllowsAutopilot, resolveBehaviorToolPack } from './agent-runtime-facts.js';
 import {
   diagnosticsEvidenceStatus,
   type DiagnosticsEvidenceStatus,
@@ -115,11 +112,6 @@ import {
   MAX_SELF_CORRECTION_STREAK,
   toolOutputAlreadyHasCorrection,
 } from './tool-self-correction.js';
-import {
-  URL_IN_MESSAGE_RE,
-  BROWSER_CAPTURE_RE,
-  CODE_RESPONSE_STYLE,
-} from '../router/route-heuristics.js';
 import { assertDevWorkspaceRootReadable } from '../security/dev-workspace-guard.js';
 import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
 import { PlaywrightSession } from '../browser/playwright-session.js';
@@ -180,27 +172,30 @@ import {
 } from './agent-run-helpers.js';
 
 export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentResult> {
-  try {
-    return await runCodeAgentInner(opts);
-  } catch (e: unknown) {
-    // Ollama emergency fallback is opt-in only (MY_AGENT_OLLAMA_FALLBACK=1).
-    if (
-      ollamaEmergencyFallbackEnabled()
-      && opts.providerId !== 'ollama'
-      && isOwuiOrGatewayError(e)
-    ) {
-      const ollama = opts.providerStore.resolveProvider('ollama');
-      if (ollama) {
-        opts.onStatus?.('MY OpenRouter unavailable — retrying with Ollama (TOOL_CALL)…');
-        return runCodeAgentInner({
-          ...opts,
-          providerId: 'ollama',
-          modelId: ollama.modelId,
-        });
+  const workKey = `agent:${opts.sessionId ?? 'default'}`;
+  return withActiveWork(workKey, 'code_agent', async () => {
+    try {
+      return await runCodeAgentInner(opts);
+    } catch (e: unknown) {
+      // Ollama emergency fallback is opt-in only (MY_AGENT_OLLAMA_FALLBACK=1).
+      if (
+        ollamaEmergencyFallbackEnabled()
+        && opts.providerId !== 'ollama'
+        && isOwuiOrGatewayError(e)
+      ) {
+        const ollama = opts.providerStore.resolveProvider('ollama');
+        if (ollama) {
+          opts.onStatus?.('MY OpenRouter unavailable — retrying with Ollama (TOOL_CALL)…');
+          return runCodeAgentInner({
+            ...opts,
+            providerId: 'ollama',
+            modelId: ollama.modelId,
+          });
+        }
       }
+      throw e;
     }
-    throw e;
-  }
+  });
 }
 
 async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResult> {
@@ -209,13 +204,13 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const guard = { allowNas };
 
   const playwrightAvailable = isPlaywrightAvailable(opts.cqrRoot);
-  const workspaceBehavior = opts.workspaceBehavior ?? 'agent';
   let autopilot = resolveAutopilotEnabled(
     process.env,
     typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
     opts.userMessage,
     { codeSession: true },
   );
+  const workspaceBehavior = opts.workspaceBehavior ?? 'agent';
   if (!behaviorAllowsAutopilot(workspaceBehavior, opts.cqrRoot)) {
     autopilot = false;
   }
@@ -250,7 +245,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
 
   if (wireApi === 'responses') {
     const mode = opts.providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;
-    const lane = opts.marRole ? `agent:${opts.marRole}` : 'agent:primary';
+    const lane = 'agent:primary';
     const binding = opts.responsesStateFactory?.(lane, opts.providerId, modelId, mode);
     // Each MAR role owns a distinct durable lane. Sharing previous_response_id across
     // concurrent roles would cross-contaminate reasoning and tool outputs.
@@ -356,8 +351,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let stepState: AgentRunStepState | null = null;
   let finished = false;
   const persistLiveSessionMeta = (): void => {
-    // Always flush — MAR specialists set skipSessionMetaAppend for finish() only;
-    // mid-run / interrupt must still leave continuity breadcrumbs for 「이어서」.
+    // Mid-run / interrupt must still leave continuity breadcrumbs for 「이어서」.
     const live = stepState;
     flushLiveSessionProgress({
       cqrRoot: opts.cqrRoot,
@@ -371,11 +365,11 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     const live = stepState;
     const paths = live?.mutatedPathsThisRun ?? mutatedPathsThisRun;
     const pathList = [...paths];
-    if (paths.size && !opts.skipSessionMetaAppend) {
+    if (paths.size) {
       appendSessionMutatedPaths(opts.cqrRoot, opts.sessionId, pathList);
     }
     const readList = [...(live?.successfulReadsThisRun ?? [])];
-    if (readList.length && !opts.skipSessionMetaAppend) {
+    if (readList.length) {
       appendSessionReadPaths(opts.cqrRoot, opts.sessionId, readList);
     }
     // Remove exact channel envelope markers only. The model owns the meaning,
@@ -430,7 +424,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         tool_protocol: live?.toolProtocol ?? toolProtocol,
         wire_api: wireApi,
         reasoning_effort: resolveCodeReasoningEffortForModel(process.env, { modelId }),
-        mar_light: harness.marLight,
         autopilot,
         owui_protocol: codeOwuiProtocolMode,
       }),
@@ -483,10 +476,25 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
 
   let thoughtBuf = '';
   let answerBuf = '';
+  // Thought passthrough: 발행 지점은 매번 미발행 suffix(델타)만 그대로 내보낸다.
+  // NOTE: 스텝 루프는 stepState.thoughtBuf를 갱신하므로 반드시 live state를 읽어야 한다
+  // (기존 코드는 스테일 지역변수 thoughtBuf를 읽어 추론이 유실/중복되는 버그가 있었음).
+  let publishedThought = '';
+  let publishedAnyThought = false;
   const publishThoughtPanel = () => {
-    const providerThought = thoughtBuf.trim();
-    if (!providerThought) return;
-    opts.onThought?.(providerThought.length > 12_000 ? providerThought.slice(-12_000) : providerThought);
+    const raw = stepState ? stepState.thoughtBuf : thoughtBuf;
+    if (!raw) return;
+    let prefix = '';
+    if (!raw.startsWith(publishedThought)) {
+      // 새 스텝에서 버퍼가 리셋됨 — 이전 스텝 출력과 구분만 하고 내용은 그대로 전달.
+      publishedThought = '';
+      if (publishedAnyThought) prefix = '\n\n';
+    }
+    const delta = raw.slice(publishedThought.length);
+    if (!delta) return;
+    publishedThought = raw;
+    publishedAnyThought = true;
+    opts.onThought?.(prefix + delta);
   };
 
   let messages = buildAgentMessages(
@@ -505,21 +513,16 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     && (sessionMetaForGate.activeTask.status === 'active' || sessionMetaForGate.activeTask.status === 'blocked')
     ? sessionMetaForGate.activeTask
     : null;
-  const openGate = openGateBlocksDoneClaim(sessionMetaForGate.openGate)
-    ? sessionMetaForGate.openGate ?? null
-    : null;
   const sessionReadPaths = sessionMetaForGate.readPaths ?? [];
   const sessionContinuity = shouldUseSessionContinuity({
     userMessage: opts.userMessage,
-    openGate,
     readPaths: sessionReadPaths,
     mutatedPaths: sessionMetaForGate.mutatedPaths,
   });
-  // Exit Gate / bare 「이어서」: keep continuous run (CODE_AUTOPILOT default on).
+  // Bare 「이어서」 keeps a continuous run. Persisted reviewer gates never steer a new request.
   if (
     shouldOrInContinuityAutopilot({
       currentlyEnabled: autopilot,
-      openGate: Boolean(openGate),
       sessionContinuity,
       optsAutopilot: opts.autopilot,
     })
@@ -533,15 +536,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     });
     sysInsertAt += 1;
     pushThought('Autopilot ON — 다음 조치로 끊지 않고 이 실행에서 닫기');
-  }
-  if (openGate) {
-    messages.splice(sysInsertAt, 0, {
-      role: 'system',
-      content: formatOpenGateSystemNote(openGate),
-    });
-    sysInsertAt += 1;
-    pushThought(`Exit Gate OPEN · ${openGate.gate.slice(0, 72)}`);
-    reportStatus(`Exit Gate · ${openGate.gate.slice(0, 60)}`);
   }
   if (activeTask) {
     messages.splice(sysInsertAt, 0, {
@@ -569,7 +563,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       content: formatSessionContinuitySystemNote({
         readPaths: sessionReadPaths,
         mutatedPaths: sessionMetaForGate.mutatedPaths,
-        openGate,
       }),
     });
     sysInsertAt += 1;
@@ -632,7 +625,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const continuitySeedPaths = [
     ...sessionReadPaths,
     ...sessionMetaForGate.mutatedPaths,
-    ...(openGate?.evidence?.path ? [openGate.evidence.path] : []),
   ];
   if (sessionContinuity && continuitySeedPaths.length) {
     const seeded = seedReadGateFromSession(readGate, continuitySeedPaths);
@@ -685,7 +677,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       1,
       Math.min(60, autopilotMaxSteps(opts.maxSteps ?? MAX_AGENT_STEPS, autopilot)),
     ),
-    applyOutcomeGate: opts.applyOutcomeGate !== false,
     selfWorkspace,
     uiFacts,
     reportStatus,
@@ -733,7 +724,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     verifyWitness,
     explicitAcceptanceOk,
     sessionMutatedPaths,
-    openGate,
     toolsUsedThisRun,
     successfulReadsThisRun,
     readBodiesFetchedThisRun,
@@ -748,7 +738,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   } catch (e: unknown) {
     // 504 / abort / throw often skip finish() — flush live paths + resume Exit Gate
     // so 「이어서」 has accurate continuity for any task, not just the last feature.
-    // Also flush when skipSessionMetaAppend (MAR specialist) — interrupt ≠ normal finish.
     if (!finished) {
       try {
         persistInterruptedAgentProgress({

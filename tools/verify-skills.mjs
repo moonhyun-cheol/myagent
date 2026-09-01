@@ -60,16 +60,6 @@ assert.deepEqual(listAutomatonTools(), []);
 assert.ok(!webDevRoute.anchors_ko.includes('html'));
 assert.ok(!webDevRoute.anchors_ko.includes('css'));
 
-// --- legacy mode routing removed; landing-style asks stay on web_dev ---
-const heuristics = await import('../core/dist/router/route-heuristics.js');
-assert.equal(heuristics.matchWebLandingRoute, undefined, 'matchWebLandingRoute removed');
-assert.equal(heuristics.matchPromptMasterRoute, undefined, 'matchPromptMasterRoute removed');
-const landDev = heuristics.matchFastSkillRoutes('랜딩 페이지와 백엔드 API 연동 코드');
-if (landDev) {
-  assert.equal(landDev.mode, 'web_dev', `unexpected mode ${landDev.mode}`);
-}
-assert.equal(heuristics.matchFastSkillRoutes('src/app.ts 버그 수정')?.mode, 'web_dev');
-
 // --- legacy entry normalization (stored sessions stay readable) ---
 const { parseChatRequest } = await import('../core/dist/chat/chat-request.js');
 assert.equal(parseChatRequest(JSON.stringify({ message: 'x', mode: 'web_landing' })).mode, 'web_dev');

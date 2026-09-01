@@ -236,6 +236,15 @@ export class PersonalSchedulerStore {
       .all(Math.max(1, Math.min(200, Math.trunc(limit)))) as Row[]).map(runFromRow);
   }
 
+  countActiveRuns(): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM scheduler_runs
+      WHERE status IN ('queued', 'running')
+    `).get() as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
   markRunRunning(id: string): void {
     this.db.prepare(`UPDATE scheduler_runs SET status='running', started_at=? WHERE id=?`)
       .run(new Date().toISOString(), id);

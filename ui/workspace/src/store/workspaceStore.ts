@@ -351,6 +351,9 @@ interface WorkspaceState {
   contextBudget: {
     usedChars: number;
     budgetChars: number;
+    contextLength: number;
+    effectiveContextLength: number;
+    lastProcessedTokens: number | null;
     compressed: boolean;
     fallback128k: boolean;
   } | null;
@@ -609,6 +612,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     }
   };
 
+  const dispatchNextQueuedMessage = (sid: string) => {
+    if (get().activeSessionId !== sid || liveJobs.has(sid) || get().sessionPhases[sid]) return;
+    const next = get().messageQueue.find((item) => item.sessionId === sid);
+    if (!next) return;
+
+    const remaining = get().messageQueue.filter((item) => item.id !== next.id);
+    saveMessageQueue(remaining);
+    set({
+      messageQueue: remaining,
+      pendingAttachments: next.attachmentIds.map((id, index) => ({
+        id,
+        name: next.attachmentNames[index] ?? '첨부 파일',
+      })),
+      pendingContextPaths: next.contextPaths,
+    });
+    void get().sendAiMessage(next.text, next.model);
+  };
+
   const finishJob = (sid: string) => {
     const finishedJob = liveJobs.get(sid);
     if (finishedJob) {
@@ -636,26 +657,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         canUndo: true,
         ...(finishedJob?.terminalUsed ? { terminalAttention: true } : {}),
       });
-      const next = get().messageQueue.find((item) => item.sessionId === sid);
-      if (next) {
-        const remaining = get().messageQueue.filter((item) => item.id !== next.id);
-        saveMessageQueue(remaining);
-        set({ messageQueue: remaining });
-        queueMicrotask(() => {
-          if (get().activeSessionId !== sid || liveJobs.has(sid)) return;
-          set({
-            pendingAttachments: next.attachmentIds.map((id, index) => ({
-              id,
-              name: next.attachmentNames[index] ?? '첨부 파일',
-            })),
-            pendingContextPaths: next.contextPaths,
-          });
-          void get().sendAiMessage(next.text, next.model);
-        });
-      }
     } else if (finishedJob?.terminalUsed) {
       set({ terminalAttention: true });
     }
+    queueMicrotask(() => dispatchNextQueuedMessage(sid));
   };
 
   const runJob = async (sid: string) => {
@@ -745,12 +750,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               patchLiveChat(sid, nextChat, displayStatus);
             },
             onContextBudget: (snap) => {
+              if (get().activeSessionId !== sid) return;
               const used = Math.max(0, Math.floor(Number(snap.usedChars) || 0));
               const budget = Math.max(0, Math.floor(Number(snap.budgetChars) || 0));
               set({
                 contextBudget: {
                   usedChars: used,
                   budgetChars: budget,
+                  contextLength: Math.max(0, Math.floor(Number(snap.contextLength) || 0)),
+                  effectiveContextLength: Math.max(
+                    0,
+                    Math.floor(Number(snap.effectiveContextLength) || 0),
+                  ),
+                  lastProcessedTokens: get().contextBudget?.lastProcessedTokens ?? null,
                   compressed: Boolean(snap.compressed),
                   fallback128k: Boolean(snap.fallback128k),
                 },
@@ -761,8 +773,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               if (!delta) return;
               const activeTurn = job.chat.find((turn) => turn.id === job.assistantId);
               const previous = activeTurn?.thought ?? '';
-              const thought = delta.startsWith(previous) ? delta : `${previous}${delta}`;
-              patchAssistant({ thought });
+              patchAssistant({ thought: `${previous}${delta}` });
             },
             onExecutionPolicy: (policy) => {
               job.executionPolicy = policy.requested;
@@ -876,6 +887,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               patchAssistant({ text: content });
             },
             onDone: (info) => {
+              if (
+                get().activeSessionId === sid &&
+                typeof info.lastProcessedTokens === 'number'
+              ) {
+                const current = get().contextBudget;
+                if (current) {
+                  set({
+                    contextBudget: {
+                      ...current,
+                      lastProcessedTokens: Math.max(0, Math.floor(info.lastProcessedTokens)),
+                    },
+                  });
+                }
+              }
         if (info.model && info.model !== '중지됨') patchAssistant({ model: info.model });
               const resolvedMode: AiWorkMode = info.mode === 'web_dev'
                 ? 'code'
@@ -1480,6 +1505,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         });
       }
       syncViewBusy();
+      queueMicrotask(() => dispatchNextQueuedMessage(sessionId));
 
       // Refresh from the server without blocking the visible session switch.
       void fetchSession(sessionId).then((rec) => {

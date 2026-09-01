@@ -39,7 +39,6 @@ export interface AgentRunStepState {
   /** Cap for this run (from opts.maxSteps ?? MAX_AGENT_STEPS). */
   maxSteps: number;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
-  applyOutcomeGate: boolean;
   selfWorkspace: boolean;
   uiFacts: UiFacts | null;
   reportStatus: (text: string) => void;
@@ -48,7 +47,7 @@ export interface AgentRunStepState {
   finish: (result: CodeAgentResult) => Promise<CodeAgentResult>;
   /**
    * Flush mutated/read paths into session meta mid-run so infra interrupt
-   * still leaves accurate continuity seeds (does not set openGate).
+   * still leaves accurate continuity seeds.
    */
   persistLiveSessionMeta: () => void;
   hooks: AgentRuntimeHooks;
@@ -103,8 +102,6 @@ export interface AgentRunStepState {
   /** Successful model-requested Acceptance tool after a workspace mutation. */
   explicitAcceptanceOk: boolean;
   sessionMutatedPaths: string[];
-  /** Session Exit Gate (from Critic next); null when none open. */
-  openGate: import('./agent-open-gate.js').SessionOpenGate | null;
   toolsUsedThisRun: Set<string>;
   successfulReadsThisRun: Set<string>;
   /**

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /** Smoke: grounding, UI targeting, and product-memory contracts. */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,12 +18,6 @@ import {
   visionTargetToBootstrapPath,
 } from '../core/dist/agent/agent-ui-vision.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-const sync = spawnSync(process.execPath, [path.join(root, 'tools', 'sync-ui-facts.mjs')], {
-  cwd: root,
-  encoding: 'utf8',
-});
-assert.equal(sync.status, 0, sync.stderr || sync.stdout);
 
 const factsPath = path.join(root, 'core', 'config', 'defaults', 'ui-facts.json');
 assert.ok(existsSync(factsPath), 'ui-facts.json missing');
@@ -98,10 +91,6 @@ import {
   appendAgentAuditEvent,
 } from '../core/dist/agent/agent-audit-ledger.js';
 
-spawnSync(process.execPath, [path.join(root, 'tools', 'sync-product-facts.mjs')], {
-  cwd: root,
-  encoding: 'utf8',
-});
 const productFacts = loadProductFacts(root);
 assert.ok(productFacts?.api?.route_count && productFacts.api.route_count > 10);
 assert.equal(productFacts.layout?.primary_ui, 'ui/workspace');
@@ -144,11 +133,9 @@ import {
 import {
   buildCodeAgentUserContent,
   formatMultimodalSystemNote,
-  messageLooksErrorish,
 } from '../core/dist/agent/agent-multimodal.js';
 
 assert.ok(indexQueryCandidatesFromMessage('MainWindow.xaml 고쳐줘').some((q) => /MainWindow/i.test(q)));
-assert.ok(messageLooksErrorish('error TS2322'));
 const parts = buildCodeAgentUserContent('스크린샷 봐줘', '### a.txt\nhello', [
   'data:image/png;base64,xx',
 ]);

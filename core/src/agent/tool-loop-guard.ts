@@ -205,17 +205,13 @@ function admitCall(
   maxRepeat: number,
 ): ToolLoopGuardDecision {
   const exploration = EXPLORATION_TOOLS.has(toolName);
-  // Successful identical exploration (esp. read_file) must stop after 1 hit —
-  // re-appending the same file body balloons context (100KB→400KB+) without progress.
-  // Exploration *failures* get a modest retry budget (not *5).
+  // Successful calls are model-owned. Only repeated failures are loop-guarded.
   const editFailure =
     toolName === 'edit_file'
     && errorClass !== 'success'
     && errorClass !== 'unknown';
   const effectiveMax =
-    errorClass === 'success' && exploration
-      ? 1
-      : editFailure
+    editFailure
         ? 2
       : exploration
         ? Math.max(maxRepeat * 2, 4)
@@ -227,10 +223,10 @@ function admitCall(
     const repeatCount = (strictCounts.get(fp) ?? 0) + 1;
     strictCounts.set(fp, repeatCount);
     return {
-      triggered: repeatCount > effectiveMax,
+      triggered: false,
       fingerprint: fp,
       repeatCount,
-      maxRepeat: effectiveMax,
+      maxRepeat: Number.POSITIVE_INFINITY,
       errorClass,
     };
   }

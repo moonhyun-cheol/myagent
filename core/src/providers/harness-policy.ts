@@ -1,6 +1,6 @@
 /**
  * Shared harness knobs for chat + code-agent (OWUI IQ redesign).
- * Env-only; no secrets. Defaults: reasoning high, history 40, MAR light, code OWUI native tools.
+ * Env-only; no secrets. Defaults: reasoning high, history 40, code OWUI native tools.
  */
 
 export type OwuiProtocolMode = 'text' | 'probe' | 'api';
@@ -14,8 +14,6 @@ export interface HarnessPolicy {
   historyKeepRecent: number;
   /** Trigger deterministic history compress when total history chars exceed this. */
   historyCompressChars: number;
-  /** Skip mandatory Critic on simple single-coder mutates. */
-  marLight: boolean;
   /** Global continuous runs (MY_AGENT_AUTOPILOT). Default off; CODE/UI task heuristics are separate. */
   autopilot: boolean;
   /** OWUI / custom tool protocol strategy. */
@@ -47,17 +45,9 @@ export function resolveReasoningEffort(env: NodeJS.ProcessEnv = process.env): st
   return raw;
 }
 
-/**
- * Code-agent reasoning tier. Short, bounded tasks use `low`; complex work uses
- * `medium`. Explicit MY_AGENT_REASONING_EFFORT always wins.
- */
-export function resolveCodeReasoningEffort(
-  env: NodeJS.ProcessEnv = process.env,
-  opts?: { simpleEdit?: boolean; simpleTask?: boolean },
-): string | null {
-  const explicit = (env.MY_AGENT_REASONING_EFFORT ?? '').trim();
-  if (explicit) return resolveReasoningEffort(env);
-  return opts?.simpleTask === true || opts?.simpleEdit === true ? 'low' : 'medium';
+/** Code-agent reasoning follows the operator/session setting without task heuristics. */
+export function resolveCodeReasoningEffort(env: NodeJS.ProcessEnv = process.env): string | null {
+  return resolveReasoningEffort(env);
 }
 
 /**
@@ -67,13 +57,9 @@ export function resolveCodeReasoningEffort(
  */
 export function resolveCodeReasoningEffortForModel(
   env: NodeJS.ProcessEnv = process.env,
-  opts?: { modelId?: string | null; simpleEdit?: boolean; simpleTask?: boolean },
+  _opts?: { modelId?: string | null },
 ): string | null {
-  const explicit = (env.MY_AGENT_REASONING_EFFORT ?? '').trim();
-  if (!explicit && /(?:^|[-_.:/])pro(?:$|[-_.:/])/i.test(String(opts?.modelId ?? ''))) {
-    return null;
-  }
-  return resolveCodeReasoningEffort(env, opts);
+  return resolveCodeReasoningEffort(env);
 }
 
 /**
@@ -120,7 +106,6 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
     historyAssistantMaxChars: parsePositiveInt(env.MY_AGENT_HISTORY_ASSISTANT_MAX_CHARS, 4000, 500, 20_000),
     historyKeepRecent: parsePositiveInt(env.MY_AGENT_HISTORY_KEEP_RECENT, 6, 2, 40),
     historyCompressChars: parsePositiveInt(env.MY_AGENT_HISTORY_COMPRESS_CHARS, 24_000, 500, 200_000),
-    marLight: envFlagOn(env.MY_AGENT_MAR_LIGHT, true),
     autopilot: envFlagOn(env.MY_AGENT_AUTOPILOT, false),
     owuiProtocol: resolveOwuiProtocolMode(env),
     owuiProbeTimeoutMs: parsePositiveInt(env.MY_AGENT_OWUI_PROBE_TIMEOUT_MS, 25_000, 8_000, 180_000),
@@ -131,7 +116,7 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 export function resolveSessionReasoningEffort(
   requested: 'auto' | 'low' | 'medium' | 'high',
   env: NodeJS.ProcessEnv = process.env,
-  opts?: { providerId?: string | null; modelId?: string | null; forCodeAgent?: boolean; simpleEdit?: boolean; simpleTask?: boolean },
+  opts?: { providerId?: string | null; modelId?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
   const model = String(opts?.modelId ?? '').toLowerCase();
@@ -142,29 +127,18 @@ export function resolveSessionReasoningEffort(
     return null;
   }
   if ((env.MY_AGENT_REASONING_EFFORT ?? '').trim()) {
-    return opts?.forCodeAgent
-      ? resolveCodeReasoningEffortForModel(env, opts)
-      : resolveReasoningEffort(env);
+    return resolveReasoningEffort(env);
   }
   if (requested !== 'auto') return requested;
-  return opts?.forCodeAgent
-    ? resolveCodeReasoningEffortForModel(env, opts)
-    : resolveReasoningEffort(env);
+  return resolveReasoningEffort(env);
 }
 
 /** Fields to merge into ChatCompletionOptions for every LLM call. */
 export function harnessCompletionExtras(
   env: NodeJS.ProcessEnv = process.env,
-  opts?: { providerId?: string; modelId?: string | null; simpleEdit?: boolean; simpleTask?: boolean; forCodeAgent?: boolean },
+  opts?: { providerId?: string; modelId?: string | null },
 ): { reasoningEffort?: string; extraBody?: Record<string, unknown> } {
-  const effort =
-    opts?.forCodeAgent === true
-      ? resolveCodeReasoningEffortForModel(env, {
-          modelId: opts.modelId,
-          simpleEdit: opts.simpleEdit === true,
-          simpleTask: opts.simpleTask === true,
-        })
-      : resolveReasoningEffort(env);
+  const effort = resolveReasoningEffort(env);
   if (!effort) return {};
   if (opts?.providerId === 'ollama') return {};
   if (modelRejectsReasoningEffort(opts?.modelId)) return {};

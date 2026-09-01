@@ -28,16 +28,27 @@ const singleInstanceSource = read('shell/CqrPa.Shell/SingleInstanceGuard.cs');
 const updaterSource = read('shell/CqrPa.Updater/UpdateRunner.cs');
 const processStopSource = read('shell/CqrPa.Updater/ProductProcessStop.cs');
 const updaterUiSource = read('shell/CqrPa.Updater/UpdateApplyWindow.xaml');
+const pollingSource = read('shell/CqrPa.Shell/UpdatePollingService.cs');
+const dispatchSource = read('core/src/routes/dispatch.ts');
+const updateGateSource = read('core/src/system/update-gate.ts');
 assert.match(appSource, /ContentRendered/);
-assert.match(appSource, /CheckForUpdatesAsync/);
-assert.match(appSource, /MessageBoxButton\.YesNo/);
-assert.match(appSource, /LaunchUpdater/);
-assert.match(appSource, /SingleInstanceGuard/);
-assert.match(appSource, /PrepareForUpdateExit/);
+assert.match(appSource, /UpdatePollingService/);
+assert.match(pollingSource, /MY_AGENT_UPDATE_POLL_INTERVAL_MS/);
+assert.match(pollingSource, /\/system\/update-gate/);
+assert.match(pollingSource, /PowerModeChanged/);
+assert.match(pollingSource, /MessageBoxButton\.YesNo/);
+assert.match(pollingSource, /LaunchUpdater/);
+assert.match(pollingSource, /PrepareForUpdateExit/);
 assert.match(
-  appSource,
+  pollingSource,
   /DisableCancel\(\)[\s\S]*AllowClose\(\)[\s\S]*PrepareForUpdateExit[\s\S]*LaunchUpdater[\s\S]*Shutdown\(0\)/,
 );
+assert.match(dispatchSource, /\/system\/update-gate/);
+assert.match(dispatchSource, /\/system\/ui-busy/);
+assert.match(updateGateSource, /agent_busy/);
+assert.match(updateGateSource, /scheduler_busy/);
+assert.match(updateGateSource, /automaton_background/);
+assert.match(appSource, /SingleInstanceGuard/);
 assert.match(singleInstanceSource, /TryBecomePrimary/);
 assert.match(singleInstanceSource, /EventWaitHandle/);
 assert.match(serviceSource, /MY_AGENT_UPDATE_TRUSTED_HOSTS/);
