@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 17,
+    "update_sequence": 18,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-08-31T03:13:05.114Z",
+    "published_at": "2026-09-01T01:00:25.286Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-17",
+      "release_tag": "update-18",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 267097935,
-      "sha256": "4c5e749358fa2928902c4eeb3fd779e34bbcc2b4c50152045468e36778de049b"
+      "size": 267108143,
+      "sha256": "40293a7a4f60cca1b343adce7e49afdb55423602d56ca27f45c3b7dd176b5df8"
     },
-    "payload_manifest_sha256": "9a55d87951da5b8784218c9836a82b5eefcac354ff01a9ff3254eff06f015b8d",
-    "release_notes": "OpenClaw slash jobs attach the local NOPSPro user so /CTR results arrive as 쪽지. Adapter failures now surface in chat instead of stopping at the ACK."
+    "payload_manifest_sha256": "8b9ab7238380511afc729ca09fc105e0df2d1aa0a5f386e44cc2b6583d9efb80",
+    "release_notes": "Personal scheduler backend with automation feed and approval-gated tools. User memory panel with session context injection. Legacy web_landing/prompt_master routing removed. Reasoning collapse UI and unified right-panel tabs."
   },
-  "signature": "EBmO47cOxlvw3L18UrakpRlJvcUxwFMhwBol7IH9NtgjPgI9r/5MV4Hn/aAtOosUhDumhZAFRbX9i8A3z37R6CRmBuKOIdla9wzW9hkcAqsh0Z0nHcayg3Ozg+xS/4WUZIAYGYyWzW/ZHZAw72VqKfety69LqWsqPuwRXUi3YqRpuKKLwsCaC3T9/SWxGEXDCYsC0+W8heBaPZapjotSdJBARMoNPaD0E3cucGnrNbfHfBm0m52PSEJDY9LfxHSmnGFfm5OqLkblnC0wQPd2PLrd1Me/0+4O+CaHqePpdyxSlxPQTBMgqc3QXHDdzwRzXaRhTX6bHHGvym11LuTvvFmcFGrxBkqbsSx+0BTgjCUH03WSWOpXyG5o2ak9sWb8e3xRnm6LpfJJ91ZA0c3mf1G4U97iHWntGZjWA8LSePChBEUKYP5vCcMPrWuP5soPnysPze2/twMcajbKO8ay0QRp6z36n8N+UNpIBOiz7G+/TOB1/Qq/5bbgi2k/PTep"
+  "signature": "vA7cfo93nZThEPbdSwC1lpUvp1WKJCw7NDnpKALkz/6ODSLjfIC2dAaK/xGFrVLk6cIwng378yYHKFmUEjRNXsSTw1kdWS7b/uBQNzECf/v9M2JlvjvSZBzVOhHwq0C2k5Qw5rc3O9NQ2CVSjvtLWN6dd+ny/tpRF0x21Co4u1F/YVcgCMbaBbPjVg3tgQjN2kahELzCciC+AdL7zUiOrW8QujugoKa3DipYCyo9PC0bdTfF50BzCUxHb3p6/5F7mgtDa2V3kGABbVDY3Z1Enmr7QByWfTW9rMHyjHDsSRdJtivJgNfMDhPWc7q3uARVECQ8gQ+p1hCir+zs2cO4/5/PxXQsGHs4h28G4Md0fDXd88n5EOWcAK4MCXqBcUyqvR1cjcv1V1gVhRAS2POPoa6polFPu3CKs74XyDTYpFtfLcBoJZ7041152Ja/gUytVg+6VhbOtqHlhMD/xqZLjaXocTvjCmt5ppbClMxGBO8FPKqleM9V0RioJSExsqo/"
 }
