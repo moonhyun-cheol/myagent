@@ -56,9 +56,10 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
     try {
       const check = await checkWorkKitCatalog();
       if (!check.feed_url) {
-        if (!silent) {
-          setMessage('카탈로그 피드 URL이 설정되지 않았습니다. 관리자에게 work_kit_catalog_feed_url 설정을 요청하세요.');
-        }
+        setMessage(
+          '작업 키트 목록 피드가 연결되지 않았습니다. 앱을 최신으로 업데이트하거나 MY_AGENT_WORK_KIT_CATALOG_FEED_URL을 설정한 뒤 「목록 새로고침」을 누르세요.',
+        );
+        await load();
         return;
       }
       if (check.update_available || !check.cached_sequence) {
@@ -69,9 +70,11 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
       }
       await load();
     } catch (error) {
-      if (!silent) {
-        setMessage(error instanceof Error ? error.message : '카탈로그를 가져오지 못했습니다.');
-      }
+      const detail = error instanceof Error ? error.message : '카탈로그를 가져오지 못했습니다.';
+      setMessage(silent
+        ? `목록을 서버에서 가져오지 못했습니다. 「목록 새로고침」을 다시 눌러 주세요. (${detail})`
+        : detail);
+      await load();
     } finally {
       setSyncing(false);
     }
@@ -231,7 +234,7 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
               >
                 {g.label}
                 <span className="mt-0.5 block text-[10px] font-normal text-muted">
-                  {g.shelves.length}개
+                  {g.shelves.length}개 키트
                 </span>
               </button>
             ))}
