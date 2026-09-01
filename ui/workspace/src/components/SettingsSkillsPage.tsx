@@ -5,28 +5,16 @@ import {
   checkOrganizationModule,
   deleteSkill,
   fetchOrganizationModule,
+  fetchProfiles,
   importSkillPackage,
-  installOrganizationModule,
   listSkills,
-  type OrganizationModuleComponent,
-  type OrganizationModuleStatus,
-  type OrganizationModuleUpdate,
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
-import { SettingsProfilesSection } from './SettingsProfilesSection';
+import { WorkKitLibrary } from './WorkKitLibrary';
 
-const ORGANIZATION_COMPONENT_LABELS: Record<string, string> = {
-  skills: '스킬',
-  'brand-context': '브랜드 컨텍스트',
-  'research-pipeline': '리서치 파이프라인',
-  'brand-knowledge': '브랜드 지식',
-  'automaton-routing': '오토마톤 라우팅',
-};
-
-function organizationComponents(installed: NonNullable<OrganizationModuleStatus['installed']>): OrganizationModuleComponent[] {
-  if (installed.components?.length) return installed.components;
-  return (installed.capabilities ?? []).map((id) => ({ id, version: installed.version }));
+function isSkillPinned(skill: SkillListItem, pinned: ReadonlySet<string>): boolean {
+  return pinned.has(skill.id) || pinned.has(skill.mode) || pinned.has(`org:${skill.id}`);
 }
 
 interface SettingsSkillsPageProps {
@@ -54,19 +42,37 @@ function getShellWebView(): ShellWebViewHost | null {
 
 export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const [skills, setSkills] = useState<SkillListItem[]>([]);
-  const [moduleStatus, setModuleStatus] = useState<OrganizationModuleStatus | null>(null);
-  const [moduleUpdate, setModuleUpdate] = useState<OrganizationModuleUpdate | null>(null);
+  const [pinnedSkillIds, setPinnedSkillIds] = useState<string[]>([]);
   const [zipPath, setZipPath] = useState('');
-  const [moduleZipPath, setModuleZipPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const pickerRequestRef = useRef<{ id: string; purpose: 'skillZip' | 'organizationModuleZip' } | null>(null);
+  const pickerRequestRef = useRef<{ id: string; purpose: 'skillZip' } | null>(null);
+  const canCheckRemoteRef = useRef(false);
+  const initialRemoteCheckDoneRef = useRef(false);
+
+  const syncOrgModuleSilently = useCallback(async () => {
+    if (readOnly || !canCheckRemoteRef.current) return;
+    try {
+      const update = await checkOrganizationModule();
+      if (!update) return;
+      await applyOrganizationModule();
+    } catch {
+      /* background sync */
+    }
+  }, [readOnly]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
       setSkills(await listSkills());
-      setModuleStatus(await fetchOrganizationModule());
+      const status = await fetchOrganizationModule();
+      canCheckRemoteRef.current = status.can_check_remote === true;
+      try {
+        const profiles = await fetchProfiles();
+        setPinnedSkillIds(profiles.applied?.ui?.pinned_skill_ids ?? []);
+      } catch {
+        setPinnedSkillIds([]);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 목록을 불러오지 못했습니다.');
     } finally {
@@ -75,8 +81,20 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    void (async () => {
+      await refresh();
+      if (cancelled || initialRemoteCheckDoneRef.current) return;
+      initialRemoteCheckDoneRef.current = true;
+      if (canCheckRemoteRef.current) {
+        await syncOrgModuleSilently();
+        if (!cancelled) await refresh();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh, syncOrgModuleSilently]);
 
   useEffect(() => {
     const webview = getShellWebView();
@@ -93,25 +111,48 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       ) return;
       pickerRequestRef.current = null;
       if (!data.canceled && typeof data.path === 'string' && data.path.toLowerCase().endsWith('.zip')) {
-        if (pending.purpose === 'organizationModuleZip') {
-          setModuleZipPath(data.path);
-          setMessage('회사 팩 ZIP을 선택했습니다. 추가를 누르면 서명을 확인하고 설치합니다.');
-        } else {
-          setZipPath(data.path);
-          setMessage('스킬 ZIP을 선택했습니다. 설치를 누르면 압축을 확인하고 등록합니다.');
-        }
+        setZipPath(data.path);
+        setMessage('스킬 ZIP을 선택했습니다. 설치를 누르면 등록합니다.');
       }
     };
     webview.addEventListener('message', onMessage);
     return () => webview.removeEventListener('message', onMessage);
   }, []);
 
-  const installed = useMemo(() => skills.filter((skill) => skill.source === 'user'), [skills]);
-  const bundled = useMemo(() => skills.filter((skill) => skill.source === 'bundled'), [skills]);
-  const organization = useMemo(() => skills.filter((skill) => skill.source === 'organization'), [skills]);
-  const installedComponents = useMemo(
-    () => (moduleStatus?.installed ? organizationComponents(moduleStatus.installed) : []),
-    [moduleStatus],
+  const pinRank = useCallback(
+    (skill: SkillListItem) => {
+      const pin = new Set(pinnedSkillIds);
+      return isSkillPinned(skill, pin) ? 0 : 1;
+    },
+    [pinnedSkillIds],
+  );
+
+  const pinnedSet = useMemo(() => new Set(pinnedSkillIds), [pinnedSkillIds]);
+
+  const installed = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.source === 'user')
+        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
+    [skills, pinRank],
+  );
+  const bundled = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.source === 'bundled')
+        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
+    [skills, pinRank],
+  );
+  const organization = useMemo(
+    () =>
+      skills
+        .filter((skill) => skill.source === 'organization')
+        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
+    [skills, pinRank],
+  );
+  const pinnedOrgSkills = useMemo(
+    () => organization.filter((skill) => isSkillPinned(skill, pinnedSet)),
+    [organization, pinnedSet],
   );
 
   const openZipPicker = () => {
@@ -125,19 +166,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     pickerRequestRef.current = { id: requestId, purpose: 'skillZip' };
     setMessage('스킬 ZIP을 선택하세요.');
     webview.postMessage({ type: 'filePicker.open', requestId, purpose: 'skillZip' });
-  };
-
-  const openModuleZipPicker = () => {
-    if (readOnly || busy) return;
-    const webview = getShellWebView();
-    if (!webview) {
-      setMessage('파일 탐색기는 데스크톱 앱에서 사용할 수 있습니다. 이 화면에서는 ZIP 경로를 직접 입력하세요.');
-      return;
-    }
-    const requestId = `org-module-zip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    pickerRequestRef.current = { id: requestId, purpose: 'organizationModuleZip' };
-    setMessage('받은 회사 팩 ZIP을 선택하세요.');
-    webview.postMessage({ type: 'filePicker.open', requestId, purpose: 'organizationModuleZip' });
   };
 
   const install = async () => {
@@ -155,59 +183,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 설치 실패');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const installModuleZip = async () => {
-    const requestedPath = moduleZipPath.trim().replace(/^"|"$/g, '');
-    if (!requestedPath) {
-      setMessage('추가할 회사 팩 ZIP 파일 경로를 입력하세요.');
-      return;
-    }
-    setBusy(true);
-    setMessage('');
-    try {
-      const moduleInstalled = await installOrganizationModule(requestedPath);
-      setModuleZipPath('');
-      setMessage(moduleInstalled
-        ? `회사 팩 추가됨 · ${moduleInstalled.version} (시퀀스 ${moduleInstalled.update_sequence})`
-        : '회사 팩을 추가했습니다.');
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '회사 팩 추가 실패');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const checkModule = async () => {
-    setBusy(true);
-    setMessage('');
-    try {
-      const update = await checkOrganizationModule();
-      setModuleUpdate(update);
-      setMessage(update
-        ? `새 모듈 ${update.version} (시퀀스 ${update.sequence})`
-        : '받을 조직 모듈 업데이트가 없습니다.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '조직 모듈 확인 실패');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const applyModule = async () => {
-    setBusy(true);
-    setMessage('');
-    try {
-      await applyOrganizationModule();
-      setModuleUpdate(null);
-      setMessage('조직 모듈을 업데이트했습니다.');
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '조직 모듈 업데이트 실패');
     } finally {
       setBusy(false);
     }
@@ -237,134 +212,67 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-ink px-8 py-7">
-      <header className="mb-6 pr-12">
-        <h2 className="text-xl font-semibold">스킬</h2>
-        <p className="mt-1 text-sm text-muted">ZIP으로 전달받은 스킬을 풀어서 이 PC에 설치하고 관리합니다.</p>
+      <header className="mb-5 pr-12">
+        <h2 className="text-xl font-semibold">스킬 · 작업 환경</h2>
+        <p className="mt-1 text-sm text-muted">
+          오늘 할 일에 맞는 키트를 고르면 스킬과 플러그인이 자동으로 맞춰집니다.
+        </p>
       </header>
 
       {message ? (
-        <p data-testid="skill-settings-message" className="mb-5 rounded-xl border border-line bg-panel px-4 py-3 text-sm text-muted">
+        <p data-testid="skill-settings-message" className="mb-5 max-w-4xl rounded-xl border border-line bg-panel px-4 py-3 text-sm text-muted">
           {message}
         </p>
       ) : null}
 
-      <SettingsProfilesSection readOnly={readOnly} />
+      <WorkKitLibrary
+        readOnly={readOnly}
+        busy={busy}
+        onBeforeApply={syncOrgModuleSilently}
+        onApplied={() => void refresh()}
+      />
 
-      <section className="mb-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-semibold">조직 모듈</h3>
-            <p className="mt-0.5 text-xs text-muted">받은 회사 팩 ZIP을 선택하면 서명을 확인하고 자동으로 추가됩니다.</p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              data-testid="organization-module-check"
-              disabled={busy || !moduleStatus?.installed?.update_feed_url}
-              onClick={() => void checkModule()}
-              className="rounded-xl border border-line px-3 py-2 text-xs font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              업데이트 확인
-            </button>
-            {moduleUpdate ? (
-              <button
-                type="button"
-                data-testid="organization-module-apply"
-                disabled={readOnly || busy}
-                onClick={() => void applyModule()}
-                className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {moduleUpdate.version} 설치
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="mb-3 flex gap-2">
-          <input
-            data-testid="organization-module-zip-path"
-            value={moduleZipPath}
-            disabled={readOnly || busy}
-            onClick={openModuleZipPicker}
-            onChange={(event) => setModuleZipPath(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void installModuleZip();
-            }}
-            placeholder="예: C:\\Users\\me\\Downloads\\company-pack.zip"
-            className="min-w-0 flex-1 rounded-xl border border-line bg-[#fafbf8] px-3 py-2.5 font-mono text-sm outline-none focus:border-accent disabled:opacity-50"
-          />
-          <button
-            data-testid="organization-module-zip-browse"
-            type="button"
-            disabled={readOnly || busy}
-            onClick={openModuleZipPicker}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-[#fafbf8] px-3.5 py-2.5 text-sm font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <FolderOpen size={17} /> 찾아보기
-          </button>
-          <button
-            data-testid="organization-module-install"
-            type="button"
-            disabled={readOnly || busy || !moduleZipPath.trim()}
-            onClick={() => void installModuleZip()}
-            className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            추가
-          </button>
-        </div>
-        {moduleStatus?.installed ? (
-          <div className="space-y-3">
-            <p className="font-mono text-xs text-muted">
-              {moduleStatus.installed.version} · 시퀀스 {moduleStatus.installed.update_sequence}
-            </p>
-            {installedComponents.length > 0 ? (
-              <div
-                data-testid="organization-module-components"
-                className="overflow-hidden rounded-xl border border-line bg-[#fafbf8]"
-              >
-                <div className="flex items-center justify-between border-b border-line px-3 py-2">
-                  <p className="text-[11px] font-semibold tracking-wide text-muted">포함된 모듈</p>
-                  <p className="text-[11px] text-muted">{installedComponents.length}개</p>
-                </div>
-                <ul>
-                  {installedComponents.map((item) => (
-                    <li
-                      key={item.id}
-                      data-testid={`organization-module-component-${item.id}`}
-                      className="flex items-baseline justify-between gap-3 border-t border-line px-3 py-2 first:border-t-0"
-                    >
-                      <span className="min-w-0">
-                        <span className="text-sm font-medium text-text">
-                          {ORGANIZATION_COMPONENT_LABELS[item.id] ?? item.id}
-                        </span>
-                        <span className="ml-2 font-mono text-[11px] text-muted">{item.id}</span>
-                      </span>
-                      <span className="shrink-0 font-mono text-xs text-text">{item.version}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-sm text-muted">아직 회사 팩이 없습니다. 위에서 ZIP을 고른 뒤 추가하세요.</p>
-        )}
+      <details className="mt-6 max-w-4xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+        <summary className="cursor-pointer text-sm font-medium text-text">고급 · 스킬 관리</summary>
+
         {organization.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {organization.map((skill) => (
-              <span key={skill.id} className="rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted">
-                {skill.label}
-              </span>
-            ))}
+          <div
+            data-testid="organization-skill-chips"
+            className="mt-4 rounded-xl border border-line bg-panel/60 px-4 py-3"
+          >
+            {pinnedOrgSkills.length > 0 ? (
+              <p data-testid="organization-pinned-summary" className="mb-2 text-xs text-muted">
+                작업 환경에 맞춰 켜진 스킬 {pinnedOrgSkills.length}개
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {organization.map((skill) => {
+                const pinned = isSkillPinned(skill, pinnedSet);
+                return (
+                  <span
+                    key={skill.id}
+                    data-testid={`organization-skill-${skill.id}`}
+                    data-pinned={pinned ? 'true' : 'false'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                      pinned
+                        ? 'border-accent/40 bg-accent/10 font-semibold text-accent'
+                        : 'border-line bg-ink/40 text-muted'
+                    }`}
+                  >
+                    {skill.label}
+                  </span>
+                );
+              })}
+            </div>
           </div>
         ) : null}
-      </section>
 
-      <section className="max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+        <section className="mt-5">
         <div className="mb-4 flex items-center gap-2">
           <Archive size={21} className="text-accent" />
           <div>
             <h3 className="font-semibold">ZIP 파일로 스킬 설치</h3>
-            <p className="mt-0.5 text-xs text-muted">ZIP 루트 또는 단일 최상위 폴더에 SKILL.md가 있어야 합니다.</p>
+            <p className="mt-0.5 text-xs text-muted">별도로 받은 스킬 ZIP만 여기서 설치합니다.</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -399,10 +307,10 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
             설치
           </button>
         </div>
-        <p className="mt-3 text-xs leading-5 text-muted">ZIP 원본은 앱에 복사하지 않고 내부 스킬 폴더로 압축 해제합니다. 경로 밖 쓰기, 심볼릭 링크, 암호화 ZIP 및 과도하게 큰 압축 파일은 차단됩니다.</p>
-      </section>
+        <p className="mt-3 text-xs leading-5 text-muted">ZIP 원본은 앱에 복사하지 않고 내부 스킬 폴더로 압축 해제합니다.</p>
+        </section>
 
-      <section className="mt-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+        <section className="mt-5">
         <div className="mb-4 flex items-center gap-2">
           <Package size={21} className="text-accent" />
           <h3 className="font-semibold">사용자가 설치한 스킬</h3>
@@ -413,11 +321,16 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">설치된 사용자 스킬이 없습니다.</p>
         ) : (
           <div className="space-y-3">
-            {installed.map((skill) => (
-              <div key={skill.id} data-testid={`installed-skill-${skill.id}`} className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4">
+            {installed.map((skill) => {
+              const pinned = isSkillPinned(skill, pinnedSet);
+              return (
+              <div key={skill.id} data-testid={`installed-skill-${skill.id}`} data-pinned={pinned ? 'true' : 'false'} className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
+                    {pinned ? (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">핀</span>
+                    ) : null}
                     <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
                       {skill.install_kind === 'package' ? '압축 해제 설치' : '사용자 스킬'}
                     </span>
@@ -435,17 +348,19 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
                   <Trash size={13} /> 제거
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
-      </section>
+        </section>
 
-      <details className="mt-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <summary className="cursor-pointer text-sm font-medium text-text">앱 기본 스킬 {bundled.length}개</summary>
-        <p className="mt-2 text-xs text-muted">기본 스킬은 앱 업데이트로 관리되며 여기서는 제거할 수 없습니다.</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {bundled.map((skill) => <span key={skill.id} className="rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted">{skill.label}</span>)}
-        </div>
+        <details className="mt-5">
+          <summary className="cursor-pointer text-sm font-medium text-text">앱 기본 스킬 {bundled.length}개</summary>
+          <p className="mt-2 text-xs text-muted">기본 스킬은 앱 업데이트로 관리됩니다.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {bundled.map((skill) => <span key={skill.id} className="rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted">{skill.label}</span>)}
+          </div>
+        </details>
       </details>
     </div>
   );

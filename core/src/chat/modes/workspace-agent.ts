@@ -53,6 +53,7 @@ import {
   resolveForcedToolPack,
   shouldUseWorkspaceToolPlane,
 } from '../../agent/agent-runtime-facts.js';
+import { loadWorkKitContextNote } from '../../config/work-kit-context.js';
 
 /**
  * Run Code Agent when the session is bound to a work folder, or the user
@@ -346,7 +347,12 @@ export async function runWorkspaceCodeAgent(opts: {
   const planNotes = workspaceBehavior === 'plan'
     ? [loadPlanModeSystemNote(cqrRoot) || formatPlannerSystemNote()].filter(Boolean)
     : [];
-  const mergedExtraNotes = [...planNotes, ...lockSystemNotes];
+  const workKitNote = loadWorkKitContextNote(cqrRoot);
+  const mergedExtraNotes = [
+    ...planNotes,
+    ...(workKitNote ? [workKitNote] : []),
+    ...lockSystemNotes,
+  ];
 
   const agent = await runMarOrCodeAgent({
     workspaceRoot,

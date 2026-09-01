@@ -5,10 +5,11 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
 - `manifest.json` — product version `1.0.3`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 19), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
-- **Org automaton (회사 모듈):** slash·OpenClaw·Bulbasaur URL은 `MY_CUSTOM_CODEX-COMPANY/agent-module/` (`automaton-tools.manifest.json`, `openclaw-workflow-map.json`, `deploy-overrides.json`). 중립 코어는 overlay **로더만** (`organization-automaton-manifest.ts`, `organization-openclaw-workflow.ts`, `organization-deploy-overrides.ts`).
+- **Work kits:** 설정 → 스킬 → 작업 환경. 목록=원격 피드(`MY_AGENT_WORK_KIT_CATALOG_FEED_URL` / `work_kit_catalog_feed_url`); locker=per-shelf 설치 캐시. 서버 이전: `MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE` + `MY_AGENT_UPDATE_TRUSTED_HOSTS`. Apply=pull+enable+pin+`loadWorkKitContextNote`. 코어=`profile-shelves/_template`만. **Not** org module ZIP.
+- **Update hosts (R-614):** feed/asset allowlist = configured feed host ∪ GitHub defaults ∪ `MY_AGENT_UPDATE_TRUSTED_HOSTS`/`FEED_HOSTS`/`ASSET_HOSTS`; non-GitHub assets via `MY_AGENT_UPDATE_ASSET_URL_TEMPLATE`. Current public GitHub deploy needs no env change.
+- **Org automaton (회사 모듈):** slash·OpenClaw·Bulbasaur URL은 `MY_CUSTOM_CODEX-COMPANY/agent-module/` (`automaton-tools.manifest.json`, `openclaw-workflow-map.json`, `deploy-overrides.json`). 중립 코어는 overlay **로더만**. 미설치여도 `organization_module_feed_url` / `MY_AGENT_ORGANIZATION_MODULE_FEED_URL`로 피드 조회·받기 가능 (설정→스킬→모듈 확인). 기동 자동 적용은 **이미 설치된** 모듈만.
 - **CQR_PA port:** `tools/port-keep-policy.json`. 아카이브는 공유 엔진 버그픽스만 가져온다. 제품 신원·모델 매트릭스·설치/첫실행·공개 엔트리·설정/모델 센터는 덮지 않는다.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. Plan → `read_only` pack + `skills/plan-mode.md`. Ask → no tool plane. Do not regex-judge from message text.
-- **Work profiles:** `data/profile/` + `/profiles*` — local presets (plugin enable on apply). Not the signed org module.
 
 ## Product layout
 

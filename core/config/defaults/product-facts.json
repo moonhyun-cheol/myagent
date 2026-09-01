@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-01T01:42:44.983Z",
+  "generated_at": "2026-09-01T04:58:18.972Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -44,7 +44,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 88,
+    "route_count": 92,
     "routes": [
       {
         "method": "GET",
@@ -379,6 +379,26 @@
       {
         "method": "POST",
         "path": "/profiles",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/apply",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/profiles/catalog/check",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/profiles/catalog/config",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/catalog/refresh",
         "match": "exact"
       },
       {

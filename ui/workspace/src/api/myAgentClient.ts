@@ -1021,6 +1021,9 @@ export interface OrganizationModuleStatus {
     components: OrganizationModuleComponent[];
     root: string;
   } | null;
+  /** Bootstrap or installed feed; null if remote check unavailable. */
+  feed_url?: string | null;
+  can_check_remote?: boolean;
 }
 
 export interface OrganizationModuleComponent {
@@ -1034,6 +1037,7 @@ export interface OrganizationModuleUpdate {
   channel: string;
   assetName: string;
   feedUrl: string;
+  first_install?: boolean;
 }
 
 export async function fetchOrganizationModule(): Promise<OrganizationModuleStatus> {
@@ -1756,7 +1760,7 @@ export async function importSkillPackage(zipPath: string): Promise<SkillListItem
   return data as SkillListItem;
 }
 
-/** Work profile (data/profile — local preset, separate from org module zip). */
+/** Brand work kits (locker/bundled) + local overlay presets — not org module zip. */
 export interface AgentProfile {
   id: string;
   label: string;
@@ -1769,8 +1773,39 @@ export interface AgentProfile {
   updated_at: string;
 }
 
+export type ShelfInstallStatus =
+  | 'available'
+  | 'installed'
+  | 'update_available'
+  | 'missing_asset';
+
+export interface WorkKitShelf {
+  schema_version: 1;
+  id: string;
+  group: string;
+  label: string;
+  description?: string;
+  pull: Array<'agent-plugins' | 'skills'>;
+  plugins: { enable: Record<string, boolean> };
+  ui: { default_skill_mode?: string; pinned_skill_ids: string[] };
+  hints?: { needs_organization_module?: boolean };
+  origin: 'locker' | 'bundled' | 'catalog';
+  install_status?: ShelfInstallStatus;
+  feed_asset_sequence?: number;
+}
+
+export interface WorkKitCatalogGroup {
+  id: string;
+  label: string;
+  order: number;
+  shelves: WorkKitShelf[];
+}
+
 export interface AgentProfileApplied {
   profile_id: string;
+  group?: string;
+  kit_id?: string;
+  origin?: 'locker' | 'bundled' | 'overlay';
   ui: AgentProfile['ui'];
   applied_at: string;
 }
@@ -1778,23 +1813,114 @@ export interface AgentProfileApplied {
 export interface ProfileApplyResult {
   ok: boolean;
   profile_id: string;
+  group?: string;
+  kit_id?: string;
   toggled: Array<{ id: string; enabled: boolean }>;
+  pulled_plugins?: string[];
+  pulled_skills?: string[];
   warnings: string[];
 }
 
+export interface AppliedWorkKitSummary {
+  label: string | null;
+  group: string | null;
+  kit_id: string | null;
+  install_status: ShelfInstallStatus | null;
+}
+
+export interface WorkKitCatalogCheckResult {
+  feed_url: string | null;
+  feed_sequence: number | null;
+  cached_sequence: number | null;
+  update_available: boolean;
+  feed_host?: string | null;
+  asset_url_mode?: 'kit_template' | 'update_template' | 'github_default';
+}
+
+export interface WorkKitCatalogConfig {
+  feed_url: string | null;
+  feed_configured: boolean;
+  feed_host: string | null;
+  asset_url_mode: 'kit_template' | 'update_template' | 'github_default';
+  migration_hint: string;
+}
+
 export async function fetchProfiles(): Promise<{
+  locker_root: string;
+  feed_sequence: number | null;
+  groups: WorkKitCatalogGroup[];
+  overlays: AgentProfile[];
+  /** @deprecated use overlays */
   profiles: AgentProfile[];
   applied: AgentProfileApplied | null;
+  applied_work_kit?: AppliedWorkKitSummary | null;
   can_restore: boolean;
 }> {
   const res = await fetch('/profiles');
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로필 조회 실패 (${res.status})`);
+  const overlays = Array.isArray(data.overlays)
+    ? data.overlays
+    : Array.isArray(data.profiles)
+      ? data.profiles
+      : [];
   return {
-    profiles: Array.isArray(data.profiles) ? data.profiles : [],
+    locker_root: typeof data.locker_root === 'string' ? data.locker_root : '',
+    feed_sequence: typeof data.feed_sequence === 'number' ? data.feed_sequence : null,
+    groups: Array.isArray(data.groups) ? data.groups : [],
+    overlays,
+    profiles: overlays,
     applied: data.applied ?? null,
+    applied_work_kit: data.applied_work_kit ?? null,
     can_restore: data.can_restore === true,
   };
+}
+
+export async function checkWorkKitCatalog(): Promise<WorkKitCatalogCheckResult> {
+  const res = await fetch('/profiles/catalog/check');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `카탈로그 확인 실패 (${res.status})`);
+  return data as WorkKitCatalogCheckResult;
+}
+
+export async function fetchWorkKitCatalogConfig(): Promise<WorkKitCatalogConfig> {
+  const res = await fetch('/profiles/catalog/config');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `카탈로그 설정 조회 실패 (${res.status})`);
+  return data as WorkKitCatalogConfig;
+}
+
+export async function refreshWorkKitCatalog(feedPath?: string): Promise<{ ok: boolean; sequence: number }> {
+  const res = await fetch('/profiles/catalog/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(feedPath ? { feed_path: feedPath } : {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `카탈로그 동기화 실패 (${res.status})`);
+  return { ok: data.ok === true, sequence: Number(data.sequence) || 0 };
+}
+
+export async function installWorkKitShelf(group: string, id: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`/profiles/shelves/${encodeURIComponent(group)}/${encodeURIComponent(id)}/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `키트 받기 실패 (${res.status})`);
+  return { ok: data.ok === true };
+}
+
+export async function uninstallWorkKitShelf(group: string, id: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`/profiles/shelves/${encodeURIComponent(group)}/${encodeURIComponent(id)}/uninstall`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `키트 제거 실패 (${res.status})`);
+  return { ok: data.ok === true };
 }
 
 export async function saveProfile(
@@ -1808,6 +1934,17 @@ export async function saveProfile(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로필 저장 실패 (${res.status})`);
   return data as AgentProfile;
+}
+
+export async function applyWorkKitProfile(group: string, id: string): Promise<ProfileApplyResult> {
+  const res = await fetch('/profiles/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group, id, confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `프로필 적용 실패 (${res.status})`);
+  return data as ProfileApplyResult;
 }
 
 export async function applyProfile(id: string): Promise<ProfileApplyResult> {
@@ -1837,3 +1974,4 @@ export async function deleteProfile(id: string): Promise<void> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로필 삭제 실패 (${res.status})`);
 }
+

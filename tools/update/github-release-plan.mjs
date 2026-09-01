@@ -62,6 +62,19 @@ export function buildGitHubReleasePlan({
   ];
   if (safeChannel !== 'stable') releaseArgs.push('--prerelease');
 
+  // Publish tooling default is GitHub raw; private hosts set MY_AGENT_UPDATE_FEED_URL_BASE
+  // e.g. https://updates.example.com/feeds/{repository}/{branch} → .../channels/{channel}.json
+  const feedUrlBase = String(process.env.MY_AGENT_UPDATE_FEED_URL_BASE ?? '').trim();
+  const rawFeedUrl = feedUrlBase
+    ? `${feedUrlBase
+        .replaceAll('{owner}', encodeURIComponent(repo.split('/')[0]))
+        .replaceAll('{repo}', encodeURIComponent(repo.split('/')[1]))
+        .replaceAll('{repository}', repo)
+        .replaceAll('{branch}', encodeURIComponent(branch))
+        .replace(/\/$/, '')}/channels/${safeChannel}.json`
+    : `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(branch)}`
+      + `/channels/${safeChannel}.json`;
+
   return {
     repository: repo,
     default_branch: branch,
@@ -72,8 +85,6 @@ export function buildGitHubReleasePlan({
     release_args: releaseArgs,
     feed_api_path: `repos/${repo}/contents/channels/${safeChannel}.json`,
     feed_branch: branch,
-    raw_feed_url:
-      `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(branch)}`
-      + `/channels/${safeChannel}.json`,
+    raw_feed_url: rawFeedUrl,
   };
 }

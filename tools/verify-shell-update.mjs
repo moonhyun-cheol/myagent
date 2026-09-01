@@ -40,8 +40,11 @@ assert.match(
 );
 assert.match(singleInstanceSource, /TryBecomePrimary/);
 assert.match(singleInstanceSource, /EventWaitHandle/);
-assert.match(serviceSource, /raw\.githubusercontent\.com/);
-assert.match(serviceSource, /release-assets\.githubusercontent\.com/);
+assert.match(serviceSource, /MY_AGENT_UPDATE_TRUSTED_HOSTS/);
+assert.match(serviceSource, /MY_AGENT_UPDATE_ASSET_URL_TEMPLATE/);
+assert.match(serviceSource, /IsTrustedFeedHost/);
+assert.match(serviceSource, /IsTrustedAssetHost/);
+assert.match(serviceSource, /raw\.githubusercontent\.com/); // default allowlist (compat)
 assert.match(serviceSource, /--parent-pid/);
 assert.match(serviceSource, /CryptographicOperations\.FixedTimeEquals/);
 assert.match(updaterSource, /ProductProcessStop\.StopAll/);

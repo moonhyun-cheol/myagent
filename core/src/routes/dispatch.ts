@@ -29,10 +29,9 @@ import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import {
   AgentProfileError,
   applyAgentProfile,
+  applyWorkKit,
   deleteAgentProfile,
-  getAppliedProfileState,
-  hasProfileLastState,
-  listAgentProfiles,
+  listWorkKitProfileCatalog,
   restoreAgentProfileLastState,
   saveAgentProfile,
   type AgentProfile,
@@ -87,6 +86,15 @@ import {
   applyOrganizationModuleUpdate,
   checkOrganizationModuleUpdate,
 } from '../updates/organization-module-feed.js';
+import {
+  checkWorkKitCatalogUpdateRemote,
+  describeWorkKitCatalogConfig,
+  installWorkKitShelf,
+  refreshWorkKitCatalog,
+  uninstallWorkKitShelf,
+  WorkKitCatalogError,
+} from '../updates/work-kit-catalog-feed.js';
+import { summarizeAppliedWorkKit } from '../config/work-kit-context.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
 import type { ApiContext } from '../http/api-context.js';
@@ -2002,13 +2010,89 @@ export async function dispatchApiRequest(
         }
       }
 
-      // --- Work profiles (data/profile — local presets, not org module) ---
+      // --- Work kits / profiles (locker shelves + local overlays; not org module) ---
+      if (method === 'GET' && url.pathname === '/profiles/catalog/config') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, describeWorkKitCatalogConfig(cqrRoot));
+      }
+
+      if (method === 'GET' && url.pathname === '/profiles/catalog/check') {
+        license.assertFeature('chat');
+        try {
+          const result = await checkWorkKitCatalogUpdateRemote(cqrRoot);
+          return sendJson(res, 200, result);
+        } catch (e: unknown) {
+          if (e instanceof WorkKitCatalogError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/profiles/catalog/refresh') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as { feed_path?: string };
+          const feed = await refreshWorkKitCatalog(cqrRoot, {
+            feedPath: body.feed_path,
+          });
+          return sendJson(res, 200, {
+            ok: true,
+            sequence: feed.sequence,
+            channel: feed.channel,
+            group_count: feed.groups.length,
+          });
+        } catch (e: unknown) {
+          if (e instanceof WorkKitCatalogError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      {
+        const installMatch = url.pathname.match(
+          /^\/profiles\/shelves\/([a-z0-9][a-z0-9_-]{0,63})\/([a-z0-9][a-z0-9_-]{0,63})\/install$/,
+        );
+        if (method === 'POST' && installMatch) {
+          license.assertWritable();
+          license.assertFeature('chat');
+          try {
+            const body = JSON.parse(await readBody(req)) as { feed_path?: string; meta_only?: boolean };
+            const result = await installWorkKitShelf(cqrRoot, installMatch[1], installMatch[2], {
+              feedPath: body.feed_path,
+              forceMetaOnly: body.meta_only === true,
+            });
+            return sendJson(res, 200, { ok: true, ...result });
+          } catch (e: unknown) {
+            if (e instanceof WorkKitCatalogError) {
+              const status = e.code === 'KIT_NOT_IN_CATALOG' ? 404 : 400;
+              return sendJson(res, status, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
+        }
+
+        const uninstallMatch = url.pathname.match(
+          /^\/profiles\/shelves\/([a-z0-9][a-z0-9_-]{0,63})\/([a-z0-9][a-z0-9_-]{0,63})\/uninstall$/,
+        );
+        if (method === 'POST' && uninstallMatch) {
+          license.assertWritable();
+          license.assertFeature('chat');
+          const removed = uninstallWorkKitShelf(cqrRoot, uninstallMatch[1], uninstallMatch[2]);
+          if (!removed) {
+            return sendJson(res, 404, { error: 'KIT_NOT_INSTALLED', message: '설치된 키트가 없습니다.' });
+          }
+          return sendJson(res, 200, { ok: true, group: uninstallMatch[1], id: uninstallMatch[2] });
+        }
+      }
+
       if (method === 'GET' && url.pathname === '/profiles') {
         license.assertFeature('chat');
         return sendJson(res, 200, {
-          profiles: listAgentProfiles(cqrRoot),
-          applied: getAppliedProfileState(cqrRoot),
-          can_restore: hasProfileLastState(cqrRoot),
+          ...listWorkKitProfileCatalog(cqrRoot),
+          applied_work_kit: summarizeAppliedWorkKit(cqrRoot),
         });
       }
 
@@ -2022,6 +2106,35 @@ export async function dispatchApiRequest(
         } catch (e: unknown) {
           if (e instanceof AgentProfileError) {
             return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/profiles/apply') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as {
+            group?: string;
+            id?: string;
+            confirm?: boolean;
+          };
+          const skills = listAllSkills(cqrRoot);
+          const result = applyWorkKit(cqrRoot, {
+            group: String(body.group ?? ''),
+            id: String(body.id ?? ''),
+            confirm: body.confirm,
+            knownSkillIds: skills.map((s) => s.id),
+            knownSkillModes: skills.map((s) => s.mode),
+          });
+          return sendJson(res, 200, result);
+        } catch (e: unknown) {
+          if (e instanceof AgentProfileError) {
+            const status = e.code === 'PROFILE_NOT_FOUND' || e.code === 'PROFILE_NOT_INSTALLED'
+              ? 404
+              : 400;
+            return sendJson(res, status, { error: e.code, message: e.message });
           }
           throw e;
         }

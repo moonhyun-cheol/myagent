@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "example-kit",
+  "group": "brand",
+  "label": "Example work kit",
+  "description": "Short user-facing description.",
+  "pull": ["skills"],
+  "plugins": { "enable": {} },
+  "ui": {
+    "pinned_skill_ids": []
+  }
+}

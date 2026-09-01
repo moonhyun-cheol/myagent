@@ -11,11 +11,14 @@
   "openclaw_actor_id": "my-agent",
   "openclaw_fallback_local": false,
   "web_search_auto": false,
+  "organization_module_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/channels/beta.json",
+  "work_kit_catalog_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/channels/work-kits.json",
+  "work_kit_note": "Server migration: MY_AGENT_WORK_KIT_CATALOG_FEED_URL, MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE, MY_AGENT_UPDATE_TRUSTED_HOSTS. Empty feed URL = catalog refresh disabled until configured.",
   "audit_ship": {
     "enabled": false,
     "endpoint": "",
     "batch_size": 50,
     "note": "Optional audit transport. Never include file contents or credentials."
   },
-  "note": "Neutral local defaults. Configure remote providers, activation, adapters, and organization modules outside the public core."
+  "note": "Neutral local defaults. Override organization_module_feed_url / providers via env or deploy overlay. Empty feed URL disables remote org install until ZIP."
 }

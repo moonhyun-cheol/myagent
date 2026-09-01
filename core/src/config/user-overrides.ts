@@ -38,6 +38,18 @@ export interface UserOverrides {
   agent_default_workspace_behavior?: 'agent' | 'plan' | 'ask';
   /** Delegate only non-destructive writes contained by the selected local workspace. */
   approval_delegation?: 'off' | 'safe_local' | 'auto_review';
+  /**
+   * Absolute path to work-kit locker (profiles/{group}/{kit}/).
+   * Host-agnostic — do not bake GitHub URLs here. Env CQR_PERSONAL_PACK wins when set.
+   */
+  work_kit_locker_root?: string;
+  /**
+   * Bootstrap org-module feed when modules/organization is missing.
+   * Env MY_AGENT_ORGANIZATION_MODULE_FEED_URL wins over this and deploy-defaults.
+   */
+  organization_module_feed_url?: string;
+  /** Bootstrap work-kit catalog feed URL (HTTPS JSON). Env MY_AGENT_WORK_KIT_CATALOG_FEED_URL wins. */
+  work_kit_catalog_feed_url?: string;
 }
 const DEFAULT_MAX = 20 * 1024 * 1024;
 const DEFAULT_MODEL_MAX = 32 * 1024 * 1024 * 1024;

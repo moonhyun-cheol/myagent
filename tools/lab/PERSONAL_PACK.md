@@ -13,8 +13,14 @@
 | Overrides (비민감) | `data/config/user-overrides.json` | allowlist keys only on export |
 | Vault | `data/vault/` | **export 기본 제외** — `--with-vault` only |
 
-기본 pack 디렉터리: `%USERPROFILE%\Documents\MY_AGENT_personal_pack`
-오버라이드: env `CQR_PERSONAL_PACK`
+Default pack 디렉터리: `%USERPROFILE%\Documents\MY_AGENT_personal_pack`  
+오버라이드 (호스트 무관, **파일시스템 경로만**):
+
+- env `CQR_PERSONAL_PACK` 또는 `MY_AGENT_WORK_KIT_LOCKER`
+- `data/config/user-overrides.json` → `work_kit_locker_root`
+- `deploy-defaults.json` → `work_kit_locker_root`
+
+`http(s)://` / git remote URL은 보관함 루트로 쓰지 않는다 (서버 이전 시에도 동일).
 
 ## 제품 git에 유지 (이사 금지)
 

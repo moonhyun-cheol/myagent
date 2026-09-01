@@ -14,7 +14,24 @@ export interface DeployDefaults {
   activation_server_url?: string;
   activation_token?: string;
   organization_module_root?: string;
+  /**
+   * Bootstrap feed for organization module when none is installed yet.
+   * Host-agnostic — set per deploy; env MY_AGENT_ORGANIZATION_MODULE_FEED_URL wins.
+   * Must be HTTPS. Empty = remote check/install disabled until ZIP install or env.
+   */
+  organization_module_feed_url?: string;
   live_automaton_root?: string;
+  /**
+   * Optional default work-kit locker root for locked-down installs.
+   * Prefer env CQR_PERSONAL_PACK or user-overrides.work_kit_locker_root.
+   * Must be a filesystem path — never a GitHub/raw URL.
+   */
+  work_kit_locker_root?: string;
+  /**
+   * Bootstrap feed for work-kit catalog (per-shelf install).
+   * Host-agnostic — set per deploy; env MY_AGENT_WORK_KIT_CATALOG_FEED_URL wins.
+   */
+  work_kit_catalog_feed_url?: string;
   /** OpenClaw Adapter API base (e.g. http://192.168.x.x:8790). Empty = local spawn only. */
   openclaw_adapter_base_url?: string;
   /** Bearer token for Adapter / Queue. Prefer env OPENCLAW_ADAPTER_TOKEN — do not commit secrets. */
@@ -88,6 +105,14 @@ export function loadDeployDefaults(cqrRoot: string): DeployDefaults {
     process.env.GATE_CONTEXT_SIGNING_PRIVATE_KEY?.trim()
   ) {
     doc.openclaw_gate_signing_private_key = process.env.GATE_CONTEXT_SIGNING_PRIVATE_KEY?.trim();
+  }
+
+  if (process.env.MY_AGENT_ORGANIZATION_MODULE_FEED_URL?.trim()) {
+    doc.organization_module_feed_url = process.env.MY_AGENT_ORGANIZATION_MODULE_FEED_URL.trim();
+  }
+
+  if (process.env.MY_AGENT_WORK_KIT_CATALOG_FEED_URL?.trim()) {
+    doc.work_kit_catalog_feed_url = process.env.MY_AGENT_WORK_KIT_CATALOG_FEED_URL.trim();
   }
 
   return doc;

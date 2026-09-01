@@ -3,6 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { UserSkillStore, isUserSkillMode, parseUserSkillId, userSkillMode } from './user-skill-store.js';
+import {
+  getOrganizationSkillDef,
+  parseOrgSkillId,
+} from './organization-skill-store.js';
 
 export interface SkillDef {
   label: string;
@@ -216,6 +220,28 @@ export function getSkillSystemPromptByMode(
     const userId = parseUserSkillId(mode);
     if (!userId) return null;
     return userSkillStore(cqrRoot).readPrompt(userId);
+  }
+  const orgId = parseOrgSkillId(mode);
+  if (orgId) {
+    const def = getOrganizationSkillDef(orgId, cqrRoot);
+    if (!def) return null;
+    const { parts } = loadSkillPromptParts(
+      {
+        label: def.label,
+        mode: def.mode,
+        feature: def.feature,
+        brand_files: def.brand_files,
+        bundle_files: def.bundle_files,
+        pipeline_script: def.pipeline_script,
+      },
+      cqrRoot,
+    );
+    if (parts.length === 0) return null;
+    let combined = parts.join('\n\n---\n\n');
+    if (combined.length > MAX_PROMPT_CHARS) {
+      combined = combined.slice(0, MAX_PROMPT_CHARS) + '\n\n[... prompt truncated for context limit ...]';
+    }
+    return combined;
   }
   const skillId = skillIdForMode(mode);
   if (!skillId) return null;

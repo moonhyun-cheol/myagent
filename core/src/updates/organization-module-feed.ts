@@ -16,6 +16,14 @@ import {
   verifyFeedEnvelope,
   type InstalledOrganizationModule,
 } from './organization-module-installer.js';
+import {
+  buildUpdateAssetUrl,
+  isTrustedUpdateAssetHost,
+  isTrustedUpdateFeedHost,
+} from './update-host-policy.js';
+import { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
+
+export { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
 
 const MAX_FEED_BYTES = 1024 * 1024;
 
@@ -28,39 +36,40 @@ export interface AvailableModuleUpdate {
   releaseTag: string;
   repository: string;
   feedUrl: string;
+  /** True when no module is installed yet (first remote install). */
+  first_install: boolean;
 }
 
-function ensureTrustedFeedUrl(url: URL): void {
+function ensureTrustedFeedUrl(url: URL, configuredFeedHost?: string): void {
   if (url.protocol !== 'https:') {
     throw new OrganizationModuleError('MODULE_FEED_URL', '모듈 피드는 HTTPS여야 합니다.');
   }
-  if (url.hostname.toLowerCase() !== 'raw.githubusercontent.com') {
-    throw new OrganizationModuleError('MODULE_FEED_HOST', '모듈 피드는 raw.githubusercontent.com 만 허용합니다.');
+  if (!isTrustedUpdateFeedHost(url.hostname, { configuredFeedHost })) {
+    throw new OrganizationModuleError(
+      'MODULE_FEED_HOST',
+      '모듈 피드 호스트가 허용 목록 밖입니다. MY_AGENT_UPDATE_TRUSTED_HOSTS 또는 설치 feed URL 호스트를 확인하세요.',
+    );
   }
 }
 
-function ensureTrustedAssetUrl(url: URL): void {
+function ensureTrustedAssetUrl(url: URL, configuredFeedHost?: string): void {
   if (url.protocol !== 'https:') {
     throw new OrganizationModuleError('MODULE_ASSET_URL', '모듈 다운로드는 HTTPS여야 합니다.');
   }
-  const host = url.hostname.toLowerCase();
-  const trusted = host === 'github.com'
-    || host === 'objects.githubusercontent.com'
-    || host === 'release-assets.githubusercontent.com'
-    || host.endsWith('.githubusercontent.com');
-  if (!trusted) {
-    throw new OrganizationModuleError('MODULE_ASSET_HOST', '모듈 다운로드 호스트가 허용 목록 밖입니다.');
+  if (!isTrustedUpdateAssetHost(url.hostname, { configuredFeedHost })) {
+    throw new OrganizationModuleError(
+      'MODULE_ASSET_HOST',
+      '모듈 다운로드 호스트가 허용 목록 밖입니다. MY_AGENT_UPDATE_TRUSTED_HOSTS / MY_AGENT_UPDATE_ASSET_HOSTS 를 설정하세요.',
+    );
   }
 }
 
 function buildReleaseAssetUri(repository: string, releaseTag: string, name: string): URL {
-  const parts = repository.split('/');
-  if (parts.length !== 2) {
+  try {
+    return buildUpdateAssetUrl({ repository, releaseTag, name });
+  } catch {
     throw new OrganizationModuleError('MODULE_REPO', 'Signed update repository is invalid.');
   }
-  return new URL(
-    `https://github.com/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts[1])}/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(name)}`,
-  );
 }
 
 async function readLimited(response: Response, limit: number): Promise<Buffer> {
@@ -80,10 +89,11 @@ export async function checkOrganizationModuleUpdate(
   opts?: { signal?: AbortSignal },
 ): Promise<AvailableModuleUpdate | null> {
   const installed = readInstalledOrganizationModule(cqrRoot);
-  const feedUrlText = installed?.update_feed_url?.trim();
+  const feedUrlText = resolveOrganizationModuleFeedUrl(cqrRoot);
   if (!feedUrlText) return null;
   const feedUrl = new URL(feedUrlText);
-  ensureTrustedFeedUrl(feedUrl);
+  const configuredFeedHost = feedUrl.hostname;
+  ensureTrustedFeedUrl(feedUrl, configuredFeedHost);
   const publicKeyPem = resolveOrganizationModulePublicKey(cqrRoot);
   const response = await fetch(feedUrl, {
     redirect: 'follow',
@@ -94,11 +104,12 @@ export async function checkOrganizationModuleUpdate(
   if (!response.ok) {
     throw new OrganizationModuleError('MODULE_FEED_HTTP', `모듈 피드를 읽지 못했습니다 (${response.status}).`);
   }
-  if (response.url) ensureTrustedFeedUrl(new URL(response.url));
+  if (response.url) ensureTrustedFeedUrl(new URL(response.url), configuredFeedHost);
   const feedBytes = await readLimited(response, MAX_FEED_BYTES);
   const envelope = parseSignedEnvelope(feedBytes);
   const feed = verifyFeedEnvelope(envelope, publicKeyPem);
-  if (installed && feed.update_sequence <= installed.update_sequence) return null;
+  const firstInstall = !installed;
+  if (!firstInstall && feed.update_sequence <= installed.update_sequence) return null;
   return {
     sequence: feed.update_sequence,
     version: feed.version,
@@ -108,6 +119,7 @@ export async function checkOrganizationModuleUpdate(
     releaseTag: feed.asset.release_tag,
     repository: feed.asset.repository,
     feedUrl: feedUrlText,
+    first_install: firstInstall,
   };
 }
 
@@ -116,12 +128,16 @@ export async function applyOrganizationModuleUpdate(
   opts?: { signal?: AbortSignal },
 ): Promise<InstalledOrganizationModule> {
   const installed = readInstalledOrganizationModule(cqrRoot);
-  const feedUrlText = installed?.update_feed_url?.trim();
+  const feedUrlText = resolveOrganizationModuleFeedUrl(cqrRoot);
   if (!feedUrlText) {
-    throw new OrganizationModuleError('MODULE_FEED_URL', '설치된 모듈에 update_feed_url 이 없습니다.');
+    throw new OrganizationModuleError(
+      'MODULE_FEED_URL',
+      '조직 모듈 피드 URL이 없습니다. ZIP으로 추가하거나 MY_AGENT_ORGANIZATION_MODULE_FEED_URL / deploy-defaults.organization_module_feed_url 을 설정하세요.',
+    );
   }
   const feedUrl = new URL(feedUrlText);
-  ensureTrustedFeedUrl(feedUrl);
+  const configuredFeedHost = feedUrl.hostname;
+  ensureTrustedFeedUrl(feedUrl, configuredFeedHost);
   const publicKeyPem = resolveOrganizationModulePublicKey(cqrRoot);
   const feedResponse = await fetch(feedUrl, {
     redirect: 'follow',
@@ -131,6 +147,7 @@ export async function applyOrganizationModuleUpdate(
   if (!feedResponse.ok) {
     throw new OrganizationModuleError('MODULE_FEED_HTTP', `모듈 피드를 읽지 못했습니다 (${feedResponse.status}).`);
   }
+  if (feedResponse.url) ensureTrustedFeedUrl(new URL(feedResponse.url), configuredFeedHost);
   const feedBytes = await readLimited(feedResponse, MAX_FEED_BYTES);
   const envelope = parseSignedEnvelope(feedBytes);
   const feed = verifyFeedEnvelope(envelope, publicKeyPem);
@@ -138,7 +155,7 @@ export async function applyOrganizationModuleUpdate(
     throw new OrganizationModuleError('MODULE_NOT_NEWER', '받을 모듈 업데이트가 없습니다.');
   }
   const assetUrl = buildReleaseAssetUri(feed.asset.repository, feed.asset.release_tag, feed.asset.name);
-  ensureTrustedAssetUrl(assetUrl);
+  ensureTrustedAssetUrl(assetUrl, configuredFeedHost);
   const tempDir = path.join(tmpdir(), 'MYAgent', 'module-updates', `${feed.update_sequence}-${randomUUID().replaceAll('-', '')}`);
   mkdirSync(tempDir, { recursive: true });
   const localFeed = path.join(tempDir, `update-feed-${feed.channel}.json`);
@@ -153,7 +170,7 @@ export async function applyOrganizationModuleUpdate(
     if (!assetResponse.ok || !assetResponse.body) {
       throw new OrganizationModuleError('MODULE_ASSET_HTTP', `모듈 ZIP을 받지 못했습니다 (${assetResponse.status}).`);
     }
-    if (assetResponse.url) ensureTrustedAssetUrl(new URL(assetResponse.url));
+    if (assetResponse.url) ensureTrustedAssetUrl(new URL(assetResponse.url), configuredFeedHost);
     const length = Number(assetResponse.headers.get('content-length') ?? '0');
     if (length && length !== feed.asset.size) {
       throw new OrganizationModuleError('MODULE_ZIP_SIZE', 'Downloaded update size does not match signed feed.');
@@ -174,6 +191,7 @@ export async function applyOrganizationModuleUpdate(
   }
 }
 
+
 const LAUNCH_UPDATE_TIMEOUT_MS = 15_000;
 
 export async function maybeApplyOrganizationModuleOnLaunch(
@@ -182,11 +200,12 @@ export async function maybeApplyOrganizationModuleOnLaunch(
   const check = String(process.env.MY_AGENT_UPDATE_CHECK ?? '').trim();
   if (check === '0') return { applied: false };
   try {
+    // Launch only auto-updates an already-installed module (never silent first install).
     const installed = readInstalledOrganizationModule(cqrRoot);
     if (!installed?.update_feed_url?.trim()) return { applied: false };
     const signal = AbortSignal.timeout(LAUNCH_UPDATE_TIMEOUT_MS);
     const update = await checkOrganizationModuleUpdate(cqrRoot, { signal });
-    if (!update) return { applied: false };
+    if (!update || update.first_install) return { applied: false };
     const next = await applyOrganizationModuleUpdate(cqrRoot, { signal });
     return { applied: true, version: next.version };
   } catch (error) {

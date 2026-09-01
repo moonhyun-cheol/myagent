@@ -57,7 +57,7 @@ export interface ModeHint {
 
 let cachedConfig: CurateConfig | null = null;
 
-function configPath(): string {
+function bundledConfigPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.join(here, '..', '..', 'config', 'defaults', 'openwebui-model-curate.json'),
@@ -69,11 +69,41 @@ function configPath(): string {
   return candidates[0];
 }
 
+/** Local-only overlay: MY_AGENT_ROOT/data/config/openwebui-model-curate.override.json */
+function localOverridePath(): string | null {
+  const root = process.env.MY_AGENT_ROOT?.trim();
+  if (!root) return null;
+  const p = path.join(root, 'data', 'config', 'openwebui-model-curate.override.json');
+  return existsSync(p) ? p : null;
+}
+
+function applyLocalCurateOverlay(doc: CurateConfig): CurateConfig {
+  const overlayPath = localOverridePath();
+  if (!overlayPath) return doc;
+  try {
+    const raw = JSON.parse(readFileSync(overlayPath, 'utf8')) as Partial<CurateConfig> & {
+      exclude_company_pack?: boolean;
+    };
+    const next = { ...doc, ...raw } as CurateConfig & { exclude_company_pack?: boolean };
+    // Local "turn off company model pack" without deleting product defaults.
+    if (raw.exclude_company_pack === true) {
+      next.matrix_only = false;
+      next.pinned_suffixes = [];
+      next.mode_models = {};
+    }
+    delete (next as { exclude_company_pack?: boolean }).exclude_company_pack;
+    return next;
+  } catch {
+    return doc;
+  }
+}
+
 const MATRIX_ONLY_OFF_VALUES = new Set(['0', 'off', 'false', 'none', 'disabled']);
 
 export function loadCurateConfig(force = false): CurateConfig {
   if (cachedConfig && !force) return cachedConfig;
-  const doc = JSON.parse(readFileSync(configPath(), 'utf8')) as CurateConfig;
+  let doc = JSON.parse(readFileSync(bundledConfigPath(), 'utf8')) as CurateConfig;
+  doc = applyLocalCurateOverlay(doc);
   // Escape hatch for verify runs and support sessions: exercise the full curation pipeline
   // (family dedupe, exclusions, category labels, quota fill) instead of the deploy matrix.
   const override = process.env.MY_AGENT_MODEL_CURATE_MATRIX_ONLY?.trim().toLowerCase();

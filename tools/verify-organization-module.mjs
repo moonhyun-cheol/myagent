@@ -179,7 +179,7 @@ try {
 
   assert.deepEqual(
     listBundledSkills().map((skill) => skill.id).sort(),
-    ['prompt_master', 'web_dev', 'web_landing'],
+    ['web_dev'],
   );
   assert.equal(listAllSkills(installRoot).some((skill) => skill.source === 'organization'), false);
 
@@ -253,20 +253,35 @@ try {
   );
 
   const current = readInstalledOrganizationModule(installRoot);
-  assert.ok(current?.update_feed_url?.includes('raw.githubusercontent.com'));
+  assert.ok(current?.update_feed_url?.startsWith('https://'));
 
   const feedMod = await import(distHref('updates/organization-module-feed.js'));
+  const policyMod = await import(distHref('updates/update-host-policy.js'));
+  assert.equal(policyMod.isTrustedUpdateFeedHost('raw.githubusercontent.com'), true);
+  assert.equal(policyMod.isTrustedUpdateFeedHost('evil.example'), false);
+  assert.equal(
+    policyMod.isTrustedUpdateFeedHost('updates.corp.example', {
+      configuredFeedHost: 'updates.corp.example',
+    }),
+    true,
+  );
+  const prevTrusted = process.env.MY_AGENT_UPDATE_TRUSTED_HOSTS;
+  process.env.MY_AGENT_UPDATE_TRUSTED_HOSTS = 'updates.corp.example';
+  assert.equal(policyMod.isTrustedUpdateFeedHost('updates.corp.example'), true);
+  if (prevTrusted === undefined) delete process.env.MY_AGENT_UPDATE_TRUSTED_HOSTS;
+  else process.env.MY_AGENT_UPDATE_TRUSTED_HOSTS = prevTrusted;
+
   const moduleJsonPath = path.join(current.root, 'module.json');
   const moduleDoc = JSON.parse(readFileSync(moduleJsonPath, 'utf8'));
-  moduleDoc.update_feed_url = 'https://example.com/feed.json';
+  moduleDoc.update_feed_url = 'http://updates.corp.example/feed.json';
   writeFileSync(moduleJsonPath, `${JSON.stringify(moduleDoc, null, 2)}\n`);
-  let hostRejected = false;
+  let httpRejected = false;
   try {
     await feedMod.checkOrganizationModuleUpdate(installRoot);
   } catch (error) {
-    hostRejected = error instanceof OrganizationModuleError && error.code === 'MODULE_FEED_HOST';
+    httpRejected = error instanceof OrganizationModuleError && error.code === 'MODULE_FEED_URL';
   }
-  assert.equal(hostRejected, true);
+  assert.equal(httpRejected, true);
   moduleDoc.update_feed_url = current.update_feed_url;
   writeFileSync(moduleJsonPath, `${JSON.stringify(moduleDoc, null, 2)}\n`);
 

@@ -29,6 +29,7 @@ import type { ChatTurn } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
   fetchLicense,
+  fetchProfiles,
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
@@ -265,6 +266,7 @@ export function ChatPane() {
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspacePromptText, setWorkspacePromptText] = useState<string | null>(null);
+  const [appliedWorkKitLabel, setAppliedWorkKitLabel] = useState<string | null>(null);
   const contextFiles = useMemo(
     () => flattenWorkspaceFiles(files, { includeFolders: true }),
     [files],
@@ -322,6 +324,22 @@ export function ChatPane() {
 
   useEffect(() => {
     setMessageReferences([]);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchProfiles()
+      .then((data) => {
+        if (!cancelled) {
+          setAppliedWorkKitLabel(data.applied_work_kit?.label ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAppliedWorkKitLabel(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -963,6 +981,15 @@ export function ChatPane() {
         >
           {activeWorkspaceProjectId ? '작업폴더 연결됨' : '작업폴더 연결'}
         </button>
+        {appliedWorkKitLabel ? (
+          <span
+            data-testid="chat-applied-work-kit"
+            className="shrink-0 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1 text-[11px] font-medium text-accent"
+            title="전역 적용된 작업 환경"
+          >
+            업무 · {appliedWorkKitLabel}
+          </span>
+        ) : null}
         <button
           type="button"
           data-testid="chat-execution-policy"

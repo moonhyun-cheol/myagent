@@ -2,13 +2,11 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
-const DEFAULT_AUTOMATON = 'C:\\minyoung_coding\\my_live_automaton';
-
 export function resolveAutomatonRoot(configured?: string): string | null {
+  // No machine-local default path — set LIVE_AUTOMATON_ROOT or deploy config.
   const candidates = [
     process.env.LIVE_AUTOMATON_ROOT?.trim(),
     configured?.trim(),
-    DEFAULT_AUTOMATON,
   ].filter(Boolean) as string[];
 
   for (const raw of candidates) {

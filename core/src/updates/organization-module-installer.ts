@@ -379,10 +379,19 @@ export function installOrganizationModule(input: InstallOrganizationModuleInput)
   }
 }
 
+import { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
+
 export function describeOrganizationModuleStatus(cqrRoot: string): {
   installed: InstalledOrganizationModule | null;
+  feed_url: string | null;
+  can_check_remote: boolean;
 } {
-  return { installed: readInstalledOrganizationModule(cqrRoot) };
+  const feedUrl = resolveOrganizationModuleFeedUrl(cqrRoot);
+  return {
+    installed: readInstalledOrganizationModule(cqrRoot),
+    feed_url: feedUrl,
+    can_check_remote: Boolean(feedUrl),
+  };
 }
 
 export function verifyFeedEnvelope(feedEnvelope: SignedEnvelope, publicKeyPem: string): FeedDocument {

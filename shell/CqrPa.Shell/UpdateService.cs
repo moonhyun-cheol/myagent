@@ -86,7 +86,7 @@ internal sealed class UpdateService
             if (currentSequence < 1) return null;
             var feedUri = new Uri(feedUrl, UriKind.Absolute);
             if (!string.Equals(feedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(feedUri.Host, "raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+                || !IsTrustedFeedHost(feedUri.Host, feedUri.Host))
             {
                 return null;
             }
@@ -264,38 +264,104 @@ internal sealed class UpdateService
         }
     }
 
-    private static Uri BuildReleaseAssetUri(UpdateFeedAsset asset)
+    private Uri BuildReleaseAssetUri(UpdateFeedAsset asset)
     {
         var repositoryParts = asset.Repository.Split('/');
         if (repositoryParts.Length != 2)
             throw new InvalidDataException("Signed update repository is invalid.");
+        var template = Environment.GetEnvironmentVariable("MY_AGENT_UPDATE_ASSET_URL_TEMPLATE");
+        if (!string.IsNullOrWhiteSpace(template))
+        {
+            var filled = template
+                .Replace("{owner}", Uri.EscapeDataString(repositoryParts[0]), StringComparison.Ordinal)
+                .Replace("{repo}", Uri.EscapeDataString(repositoryParts[1]), StringComparison.Ordinal)
+                .Replace(
+                    "{repository}",
+                    $"{Uri.EscapeDataString(repositoryParts[0])}/{Uri.EscapeDataString(repositoryParts[1])}",
+                    StringComparison.Ordinal)
+                .Replace("{tag}", Uri.EscapeDataString(asset.ReleaseTag), StringComparison.Ordinal)
+                .Replace("{name}", Uri.EscapeDataString(asset.Name), StringComparison.Ordinal);
+            return new Uri(filled, UriKind.Absolute);
+        }
         return new Uri(
             $"https://github.com/{Uri.EscapeDataString(repositoryParts[0])}/"
             + $"{Uri.EscapeDataString(repositoryParts[1])}/releases/download/"
             + $"{Uri.EscapeDataString(asset.ReleaseTag)}/{Uri.EscapeDataString(asset.Name)}");
     }
 
-    private static void EnsureFeedResponseUri(Uri? uri)
+    private void EnsureFeedResponseUri(Uri? uri)
     {
         if (uri is null
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(uri.Host, "raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+            || !IsTrustedFeedHost(uri.Host, _feedUri.Host))
         {
-            throw new InvalidDataException("Update feed redirected outside trusted GitHub hosting.");
+            throw new InvalidDataException(
+                "Update feed redirected outside trusted hosts. Set MY_AGENT_UPDATE_TRUSTED_HOSTS if using a non-GitHub feed.");
         }
     }
 
-    private static void EnsureReleaseResponseUri(Uri? uri)
+    private void EnsureReleaseResponseUri(Uri? uri)
     {
         if (uri is null || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Update download did not use HTTPS.");
-        var host = uri.Host;
-        var trusted = string.Equals(host, "github.com", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(host, "objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(host, "release-assets.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
-            || host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
-        if (!trusted)
-            throw new InvalidDataException("Update download redirected outside trusted GitHub hosting.");
+        if (!IsTrustedAssetHost(uri.Host, _feedUri.Host))
+        {
+            throw new InvalidDataException(
+                "Update download redirected outside trusted hosts. Set MY_AGENT_UPDATE_TRUSTED_HOSTS / MY_AGENT_UPDATE_ASSET_HOSTS.");
+        }
+    }
+
+    /// <summary>
+    /// Host allowlist: configured feed host, optional env lists, GitHub defaults.
+    /// Env: MY_AGENT_UPDATE_TRUSTED_HOSTS, MY_AGENT_UPDATE_FEED_HOSTS, MY_AGENT_UPDATE_ASSET_HOSTS (comma-separated; *.suffix ok).
+    /// </summary>
+    private static bool IsTrustedFeedHost(string host, string configuredFeedHost)
+    {
+        if (HostEquals(host, configuredFeedHost)) return true;
+        if (HostEquals(host, "raw.githubusercontent.com")) return true;
+        return HostInEnvList(host, "MY_AGENT_UPDATE_TRUSTED_HOSTS")
+            || HostInEnvList(host, "MY_AGENT_UPDATE_FEED_HOSTS");
+    }
+
+    private static bool IsTrustedAssetHost(string host, string configuredFeedHost)
+    {
+        if (HostEquals(host, configuredFeedHost)) return true;
+        if (HostEquals(host, "github.com")
+            || HostEquals(host, "objects.githubusercontent.com")
+            || HostEquals(host, "release-assets.githubusercontent.com")
+            || host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return HostInEnvList(host, "MY_AGENT_UPDATE_TRUSTED_HOSTS")
+            || HostInEnvList(host, "MY_AGENT_UPDATE_ASSET_HOSTS");
+    }
+
+    private static bool HostEquals(string left, string right) =>
+        string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+
+    private static bool HostInEnvList(string host, string envName)
+    {
+        var raw = Environment.GetEnvironmentVariable(envName);
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        foreach (var part in raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (HostMatchesPattern(host, part)) return true;
+        }
+        return false;
+    }
+
+    private static bool HostMatchesPattern(string host, string pattern)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return false;
+        if (pattern.StartsWith("*.", StringComparison.Ordinal) || pattern.StartsWith('.'))
+        {
+            var suffix = pattern.StartsWith("*.", StringComparison.Ordinal) ? pattern[1..] : pattern;
+            return HostEquals(host, suffix.TrimStart('.'))
+                || host.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+        }
+        return HostEquals(host, pattern)
+            || host.EndsWith("." + pattern, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<byte[]> ReadLimitedAsync(

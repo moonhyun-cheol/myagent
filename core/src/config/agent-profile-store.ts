@@ -1,10 +1,6 @@
 /**
- * Work profiles (작업 프로필): data/profile/{id}.json — local presets that
- * bundle skill pins (UI) + agent plugin enable states. Survives delta updates
- * (data/ preserved). Local preset layer — NOT the signed organization module.
- *
- * Layer: config-store + route + UI. Never enters agent run-loop / tool-pack
- * harness; tools.preferred_plugin_ids is display metadata only.
+ * Work profiles: local overlay presets (data/profile/*.json) + brand work kits
+ * (locker / bundled shelves). Layer: config-store + route + UI only.
  */
 import {
   existsSync,
@@ -17,14 +13,23 @@ import {
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
 import {
+  invalidateAgentPluginCache,
   listAgentPlugins,
   setAgentPluginEnabled,
 } from '../agent/agent-plugin-store.js';
+import {
+  findWorkKitShelf,
+  listWorkKitCatalog,
+  pullShelfSlots,
+  readCoreUpdateSequence,
+  type WorkKitCatalogGroup,
+  type WorkKitShelf,
+} from './profile-locker.js';
 
 export interface AgentProfileUi {
-  /** Default skill/mode chip for new chats (informational — no session mutation). */
+  /** Preferred skill/mode chip hint (no automatic session mutation on apply). */
   default_skill_mode?: string;
-  /** Skill ids pinned to the top of the skills page after apply. */
+  /** Kit→N skill pins. Persisted on apply; Settings skills list sorts + shows pin badges from this. */
   pinned_skill_ids: string[];
 }
 
@@ -48,22 +53,27 @@ export interface AgentProfile {
 
 export interface AgentProfileAppliedState {
   profile_id: string;
+  group?: string;
+  kit_id?: string;
+  origin?: 'locker' | 'bundled' | 'overlay';
   ui: AgentProfileUi;
   applied_at: string;
 }
 
 interface ProfileLastState {
   saved_at: string;
-  /** Full plugin enabled map at snapshot time. */
   plugins: Record<string, boolean>;
-  /** Applied-profile state before this apply (null = none). */
   applied: AgentProfileAppliedState | null;
 }
 
 export interface ProfileApplyResult {
   ok: boolean;
   profile_id: string;
+  group?: string;
+  kit_id?: string;
   toggled: Array<{ id: string; enabled: boolean }>;
+  pulled_plugins?: string[];
+  pulled_skills?: string[];
   warnings: string[];
 }
 
@@ -153,6 +163,28 @@ export function listAgentProfiles(cqrRoot: string): AgentProfile[] {
   return out.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
 }
 
+export function listWorkKitProfileCatalog(
+  cqrRoot: string,
+  opts?: { lockerRoot?: string },
+): {
+  locker_root: string;
+  feed_sequence: number | null;
+  groups: WorkKitCatalogGroup[];
+  overlays: AgentProfile[];
+  applied: AgentProfileAppliedState | null;
+  can_restore: boolean;
+} {
+  const cat = listWorkKitCatalog(cqrRoot, opts);
+  return {
+    locker_root: cat.locker_root,
+    feed_sequence: cat.feed_sequence,
+    groups: cat.groups,
+    overlays: listAgentProfiles(cqrRoot),
+    applied: getAppliedProfileState(cqrRoot),
+    can_restore: hasProfileLastState(cqrRoot),
+  };
+}
+
 export function saveAgentProfile(
   cqrRoot: string,
   input: Partial<AgentProfile> & { id: string },
@@ -193,12 +225,43 @@ export function hasProfileLastState(cqrRoot: string): boolean {
   return existsSync(path.join(profilesRoot(cqrRoot), LAST_STATE_FILE));
 }
 
-/**
- * Apply a profile: snapshot current state to .last-state.json, then toggle
- * only the plugin ids listed in profile.plugins.enable. Missing ids become
- * warnings (never silent). Consent stays with the existing HITL flow — the
- * route requires confirm=true from an explicit user click.
- */
+function snapshotBeforeApply(cqrRoot: string): void {
+  const records = listAgentPlugins(cqrRoot, { useCache: false });
+  const currentEnabled: Record<string, boolean> = {};
+  for (const rec of records) currentEnabled[rec.id] = rec.enabled;
+  ensureDir(cqrRoot);
+  const snapshot: ProfileLastState = {
+    saved_at: new Date().toISOString(),
+    plugins: { ...currentEnabled },
+    applied: getAppliedProfileState(cqrRoot),
+  };
+  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), LAST_STATE_FILE), snapshot);
+}
+
+function toggleEnables(
+  cqrRoot: string,
+  enable: Record<string, boolean>,
+): { toggled: Array<{ id: string; enabled: boolean }>; warnings: string[] } {
+  invalidateAgentPluginCache(cqrRoot);
+  const records = listAgentPlugins(cqrRoot, { useCache: false });
+  const currentEnabled: Record<string, boolean> = {};
+  for (const rec of records) currentEnabled[rec.id] = rec.enabled;
+  const warnings: string[] = [];
+  const toggled: Array<{ id: string; enabled: boolean }> = [];
+  for (const [pid, want] of Object.entries(enable)) {
+    if (!(pid in currentEnabled)) {
+      warnings.push(`플러그인 없음(건너뜀): ${pid}`);
+      continue;
+    }
+    if (currentEnabled[pid] === want) continue;
+    const raw = setAgentPluginEnabled(cqrRoot, { id: pid, enabled: want, confirm: true });
+    const doc = JSON.parse(raw) as { ok?: boolean; error?: string };
+    if (doc.ok === true) toggled.push({ id: pid, enabled: want });
+    else warnings.push(`플러그인 토글 실패: ${pid} (${doc.error ?? 'unknown'})`);
+  }
+  return { toggled, warnings };
+}
+
 export function applyAgentProfile(
   cqrRoot: string,
   input: {
@@ -217,32 +280,8 @@ export function applyAgentProfile(
     throw new AgentProfileError('PROFILE_NOT_FOUND', `프로필을 찾을 수 없습니다: ${id}`);
   }
   const normalized = normalizeProfile(profile, id);
-  const records = listAgentPlugins(cqrRoot, { useCache: false });
-  const currentEnabled: Record<string, boolean> = {};
-  for (const rec of records) currentEnabled[rec.id] = rec.enabled;
-
-  // Snapshot BEFORE mutating (되돌리기 지원).
-  ensureDir(cqrRoot);
-  const snapshot: ProfileLastState = {
-    saved_at: new Date().toISOString(),
-    plugins: { ...currentEnabled },
-    applied: getAppliedProfileState(cqrRoot),
-  };
-  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), LAST_STATE_FILE), snapshot);
-
-  const warnings: string[] = [];
-  const toggled: Array<{ id: string; enabled: boolean }> = [];
-  for (const [pid, want] of Object.entries(normalized.plugins.enable)) {
-    if (!(pid in currentEnabled)) {
-      warnings.push(`플러그인 없음(건너뜀): ${pid}`);
-      continue;
-    }
-    if (currentEnabled[pid] === want) continue;
-    const raw = setAgentPluginEnabled(cqrRoot, { id: pid, enabled: want, confirm: true });
-    const doc = JSON.parse(raw) as { ok?: boolean; error?: string };
-    if (doc.ok === true) toggled.push({ id: pid, enabled: want });
-    else warnings.push(`플러그인 토글 실패: ${pid} (${doc.error ?? 'unknown'})`);
-  }
+  snapshotBeforeApply(cqrRoot);
+  const { toggled, warnings } = toggleEnables(cqrRoot, normalized.plugins.enable);
 
   if (input.knownSkillIds) {
     const known = new Set(input.knownSkillIds);
@@ -260,6 +299,7 @@ export function applyAgentProfile(
 
   const applied: AgentProfileAppliedState = {
     profile_id: id,
+    origin: 'overlay',
     ui: normalized.ui,
     applied_at: new Date().toISOString(),
   };
@@ -268,7 +308,107 @@ export function applyAgentProfile(
   return { ok: true, profile_id: id, toggled, warnings };
 }
 
-/** Restore plugin enabled map + applied marker from the last apply snapshot. */
+export function applyWorkKit(
+  cqrRoot: string,
+  input: {
+    group: string;
+    id: string;
+    confirm?: boolean;
+    knownSkillIds?: string[];
+    knownSkillModes?: string[];
+    lockerRoot?: string;
+  },
+): ProfileApplyResult {
+  if (input.confirm !== true) {
+    throw new AgentProfileError('PROFILE_CONFIRM_REQUIRED', 'apply에는 confirm=true가 필요합니다.');
+  }
+  const group = String(input.group ?? '').trim();
+  const id = String(input.id ?? '').trim();
+  let shelf: WorkKitShelf | null = findWorkKitShelf(cqrRoot, group, id, {
+    lockerRoot: input.lockerRoot,
+  });
+  if (!shelf) {
+    throw new AgentProfileError('PROFILE_NOT_FOUND', `작업 키트를 찾을 수 없습니다: ${group}/${id}`);
+  }
+  if (
+    shelf.install_status !== 'installed'
+    && shelf.install_status !== 'update_available'
+  ) {
+    throw new AgentProfileError(
+      'PROFILE_NOT_INSTALLED',
+      `작업 키트가 설치되지 않았습니다. 먼저 받기를 실행하세요: ${group}/${id}`,
+    );
+  }
+  if (!shelf.shelf_dir || !existsSync(path.join(shelf.shelf_dir, 'shelf.json'))) {
+    throw new AgentProfileError(
+      'PROFILE_NOT_INSTALLED',
+      `작업 키트 파일이 없습니다. 다시 받기를 실행하세요: ${group}/${id}`,
+    );
+  }
+
+  const coreSeq = readCoreUpdateSequence(cqrRoot);
+  if (shelf.min_core_sequence != null && coreSeq < shelf.min_core_sequence) {
+    throw new AgentProfileError(
+      'PROFILE_CORE_TOO_OLD',
+      `이 키트는 코어 update_sequence >= ${shelf.min_core_sequence} 가 필요합니다 (현재 ${coreSeq}).`,
+    );
+  }
+
+  snapshotBeforeApply(cqrRoot);
+
+  const warnings: string[] = [];
+  const shelfDir = shelf.shelf_dir;
+  const origin = shelf.origin === 'catalog' ? 'locker' : shelf.origin;
+
+  const pull = pullShelfSlots(cqrRoot, shelfDir, shelf.pull);
+  warnings.push(...pull.warnings);
+  if (shelf.hints?.needs_organization_module) {
+    warnings.push('이 키트는 조직 모듈 스킬을 사용합니다. 설정 → 스킬 → 모듈에서 설치·적용하세요.');
+  }
+  invalidateAgentPluginCache(cqrRoot);
+
+  const { toggled, warnings: toggleWarn } = toggleEnables(cqrRoot, shelf.plugins.enable);
+  warnings.push(...toggleWarn);
+
+  if (input.knownSkillIds) {
+    const known = new Set(input.knownSkillIds);
+    for (const sid of shelf.ui.pinned_skill_ids) {
+      if (!known.has(sid) && !sid.startsWith('org:')) {
+        warnings.push(`핀 스킬 없음: ${sid}`);
+      }
+    }
+  }
+  if (
+    shelf.ui.default_skill_mode
+    && input.knownSkillModes
+    && !input.knownSkillModes.includes(shelf.ui.default_skill_mode)
+  ) {
+    warnings.push(`기본 스킬 모드 없음: ${shelf.ui.default_skill_mode}`);
+  }
+
+  const profileKey = `${group}/${id}`;
+  const applied: AgentProfileAppliedState = {
+    profile_id: profileKey,
+    group,
+    kit_id: id,
+    origin,
+    ui: shelf.ui,
+    applied_at: new Date().toISOString(),
+  };
+  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), APPLIED_FILE), applied);
+
+  return {
+    ok: true,
+    profile_id: profileKey,
+    group,
+    kit_id: id,
+    toggled,
+    pulled_plugins: pull.pulled_plugins,
+    pulled_skills: pull.pulled_skills,
+    warnings,
+  };
+}
+
 export function restoreAgentProfileLastState(
   cqrRoot: string,
   input: { confirm?: boolean },
