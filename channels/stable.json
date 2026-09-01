@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 19,
+    "update_sequence": 20,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-09-01T01:51:03.248Z",
+    "published_at": "2026-09-01T08:12:49.733Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-19",
+      "release_tag": "update-20",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 267128620,
-      "sha256": "df9b112467554a60bda1937f816955ea6d1f510e2bbdbafdbaa2d7aa5cfb2f9c"
+      "size": 267119622,
+      "sha256": "1ab5dcbada08ab2a36eb61098d7ccfc1ddc6f28026c9acf3cb43716264038a2d"
     },
-    "payload_manifest_sha256": "32b640ad94ea5f7247248e48657e93a078e51662a88d014383eeaac9e581b942",
-    "release_notes": "Personal scheduler backend with automation feed and approval-gated tools. User memory panel with session context injection. Legacy web_landing/prompt_master routing removed. Reasoning collapse UI and unified right-panel tabs."
+    "payload_manifest_sha256": "d54e504a514518054cb9eb675c276d43bc5391a464cc4b767da1194694532422",
+    "release_notes": "Idle-gated core live update while the app stays in the tray. Model-directed single agent loop (MAR/heuristics/auto diagnostics removed). Session drafts stay per-chat, file deletes go to workspace trash, scheduler lists real tasks with run-now, and memory/session rename UX is in."
   },
-  "signature": "YjLK4KpRozsNDSEZCFdwFAFKohE7zTmDRVJzUx7krhVZ3mkJYVk+q40X7UoXQ8OR6KYjScoN4worgZw/4WtA9j09FQ0BQWm1Fp+bYUTwEVBRVF3cibmgOZ4qZka6Xx/Z4UMgNgdTxZLiw1vQl2WNag9R8kPuHarUQa5PO51B53O8JaARr7ht2X4mADXLGD7VAvb75Wpx8FfacfHsSPCHB7uZ7Wtpg7JfyxcbB6qVJhLTHzQkL0AI4BsVTlZW0/4RzxoCfjI9Q0ONqvdPsd7hMh1nac9i1tUgGj8yJ2EWz9UlZQz64iWukFfp88r2bxD7FhlzG3xu049gceTJU8/T9+xz+T60rUL+1wOf5CLXPeCgL01QxVMAjJpXWbQSfTYlqw1nb9KorTY22Z9xsSfatYrlozB1VwUuImrmpzozuXCtaRbii6M5UVd6FkcvOFmrxSBYG8seRzmmFql3Z+gTDXYUmrb44sUoIHE6CU/E6fCLi0NFtxPnY32Rz7xRgPEH"
+  "signature": "ICuyDZI1gRxysixCgbwbouS+crKCgje7vr5J2F1cLXsw+eQG43Un+F5cFNmNWWuaedQ8aCzwx1FFhkPH7ukv73hmDnO2vu/yaqg0Rj4HSdAXpNGLpoGi0Ae3hBArrB+5fH9u74RrHR0S0ASGpXbEOjmm0XB1w2lC4L4wDHJM1TRYHZK/oAV/oFig0akjBiM+1xxYiWvis9Kf4E+SbiRspIcwD/w1GRCBMuKIChO3nbt+NlSV9HjNE170ONa79u0VKe51E5JrGG83eEb4UPOdcelX89ZQtBKPq/JzTRM0QuWzaHDVchSvq1FIyBovTbEY6j2yK8nzecz/y81TweikiljcRQD1KO7MOdID30WPwDaczzeu8UMLJTMEivZ64+g7Y6j8MRWvsADO3KUZJCAuckV68/1ubeFTcjXZchNoghohy3b8w2oZKQ8DqRmI6cL99xMJ/nQsXCpATiMJawR0nlgrU2t+6mMEGlhCakf6kV7r+WCISfRWpeZLp3kPdu9P"
 }
