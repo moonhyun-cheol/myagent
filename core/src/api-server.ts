@@ -22,6 +22,12 @@ import { sweepSessionTemp } from './sessions/session-temp-gc.js';
 import type { ApiContext } from './http/api-context.js';
 import { handleApiError } from './http/api-error-handler.js';
 import { dispatchApiRequest } from './routes/dispatch.js';
+import { PersonalSchedulerService } from './scheduler/personal-scheduler-service.js';
+import { PersonalSchedulerRuntime } from './scheduler/personal-scheduler-runtime.js';
+import {
+  registerPersonalSchedulerRuntime,
+  unregisterPersonalSchedulerRuntime,
+} from './scheduler/runtime-registry.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -85,6 +91,32 @@ export async function createApiServer(port: number) {
     researchOut,
     imageOut,
   );
+  const personalScheduler = PersonalSchedulerService.forRoot(cqrRoot);
+  const personalSchedulerRuntime = new PersonalSchedulerRuntime(
+    personalScheduler,
+    async (task, run) => {
+      const sessionId = `automation-${run.id}`;
+      try {
+        const response = await orchestrator.handle({
+          message: task.instruction,
+          attachments: [],
+        }, sessionId);
+        const feedAttachments = [
+          ...(response.mutatedPaths ?? []).map((filePath) => ({
+            name: path.basename(filePath),
+            path: filePath,
+          })),
+          ...(response.images ?? []).map((image, index) => ({
+            name: `image-${index + 1}`,
+            path: image.url,
+          })),
+        ];
+        return { content: response.content, attachments: feedAttachments };
+      } finally {
+        sessionStore.delete(sessionId);
+      }
+    },
+  );
 
   const workspaceUiDir = path.join(cqrRoot, 'ui', 'workspace', 'dist');
   const appVersion = readProductVersion(cqrRoot);
@@ -109,6 +141,8 @@ export async function createApiServer(port: number) {
     llamaBinary,
     imageOut,
     orchestrator,
+    personalScheduler,
+    personalSchedulerRuntime,
   };
 
   try {
@@ -178,19 +212,21 @@ export async function createApiServer(port: number) {
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;
 
+  server.once('listening', () => {
+    registerPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
+    personalSchedulerRuntime.start();
+  });
+  server.once('close', () => {
+    unregisterPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
+    void personalSchedulerRuntime.shutdown().finally(() => personalScheduler.close());
+  });
+
   return server;
 }
 
-export function startApiServer(port = 10200): void {
+export function startApiServer(port: number): void {
   void (async () => {
     const server = await createApiServer(port);
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`MY Agent API port ${port} is already in use`);
-        process.exit(1);
-      }
-      throw err;
-    });
     server.listen(port, '127.0.0.1', () => {
       console.log(`MY Agent API http://127.0.0.1:${port}`);
     });

@@ -253,6 +253,27 @@ export function needsHumanApproval(
   grantRoots?: string[];
   expires?: 'once' | 'run';
 } {
+  if (toolName === 'scheduler_upsert') {
+    const name = typeof args.name === 'string' && args.name.trim() ? args.name.trim() : '새 자동화';
+    return {
+      needed: true,
+      danger: false,
+      access: 'operation',
+      expires: 'once',
+      summary: `개인 자동화 저장: ${name}`,
+    };
+  }
+  if (toolName === 'scheduler_set_state') {
+    const action = typeof args.action === 'string' ? args.action : '?';
+    const id = typeof args.id === 'string' ? args.id : '?';
+    return {
+      needed: true,
+      danger: action === 'delete',
+      access: 'operation',
+      expires: 'once',
+      summary: `개인 자동화 ${action}: ${id}`,
+    };
+  }
   if (context?.workspaceRoot) {
     const pathUse = toolPathTargets(toolName, args);
     const externalTargets = pathUse.paths

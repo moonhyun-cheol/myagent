@@ -899,17 +899,33 @@ export async function chatCompletionStreamOrStub(
   return chatCompletionStream(baseUrl, apiKey, model, messages, onToken, opts);
 }
 
-/** OWUI / OpenAI reasoning models: reasoning_content, reasoning, or thinking. */
+/** OWUI / OpenAI / OpenRouter reasoning text that the provider explicitly exposes. */
 export function extractAssistantReasoning(message: unknown): string {
   if (!message || typeof message !== 'object') return '';
   const m = message as {
     reasoning_content?: unknown;
     reasoning?: unknown;
     thinking?: unknown;
+    reasoning_details?: unknown;
   };
   for (const key of ['reasoning_content', 'reasoning', 'thinking'] as const) {
     const v = m[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  if (Array.isArray(m.reasoning_details)) {
+    return m.reasoning_details
+      .map((detail) => {
+        if (typeof detail === 'string') return detail;
+        if (!detail || typeof detail !== 'object') return '';
+        const row = detail as { text?: unknown; summary?: unknown; content?: unknown };
+        for (const value of [row.text, row.summary, row.content]) {
+          if (typeof value === 'string' && value.trim()) return value.trim();
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
   }
   return '';
 }
@@ -1092,14 +1108,7 @@ function extractStreamDelta(delta: unknown): {
   const d = delta as Record<string, unknown>;
   const out: ReturnType<typeof extractStreamDelta> = {};
   if (typeof d.content === 'string' && d.content) out.content = d.content;
-  const thought =
-    typeof d.reasoning_content === 'string'
-      ? d.reasoning_content
-      : typeof d.reasoning === 'string'
-        ? d.reasoning
-        : typeof d.thinking === 'string'
-          ? d.thinking
-          : '';
+  const thought = extractAssistantReasoning(d);
   if (thought) out.thought = thought;
   if (Array.isArray(d.tool_calls)) {
     out.tool_calls = d.tool_calls

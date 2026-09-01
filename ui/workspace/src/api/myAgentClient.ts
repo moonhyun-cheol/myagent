@@ -151,6 +151,30 @@ export interface ProviderPublic {
   note?: string;
 }
 
+export interface AutomationFeedAttachment {
+  name: string;
+  path?: string;
+  mime?: string;
+  size?: number;
+}
+
+export interface AutomationFeedItem {
+  id: string;
+  kind: 'result' | 'error' | 'status';
+  title: string;
+  message: string;
+  attachments: AutomationFeedAttachment[];
+  created_at: string;
+  read_at: string | null;
+}
+
+export async function listAutomationFeed(limit = 30): Promise<AutomationFeedItem[]> {
+  const res = await fetch(`/automations/feed?limit=${encodeURIComponent(String(limit))}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`자동화 자료를 불러오지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { items?: AutomationFeedItem[] };
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
 export function getStoredSessionId(): string | null {
   const stored = localStorage.getItem(SESSION_KEY);
   if (stored) return stored;
@@ -266,6 +290,16 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
     models,
     default_id: data.default_id ?? data.default ?? hintDefault,
     remote_errors: data.remote_model_errors,
+  };
+}
+
+export async function fetchLicense(): Promise<{ mode: string; features: string[] }> {
+  const res = await fetch('/license/status');
+  if (!res.ok) throw new Error(`라이선스 확인 실패 (${res.status})`);
+  const data = await res.json();
+  return {
+    mode: data.mode ?? 'unknown',
+    features: data.features ?? [],
   };
 }
 
@@ -434,6 +468,63 @@ export async function deleteProject(id: string, unlink = false): Promise<void> {
   const res = await fetch(`/projects/${encodeURIComponent(id)}${q}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `삭제 실패 (${res.status})`);
+}
+
+export type UserMemoryScope = 'global' | 'project';
+
+export interface UserMemoryEntry {
+  id: string;
+  scope: UserMemoryScope;
+  project_id?: string | null;
+  text: string;
+  source: 'user' | 'auto';
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listUserMemory(
+  projectId?: string | null,
+): Promise<{ global: UserMemoryEntry[]; project: UserMemoryEntry[] }> {
+  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const res = await fetch(`/memory${q}`, { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 로드 실패 (${res.status})`);
+  return data as { global: UserMemoryEntry[]; project: UserMemoryEntry[] };
+}
+
+export async function addUserMemory(body: {
+  scope: UserMemoryScope;
+  project_id?: string | null;
+  text: string;
+}): Promise<UserMemoryEntry> {
+  const res = await fetch('/memory', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 추가 실패 (${res.status})`);
+  return data as UserMemoryEntry;
+}
+
+export async function updateUserMemory(
+  id: string,
+  patch: { text?: string; enabled?: boolean },
+): Promise<void> {
+  const res = await fetch(`/memory/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 수정 실패 (${res.status})`);
+}
+
+export async function deleteUserMemory(id: string): Promise<void> {
+  const res = await fetch(`/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 삭제 실패 (${res.status})`);
 }
 
 export async function setDevWorkspace(root: string): Promise<{

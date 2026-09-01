@@ -2,7 +2,6 @@ import { Code, FileText, Image as ImageIcon } from '@phosphor-icons/react';
 import { useCallback, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import type { AssetKind, WorkspaceAsset } from '../types';
-import { isCanvasAsset } from '../types';
 import {
   copyImageToClipboard,
   copyImageUrl,
@@ -22,7 +21,6 @@ export function AssetGallery() {
   const assets = useWorkspaceStore((s) => s.assets).filter(
     (asset) => Boolean(asset.sourcePath || asset.imageUrl),
   );
-  const placeAssetOnCanvas = useWorkspaceStore((s) => s.placeAssetOnCanvas);
   const openAssetInEditor = useWorkspaceStore((s) => s.openAssetInEditor);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const downloadAsset = useWorkspaceStore((s) => s.downloadAsset);
@@ -37,16 +35,9 @@ export function AssetGallery() {
   const openAssetMenu = useCallback(
     (e: ReactMouseEvent, asset: WorkspaceAsset) => {
       const items: ContextMenuItem[] = [
-        ...(isCanvasAsset(asset)
-          ? [{
-              id: 'canvas',
-              label: asset.kind === 'image' ? '이미지 캔버스에서 열기' : '워크플로 캔버스에서 열기',
-              onSelect: () => placeAssetOnCanvas(asset.id),
-            }]
-          : []),
         {
           id: 'editor',
-          label: asset.kind === 'image' ? '캔버스에서 열기' : '에디터에서 열기',
+          label: asset.kind === 'image' ? '미리보기에서 열기' : '에디터에서 열기',
           onSelect: () => openAssetInEditor(asset.id),
         },
       ];
@@ -98,7 +89,7 @@ export function AssetGallery() {
       }
       openAt(e, items);
     },
-    [downloadAsset, flash, openAssetInEditor, openAt, openImagePreview, placeAssetOnCanvas],
+    [downloadAsset, flash, openAssetInEditor, openAt, openImagePreview],
   );
 
   return (
@@ -134,7 +125,7 @@ export function AssetGallery() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{asset.title}</p>
                   <p className="truncate text-[10px] text-muted">
-                  {asset.kind === 'image' ? '이미지' : isCanvasAsset(asset) ? '워크플로' : asset.language || '파일'}
+                  {asset.kind === 'image' ? '이미지' : asset.language || '파일'}
                 </p>
                 </div>
               </div>
@@ -146,15 +137,6 @@ export function AssetGallery() {
                 </pre>
               ) : null}
               <div className="mt-1.5 flex gap-1">
-                {isCanvasAsset(asset) ? (
-                  <button
-                    type="button"
-                    className="flex-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-text"
-                    onClick={() => placeAssetOnCanvas(asset.id)}
-                  >
-                    캔버스
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   className="flex-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent hover:text-text"

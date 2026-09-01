@@ -137,28 +137,10 @@ export function getSkillSystemPrompt(
 
   let combined = parts.join('\n\n---\n\n');
 
-  // prompt_master: slim tier = context + PRIMACY only (MIDDLE ZONE deferred until target inject).
-  if (skillId === 'prompt_master' && (opts?.tier ?? 'slim') === 'slim') {
-    combined = trimPromptMasterToPrimary(combined);
-  }
-
   if (combined.length > MAX_PROMPT_CHARS) {
     combined = combined.slice(0, MAX_PROMPT_CHARS) + '\n\n[... prompt truncated for context limit ...]';
   }
   return combined;
-}
-
-/** Keep PRIMACY + OUTPUT; drop encyclopedic MIDDLE ZONE tool tables until target detect. */
-export function trimPromptMasterToPrimary(md: string): string {
-  const text = String(md || '');
-  const cut = text.search(/^## MIDDLE ZONE\b/m);
-  if (cut < 0) {
-    if (text.length > 10_000) {
-      return `${text.slice(0, 8_000)}\n\n[... prompt_master middle zone deferred until target detect ...]`;
-    }
-    return text;
-  }
-  return text.slice(0, cut).trimEnd();
 }
 
 export function getSkillMode(skillId: string): string | null {

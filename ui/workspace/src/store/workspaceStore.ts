@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, validHttpUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
+import { showUserNotification } from '../lib/userNotifications';
 import type {
   AiWorkMode,
   ChatTurn,
@@ -366,6 +367,7 @@ interface WorkspaceState {
   activeWorkspaceProjectId: string | null;
   skillMode: string | null;
   skillLabel: string | null;
+  licenseMode: string | null;
   pendingAttachments: PendingAttachment[];
   /** Composer @ chips — workspace relative paths. */
   pendingContextPaths: string[];
@@ -394,6 +396,7 @@ interface WorkspaceState {
   /** Reload /models/picker into the chat header dropdown. Returns option count. */
   refreshModelPicker: (refreshRemote?: boolean) => Promise<number>;
   setApiStatus: (online: boolean, error?: string | null) => void;
+  setLicenseMode: (mode: string | null) => void;
   setPreviewPaneOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   clearTerminalAttention: () => void;
@@ -736,7 +739,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 },
               });
             },
-            onThought: (t) => patchAssistant({ thought: t }),
+            onThought: (t) => {
+              const delta = String(t || '');
+              if (!delta) return;
+              const activeTurn = job.chat.find((turn) => turn.id === job.assistantId);
+              const previous = activeTurn?.thought ?? '';
+              const thought = delta.startsWith(previous) ? delta : `${previous}${delta}`;
+              patchAssistant({ thought });
+            },
             onExecutionPolicy: (policy) => {
               job.executionPolicy = policy.requested;
               job.effectiveExecutionPolicy = policy.effective;
@@ -869,6 +879,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 patchAssistant({
                   text: content.trim() ? content : '작업 중…',
                   streamPreview: undefined,
+                });
+              }
+              if (info.model !== '중지됨') {
+                showUserNotification({
+                  kind: 'complete',
+                  title: finalOnly ? '작업이 완료되었습니다' : '답변이 완료되었습니다',
+                  message: finalOnly ? '요청한 작업 결과를 확인할 수 있습니다.' : '새 답변을 확인할 수 있습니다.',
+                  persistent: false,
+                  system: 'when-hidden',
                 });
               }
             },
@@ -1004,6 +1023,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     activeWorkspaceProjectId: null,
     skillMode: null,
     skillLabel: null,
+    licenseMode: null,
     pendingAttachments: [],
     pendingContextPaths: [],
     pendingMutateReview: null,
@@ -1132,6 +1152,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       return models.length;
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
+    setLicenseMode: (licenseMode) => set({ licenseMode }),
     setPreviewPaneOpen: (previewPaneOpen) => set({ previewPaneOpen }),
     setTerminalOpen: (terminalOpen) => {
       try {
@@ -1319,6 +1340,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     uploadFiles: async (files) => {
       if (!files.length) return;
+      if (get().licenseMode && get().licenseMode !== 'full') {
+        throw new Error('라이선스 필요');
+      }
       const uploaded = await uploadAttachments(files);
       const items: PendingAttachment[] = uploaded.map((u, i) => {
         const file = files[i];

@@ -7,6 +7,7 @@ import {
   Paperclip,
   PaperPlaneTilt,
   Browser,
+  CaretDown,
   X,
   Image as ImageIcon,
   Stop,
@@ -26,6 +27,7 @@ import {
 import type { ChatTurn } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
+  fetchLicense,
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
@@ -225,6 +227,8 @@ export function ChatPane() {
   const setExecutionPolicy = useWorkspaceStore((s) => s.setExecutionPolicy);
   const apiError = useWorkspaceStore((s) => s.apiError);
   const setApiStatus = useWorkspaceStore((s) => s.setApiStatus);
+  const setLicenseMode = useWorkspaceStore((s) => s.setLicenseMode);
+  const licenseMode = useWorkspaceStore((s) => s.licenseMode);
   const pendingAttachments = useWorkspaceStore((s) => s.pendingAttachments);
   const removePendingAttachment = useWorkspaceStore((s) => s.removePendingAttachment);
   const pendingContextPaths = useWorkspaceStore((s) => s.pendingContextPaths);
@@ -617,7 +621,10 @@ export function ChatPane() {
 
     (async () => {
       try {
-        setApiStatus(true, null);
+        const lic = await fetchLicense();
+        if (cancelled) return;
+        setLicenseMode(lic.mode ?? null);
+        setApiStatus(true, lic.mode === 'read_only' ? '읽기 전용 라이선스 — 채팅이 제한될 수 있습니다' : null);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -649,11 +656,15 @@ export function ChatPane() {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
     };
-  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus]);
+  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
 
   const ingestFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
+      if (licenseMode && licenseMode !== 'full') {
+        flashPasteHint('라이선스 필요');
+        return;
+      }
       setPasting(true);
       try {
         await uploadFiles(files);
@@ -663,12 +674,25 @@ export function ChatPane() {
         setPasting(false);
       }
     },
-    [flashPasteHint, uploadFiles],
+    [flashPasteHint, licenseMode, uploadFiles],
   );
 
   const handlePaste = useCallback(
     (e: ReactClipboardEvent | ClipboardEvent) => {
       const anyFiles = filesFromDataTransfer(e.clipboardData);
+      if (licenseMode && licenseMode !== 'full') {
+        const sync = filesFromClipboard(e.clipboardData);
+        const items = [...(e.clipboardData?.items ?? [])];
+        const maybeFile =
+          anyFiles.length > 0 ||
+          sync.length > 0 ||
+          items.some((i) => i.type.startsWith('image/') || (i.kind === 'file' && !i.type));
+        if (maybeFile) {
+          e.preventDefault();
+          flashPasteHint('라이선스 필요');
+        }
+        return;
+      }
 
       // Explorer / OS file paste — any format
       if (anyFiles.length) {
@@ -711,7 +735,7 @@ export function ChatPane() {
         }
       })();
     },
-    [flashPasteHint, ingestFiles],
+    [flashPasteHint, ingestFiles, licenseMode],
   );
 
   useEffect(() => {
@@ -759,11 +783,12 @@ export function ChatPane() {
     [ingestFiles],
   );
 
-  const attachDisabled = pasting;
+  const attachDisabled =
+    pasting || Boolean(licenseMode && licenseMode !== 'full');
 
   const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
 
-  const showUndo = canUndo && !busy;
+  const showUndo = canUndo && !busy && licenseMode === 'full';
 
   const submit = () => {
     if (!canSend) return;
@@ -890,7 +915,7 @@ export function ChatPane() {
           onChange={(e) => {
             void setSelectedModel(e.target.value);
           }}
-          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent disabled:opacity-50"
+          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent"
           title={busy ? '응답 생성 중에는 모델을 변경할 수 없습니다.' : '모델'}
         >
           {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
@@ -1107,16 +1132,44 @@ export function ChatPane() {
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
-                {turn.thought ? (
-                  <details className="mb-3 rounded-xl border border-line/80 bg-ink/40 px-3 py-2" open={busy && turn.role === 'assistant'}>
-                    <summary className="cursor-pointer select-none text-[11px] tracking-[0.04em] text-muted">
-                      {busy && turn.role === 'assistant' && statusText
-                        ? `진행 · ${statusText.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}`
-                        : '생각 로그'}
+                {turn.role === 'assistant' && (turn.thought?.trim() || turn.progressSteps?.length) ? (
+                  <details
+                    className="group mb-3 border-b border-line/70 pb-3"
+                    open={busy && !turn.completedAt}
+                  >
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+                      <span>
+                        {busy && !turn.completedAt
+                          ? statusText
+                            ? `작업 중 · ${statusText.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}`
+                            : '작업 중'
+                          : formatWorkDuration(turn.startedAt, turn.completedAt)
+                            ? `${formatWorkDuration(turn.startedAt, turn.completedAt)} 동안 작업함`
+                            : '작업 과정'}
+                      </span>
+                      <CaretDown
+                        size={13}
+                        className="transition-transform duration-150 group-open:rotate-180"
+                        aria-hidden="true"
+                      />
                     </summary>
-                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[11px] leading-relaxed text-muted">
-                      {turn.thought}
-                    </pre>
+                    <div className="mt-3 space-y-3 border-l border-line/70 pl-3 text-[13px] leading-relaxed text-muted">
+                      {turn.progressSteps?.length ? (
+                        <ol className="space-y-1.5">
+                          {turn.progressSteps.map((step, index) => (
+                            <li key={`${index}-${step}`} className="flex items-start gap-2">
+                              <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-muted/60" aria-hidden="true" />
+                              <span>{step.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : null}
+                      {turn.thought?.trim() ? (
+                        <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-text/75">
+                          {turn.thought.trim()}
+                        </div>
+                      ) : null}
+                    </div>
                   </details>
                 ) : null}
                 {turn.streamPreview?.trim() ? (
@@ -1188,11 +1241,6 @@ export function ChatPane() {
                     ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
                     : ''
                   : renderMessageText(turn.text)}
-                {turn.role === 'assistant' && turn.completedAt && formatWorkDuration(turn.startedAt, turn.completedAt) ? (
-                  <div className="mt-2 text-[11px] text-muted">
-                    총 작업 시간 · {formatWorkDuration(turn.startedAt, turn.completedAt)}
-                  </div>
-                ) : null}
               </div>
             </div>
           ))}
@@ -1460,7 +1508,7 @@ export function ChatPane() {
                   <>
                     <button
                       type="button"
-                      disabled={!canSend}
+                      disabled={!canSend || licenseMode === 'read_only'}
                       onClick={submit}
                       title="현재 응답 다음에 실행"
                       className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
@@ -1481,7 +1529,7 @@ export function ChatPane() {
                 ) : (
                   <button
                     type="button"
-                    disabled={!canSend}
+                    disabled={!canSend || licenseMode === 'read_only'}
                     onClick={submit}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
                   >

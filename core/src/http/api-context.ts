@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { BootstrapPaths } from '../bootstrap.js';
-import type { ILicenseGate } from '../license/types.js';
+import type { FileLicenseGate } from '../license/file-license-gate.js';
 import type { AttachmentService } from '../attachments/attachment-service.js';
 import type { ModelRegistry } from '../models/model-registry.js';
 import type { ModelUploadService } from '../models/model-upload.js';
@@ -11,6 +11,8 @@ import type { SessionStore } from '../sessions/session-store.js';
 import type { SetupService } from '../setup/setup-service.js';
 import type { ChatOrchestrator } from '../chat/chat-orchestrator.js';
 import type { UserOverrides } from '../config/user-overrides.js';
+import type { PersonalSchedulerService } from '../scheduler/personal-scheduler-service.js';
+import type { PersonalSchedulerRuntime } from '../scheduler/personal-scheduler-runtime.js';
 
 export interface ApiContext {
   cqrRoot: string;
@@ -20,7 +22,7 @@ export interface ApiContext {
   /** The only product UI build (`ui/workspace/dist`). */
   workspaceUiDir: string;
   userConfigPath: string;
-  license: ILicenseGate;
+  license: FileLicenseGate;
   getOverrides: () => UserOverrides;
   attachments: AttachmentService;
   modelRegistry: ModelRegistry;
@@ -33,4 +35,6 @@ export interface ApiContext {
   llamaBinary: ReturnType<typeof import('../inference/llama-backend.js').findLlamaServerBinary>;
   imageOut: string;
   orchestrator: ChatOrchestrator;
+  personalScheduler: PersonalSchedulerService;
+  personalSchedulerRuntime: PersonalSchedulerRuntime;
 }

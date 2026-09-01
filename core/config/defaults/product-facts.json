@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-08-31T03:11:38.855Z",
+  "generated_at": "2026-09-01T00:57:58.046Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -31,6 +31,8 @@
       "/outputs",
       "/admin",
       "/health",
+      "/automations",
+      "/memory",
       "/fs",
       "/setup",
       "/browser",
@@ -41,7 +43,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 77,
+    "route_count": 85,
     "routes": [
       {
         "method": "GET",
@@ -76,6 +78,36 @@
       {
         "method": "POST",
         "path": "/attachments",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/automations/events",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/feed",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/queue",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/runs",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/tasks",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/automations/tasks",
         "match": "exact"
       },
       {
@@ -271,6 +303,16 @@
       {
         "method": "POST",
         "path": "/mcp/servers/test",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/memory",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/memory",
         "match": "exact"
       },
       {

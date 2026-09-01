@@ -117,6 +117,20 @@ function configuredAppForPath(path: string, settings: FileAssociationSettings): 
   return '';
 }
 
+export async function openWorkspaceFileWithDefaultApp(
+  relPath: string,
+  fallbackRelPath?: string,
+): Promise<void> {
+  const candidates = [relPath, fallbackRelPath].filter((path): path is string => Boolean(path));
+  const candidateList = candidates.map(psQuote).join(', ');
+  const resolvedFile = `@(${candidateList}) | ForEach-Object { Resolve-Path -LiteralPath $_ -ErrorAction SilentlyContinue } | Select-Object -First 1 -ExpandProperty Path`;
+  const command = `$file = ${resolvedFile}; if (-not $file) { throw '작업 파일을 찾을 수 없습니다.' }; Start-Process -FilePath 'explorer.exe' -ArgumentList @(('"' + $file + '"')) -ErrorAction Stop`;
+  const result = await runWorkspaceTerminal(command, { async: false, timeoutMs: 15_000 });
+  if (!result.ok || result.exit_code !== 0) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || 'Windows 기본 앱을 실행하지 못했습니다.');
+  }
+}
+
 /** 워크스페이스 경계를 유지하면서 선택 파일을 설정된 Windows 앱으로 연다. */
 export async function openWorkspaceFileWithConfiguredApp(
   relPath: string,

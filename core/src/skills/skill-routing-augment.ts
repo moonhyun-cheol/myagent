@@ -52,24 +52,6 @@ const WEB_DEV_EXTERNAL = [
 ].join('\n');
 
 const MODE_AUGMENTS: Partial<Record<ChatMode, string>> = {
-  web_landing: [
-    ORCHESTRATOR_LOCK,
-    '',
-    CODE_RESPONSE_STYLE,
-    '',
-    '## web_landing focus',
-    'Produce marketing/landing HTML+Tailwind. After write: browser_navigate + browser_screenshot when Playwright is available; else label 미검증.',
-    'One primary CTA. Thin anti-slop (no Inter/purple cliché, one-composition hero) is appended by web-landing-bundle — not a full Taste/ui-skills dump.',
-    'Few-shot: "히어로 섹션 만들어줘" → write landing HTML → screenshot check → next polish step.',
-  ].join('\n'),
-  prompt_master: [
-    ORCHESTRATOR_LOCK,
-    '',
-    '## prompt_master lock',
-    'Auto-detect target AI tool (MJ, DALL-E, SD, SeeDream, Cursor, MY Agent). Do NOT ask user to pick a tool unless two tools conflict.',
-    'Output order: `🎯 대상: …` then one paste-ready prompt block.',
-    'Few-shot: "미드저니용 패션 룩북" → detect MJ → 🎯 대상 line → one copy-paste prompt.',
-  ].join('\n'),
   image_gen: [
     ORCHESTRATOR_LOCK,
     '',

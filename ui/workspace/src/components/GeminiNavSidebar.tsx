@@ -1,15 +1,25 @@
 import {
   CalendarBlank,
+  CheckCircle,
+  Clock,
+  FileText,
   GearSix,
+  DownloadSimple,
   MagnifyingGlass,
   Notebook,
   PencilSimple,
+  Robot,
   SidebarSimple,
   type Icon,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import automationSchedulerImage from '../assets/auto_scheduler.png';
-import { listProviders, type ProviderPublic } from '../api/myAgentClient';
+import {
+  listAutomationFeed,
+  listProviders,
+  type AutomationFeedItem,
+  type ProviderPublic,
+} from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ErrorReportMenu } from './ErrorReportMenu';
 import { SettingsModal } from './SettingsModal';
@@ -171,16 +181,104 @@ export function GeminiNavSidebar({
 }
 
 function AutomationSidebarSummary({ unreadCount }: { unreadCount: number }) {
+  const [items, setItems] = useState<AutomationFeedItem[]>([]);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void listAutomationFeed().then((feed) => {
+      if (active) setItems(feed);
+    }).catch((error: unknown) => {
+      if (active) setLoadError(error instanceof Error ? error.message : '자동화 자료를 불러오지 못했습니다.');
+    });
+    return () => { active = false; };
+  }, []);
+
   return (
-    <div className="flex h-full flex-col px-3 py-4">
-      <p className="text-[11px] leading-5 text-muted">
-        일정과 독립 실행 기록을 관리합니다. 자동화 실행은 일반 채팅 목록에 표시되지 않습니다.
-      </p>
-      <div className="mt-4 rounded-lg border border-line bg-ink/35 px-3 py-2.5">
-        <p className="text-[10px] uppercase tracking-[0.08em] text-muted">확인할 알림</p>
-        <p className="mt-1 text-lg font-semibold text-text">{unreadCount}</p>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-line px-3 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Robot size={14} weight="duotone" className="text-accent" />
+            <h2 className="text-[11px] font-semibold text-text">작업 뉴스피드</h2>
+          </div>
+          {unreadCount > 0 ? (
+            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white">{unreadCount}</span>
+          ) : null}
+        </div>
+        <p className="mt-1 text-[10px] leading-4 text-muted">자동화 결과와 생성된 파일을 채팅 형태로 전달합니다.</p>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-label="자동화 작업 뉴스피드">
+        {loadError ? <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-[10px] text-red-700">{loadError}</p> : null}
+        {!loadError && items.length === 0 ? <p className="px-1 text-[10px] text-muted">전달된 자동화 자료가 없습니다.</p> : null}
+        {items.map((item) => (
+          <AutomationFeedMessage
+            key={item.id}
+            time={formatFeedTime(item.created_at)}
+            label={item.kind === 'error' ? '실행 오류' : item.kind === 'status' ? '진행 알림' : '실행 완료'}
+            message={item.message}
+            attachments={item.attachments}
+            error={item.kind === 'error'}
+          />
+        ))}
       </div>
     </div>
+  );
+}
+
+function formatFeedTime(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function isAutomationDownloadPath(value: string | undefined): value is string {
+  return typeof value === 'string' && value.startsWith('/outputs/automations/');
+}
+
+function AutomationFeedMessage({
+  time,
+  label,
+  message,
+  attachments = [],
+  error = false,
+}: {
+  time: string;
+  label: string;
+  message: string;
+  attachments?: AutomationFeedItem['attachments'];
+  error?: boolean;
+}) {
+  return (
+    <article className="rounded-xl border border-line bg-white/75 p-2.5 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${error ? 'bg-red-600' : 'bg-emerald-600'}`}>
+          {error ? <Clock size={11} /> : <CheckCircle size={11} weight="fill" />}
+          {label}
+        </span>
+        <time className="text-[9px] text-muted">{time}</time>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-[1.55] text-text/90">{message}</p>
+      {attachments.map((attachment) => isAutomationDownloadPath(attachment.path) ? (
+        <a
+          key={`${attachment.path}:${attachment.name}`}
+          href={attachment.path}
+          download={attachment.name}
+          className="mt-2 flex items-center gap-2 rounded-lg border border-accent/35 bg-accent/5 px-2 py-1.5 transition hover:border-accent hover:bg-accent/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          aria-label={`${attachment.name} 다운로드`}
+        >
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-white">
+            <FileText size={14} weight="bold" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[9px] font-medium text-text">{attachment.name}</p>
+            <p className="text-[8px] text-muted">{attachment.mime === 'text/markdown' ? 'Markdown' : attachment.mime ?? '파일'}{attachment.size ? ` · ${Math.max(1, Math.ceil(attachment.size / 1024))} KB` : ''}</p>
+          </div>
+          <DownloadSimple size={14} className="shrink-0 text-accent" weight="bold" />
+        </a>
+      ) : null)}
+    </article>
   );
 }
 

@@ -4,6 +4,77 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'scheduler_list',
+      description: 'List personal automation tasks and their next run. This is read-only.',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scheduler_feed',
+      description: 'Read recent personal automation results and file attachments from the read-only task newsfeed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Maximum items (default 20, max 200)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scheduler_upsert',
+      description: 'Create or replace a personal automation task. Always requires explicit chat approval before storage is changed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Existing task id to replace; omit to create' },
+          name: { type: 'string' },
+          description: { type: 'string' },
+          instruction: { type: 'string', description: 'Prompt executed in a fresh isolated chat context' },
+          triggers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['time', 'sequence', 'on_action', 'condition', 'manual'] },
+                config: { type: 'object', description: 'Time: at/interval_minutes/daily_time and ISO weekdays (1=Monday ... 7=Sunday). On action: action.' },
+              },
+              required: ['type', 'config'],
+            },
+          },
+          enabled: { type: 'boolean' },
+          misfire_policy: { type: 'string', enum: ['skip', 'run_once'] },
+          confirm: { type: 'boolean', description: 'Non-stream fallback after the user explicitly approves' },
+        },
+        required: ['name', 'instruction', 'triggers'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'scheduler_set_state',
+      description: 'Enable, pause, delete, or immediately run a personal automation. Always requires explicit chat approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          action: { type: 'string', enum: ['enable', 'pause', 'delete', 'run_now'] },
+          confirm: { type: 'boolean', description: 'Non-stream fallback after the user explicitly approves' },
+        },
+        required: ['id', 'action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'active_task',
       description:
         'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus a successful model-requested Acceptance tool (tests/terminal/browser), and cancel/replace when the user changes direction. Automatic TypeScript diagnostics do not complete a task. Never infer a task from keywords.',

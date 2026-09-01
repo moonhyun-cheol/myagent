@@ -2,8 +2,7 @@ import type { ChatMode } from '../router/types.js';
 import { SKILL_CHAT_MODES } from '../router/types.js';
 import { getSkillSystemPromptByMode } from './skill-registry.js';
 import { isUserSkillMode } from './user-skill-store.js';
-import { augmentPromptMasterSystemPrompt } from './prompt-master-target.js';
-import { augmentWebLandingSystemPrompt, shouldIncludeDesignFirst } from './web-landing-bundle.js';
+import { shouldIncludeDesignFirst } from './web-landing-bundle.js';
 import { augmentSkillSystemPrompt } from './skill-routing-augment.js';
 import {
   isSelfWorkspace,
@@ -73,12 +72,10 @@ export function resolveSkillSystemPrompt(
     base = stripCqrSelfSkillSections(base);
   }
   const msg = userMessage?.trim() ?? '';
-  if (mode === 'prompt_master' && msg) {
-    base = augmentPromptMasterSystemPrompt(base, msg);
-  }
-  if (mode === 'web_landing') {
-    if (msg) base = appendDesignFirstIfNeeded(base, msg);
-    base = augmentWebLandingSystemPrompt(base, msg || 'landing');
+  // Legacy web_landing/prompt_master modes removed — landing-style work runs inside web_dev.
+  // The thin design-first guide is appended only when the request looks like visual/landing work.
+  if (mode === 'web_dev' && msg) {
+    base = appendDesignFirstIfNeeded(base, msg);
   }
   return augmentSkillSystemPrompt(mode, base, { selfProductMemory });
 }

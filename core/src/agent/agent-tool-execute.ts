@@ -92,6 +92,8 @@ import {
   invalidateWorkspaceReadCache,
   readWorkspaceFileThroughCache,
 } from './agent-read-through-cache.js';
+import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
+import type { SchedulerTaskInput } from '../scheduler/types.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
   const base = cqrRoot && isPlaywrightAvailable(cqrRoot)
@@ -130,6 +132,68 @@ export async function executeAgentTool(
 
   try {
     switch (name) {
+      case 'scheduler_list': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        const runtime = getPersonalSchedulerRuntime(ctx.cqrRoot);
+        if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
+        const tasks = runtime.service.listTasks();
+        return {
+          label: `scheduler tasks (${tasks.length})`,
+          output: JSON.stringify({
+            count: tasks.length,
+            tasks,
+            weekly_queue: runtime.service.getWeeklyQueue(),
+          }),
+        };
+      }
+      case 'scheduler_feed': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        const runtime = getPersonalSchedulerRuntime(ctx.cqrRoot);
+        if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
+        const items = runtime.service.listFeed(Number(args.limit ?? 20));
+        return {
+          label: `scheduler feed (${items.length})`,
+          output: JSON.stringify({ count: items.length, items }),
+        };
+      }
+      case 'scheduler_upsert': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        const runtime = getPersonalSchedulerRuntime(ctx.cqrRoot);
+        if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
+        const task = runtime.service.saveTask({
+          name: String(args.name ?? ''),
+          description: String(args.description ?? ''),
+          instruction: String(args.instruction ?? ''),
+          triggers: args.triggers as SchedulerTaskInput['triggers'],
+          enabled: args.enabled !== false,
+          misfire_policy: args.misfire_policy === 'run_once' ? 'run_once' : 'skip',
+        }, typeof args.id === 'string' && args.id.trim() ? args.id.trim() : undefined);
+        return { label: `scheduler saved (${task.name})`, output: JSON.stringify({ ok: true, task }) };
+      }
+      case 'scheduler_set_state': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        const runtime = getPersonalSchedulerRuntime(ctx.cqrRoot);
+        if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
+        const id = String(args.id ?? '').trim();
+        const action = String(args.action ?? '').trim();
+        if (!id) throw new Error('id is required');
+        if (action === 'enable') {
+          const task = runtime.service.setEnabled(id, true);
+          return { label: `scheduler enabled (${task.name})`, output: JSON.stringify({ ok: true, task }) };
+        }
+        if (action === 'pause') {
+          const task = runtime.service.setEnabled(id, false);
+          return { label: `scheduler paused (${task.name})`, output: JSON.stringify({ ok: true, task }) };
+        }
+        if (action === 'delete') {
+          return { label: 'scheduler deleted', output: JSON.stringify({ ok: true, deleted: runtime.service.deleteTask(id) }) };
+        }
+        if (action === 'run_now') {
+          const run = runtime.runNow(id);
+          return { label: 'scheduler run queued', output: JSON.stringify({ ok: true, run }) };
+        }
+        throw new Error(`Unsupported scheduler action: ${action}`);
+      }
       case 'active_task': {
         if (!ctx?.cqrRoot || !ctx.sessionId) {
           return { label: 'active task', output: 'ERROR: active_task requires a session context' };

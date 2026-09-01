@@ -7,8 +7,41 @@ import { buildDevWorkspaceContext } from '../agent/dev-workspace-fs.js';
 import { buildEditorContextSnippet } from './editor-context.js';
 import { isSkillChatMode } from '../skills/chat-skill-flow.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
+import path from 'node:path';
+import { getUserMemoryStore } from '../memory/user-memory-store.js';
 
 export type SessionContextScope = 'standalone' | 'general_project' | 'workspace_tree';
+
+/** data dir derived from user-overrides.json path (data/config/user-overrides.json). */
+function dataDirFromConfigPath(configPath: string): string {
+  return path.dirname(path.dirname(configPath));
+}
+
+/** Project id whose memory applies to this session (workspace node or general project). */
+export function resolveMemoryProjectId(
+  sessionStore: SessionStore,
+  sessionId: string,
+): string | null {
+  const session = sessionStore.load(sessionId);
+  return session?.workspace_project_id ?? session?.project_id ?? null;
+}
+
+/** User memory (알잘딱) block: global context + project-scope fragments. */
+export function buildUserMemoryContext(
+  configPath: string,
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string,
+): string {
+  try {
+    const store = getUserMemoryStore(dataDirFromConfigPath(configPath));
+    const projectId = resolveMemoryProjectId(sessionStore, sessionId);
+    const title = projectId ? projectStore.get(projectId)?.title ?? null : null;
+    return store.formatForPrompt(projectId, title);
+  } catch {
+    return ''; // memory must never break context assembly
+  }
+}
 
 export function hasDevWorkspace(configPath: string): boolean {
   return Boolean(loadUserOverrides(configPath).dev_workspace_root?.trim());
@@ -63,7 +96,7 @@ export function shouldAttachDevWorkspaceTree(
   mode: ChatMode,
 ): boolean {
   if (!hasDevWorkspace(configPath)) return false;
-  if (mode !== 'web_dev' && mode !== 'web_landing') return false;
+  if (mode !== 'web_dev') return false;
   // Only inject global work-folder tree for standalone when user chose code mode.
   // Project-bound sessions use buildWorkspaceTreeContext instead.
   return resolveSessionContextScope(sessionStore, projectStore, sessionId) === 'standalone';
@@ -87,7 +120,7 @@ export function shouldAttachWorkspaceContext(
   }
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
   // Explicit code mode on standalone → global folder tree (shouldAttachDevWorkspaceTree).
-  if (mode === 'web_dev' || mode === 'web_landing') {
+  if (mode === 'web_dev') {
     if (scope === 'standalone') return hasDevWorkspace(configPath);
     if (scope === 'workspace_tree') return Boolean(resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId));
     return false;
@@ -179,6 +212,10 @@ export function buildWorkspaceContext(
   const parts: string[] = [];
   if (editor) parts.push(editor);
   const focusMessage = typeof req?.message === 'string' ? req.message : undefined;
+
+  // User memory (알잘딱): always attach when present, regardless of workspace scope.
+  const memoryCtx = buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId);
+  if (memoryCtx) parts.push(memoryCtx);
 
   if (!shouldAttachWorkspaceContext(configPath, sessionStore, projectStore, sessionId, mode)) {
     return parts.join('\n\n');

@@ -39,9 +39,6 @@ const FILE_CODE_HINT_RE = /(?:파일|file|\.py|\.js|\.ts|\.tsx|\.jsx|\.html|\.cs
 const UI_EDIT_HINT_RE =
   /(?:채팅창|레이아웃|사이드바|컴포저|composer|undo|전송\s*버튼|작업\s*폴더|ui\/|css|테마|패널|뷰포트)/i;
 
-const PROMPT_MASTER_RE =
-  /프롬프트|prompt engineering|superprompt|midjourney|dalle|stable diffusion|seedream|네거티브 프롬|cursor prompt|adapt prompt/i;
-
 const IMAGE_GEN_RE =
   /(?:그려|그림\s*(?:그려|만들)|이미지\s*(?:만들|생성|그려)|일러스트|로고\s*(?:만들|그려)|draw|generate image|illustration)/i;
 
@@ -54,9 +51,6 @@ const DEEP_RESEARCH_RE =
 
 const CONCEPT_RE =
   /컨셉|무드\s*보드|룩북|촬영\s*브리프|lookbook|mood board|shoot brief|로드아웃|브랜드에\s*맞는|제품\s*(?:컨셉|추천)|라인\s*컨셉|촬영\s*컨셉/i;
-
-const WEB_LANDING_RE =
-  /랜딩\s*페이지|랜딩페이지|웹\s*랜딩|landing\s*page|히어로\s*섹션|pricing\s*page|가격\s*페이지|프라이싱|마케팅\s*페이지|홍보\s*페이지|cta\s*섹션|conversion\s*page|히어로\s*만들|랜딩\s*제작|랜딩\s*만들/i;
 
 const WEB_DEV_RE =
   /(?:코드|코딩|프로그래밍|버그\s*수정|refactor|codebase|\.(?:py|js|ts|tsx|jsx|html|css)\b|read_file|write_file|채팅창|레이아웃|사이드바|컴포저|composer|작업\s*폴더|툴\s*콜|tool[\s_-]?call|파일\s*(?:읽|쓰|수정)|익스텐션|익스탠션|확장\s*프로그램|chrome\s*extension|크롬\s*확장)/i;
@@ -117,12 +111,6 @@ export function matchBrowserAgentRoute(message: string): RouteDecision | null {
   return null;
 }
 
-export function matchPromptMasterRoute(message: string): RouteDecision | null {
-  if (!PROMPT_MASTER_RE.test(message)) return null;
-  if (IMAGE_GEN_RE.test(message) && !/프롬프트/i.test(message)) return null;
-  return decision('prompt_master', 'prompt_master', 0.84);
-}
-
 export function matchMarketResearchRoute(message: string): RouteDecision | null {
   if (blocksSpecializedPipelineModes(message)) return null;
   if (!MARKET_RE.test(message)) return null;
@@ -168,19 +156,8 @@ export function matchProductBuildRoute(message: string): RouteDecision | null {
   return decision(mode, 'web_dev', 0.91);
 }
 
-export function matchWebLandingRoute(message: string): RouteDecision | null {
-  if (!WEB_LANDING_RE.test(message) && !/\b랜딩\b/i.test(message)) return null;
-  // Explicit product/code work without landing signals → not landing
-  if (WEB_DEV_RE.test(message) && !/랜딩|landing|hero|pricing|히어로|프라이싱|cta/i.test(message)) {
-    return null;
-  }
-  // Bare "랜딩" alone is enough for landing skill
-  return decision('web_landing', 'web_landing', 0.8);
-}
-
 export function matchWebDevRoute(message: string): RouteDecision | null {
   if (!WEB_DEV_RE.test(message)) return null;
-  if (WEB_LANDING_RE.test(message) && !WEB_DEV_RE.test(message)) return null;
   return decision('web_dev', 'web_dev', 0.78);
 }
 
@@ -191,10 +168,8 @@ export function matchFastSkillRoutes(message: string): RouteDecision | null {
     ?? matchWebCrawlRoute(message)
     ?? matchInspectFilesRoute(message)
     ?? matchProductBuildRoute(message)
-    ?? matchWebLandingRoute(message)
     ?? matchWebDevRoute(message)
     ?? matchBrowserAgentRoute(message)
-    ?? matchPromptMasterRoute(message)
     ?? matchMarketResearchRoute(message)
     ?? matchImageGenRoute(message)
     ?? matchDeepResearchRoute(message)
@@ -313,7 +288,6 @@ const CHAT_CAPABILITY_BOUNDARIES = [
   '- Multi-page crawl / sitemap → web_crawl mode.',
   '- Image draw/generate → image_gen mode.',
     '- Market research / feasibility → deep_research mode.',
-  '- Prompt writing for AI tools → prompt_master mode.',
   '- Code/files → web_dev mode.',
   '- Chrome extension / address parser / form normalizer build → web_dev (NOT browser_agent).',
   '- UNC/NAS path or 양식/엑셀 확인 → web_dev (list_directory/read_file on the path; never ask to copy into workspace).',
@@ -355,7 +329,6 @@ export function messageNeedsChatCapabilityBoundary(message: string): boolean {
     || WEB_CRAWL_RE.test(message)
     || IMAGE_GEN_RE.test(message)
     || MARKET_RE.test(message)
-    || PROMPT_MASTER_RE.test(message)
     || WEB_DEV_RE.test(message)
     || DEEP_RESEARCH_RE.test(message)
     || looksLikeInspectFilesTask(message)

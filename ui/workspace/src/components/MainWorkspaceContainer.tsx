@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Browser, ImageSquare, SquaresFour, TerminalWindow } from '@phosphor-icons/react';
+import { TerminalWindow } from '@phosphor-icons/react';
 import type { WorkspaceMode } from '../types';
 import {
   readPreviewLayout,
@@ -19,17 +19,14 @@ import { ConfirmModal } from './ConfirmModal';
 import { MediaPane } from './MediaPane';
 import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
+import {
+  isAvailableWorkspacePreviewMode,
+  resolveAvailableWorkspacePreviewMode,
+  WORKSPACE_PREVIEW_MODES,
+} from './workspacePreviewModes';
 import { SchedulerSurface } from './SchedulerSurface';
 import { TerminalPane } from './TerminalPane';
-import { MutateReviewPane } from './MutateReviewPane';
 import { WorkspaceObjectsPane, type TodoProgressItem } from './WorkspaceObjectsPane';
-
-const PREVIEW_MODES: { id: WorkspaceMode; label: string; icon: typeof Browser }[] = [
-  { id: 'objects', label: '작업', icon: Briefcase },
-  { id: 'canvas', label: '캔버스', icon: SquaresFour },
-  { id: 'media', label: '미디어', icon: ImageSquare },
-  { id: 'browser', label: '웹', icon: Browser },
-];
 
 function cleanTodoLabel(value: string): string {
   return value
@@ -54,6 +51,9 @@ function extractTodoItems(text: string): ExtractedTodo[] {
   const numberedHeadings = [...text.matchAll(/^\s{0,3}#{1,6}\s+(?:\*\*)?\d+[.)]\s+(.+?)(?:\*\*)?\s*$/gm)]
     .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
     .filter((item) => Boolean(item.label));
+  const plainNumberedItems = [...text.matchAll(/^\s*\d+[.)]\s+(.+?)\s*$/gm)]
+    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
+    .filter((item) => Boolean(item.label));
   const boldListItems = [...text.matchAll(/^\s*[-*]\s+\*\*(.+?)\*\*\s*(?::|：|$)/gm)]
     .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
     .filter((item) => Boolean(item.label));
@@ -61,7 +61,9 @@ function extractTodoItems(text: string): ExtractedTodo[] {
     ? taskListItems
     : numberedHeadings.length >= 2
       ? numberedHeadings
-      : boldListItems;
+      : plainNumberedItems.length >= 2
+        ? plainNumberedItems
+        : boldListItems;
   return candidates
     .filter((item, index) => candidates.findIndex((candidate) => candidate.label === item.label) === index)
     .slice(0, 12);
@@ -112,7 +114,6 @@ function PreviewBody() {
   const mode = useWorkspaceStore((s) => s.mode);
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
-  const pendingMutateReview = useWorkspaceStore((s) => s.pendingMutateReview);
   const todoItems = useMemo<TodoProgressItem[]>(() => {
     // To-do는 도구 호출 기록이 아니라 모델이 답변에서 구분한 과제·목표를 보여준다.
     const sourceTurn = [...chat]
@@ -124,9 +125,9 @@ function PreviewBody() {
       label: item.label,
       status: item.checked === true
         ? 'done'
-        : busy
-          ? (index === checklistItems.findIndex((candidate) => candidate.checked !== true) ? 'active' : 'pending')
-          : 'done',
+        : busy && index === checklistItems.findIndex((candidate) => candidate.checked !== true)
+          ? 'active'
+          : 'pending',
     }));
   }, [busy, chat]);
 
@@ -308,13 +309,7 @@ function PreviewBody() {
         {previewDisplayActions}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {mode === 'objects' ? (
-          pendingMutateReview ? (
-            <MutateReviewPane />
-          ) : (
-            <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} />
-          )
-        ) : null}
+        {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} /> : null}
         {mode === 'canvas' ? <MultiModalCanvas /> : null}
         {mode === 'media' ? <MediaPane /> : null}
         {mode === 'browser' ? <BrowserPane /> : null}
@@ -382,7 +377,12 @@ function PreviewPane() {
   }, [refreshExplorer]);
 
   useEffect(() => {
-    if (mode === 'editor') setMode('browser');
+    if (mode === 'editor') {
+      setMode('browser');
+      return;
+    }
+    const availableMode = resolveAvailableWorkspacePreviewMode(mode);
+    if (availableMode !== mode) setMode(availableMode);
   }, [mode, setMode]);
 
   useEffect(() => {
@@ -425,13 +425,22 @@ function PreviewPane() {
       <div className="flex shrink-0 items-center justify-end gap-1.5 border-b border-line px-2 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div className="flex gap-0.5 rounded-lg border border-line bg-ink p-0.5">
-            {PREVIEW_MODES.map(({ id, label, icon: Icon }) => (
+            {WORKSPACE_PREVIEW_MODES.map(({ id, label, icon: Icon, disabled, disabledReason }) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => setMode(id)}
+                onClick={() => {
+                  if (isAvailableWorkspacePreviewMode(id)) setMode(id);
+                }}
+                disabled={disabled}
+                aria-disabled={disabled}
+                title={disabledReason}
                 className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium ${
-                  mode === id ? 'bg-accent text-ink' : 'text-muted hover:text-text'
+                  disabled
+                    ? 'cursor-not-allowed text-muted/35'
+                    : mode === id
+                      ? 'bg-accent text-ink'
+                      : 'text-muted hover:text-text'
                 }`}
               >
                 <Icon size={13} weight="bold" />
@@ -500,10 +509,10 @@ export function MainWorkspaceContainer() {
   const detachedMode = new URLSearchParams(window.location.search).get('preview') as WorkspaceMode | null;
 
   useEffect(() => {
-    if (detachedMode && PREVIEW_MODES.some((item) => item.id === detachedMode)) setMode(detachedMode);
+    if (isAvailableWorkspacePreviewMode(detachedMode)) setMode(detachedMode);
   }, [detachedMode, setMode]);
 
-  if (detachedMode && PREVIEW_MODES.some((item) => item.id === detachedMode)) {
+  if (isAvailableWorkspacePreviewMode(detachedMode)) {
     return (
       <div className="h-full min-h-0 bg-ink text-text">
         <PreviewPane />

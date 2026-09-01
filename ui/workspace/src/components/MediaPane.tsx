@@ -1,80 +1,38 @@
-import { Image as ImageIcon, FilmStrip } from '@phosphor-icons/react';
-import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { FilmStrip, Image as ImageIcon } from '@phosphor-icons/react';
+import { useCallback, useMemo, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { WorkspaceAsset } from '../types';
-import {
-  copyImageToClipboard,
-  copyImageUrl,
-  downloadImageUrl,
-  guessImageFilename,
-} from '../lib/mediaActions';
-import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
+import { openWorkspaceFileWithDefaultApp } from '../lib/applicationAssociations';
+
+function mediaFileName(asset: WorkspaceAsset): string {
+  const path = asset.sourcePath?.trim();
+  if (path) return path.split(/[\\/]/).pop() || asset.title;
+  return asset.title;
+}
 
 export function MediaPane() {
-  const allAssets = useWorkspaceStore((s) => s.assets);
-  const placeAssetOnCanvas = useWorkspaceStore((s) => s.placeAssetOnCanvas);
-  const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
-  const assets = useMemo(
-    () => allAssets.filter((a) => a.kind === 'image'),
-    [allAssets],
-  );
-  const { menu, openAt, close } = useContextMenu();
+  const allAssets = useWorkspaceStore((state) => state.assets);
+  const assets = useMemo(() => allAssets.filter((asset) => asset.kind === 'image'), [allAssets]);
   const [hint, setHint] = useState<string | null>(null);
 
-  const flash = useCallback((msg: string) => {
-    setHint(msg);
-    window.setTimeout(() => setHint(null), 2500);
+  const openAsset = useCallback(async (asset: WorkspaceAsset) => {
+    if (!asset.sourcePath) {
+      setHint('이 미디어에는 로컬 파일 경로가 없습니다.');
+      return;
+    }
+    try {
+      await openWorkspaceFileWithDefaultApp(asset.sourcePath);
+    } catch (error) {
+      setHint(error instanceof Error ? error.message : 'Windows 기본 앱을 실행하지 못했습니다.');
+    }
   }, []);
-
-  const openAssetMenu = useCallback(
-    (e: ReactMouseEvent, asset: WorkspaceAsset) => {
-      if (!asset.imageUrl) return;
-      const url = asset.imageUrl;
-      const items: ContextMenuItem[] = [
-        {
-          id: 'preview',
-          label: '크게 보기',
-          onSelect: () =>
-            openImagePreview({ src: url, title: asset.title, prompt: asset.prompt || '' }),
-        },
-        {
-          id: 'canvas',
-          label: '캔버스에 배치',
-          onSelect: () => placeAssetOnCanvas(asset.id),
-        },
-        {
-          id: 'copy-url',
-          label: '이미지 주소 복사',
-          onSelect: async () => {
-            await copyImageUrl(url);
-            flash('이미지 주소를 복사했습니다.');
-          },
-        },
-        {
-          id: 'copy-image',
-          label: '이미지 복사',
-          onSelect: async () => {
-            const kind = await copyImageToClipboard(url);
-            flash(kind === 'image' ? '이미지를 복사했습니다.' : '이미지 주소를 복사했습니다.');
-          },
-        },
-        {
-          id: 'save',
-          label: '이미지 저장',
-          onSelect: () => downloadImageUrl(url, guessImageFilename(asset.title, url)),
-        },
-      ];
-      openAt(e, items);
-    },
-    [flash, openAt, openImagePreview, placeAssetOnCanvas],
-  );
 
   if (!assets.length) {
     return (
       <div className="grid h-full place-items-center bg-ink text-sm text-muted">
         <div className="flex flex-col items-center gap-3">
           <FilmStrip size={36} className="text-line" />
-          <p>이미지 없음 · 채팅에서 요청</p>
+          <p>표시할 미디어 파일이 없습니다.</p>
         </div>
       </div>
     );
@@ -85,33 +43,26 @@ export function MediaPane() {
       <div className="mb-4 flex items-end justify-between">
         <div>
           <h2 className="text-lg font-semibold tracking-tight">미디어</h2>
-          <p className="text-sm text-muted">클릭 · 우클릭</p>
+          <p className="text-sm text-muted">파일명을 누르면 Windows 기본 앱으로 엽니다.</p>
           {hint ? <p className="mt-1 text-xs text-accent">{hint}</p> : null}
         </div>
         <ImageIcon size={22} className="text-accent" weight="duotone" />
       </div>
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+      <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-panel">
         {assets.map((asset) => (
           <button
             key={asset.id}
             type="button"
-            onClick={() => placeAssetOnCanvas(asset.id)}
-            onContextMenu={(e) => openAssetMenu(e, asset)}
-            className="group overflow-hidden rounded-xl border border-line bg-panel text-left transition hover:border-accent"
+            onClick={() => void openAsset(asset)}
+            className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-panel2 disabled:cursor-not-allowed disabled:text-muted"
+            disabled={!asset.sourcePath}
+            title={asset.sourcePath ? `${asset.sourcePath} 열기` : '로컬 파일 경로 없음'}
           >
-            <img
-              src={asset.imageUrl}
-              alt=""
-              className="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-            />
-            <div className="space-y-1 p-3">
-              <p className="text-sm font-medium">{asset.title}</p>
-              <p className="line-clamp-2 text-xs text-muted">{asset.prompt}</p>
-            </div>
+            <ImageIcon size={16} className="shrink-0 text-muted" />
+            <span className="min-w-0 flex-1 truncate">{mediaFileName(asset)}</span>
           </button>
         ))}
       </div>
-      <ContextMenuPortal menu={menu} onClose={close} />
     </div>
   );
 }

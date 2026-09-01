@@ -7,27 +7,6 @@
       "feature": "web_dev",
       "brand_files": [],
       "bundle_files": ["skills/web-dev.md"]
-    },
-    "web_landing": {
-      "label": "웹 랜딩",
-      "mode": "web_landing",
-      "feature": "web_dev",
-      "brand_files": [],
-      "bundle_files": [
-        "skills/web-landing-context.md",
-        "skills/web-landing-page.md",
-        "skills/web-tailwindcss.md"
-      ]
-    },
-    "prompt_master": {
-      "label": "프롬프트 마스터",
-      "mode": "prompt_master",
-      "feature": "chat",
-      "brand_files": [],
-      "bundle_files": [
-        "skills/prompt-master-context.md",
-        "skills/prompt-master-core.md"
-      ]
     }
   }
 }

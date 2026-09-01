@@ -33,6 +33,8 @@ import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-sessi
 import { waitForToolApproval } from '../agent/tool-approval.js';
 import { reviewToolApproval } from '../agent/approval-auto-review.js';
 import { queueAutoErrorReport } from '../support/error-report-service.js';
+import { getUserMemoryStore } from '../memory/user-memory-store.js';
+import { resolveMemoryProjectId } from './session-context.js';
 import {
   applyChatInletFilter,
   applyChatOutletFilter,
@@ -47,17 +49,15 @@ import {
 import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
-import { dispatchAutomatonTool, AUTOMATON_UNCONFIGURED_MESSAGE } from '../automaton/adapter.js';
+import { dispatchAutomatonTool } from '../automaton/adapter.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
-import { automatonBackgroundNeedsChatFollowUp } from '../automaton/format-result.js';
-import { readLocalNopsUserId } from '../automaton/local-nops-user-id.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
-import { resolveOpenClawWorkflow } from '../automaton/openclaw-workflow-map.js';
+import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
-import { resolveSlashRoute, SLASH_COMMAND_UNREGISTERED_MESSAGE } from '../router/automaton-intent.js';
+import { peekAutomatonIntent, automatonIntentToRoute } from '../router/automaton-intent.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -124,17 +124,22 @@ export class ChatOrchestrator {
       layer: 'default',
     };
 
-    // Slash commands are structural input, not natural-language keyword routing.
-    // 미등록 slash도 automaton_direct로 고정해 LLM(chat/web_dev)으로 폴백하지 않는다.
-    const slashRoute = resolveSlashRoute(message, this.cqrRoot);
-    if (slashRoute) return slashRoute;
-
     // Structured API modes remain available, but the removed UI code mode has
     // no special branch. Workspace association selects the agent plane.
     if (explicitMode) {
       return {
         routing: { mode: explicitMode, matched_tool: explicitMode, confidence: 1, layer: 'explicit' },
         automatonText: message,
+      };
+    }
+
+    // Slash commands are structural input, not natural-language keyword routing.
+    const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message) : null;
+    const quickAutomaton = peek ? automatonIntentToRoute(peek) : null;
+    if (quickAutomaton && peek) {
+      return {
+        routing: quickAutomaton,
+        automatonText: peek.commandText ?? message,
       };
     }
 
@@ -148,8 +153,8 @@ export class ChatOrchestrator {
     options?: { onStatus?: (text: string) => void; onThought?: (text: string) => void },
   ): Promise<ChatResponse> {
     const tool = routing.matched_tool;
-    if (!tool || !isAutomatonTool(tool, this.cqrRoot)) {
-      const content = SLASH_COMMAND_UNREGISTERED_MESSAGE;
+    if (!tool || !isAutomatonTool(tool)) {
+      const content = '**automaton 라우팅 오류** — direct command tool을 찾지 못했습니다.';
       this.sessionStore.append(sessionId, {
         role: 'assistant',
         content,
@@ -179,54 +184,27 @@ export class ChatOrchestrator {
         vaultDir,
       });
     let openclaw = resolveOpenclaw();
-    if (!openclaw && !automatonRoot) {
-      // 실행 통로가 없으면 LLM 폴백 없이 미설정 안내로 종료한다 (throw → SSE 오류 대신 정상 응답).
-      const content = AUTOMATON_UNCONFIGURED_MESSAGE;
-      this.sessionStore.append(sessionId, {
-        role: 'assistant',
-        content,
-        at: new Date().toISOString(),
-        model: 'automaton/error',
-        mode: 'automaton_direct',
-      });
-      return {
-        role: 'assistant',
-        content,
-        mode: 'automaton_direct',
-        routing,
-        model: 'automaton/error',
-      };
+    if (defaults.openclaw_adapter_base_url?.trim() && !openclaw) {
+      options?.onStatus?.('OpenClaw 토큰을 활성화 서버에서 받는 중…');
+      const pulled = await ensureOpenClawAdapterVault(this.cqrRoot, vaultDir);
+      openclaw = resolveOpenclaw();
+      if (!openclaw) {
+        const hint = pulled.error ? ` (${pulled.error})` : '';
+        throw new Error(
+          `OpenClaw URL은 있으나 토큰이 없습니다${hint}. 활성화 서버(${defaults.activation_server_url ?? '미설정'})가 켜져 있는지 확인하거나, data/vault/openclaw-adapter.json 에 {"token":"..."} 또는 env OPENCLAW_ADAPTER_TOKEN 을 넣으세요.`,
+        );
+      }
     }
-    if (openclaw && !resolveOpenClawWorkflow(tool, this.cqrRoot)) {
-      const content = [
-        '**업무 명령 실행 실패**',
-        '',
-        `접수: \`${message.trim()}\``,
-        `OpenClaw remote map 없음: ${tool}`,
-      ].join('\n');
-      this.sessionStore.append(sessionId, {
-        role: 'assistant',
-        content,
-        at: new Date().toISOString(),
-        model: 'automaton/error',
-        mode: 'automaton_direct',
-      });
-      return {
-        role: 'assistant',
-        content,
-        mode: 'automaton_direct',
-        routing,
-        model: 'automaton/error',
-      };
+    if (!openclaw && !automatonRoot) {
+      throw new Error(
+        'Automaton not configured — set openclaw_adapter_base_url + OPENCLAW_ADAPTER_TOKEN (or data/vault/openclaw-adapter.json), or LIVE_AUTOMATON_ROOT',
+      );
     }
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)
       : undefined;
-    const nopsUserId = readLocalNopsUserId();
-    const ack = buildAutomatonAckContent(message, tool, { nopsUserId });
-    options?.onStatus?.(
-      nopsUserId ? '접수됨 — 회신은 놉스 프로 쪽지' : '접수됨 — 쪽지 수신자 없음, 결과는 이 대화에 남김',
-    );
+    const ack = buildAutomatonAckContent(message, tool);
+    options?.onStatus?.('접수됨 — 회신은 놉스 프로 쪽지');
     this.sessionStore.append(sessionId, {
       role: 'assistant',
       content: ack,
@@ -241,7 +219,6 @@ export class ChatOrchestrator {
       progressFile,
       openclaw,
       fallbackLocal: defaults.openclaw_fallback_local !== false && Boolean(automatonRoot),
-      cqrRoot: this.cqrRoot,
     });
     return {
       role: 'assistant',
@@ -261,43 +238,15 @@ export class ChatOrchestrator {
       progressFile?: string;
       openclaw: ReturnType<typeof resolveOpenClawAdapterConfig>;
       fallbackLocal: boolean;
-      cqrRoot: string;
     },
   ): Promise<void> {
     try {
-      const result = await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
+      await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
         progressFile: job.progressFile,
         openclaw: job.openclaw,
         preferRemote: Boolean(job.openclaw),
         fallbackLocal: job.fallbackLocal,
-        cqrRoot: job.cqrRoot,
       });
-      const nopsUserId = readLocalNopsUserId();
-      if (!automatonBackgroundNeedsChatFollowUp(result.envelope, nopsUserId)) return;
-      const status = String(result.envelope?.status ?? '').trim().toLowerCase();
-      const quietOk = ['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(status);
-      const content = quietOk && !nopsUserId
-        ? [
-          '**쪽지 수신자를 찾지 못했습니다.** 실행 결과를 이 대화에 표시합니다.',
-          '',
-          result.content,
-        ].join('\n')
-        : result.content;
-      this.sessionStore.append(sessionId, {
-        role: 'assistant',
-        content,
-        at: new Date().toISOString(),
-        model: `automaton/${job.tool}`,
-        mode: 'automaton_direct',
-      });
-      if (!quietOk) {
-        this.autoReportError({
-          subject: 'MY Agent 오류 [automaton_direct]',
-          summary: content,
-          mode: 'automaton_direct',
-          rawError: status || content.slice(0, 500),
-        });
-      }
     } catch (err: unknown) {
       const content = [
         '**업무 명령 실행 실패**',
@@ -513,6 +462,7 @@ export class ChatOrchestrator {
       { cqrRoot: this.cqrRoot },
     );
     rememberMessagePins(this.cqrRoot, sessionId, message);
+     this.autoCaptureMemory(sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,
@@ -1048,6 +998,7 @@ export class ChatOrchestrator {
       { cqrRoot: this.cqrRoot },
     );
     rememberMessagePins(this.cqrRoot, sessionId, message);
+     this.autoCaptureMemory(sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,
@@ -1268,6 +1219,16 @@ export class ChatOrchestrator {
       ? `${resolved.route.reason}\n\n[첨부 컨텍스트]\n${ctx.slice(0, 800)}`
       : resolved.route.reason;
     return { content, model: resolved.display };
+  }
+
+  /** Auto-capture explicit "remember this" style user messages into user memory (알잘딱). */
+  private autoCaptureMemory(sessionId: string, message: string): void {
+    try {
+      const projectId = resolveMemoryProjectId(this.sessionStore, sessionId);
+      getUserMemoryStore(this.dataDir).autoCapture(message, projectId);
+    } catch {
+      // memory capture must never break the chat flow
+    }
   }
 
   private savePartialAssistant(

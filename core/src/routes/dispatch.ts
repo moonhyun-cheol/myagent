@@ -45,6 +45,7 @@ import { parseChatRequest } from '../chat/chat-orchestrator.js';
 import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
 import { clientAbortSignal } from '../chat/abort.js';
 import { ProjectStoreError } from '../projects/project-store.js';
+import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
 import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error-report-service.js';
 import type { ErrorReportSettings } from '../config/user-overrides.js';
@@ -153,6 +154,8 @@ function looksLikeApiPath(pathname: string): boolean {
     '/outputs',
     '/admin',
     '/health',
+    '/automations',
+    '/memory',
     '/fs',
     '/setup',
     '/browser',
@@ -200,6 +203,8 @@ export async function dispatchApiRequest(
     llamaBinary,
     imageOut,
     orchestrator,
+    personalScheduler,
+    personalSchedulerRuntime,
   } = ctx;
 
   const workspaceRootForRequest = (): string | null => {
@@ -237,6 +242,89 @@ export async function dispatchApiRequest(
           ui_ready: workspaceReady,
           llm_runtime: compactLlmRuntimeStatus(llm),
         });
+      }
+
+      if (method === 'GET' && url.pathname === '/automations/tasks') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { tasks: personalScheduler.listTasks() });
+      }
+
+      if (method === 'POST' && url.pathname === '/automations/tasks') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as Parameters<typeof personalScheduler.saveTask>[0];
+        return sendJson(res, 201, personalScheduler.saveTask(body));
+      }
+
+      if (method === 'GET' && url.pathname === '/automations/runs') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, {
+          runs: personalScheduler.listRuns(Number(url.searchParams.get('limit') ?? 50)),
+        });
+      }
+
+      if (method === 'GET' && url.pathname === '/automations/feed') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, {
+          items: personalScheduler.listFeed(Number(url.searchParams.get('limit') ?? 50)),
+        });
+      }
+
+      if (method === 'GET' && url.pathname === '/automations/queue') {
+        license.assertFeature('chat');
+        const weekKey = url.searchParams.get('week')?.trim() || undefined;
+        return sendJson(res, 200, { queue: personalScheduler.getWeeklyQueue(weekKey) });
+      }
+
+      if (method === 'POST' && url.pathname === '/automations/events') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { action?: string };
+        const action = String(body.action ?? '').trim();
+        if (!action) throw new Error('action is required');
+        return sendJson(res, 202, { runs: personalSchedulerRuntime.emitAction(action) });
+      }
+
+      const automationRunMatch = url.pathname.match(/^\/automations\/tasks\/([^/]+)\/run$/);
+      if (method === 'POST' && automationRunMatch) {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const run = personalSchedulerRuntime.runNow(decodeURIComponent(automationRunMatch[1]));
+        return sendJson(res, 202, run);
+      }
+
+      const automationStateMatch = url.pathname.match(/^\/automations\/tasks\/([^/]+)\/state$/);
+      if (method === 'POST' && automationStateMatch) {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { enabled?: boolean };
+        if (typeof body.enabled !== 'boolean') throw new Error('enabled must be boolean');
+        const task = personalScheduler.setEnabled(
+          decodeURIComponent(automationStateMatch[1]),
+          body.enabled,
+        );
+        return sendJson(res, 200, task);
+      }
+
+      const automationTaskMatch = url.pathname.match(/^\/automations\/tasks\/([^/]+)$/);
+      if (automationTaskMatch) {
+        const taskId = decodeURIComponent(automationTaskMatch[1]);
+        if (method === 'GET') {
+          license.assertFeature('chat');
+          const task = personalScheduler.getTask(taskId);
+          return sendJson(res, task ? 200 : 404, task ?? { error: 'scheduler_task_not_found' });
+        }
+        if (method === 'PATCH') {
+          license.assertWritable();
+          license.assertFeature('chat');
+          const body = JSON.parse(await readBody(req)) as Parameters<typeof personalScheduler.saveTask>[0];
+          return sendJson(res, 200, personalScheduler.saveTask(body, taskId));
+        }
+        if (method === 'DELETE') {
+          license.assertWritable();
+          license.assertFeature('chat');
+          return sendJson(res, 200, { deleted: personalScheduler.deleteTask(taskId) });
+        }
       }
 
       if (method === 'GET' && url.pathname === '/runtime/llm-status') {
@@ -1499,6 +1587,23 @@ export async function dispatchApiRequest(
         return;
       }
 
+      const automationOutMatch = url.pathname.match(/^\/outputs\/automations\/([^/]+)\/(result\.md)$/);
+      if (method === 'GET' && automationOutMatch) {
+        const [, runId, file] = automationOutMatch;
+        if (!/^[0-9a-f-]{36}$/i.test(runId)) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        const automationOut = path.join(cqrRoot, 'data', 'outputs', 'automations');
+        const fp = path.join(automationOut, runId, file);
+        if (!existsSync(fp)) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        assertPathUnder(automationOut, fp);
+        res.writeHead(200, {
+          'Content-Type': 'text/markdown; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="automation-result.md"',
+          'Content-Length': statSync(fp).size,
+        });
+        res.end(readFileSync(fp));
+        return;
+      }
+
       const crawlOutMatch = url.pathname.match(/^\/outputs\/crawl\/([^/]+)\/([^/]+)\.md$/);
       if (method === 'GET' && crawlOutMatch) {
         const [, session, file] = crawlOutMatch;
@@ -1715,6 +1820,55 @@ export async function dispatchApiRequest(
           }
           throw e;
         }
+      }
+
+      // ---- User memory: global user context + per-project fragments ----
+      if (url.pathname === '/memory' || url.pathname.startsWith('/memory/')) {
+        license.assertFeature('chat');
+        const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
+        try {
+          if (method === 'GET' && url.pathname === '/memory') {
+            const projectId = url.searchParams.get('project_id');
+            return sendJson(res, 200, memoryStore.list(projectId || null));
+          }
+          if (method === 'POST' && url.pathname === '/memory') {
+            license.assertWritable();
+            const body = JSON.parse(await readBody(req)) as {
+              scope?: 'global' | 'project';
+              project_id?: string | null;
+              text?: string;
+            };
+            const entry = memoryStore.add({
+              scope: body.scope === 'project' ? 'project' : 'global',
+              project_id: body.project_id ?? null,
+              text: body.text ?? '',
+              source: 'user',
+            });
+            return sendJson(res, 201, entry);
+          }
+          const memoryMatch = url.pathname.match(/^\/memory\/([^/]+)$/);
+          if (memoryMatch) {
+            const memoryId = decodeURIComponent(memoryMatch[1]);
+            if (method === 'PUT') {
+              license.assertWritable();
+              const body = JSON.parse(await readBody(req)) as { text?: string; enabled?: boolean };
+              const entry = memoryStore.update(memoryId, { text: body.text, enabled: body.enabled });
+              if (!entry) return sendJson(res, 404, { error: 'NOT_FOUND' });
+              return sendJson(res, 200, entry);
+            }
+            if (method === 'DELETE') {
+              license.assertWritable();
+              const ok = memoryStore.remove(memoryId);
+              return sendJson(res, ok ? 200 : 404, { ok });
+            }
+          }
+        } catch (e: unknown) {
+          if (e instanceof UserMemoryStoreError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+        return sendJson(res, 404, { error: 'NOT_FOUND' });
       }
 
       if (method === 'GET' && url.pathname === '/skills') {

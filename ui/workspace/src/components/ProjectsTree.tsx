@@ -1,5 +1,6 @@
 import {
   Archive,
+  Brain,
   CaretDown,
   CaretRight,
   ChatTeardropText,
@@ -30,6 +31,7 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { confirmDialog, promptDialog } from '../lib/confirmDialog';
 import { FolderBrowserModal } from './FolderBrowserModal';
+import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
 
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
@@ -536,6 +538,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         ) : null}
       </div>
 
+      <UserMemoryPanelHost />
       <FolderBrowserModal
         open={browseOpen}
         onClose={() => setBrowseOpen(false)}
@@ -660,14 +663,6 @@ function TreeNode({
         >
           <PencilSimple size={12} />
         </button>
-        <button
-          type="button"
-          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400"
-          title="삭제"
-          onClick={() => onDeleteNode(node)}
-        >
-          <Trash size={12} />
-        </button>
         <div className="relative">
           <button
             type="button"
@@ -689,6 +684,7 @@ function TreeNode({
               <div className="border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />워크스페이스 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
               </div>
@@ -817,14 +813,6 @@ function ProjectBlock({
         <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="이름 변경" onClick={onRename}>
           <PencilSimple size={12} />
         </button>
-        <button
-          type="button"
-          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400"
-          title="삭제"
-          onClick={onDelete}
-        >
-          <Trash size={12} />
-        </button>
         <div className="relative">
           <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={toggleMenu}>
             <DotsThree size={14} weight="bold" />
@@ -840,6 +828,7 @@ function ProjectBlock({
               <div className="border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
               </div>
@@ -886,10 +875,18 @@ function SessionRow({
   onDelete: () => void;
 }) {
   const phase = useWorkspaceStore((s) => s.sessionPhases[session.id]);
+  const menuId = `session:${session.id}`;
+  const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
   return (
     <div
       role="button"
       tabIndex={0}
+      data-sidebar-menu-id={menuId}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu();
+      }}
       onClick={onSelect}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onSelect();
@@ -915,17 +912,25 @@ function SessionRow({
           <PushPin size={11} weight={pinned ? 'fill' : 'regular'} />
         </button>
       ) : null}
-      <button
-        type="button"
-        className="shrink-0 rounded p-0.5 opacity-0 hover:text-red-400 group-hover:opacity-100"
-        title="삭제"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-      >
-        <Trash size={12} />
-      </button>
+      <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="rounded p-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+          title="더보기"
+          aria-label={`${session.title || '세션'} 더보기`}
+          onClick={toggleMenu}
+        >
+          <DotsThree size={14} weight="bold" />
+        </button>
+        {menuOpen ? (
+          <div className="absolute right-0 top-6 z-30 w-36 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+            {onTogglePin ? (
+              <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '고정'}</button>
+            ) : null}
+            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

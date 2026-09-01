@@ -22,7 +22,7 @@ export function SchedulerSurface() {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Feature</p>
           <h1 className="mt-1 text-xl font-semibold text-text">자동화</h1>
-          <p className="mt-1 text-sm text-muted">지정한 시각에 독립된 채팅 작업을 실행합니다.</p>
+          <p className="mt-1 text-sm text-muted">시간이나 동작 조건에 맞춰 개인화된 채팅 작업을 실행합니다.</p>
         </div>
         <button
           type="button"
@@ -86,16 +86,16 @@ type ScheduleRow = {
   description: string;
   triggers: TriggerKind[];
   nextRun: string;
-  status: '활성' | '대기' | '확인 필요';
+  status: '활성' | '대기' | '오류';
   statusTone: 'green' | 'amber' | 'blue';
 };
 
 const SCHEDULE_ROWS: ScheduleRow[] = [
   {
-    name: '주간 시장 동향 리포트',
-    description: '지정한 주제의 최신 뉴스를 검색하고 핵심 변화만 요약합니다.',
-    triggers: ['Time', 'Sequence'],
-    nextRun: '9월 1일 · 09:00',
+    name: 'CQR Pants Reddit 주간 검색',
+    description: 'Google에서 최근 1주일의 CQR pants 관련 Reddit 결과만 선별합니다.',
+    triggers: ['Time'],
+    nextRun: '다음 주 첫 영업일 · 09:00',
     status: '활성',
     statusTone: 'green',
   },
@@ -120,48 +120,48 @@ const SCHEDULE_ROWS: ScheduleRow[] = [
     description: '필요할 때 직접 실행해 단일 주제의 조사 결과를 만듭니다.',
     triggers: ['Manual'],
     nextRun: '수동 실행',
-    status: '확인 필요',
-    statusTone: 'amber',
+    status: '활성',
+    statusTone: 'green',
   },
 ];
 
 const TRIGGER_META: Record<TriggerKind, { label: string; className: string }> = {
-  Time: { label: 'Time', className: 'border-sky-400/25 bg-sky-400/10 text-sky-300' },
-  Sequence: { label: 'Sequence', className: 'border-violet-400/25 bg-violet-400/10 text-violet-300' },
-  'On action': { label: 'On action', className: 'border-orange-400/25 bg-orange-400/10 text-orange-300' },
-  Condition: { label: 'Condition', className: 'border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-300' },
-  Manual: { label: 'Manual', className: 'border-slate-400/25 bg-slate-400/10 text-slate-300' },
+  Time: { label: 'Time', className: 'border-cyan-600 bg-cyan-500 text-slate-950' },
+  Sequence: { label: 'Sequence', className: 'border-violet-700 bg-violet-600 text-white' },
+  'On action': { label: 'On action', className: 'border-orange-600 bg-orange-500 text-slate-950' },
+  Condition: { label: 'Condition', className: 'border-fuchsia-700 bg-fuchsia-600 text-white' },
+  Manual: { label: 'Manual', className: 'border-slate-700 bg-slate-600 text-white' },
 };
 
 function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <SummaryCard label="활성 작업" value="3" detail="예약 실행 중" tone="accent" />
-        <SummaryCard label="다음 실행" value="09:00" detail="주간 시장 동향 리포트" tone="blue" />
-        <SummaryCard label="확인 필요" value="1" detail="긴급 조사 실행" tone="amber" />
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SummaryCard label="예약 작업" value="2" detail="시간 기준 실행" tone="accent" />
+        <SummaryCard label="다음 실행" value="09:00" detail="CQR Pants Reddit 주간 검색" tone="blue" />
+        <SummaryCard label="실행 오류" value="0" detail="최근 7일" tone="green" />
       </div>
 
-      <section className="overflow-hidden rounded-xl border border-line bg-ink/25">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5">
+      <section className="overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_8px_28px_rgba(23,33,29,0.08)]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-white px-5 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-text">자동화 작업</h2>
-            <p className="mt-0.5 text-[11px] text-muted">작업 설명과 실행 조건을 한 행에서 확인합니다.</p>
+            <h2 className="text-[15px] font-bold text-text">자동화 작업</h2>
+            <p className="mt-1 text-xs leading-5 text-muted">작업 설명과 실행 조건을 확인하고, 결과는 작업 뉴스피드로 받습니다.</p>
           </div>
-          <div className="flex items-center gap-2 text-[10px] text-muted">
-            <span className="rounded-full border border-line bg-panel px-2 py-1">화면 예시</span>
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <span className="rounded-full border border-line bg-panel px-2.5 py-1 font-medium">화면 예시</span>
             <button
               type="button"
               onClick={onCreate}
-              className="inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1.5 font-semibold text-accent transition hover:bg-accent/20"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent bg-accent px-3 py-2 font-bold text-white shadow-sm transition hover:bg-accent-dim"
             >
-              <Plus size={12} weight="bold" />
+              <Plus size={13} weight="bold" />
               작업 추가
             </button>
           </div>
         </div>
 
-        <div className="hidden grid-cols-[minmax(210px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_120px_32px] gap-4 border-b border-line bg-panel/40 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted md:grid">
+        <div className="hidden grid-cols-[minmax(230px,1.45fr)_minmax(190px,1fr)_minmax(180px,0.9fr)_130px_32px] gap-5 border-b border-line bg-panel-2/55 px-5 py-3 text-[11px] font-bold tracking-[0.04em] text-text md:grid">
           <span>작업</span>
           <span>트리거</span>
           <span>다음 실행</span>
@@ -169,26 +169,28 @@ function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
           <span />
         </div>
 
-        <div className="divide-y divide-line">
+        <div className="divide-y divide-line/80">
           {SCHEDULE_ROWS.map((row) => (
             <ScheduleTableRow key={row.name} row={row} />
           ))}
         </div>
       </section>
 
-      <section className="rounded-xl border border-line bg-panel/50 px-4 py-3.5">
+      <section className="rounded-2xl border border-line bg-white/70 px-5 py-4 shadow-[0_4px_18px_rgba(23,33,29,0.05)]">
         <div className="flex items-start gap-2.5">
-          <Lightning size={15} weight="duotone" className="mt-0.5 shrink-0 text-accent" />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white shadow-sm">
+            <Lightning size={16} weight="fill" />
+          </span>
           <div className="min-w-0">
-            <h3 className="text-xs font-semibold text-text">트리거 태그 안내</h3>
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <h3 className="text-sm font-bold text-text">트리거 태그 안내</h3>
+            <div className="mt-2.5 flex flex-wrap gap-2">
               <TriggerTag kind="Time" />
               <TriggerTag kind="Sequence" />
               <TriggerTag kind="On action" />
               <TriggerTag kind="Condition" />
               <TriggerTag kind="Manual" />
             </div>
-            <p className="mt-2 text-[11px] leading-5 text-muted">
+            <p className="mt-2.5 text-xs leading-5 text-muted">
               시간 기반 실행 외에도 이전 작업 완료, 다른 작업의 동작, 조건 충족, 사용자 직접 실행을 같은 속성으로 확장할 수 있습니다.
             </p>
           </div>
@@ -198,14 +200,15 @@ function ScheduleDashboard({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function SummaryCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: 'accent' | 'blue' | 'amber' }) {
-  const toneClass = tone === 'accent' ? 'text-accent' : tone === 'blue' ? 'text-sky-300' : 'text-amber-300';
+function SummaryCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: 'accent' | 'blue' | 'green' }) {
+  const toneClass = tone === 'accent' ? 'text-accent-dim' : tone === 'blue' ? 'text-sky-700' : 'text-emerald-700';
+  const edgeClass = tone === 'accent' ? 'border-l-accent' : tone === 'blue' ? 'border-l-sky-600' : 'border-l-emerald-600';
   return (
-    <div className="rounded-xl border border-line bg-ink/25 px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">{label}</p>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className={`text-xl font-semibold ${toneClass}`}>{value}</span>
-        <span className="truncate text-[11px] text-muted">{detail}</span>
+    <div className={`rounded-xl border border-line border-l-4 bg-white/85 px-5 py-4 shadow-[0_4px_16px_rgba(23,33,29,0.06)] ${edgeClass}`}>
+      <p className="text-[11px] font-bold tracking-[0.06em] text-muted">{label}</p>
+      <div className="mt-1.5 flex items-baseline gap-2.5">
+        <span className={`text-2xl font-bold ${toneClass}`}>{value}</span>
+        <span className="truncate text-xs font-medium text-muted">{detail}</span>
       </div>
     </div>
   );
@@ -213,36 +216,38 @@ function SummaryCard({ label, value, detail, tone }: { label: string; value: str
 
 function TriggerTag({ kind }: { kind: TriggerKind }) {
   const meta = TRIGGER_META[kind];
-  return <span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-medium ${meta.className}`}>{meta.label}</span>;
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${meta.className}`}>{meta.label}</span>;
 }
 
 function ScheduleTableRow({ row }: { row: ScheduleRow }) {
   const statusClass = row.statusTone === 'green'
-    ? 'text-emerald-300'
+    ? 'border-emerald-700 bg-emerald-600 text-white'
     : row.statusTone === 'amber'
-      ? 'text-amber-300'
-      : 'text-sky-300';
+      ? 'border-amber-500 bg-amber-400 text-slate-950'
+      : 'border-sky-700 bg-sky-600 text-white';
   return (
-    <article className="group grid gap-3 px-4 py-3.5 transition hover:bg-hover/30 md:grid-cols-[minmax(210px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)_120px_32px] md:items-center md:gap-4">
+    <article className="group grid gap-4 px-5 py-4 transition odd:bg-white/30 even:bg-panel/55 hover:bg-accent/5 md:grid-cols-[minmax(230px,1.45fr)_minmax(190px,1fr)_minmax(180px,0.9fr)_130px_32px] md:items-center md:gap-5">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${row.statusTone === 'green' ? 'bg-emerald-400' : row.statusTone === 'amber' ? 'bg-amber-400' : 'bg-sky-400'}`} />
-          <h3 className="truncate text-xs font-semibold text-text">{row.name}</h3>
+          <span className={`h-2 w-2 shrink-0 rounded-full ring-4 ring-white ${row.statusTone === 'green' ? 'bg-emerald-600' : row.statusTone === 'amber' ? 'bg-amber-500' : 'bg-sky-600'}`} />
+          <h3 className="truncate text-sm font-bold text-text">{row.name}</h3>
         </div>
-        <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-muted">{row.description}</p>
+        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{row.description}</p>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {row.triggers.map((kind) => <TriggerTag key={kind} kind={kind} />)}
       </div>
-      <div className="flex items-center gap-1.5 text-[11px] text-muted">
-        <Clock size={13} className="shrink-0" />
-        <span>{row.nextRun}</span>
+      <div className="flex items-center gap-2 text-xs font-medium text-text">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2/70 text-muted">
+          <Clock size={14} weight="bold" />
+        </span>
+        <span className="leading-5">{row.nextRun}</span>
       </div>
-      <div className={`flex items-center gap-1.5 text-[11px] font-medium ${statusClass}`}>
+      <div className={`flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-bold ${statusClass}`}>
         {row.status === '활성' ? <CheckCircle size={14} weight="fill" /> : row.status === '대기' ? <UserCircle size={14} /> : <WarningCircle size={14} />}
         <span>{row.status}</span>
       </div>
-      <button type="button" className="hidden rounded-md p-1 text-muted transition hover:bg-panel hover:text-text md:block" aria-label={`${row.name} 더보기`}>
+      <button type="button" className="hidden rounded-lg border border-transparent p-1.5 text-muted transition hover:border-line hover:bg-white hover:text-text md:block" aria-label={`${row.name} 더보기`}>
         <DotsThree size={17} weight="bold" />
       </button>
     </article>
@@ -360,7 +365,7 @@ function EmptyRuns() {
       </div>
       <h2 className="text-base font-semibold text-text">아직 실행 기록이 없습니다</h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-        예약 실행 결과와 확인이 필요한 알림이 이곳에 표시됩니다.
+        예약 실행의 성공·실패 기록이 이곳에 표시되고, 결과와 파일은 작업 뉴스피드로 전달됩니다.
       </p>
     </div>
   );
