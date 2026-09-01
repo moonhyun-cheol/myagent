@@ -41,6 +41,7 @@ data/_model_bakeoff/**
 data/agent-run-meta/
 data/agent-plugins/
 data/task-ledger/
+data/scheduler/
 data/owui-models-live.json
 data/in-app-browser-webview-user-data/
 data/_personal_pack_test/
