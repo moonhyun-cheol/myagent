@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated** JSON over memory:
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — product version `1.0.3`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 21), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
+- `manifest.json` — product version `1.1.0`. Public label is `MY Agent {version} (update {N})`. Clients follow monotonic `update_sequence` (now 22), not SemVer. Bump sequence on every signed zip; bump SemVer only for user-facing meaning (patch/minor/major). GitHub update titles come from `formatGitHubReleaseTitle`.
 - **Work kits:** **WorkKitLauncher.exe** (mod manager) — feed catalog, per-shelf install, apply. MY Agent Settings → 스킬에는 작업 환경 UI 없음. Feed=`MY_AGENT_WORK_KIT_CATALOG_FEED_URL` / `work_kit_catalog_feed_url`; locker=per-shelf cache. Apply=pull+enable+pin+`loadWorkKitContextNote`. **Not** org module ZIP.
 - **Update hosts (R-614):** feed/asset allowlist = configured feed host ∪ GitHub defaults ∪ `MY_AGENT_UPDATE_TRUSTED_HOSTS`/`FEED_HOSTS`/`ASSET_HOSTS`; non-GitHub assets via `MY_AGENT_UPDATE_ASSET_URL_TEMPLATE`. Current public GitHub deploy needs no env change.
 - **Core live update (R-605):** WPF `UpdatePollingService` — follows **only** `channels/stable.json` (`cqr-pa-update-feed/v1`, tag `update-{N}`, zip `MYAgent-*-delta.zip`). Does not scan GitHub zip names. Idle gate `GET /system/update-gate`, then Yes/No→`MYAgent.Updater`. `MY_AGENT_UPDATE_CHECK=0` off.

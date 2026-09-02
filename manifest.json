@@ -1,9 +1,9 @@
 {
   "name": "MY Agent",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "build": "stable",
   "update_channel": "stable",
-  "update_sequence": 21,
+  "update_sequence": 22,
   "minimum_supported_sequence": 1,
   "update_repository": "moonhyun-cheol/myagent",
   "update_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent/main/channels/stable.json",
