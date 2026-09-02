@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-02T01:33:07.788Z",
+  "generated_at": "2026-09-02T01:58:46.643Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -55,7 +55,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 96,
+    "route_count": 97,
     "routes": [
       {
         "method": "GET",
@@ -520,6 +520,11 @@
       {
         "method": "GET",
         "path": "/system/update-gate",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/system/work-environment/pending",
         "match": "exact"
       },
       {
