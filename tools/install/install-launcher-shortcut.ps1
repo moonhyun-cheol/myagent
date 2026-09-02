@@ -147,6 +147,50 @@ function New-LauncherShortcutFile {
   }
 }
 
+function Test-ShortcutTargetPath {
+  param([string]$ShortcutPath)
+  if (-not (Test-Path -LiteralPath $ShortcutPath)) { return $null }
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    return $shell.CreateShortcut($ShortcutPath).TargetPath
+  } catch {
+    return $null
+  }
+}
+
+function Remove-WrongManagerShortcuts {
+  param(
+    [string[]]$SearchFolders,
+    [string]$LauncherExe
+  )
+
+  $managerNames = @(Get-ManagerShortcutNames)
+  $managerNames += (Get-ManagerShortcutLabel) + '.lnk'
+  $launcherName = [IO.Path]::GetFileName($LauncherExe)
+  $myAgentName = 'MYAgent.exe'
+
+  foreach ($folder in $SearchFolders) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -ErrorAction SilentlyContinue)) {
+      $target = Test-ShortcutTargetPath -ShortcutPath $item.FullName
+      if (-not $target) { continue }
+      $baseName = [IO.Path]::GetFileName($item.FullName)
+      $targetName = [IO.Path]::GetFileName($target)
+      $looksLikeManager = $managerNames -contains $baseName
+      if (-not $looksLikeManager) {
+        $label = Get-ManagerShortcutLabel
+        if ($baseName -like "*$label*" -or $baseName -like '*Work Kit*' -or $baseName -like '*WorkKitLauncher*') {
+          $looksLikeManager = $true
+        }
+      }
+      if (-not $looksLikeManager) { continue }
+      if ($targetName -ieq $launcherName) { continue }
+      if ($targetName -ieq $myAgentName -or $target -notlike "*WorkKitLauncher.exe") {
+        Remove-Item -LiteralPath $item.FullName -Force -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
 function Test-ShortcutPointsTo {
   param(
     [string]$ShortcutPath,
@@ -154,8 +198,7 @@ function Test-ShortcutPointsTo {
   )
   if (-not (Test-Path -LiteralPath $ShortcutPath)) { return $false }
   try {
-    $shell = New-Object -ComObject WScript.Shell
-    $targetPath = $shell.CreateShortcut($ShortcutPath).TargetPath
+    $targetPath = Test-ShortcutTargetPath -ShortcutPath $ShortcutPath
     return ($targetPath -and ($targetPath -ieq $TargetExe))
   } catch {
     return $false
@@ -215,51 +258,51 @@ function Install-WorkKitLauncherDesktopShortcut {
   $preferredName = $label + '.lnk'
   $searchFolders = @($desktops + $startMenus)
 
-  foreach ($folder in $searchFolders) {
-    $preferredPath = [IO.Path]::Combine($folder, $preferredName)
-    if (Test-ShortcutPointsTo -ShortcutPath $preferredPath -TargetExe $launcherExe) {
-      return $preferredPath
+  Remove-WrongManagerShortcuts -SearchFolders $searchFolders -LauncherExe $launcherExe
+
+  $errors = New-Object 'System.Collections.Generic.List[string]'
+  $created = New-Object 'System.Collections.Generic.List[string]'
+
+  foreach ($folder in $desktops) {
+    try {
+      $path = New-LauncherShortcutAt `
+        -Folder $folder `
+        -ShortcutName $preferredName `
+        -LauncherExe $launcherExe `
+        -WorkingDir $workingDir `
+        -Description 'MY Agent Manager'
+      [void]$created.Add($path)
+    } catch {
+      [void]$errors.Add("$folder\$preferredName -> $($_.Exception.Message)")
     }
+  }
+
+  if ($created.Count -eq 0) {
+    $shortcutNames = Get-ManagerShortcutNames | Where-Object { $_ -ne $preferredName }
+    foreach ($folder in @($desktops + $startMenus)) {
+      foreach ($shortcutName in $shortcutNames) {
+        try {
+          $path = New-LauncherShortcutAt `
+            -Folder $folder `
+            -ShortcutName $shortcutName `
+            -LauncherExe $launcherExe `
+            -WorkingDir $workingDir `
+            -Description 'MY Agent Manager'
+          [void]$created.Add($path)
+          break
+        } catch {
+          [void]$errors.Add("$folder\$shortcutName -> $($_.Exception.Message)")
+        }
+      }
+      if ($created.Count -gt 0) { break }
+    }
+  }
+
+  if ($created.Count -gt 0) {
+    return $created[0]
   }
 
   $existing = Find-ExistingLauncherShortcut -LauncherExe $launcherExe -SearchFolders $searchFolders
-  if ($existing -and (([IO.Path]::GetFileName($existing)) -ieq $preferredName)) {
-    return $existing
-  }
-
-  $shortcutNames = Get-ManagerShortcutNames
-  $errors = New-Object 'System.Collections.Generic.List[string]'
-
-  foreach ($folder in $desktops) {
-    foreach ($shortcutName in $shortcutNames) {
-      try {
-        return (New-LauncherShortcutAt `
-          -Folder $folder `
-          -ShortcutName $shortcutName `
-          -LauncherExe $launcherExe `
-          -WorkingDir $workingDir `
-          -Description 'MY Agent Manager')
-      } catch {
-        [void]$errors.Add("$folder\$shortcutName -> $($_.Exception.Message)")
-      }
-    }
-  }
-
-  foreach ($folder in $startMenus) {
-    foreach ($shortcutName in $shortcutNames) {
-      try {
-        return (New-LauncherShortcutAt `
-          -Folder $folder `
-          -ShortcutName $shortcutName `
-          -LauncherExe $launcherExe `
-          -WorkingDir $workingDir `
-          -Description 'MY Agent Manager')
-      } catch {
-        [void]$errors.Add("$folder\$shortcutName -> $($_.Exception.Message)")
-      }
-    }
-  }
-
   if ($existing) { return $existing }
 
   $detail = ($errors.ToArray() -join '; ')

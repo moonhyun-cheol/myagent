@@ -302,17 +302,12 @@ if (-not (Test-Path -LiteralPath $productExe)) {
       $shortcut.WindowStyle = 7
       $shortcut.Save()
       Write-Host "Desktop shortcut: $shortcutPath"
-      $launcherExe = Join-Path $targetFull 'WorkKitLauncher.exe'
-      if (Test-Path -LiteralPath $launcherExe) {
-        $launcherShortcutPath = Join-Path $desktop 'MY Agent 관리자.lnk'
-        $launcherShortcut = $shell.CreateShortcut($launcherShortcutPath)
-        $launcherShortcut.TargetPath = $launcherExe
-        $launcherShortcut.Arguments = ''
-        $launcherShortcut.WorkingDirectory = $targetFull
-        $launcherShortcut.Description = 'MY Agent 관리자'
-        $launcherShortcut.WindowStyle = 7
-        $launcherShortcut.Save()
-        Write-Host "Desktop shortcut: $launcherShortcutPath"
+      . (Join-Path $PSScriptRoot 'install-launcher-shortcut.ps1')
+      try {
+        $managerShortcut = Install-WorkKitLauncherDesktopShortcut -AppRoot $targetFull
+        Write-Host "Desktop shortcut: $managerShortcut"
+      } catch {
+        Write-Warning "MY Agent manager shortcut was skipped: $($_.Exception.Message)"
       }
     }
   } catch {
