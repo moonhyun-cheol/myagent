@@ -78,7 +78,7 @@ function New-WorkKitLauncherDesktopShortcut {
 
   foreach ($desktop in Get-DesktopFolders) {
     if (-not (Test-Path -LiteralPath $desktop)) { continue }
-    foreach ($shortcutName in @('MY Agent Work Kit.lnk', 'WorkKitLauncher.lnk')) {
+    foreach ($shortcutName in @('MY Agent 관리자.lnk', 'MY Agent Work Kit.lnk', 'MY Agent 작업 환경.lnk', 'WorkKitLauncher.lnk')) {
       try {
         $candidate = Join-Path $desktop $shortcutName
         $shell = New-Object -ComObject WScript.Shell
@@ -86,7 +86,7 @@ function New-WorkKitLauncherDesktopShortcut {
         $shortcut.TargetPath = $launcherExe
         $shortcut.Arguments = ''
         $shortcut.WorkingDirectory = $AppRoot
-        $shortcut.Description = 'MY Agent Work Kit Launcher'
+        $shortcut.Description = 'MY Agent 관리자'
         $shortcut.WindowStyle = 7
         $shortcut.IconLocation = "$launcherExe,0"
         $shortcut.Save()

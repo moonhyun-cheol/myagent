@@ -40,11 +40,11 @@ internal static class WorkEnvironmentUpdateCoordinator
             var version = string.IsNullOrWhiteSpace(pending.LauncherVersion)
                 ? "새 버전"
                 : pending.LauncherVersion.Trim();
-            lines.Add($"• 작업 환경 프로그램(WorkKitLauncher) {version}");
+            lines.Add($"• MY Agent 관리자 {version}");
         }
         if (pending.CatalogUpdateAvailable)
         {
-            lines.Add("• 작업 키트 목록(프로필 카탈로그)");
+            lines.Add("• 작업 키트 목록");
         }
         var notes = string.Join('\n', lines);
         if (!string.IsNullOrWhiteSpace(pending.LauncherNotes) && pending.LauncherUpdateAvailable)
@@ -55,9 +55,9 @@ internal static class WorkEnvironmentUpdateCoordinator
         }
         var accepted = MessageBox.Show(
             owner,
-            $"작업 환경 업데이트가 있습니다.\n\n{notes}\n\n"
+            $"MY Agent 관리자·작업 키트 업데이트가 있습니다.\n\n{notes}\n\n"
             + "지금 다운로드하고 적용할까요? MY Agent 채팅은 그대로 둡니다.",
-            "작업 환경 업데이트",
+            "MY Agent 관리자 업데이트",
             MessageBoxButton.YesNo,
             MessageBoxImage.Information,
             MessageBoxResult.Yes);
@@ -78,8 +78,8 @@ internal static class WorkEnvironmentUpdateCoordinator
             ShowMessage(
                 owner,
                 pending.LauncherUpdateAvailable
-                    ? "작업 환경 업데이트를 시작했습니다. 완료 후 작업 환경을 다시 열 수 있습니다."
-                    : "작업 키트 목록을 최신으로 가져왔습니다. 작업 환경에서 받기·적용하세요.");
+                    ? "MY Agent 관리자 업데이트를 시작했습니다. 완료 후 관리자를 다시 열 수 있습니다."
+                    : "작업 키트 목록을 최신으로 가져왔습니다. MY Agent 관리자에서 받기·적용하세요.");
         }
         finally
         {
@@ -115,7 +115,7 @@ internal static class WorkEnvironmentUpdateCoordinator
         start.ArgumentList.Add("--companion-update");
         start.Environment["MY_AGENT_ROOT"] = root;
         _ = Process.Start(start)
-            ?? throw new InvalidOperationException("작업 환경 업데이트를 시작하지 못했습니다.");
+            ?? throw new InvalidOperationException("MY Agent 관리자 업데이트를 시작하지 못했습니다.");
     }
 
     internal static string? FindLauncherExecutable(string root)
@@ -137,7 +137,7 @@ internal static class WorkEnvironmentUpdateCoordinator
         MessageBox.Show(
             owner,
             message,
-            "작업 환경 업데이트",
+            "MY Agent 관리자",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
     }

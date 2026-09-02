@@ -998,7 +998,7 @@ export function ChatPane() {
           <span
             data-testid="chat-applied-work-kit"
             className="shrink-0 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1 text-[11px] font-medium text-accent"
-            title="전역 적용된 작업 환경"
+            title="전역 적용된 작업 키트"
           >
             업무 · {appliedWorkKitLabel}
           </span>

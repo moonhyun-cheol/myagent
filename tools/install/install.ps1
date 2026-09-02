@@ -270,9 +270,9 @@ MY Agent install complete
 Path: $targetFull
 
 Desktop shortcut: MY Agent.lnk
-Work kit launcher shortcut: MY Agent 작업 환경.lnk (if WorkKitLauncher.exe is present)
+Work kit launcher shortcut: MY Agent 관리자.lnk (if WorkKitLauncher.exe is present)
 
-1. Launch MY Agent 작업 환경 (WorkKitLauncher) to pick a work kit, then MY Agent
+1. Launch MY Agent 관리자 to pick a work kit, then MY Agent
 2. Or launch MY Agent.exe directly for chat
 
 First run: optional activation and provider setup.
@@ -304,12 +304,12 @@ if (-not (Test-Path -LiteralPath $productExe)) {
       Write-Host "Desktop shortcut: $shortcutPath"
       $launcherExe = Join-Path $targetFull 'WorkKitLauncher.exe'
       if (Test-Path -LiteralPath $launcherExe) {
-        $launcherShortcutPath = Join-Path $desktop 'MY Agent 작업 환경.lnk'
+        $launcherShortcutPath = Join-Path $desktop 'MY Agent 관리자.lnk'
         $launcherShortcut = $shell.CreateShortcut($launcherShortcutPath)
         $launcherShortcut.TargetPath = $launcherExe
         $launcherShortcut.Arguments = ''
         $launcherShortcut.WorkingDirectory = $targetFull
-        $launcherShortcut.Description = 'MY Agent 작업 환경'
+        $launcherShortcut.Description = 'MY Agent 관리자'
         $launcherShortcut.WindowStyle = 7
         $launcherShortcut.Save()
         Write-Host "Desktop shortcut: $launcherShortcutPath"
@@ -322,4 +322,4 @@ if (-not (Test-Path -LiteralPath $productExe)) {
 
 Write-Host ''
 Write-Host "Install complete: $targetFull"
-Write-Host 'Next: run WorkKitLauncher (MY Agent 작업 환경) to apply a kit, then MY Agent'
+Write-Host 'Next: run MY Agent 관리자 to apply a kit, then MY Agent'

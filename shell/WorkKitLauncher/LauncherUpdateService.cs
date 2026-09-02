@@ -123,7 +123,7 @@ internal sealed class LauncherUpdateService
         if (_currentSequence < update.MinimumSupportedSequence)
         {
             throw new LauncherUpdateTooOldException(
-                "현재 작업 환경 버전이 너무 오래되어 자동 업데이트할 수 없습니다. 최신 설치본으로 다시 설치하세요.");
+                "현재 MY Agent 관리자 버전이 너무 오래되어 자동 업데이트할 수 없습니다. 최신 설치본으로 다시 설치하세요.");
         }
         return update;
     }
@@ -238,7 +238,7 @@ internal sealed class LauncherUpdateService
         start.ArgumentList.Add("--restart-exe");
         start.ArgumentList.Add(Path.Combine(_root, "WorkKitLauncher.exe"));
         return Process.Start(start)
-            ?? throw new InvalidOperationException("작업 환경 업데이트를 시작하지 못했습니다.");
+            ?? throw new InvalidOperationException("MY Agent 관리자 업데이트를 시작하지 못했습니다.");
     }
 
     public void LogFailure(string category, Exception error)

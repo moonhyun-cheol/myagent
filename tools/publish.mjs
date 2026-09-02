@@ -334,11 +334,11 @@ const readme = `MY Agent v${ver}
 zip 구조: install.bat (루트) + app\\ (본체)
 
 1. install.bat — 설치 폴더 선택 · 바탕화면 바로가기
-2. WorkKitLauncher.exe — 작업 환경(키트) 목록·받기·적용 후 MY Agent 실행
+2. WorkKitLauncher.exe (MY Agent 관리자) — 작업 키트 목록·받기·적용 후 MY Agent 실행
 3. MYAgent.exe — 채팅·에이전트 (적용된 키트 반영)
 
 설치 후 채팅·범용 스킬·브라우저 자동화·심층리서치를 사용할 수 있습니다.
-작업 키트는 WorkKitLauncher에서 고릅니다. MY Agent 설정→스킬에는 작업 환경 UI가 없습니다.
+작업 키트는 MY Agent 관리자에서 고릅니다. MY Agent 설정→스킬에는 작업 키트 UI가 없습니다.
 
 업데이트: UPDATE.bat (delta zip, data/ 보존)
 관리자 명령: tools\commands\

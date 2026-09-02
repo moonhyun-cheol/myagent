@@ -45,7 +45,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
         return data.groups[0]?.id ?? '';
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '작업 환경 목록을 불러오지 못했습니다.');
+      setMessage(error instanceof Error ? error.message : '작업 키트 목록을 불러오지 못했습니다.');
     }
   }, []);
 
@@ -62,7 +62,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
       }
       if (check.update_available || !check.cached_sequence) {
         await refreshWorkKitCatalog();
-        if (!silent) setMessage('작업 환경 목록을 최신으로 가져왔습니다.');
+        if (!silent) setMessage('작업 키트 목록을 최신으로 가져왔습니다.');
       } else if (!silent) {
         setMessage('카탈로그가 이미 최신입니다.');
       }
@@ -134,7 +134,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
 
   const applyKit = async (shelf: WorkKitShelf) => {
     const ok = await confirmDialog({
-      title: '작업 환경 적용',
+      title: '작업 키트 적용',
       message: `「${shelf.label}」로 맞출까요?`,
       confirmLabel: '적용',
       danger: false,
@@ -165,9 +165,9 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
     >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-text">작업 환경</h1>
+          <h1 className="text-lg font-semibold text-text">MY Agent 관리자</h1>
           <p className="mt-0.5 text-sm text-muted">
-            브랜드를 고르고, 쓸 키트를 받은 다음 적용하세요.
+            사용할 작업 키트를 받고 적용한 뒤 MY Agent를 실행하세요.
           </p>
           {feedSequence != null ? (
             <p className="mt-1 text-[11px] text-muted">카탈로그 seq {feedSequence}</p>
@@ -226,7 +226,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
 
       {groups.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-muted">
-          <p>등록된 작업 환경이 없습니다.</p>
+          <p>등록된 작업 키트가 없습니다.</p>
           <p className="mt-2 text-xs">「목록 새로고침」으로 카탈로그를 가져오세요.</p>
         </div>
       ) : (

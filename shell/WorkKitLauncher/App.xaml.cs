@@ -48,7 +48,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 argsEx.Exception.Message,
-                "작업 환경",
+                "MY Agent 관리자",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             argsEx.Handled = true;
@@ -64,7 +64,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 $"{ex.Message}\n\nMY Agent가 설치된 폴더에서 실행하거나 MY_AGENT_ROOT 환경 변수를 설정하세요.",
-                "작업 환경",
+                "MY Agent 관리자",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(1);
@@ -76,7 +76,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 "Core API를 시작하지 못했습니다. MY Agent가 설치되어 있는지 확인하세요.",
-                "작업 환경",
+                "MY Agent 관리자",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(1);

@@ -49,8 +49,8 @@ export function SettingsInstallRootSection() {
         <h3 className="text-sm font-semibold text-text">설치 폴더</h3>
       </div>
       <p className="text-xs leading-5 text-muted">
-        MY Agent와 WorkKitLauncher(작업 환경)가 공유하는 설치 루트입니다.
-        프로필 런처 설치가 경로를 찾지 못할 때 여기서 복사해{' '}
+        MY Agent와 MY Agent 관리자가 공유하는 설치 루트입니다.
+        관리자 설치가 경로를 찾지 못할 때 여기서 복사해{' '}
         <code className="rounded bg-ink/40 px-1 py-0.5 text-[11px]">install-launcher.bat</code>
         {' '}실행 시 붙여넣거나, 환경 변수{' '}
         <code className="rounded bg-ink/40 px-1 py-0.5 text-[11px]">MY_AGENT_ROOT</code>

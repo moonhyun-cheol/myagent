@@ -1,5 +1,5 @@
 {
-  "name": "MY Agent Work Kit Launcher",
+  "name": "MY Agent 관리자",
   "kind": "work-kit-launcher",
   "version": "1.0.0",
   "update_channel": "stable",

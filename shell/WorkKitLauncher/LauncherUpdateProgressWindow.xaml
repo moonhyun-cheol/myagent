@@ -1,7 +1,7 @@
 <Window x:Class="CqrPa.WorkKitLauncher.LauncherUpdateProgressWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="작업 환경 업데이트"
+        Title="MY Agent 관리자 업데이트"
         Width="420" Height="188"
         MinWidth="420" MinHeight="188"
         ResizeMode="NoResize"
@@ -21,7 +21,7 @@
       <RowDefinition Height="*" />
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
-    <TextBlock Text="작업 환경 업데이트"
+    <TextBlock Text="MY Agent 관리자 업데이트"
                FontSize="16"
                FontWeight="SemiBold"
                Foreground="#17211d" />

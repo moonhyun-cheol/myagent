@@ -17,14 +17,14 @@ internal static class LauncherUpdateApplyCoordinator
         if (owner is MainWindow mainWindow) mainWindow.BringToFront();
 
         var notes = string.IsNullOrWhiteSpace(update.ReleaseNotes)
-            ? "작업 환경 프로그램의 개선이 포함되어 있습니다."
+            ? "MY Agent 관리자의 개선이 포함되어 있습니다."
             : update.ReleaseNotes.Trim();
         if (notes.Length > 1200) notes = notes[..1200] + "…";
         var accepted = MessageBox.Show(
             owner,
-            $"작업 환경 {update.Version} 업데이트가 있습니다.\n\n{notes}\n\n"
+            $"MY Agent 관리자 {update.Version} 업데이트가 있습니다.\n\n{notes}\n\n"
             + "지금 다운로드하고 다시 시작할까요? MY Agent 채팅 앱은 그대로 둡니다.",
-            "작업 환경 업데이트",
+            "MY Agent 관리자 업데이트",
             MessageBoxButton.YesNo,
             MessageBoxImage.Information,
             MessageBoxResult.Yes);
@@ -49,7 +49,7 @@ internal static class LauncherUpdateApplyCoordinator
                 update,
                 downloadCancellation.Token,
                 progressWindow);
-            progressWindow.SetStatus("설치를 시작하고 작업 환경을 다시 실행합니다…");
+            progressWindow.SetStatus("설치를 시작하고 MY Agent 관리자를 다시 실행합니다…");
             progressWindow.DisableCancel();
             progressWindow.AllowClose();
             if (owner is MainWindow updateMainWindow) updateMainWindow.PrepareForUpdateExit();
@@ -125,14 +125,14 @@ internal static class LauncherUpdateApplyCoordinator
             MessageBox.Show(
                 owner,
                 message,
-                "작업 환경 업데이트",
+                "MY Agent 관리자 업데이트",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
         }
         MessageBox.Show(
             message,
-            "작업 환경 업데이트",
+            "MY Agent 관리자 업데이트",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }

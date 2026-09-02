@@ -132,7 +132,7 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(
                 "MYAgent.exe를 찾지 못했습니다. MY Agent를 먼저 설치하세요.",
-                "작업 환경",
+                "MY Agent 관리자",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;

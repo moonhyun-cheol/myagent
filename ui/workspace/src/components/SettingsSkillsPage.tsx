@@ -214,7 +214,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       <header className="mb-5 pr-12">
         <h2 className="text-xl font-semibold">스킬</h2>
         <p className="mt-1 text-sm text-muted">
-          조직 모듈·ZIP 스킬을 관리합니다. 작업 환경(프로필)은 WorkKitLauncher에서 설정하세요.
+          조직 모듈·ZIP 스킬을 관리합니다. 작업 키트는 MY Agent 관리자에서 설정하세요.
         </p>
       </header>
 
