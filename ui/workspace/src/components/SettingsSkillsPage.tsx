@@ -12,6 +12,12 @@ import {
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
 
+function existingSkillIdFromError(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const rec = error as { existingId?: unknown };
+  return typeof rec.existingId === 'string' && rec.existingId ? rec.existingId : null;
+}
+
 function isSkillPinned(skill: SkillListItem, pinned: ReadonlySet<string>): boolean {
   return pinned.has(skill.id) || pinned.has(skill.mode) || pinned.has(`org:${skill.id}`);
 }
@@ -45,6 +51,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const [zipPath, setZipPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const pickerRequestRef = useRef<{ id: string; purpose: 'skillZip' } | null>(null);
   const canCheckRemoteRef = useRef(false);
   const initialRemoteCheckDoneRef = useRef(false);
@@ -154,6 +161,12 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     [organization, pinnedSet],
   );
 
+  useEffect(() => {
+    if (!highlightId) return;
+    const node = document.querySelector(`[data-testid="installed-skill-${CSS.escape(highlightId)}"]`);
+    if (node instanceof HTMLElement) node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [highlightId, installed]);
+
   const openZipPicker = () => {
     if (readOnly || busy) return;
     const webview = getShellWebView();
@@ -175,13 +188,20 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     }
     setBusy(true);
     setMessage('');
+    setHighlightId(null);
     try {
       const skill = await importSkillPackage(requestedPath);
       setZipPath('');
       setMessage(`설치됨 · ${skill.label}`);
+      setHighlightId(skill.id);
       await refresh();
     } catch (error) {
+      const existingId = existingSkillIdFromError(error);
       setMessage(error instanceof Error ? error.message : '스킬 설치 실패');
+      if (existingId) {
+        setHighlightId(existingId);
+        await refresh();
+      }
     } finally {
       setBusy(false);
     }
@@ -201,6 +221,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     try {
       await deleteSkill(skill.id);
       setMessage(`제거됨 · ${skill.label}`);
+      setHighlightId(null);
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 제거 실패');
@@ -223,6 +244,59 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           {message}
         </p>
       ) : null}
+
+      <section className="mb-5 max-w-4xl">
+        <div className="mb-4 flex items-center gap-2">
+          <Package size={21} className="text-accent" />
+          <h3 className="font-semibold">사용자가 설치한 스킬</h3>
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">{installed.length}</span>
+        </div>
+        {busy && installed.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {!busy && installed.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">설치된 사용자 스킬이 없습니다.</p>
+        ) : (
+          <div className="space-y-3">
+            {installed.map((skill) => {
+              const pinned = isSkillPinned(skill, pinnedSet);
+              const highlighted = highlightId === skill.id;
+              return (
+              <div
+                key={skill.id}
+                data-testid={`installed-skill-${skill.id}`}
+                data-pinned={pinned ? 'true' : 'false'}
+                data-highlighted={highlighted ? 'true' : 'false'}
+                className={`flex items-start justify-between gap-4 rounded-xl border p-4 ${
+                  highlighted ? 'border-accent bg-accent/10' : 'border-line bg-ink/40'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
+                    {pinned ? (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">핀</span>
+                    ) : null}
+                    <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                      {skill.install_kind === 'package' ? '압축 해제 설치' : '사용자 스킬'}
+                    </span>
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] text-muted">{skill.id}</p>
+                  {skill.description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{skill.description}</p> : null}
+                  {typeof skill.file_count === 'number' ? <p className="mt-1 text-[11px] text-muted">패키지 파일 {skill.file_count}개</p> : null}
+                </div>
+                <button
+                  type="button"
+                  disabled={readOnly || busy || skill.removable === false}
+                  onClick={() => void remove(skill)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Trash size={13} /> 제거
+                </button>
+              </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <details className="max-w-4xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <summary className="cursor-pointer text-sm font-medium text-text">고급 · 스킬 관리</summary>
@@ -300,50 +374,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           </button>
         </div>
         <p className="mt-3 text-xs leading-5 text-muted">ZIP 원본은 앱에 복사하지 않고 내부 스킬 폴더로 압축 해제합니다.</p>
-        </section>
-
-        <section className="mt-5">
-        <div className="mb-4 flex items-center gap-2">
-          <Package size={21} className="text-accent" />
-          <h3 className="font-semibold">사용자가 설치한 스킬</h3>
-          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">{installed.length}</span>
-        </div>
-        {busy && installed.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
-        {!busy && installed.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">설치된 사용자 스킬이 없습니다.</p>
-        ) : (
-          <div className="space-y-3">
-            {installed.map((skill) => {
-              const pinned = isSkillPinned(skill, pinnedSet);
-              return (
-              <div key={skill.id} data-testid={`installed-skill-${skill.id}`} data-pinned={pinned ? 'true' : 'false'} className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
-                    {pinned ? (
-                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">핀</span>
-                    ) : null}
-                    <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
-                      {skill.install_kind === 'package' ? '압축 해제 설치' : '사용자 스킬'}
-                    </span>
-                  </div>
-                  <p className="mt-1 font-mono text-[11px] text-muted">{skill.id}</p>
-                  {skill.description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{skill.description}</p> : null}
-                  {typeof skill.file_count === 'number' ? <p className="mt-1 text-[11px] text-muted">패키지 파일 {skill.file_count}개</p> : null}
-                </div>
-                <button
-                  type="button"
-                  disabled={readOnly || busy || skill.removable === false}
-                  onClick={() => void remove(skill)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <Trash size={13} /> 제거
-                </button>
-              </div>
-              );
-            })}
-          </div>
-        )}
         </section>
 
         <details className="mt-5">

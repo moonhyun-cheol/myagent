@@ -10,6 +10,9 @@ const shell = readFileSync(path.join(projectRoot, 'shell/CqrPa.Shell/MainWindow.
 assert.match(skillsUi, /type:\s*'filePicker\.open'/);
 assert.match(skillsUi, /data-testid="skill-zip-browse-button"/);
 assert.match(skillsUi, /filePicker\.result/);
+assert.match(skillsUi, /data-testid={`installed-skill-\$\{skill.id\}`}/);
+assert.match(skillsUi, /existingId/);
+assert.match(skillsUi, /scrollIntoView/);
 assert.match(shell, /case "filePicker\.open"/);
 assert.match(shell, /OpenFileDialog/);
 assert.match(shell, /PostWebMessageAsJson\(payload\)/);
@@ -74,6 +77,27 @@ try {
   assert.equal(readFileSync(path.join(installedRoot, 'references', 'schema.md'), 'utf8'), '# Schema\n');
   assert.equal(readdirSync(installedRoot, { recursive: true }).some((entry) => String(entry).toLowerCase().endsWith('.zip')), false);
   assert.equal(existsSync(zipPath), true, '사용자가 제공한 원본 ZIP은 삭제하지 않는다');
+
+  try {
+    store.installPackage(zipPath, (id) => id === 'bundled-only');
+    assert.fail('duplicate install should throw');
+  } catch (error) {
+    if (!(error instanceof UserSkillError)) throw error;
+    assert.equal(error.code, 'DUPLICATE_ID');
+    assert.match(error.message, /Rulebook Manager \(rulebook\)/);
+    assert.deepEqual(error.existing, { id: 'rulebook', label: 'Rulebook Manager' });
+  }
+
+  const indexPath = path.join(root, 'data', 'skills', 'index.json');
+  writeFileSync(indexPath, `${JSON.stringify({ version: 1, skills: [] }, null, 2)}\n`);
+  const recovered = store.list().find((skill) => skill.id === 'rulebook');
+  assert.ok(recovered, 'index에서 빠져도 packages 폴더가 있으면 목록에 복구한다');
+  assert.equal(recovered.label, 'Rulebook Manager');
+  assert.equal(recovered.install_kind, 'package');
+
+  writeFileSync(indexPath, `${JSON.stringify({ version: 1, skills: [{ id: 'broken' }] }, null, 2)}\n`);
+  assert.doesNotThrow(() => store.list());
+
   assert.equal(store.delete('rulebook'), true);
   assert.equal(store.readPrompt('rulebook'), null);
 

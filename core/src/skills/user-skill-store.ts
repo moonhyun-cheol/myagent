@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -10,7 +11,11 @@ import {
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { assertPathUnder, assertWritablePath } from '../security/path-guard.js';
-import { readSkillPackageArchive, SkillPackageError } from './skill-package-zip.js';
+import {
+  readInstalledSkillPackageMeta,
+  readSkillPackageArchive,
+  SkillPackageError,
+} from './skill-package-zip.js';
 
 export const MAX_USER_SKILL_PROMPT_CHARS = 120_000;
 const ID_RE = /^[a-z0-9_-]{1,48}$/;
@@ -42,13 +47,15 @@ export class UserSkillStore {
   }
 
   list(): UserSkillRecord[] {
-    return this.loadIndex().skills.sort((a, b) => a.label.localeCompare(b.label));
+    return this.reconcileIndex(this.loadIndex()).skills.sort((a, b) =>
+      (a.label || a.id).localeCompare(b.label || b.id, 'ko'),
+    );
   }
 
   get(id: string): (UserSkillRecord & { prompt: string }) | null {
     const safe = sanitizeSkillId(id);
     if (!safe) return null;
-    const rec = this.loadIndex().skills.find((s) => s.id === safe);
+    const rec = this.reconcileIndex(this.loadIndex()).skills.find((s) => s.id === safe);
     if (!rec) return null;
     const prompt = this.readPrompt(safe);
     if (prompt === null) return null;
@@ -98,9 +105,10 @@ export class UserSkillStore {
     if (isReservedId?.(archive.id)) {
       throw new UserSkillError('BUNDLED_SKILL_ID', `기본 제공 스킬 ID는 덮어쓸 수 없습니다: ${archive.id}`);
     }
-    const index = this.loadIndex();
-    if (index.skills.some((skill) => skill.id === archive.id)) {
-      throw new UserSkillError('DUPLICATE_ID', `이미 설치된 스킬입니다: ${archive.id}`);
+    const index = this.reconcileIndex(this.loadIndex());
+    const existing = index.skills.find((skill) => skill.id === archive.id);
+    if (existing) {
+      throw duplicateSkillError(existing);
     }
 
     const packagesDir = path.join(this.skillsDir, 'packages');
@@ -109,7 +117,17 @@ export class UserSkillStore {
     assertWritablePath(targetDir, this.cqrRoot);
     assertWritablePath(stagingDir, this.cqrRoot);
     if (existsSync(targetDir)) {
-      throw new UserSkillError('DUPLICATE_ID', `스킬 폴더가 이미 존재합니다: ${archive.id}`);
+      const recovered = this.recoverPackageRecord(archive.id);
+      if (recovered) {
+        index.skills.push(recovered);
+        this.saveIndex(index);
+        throw duplicateSkillError(recovered);
+      }
+      throw new UserSkillError(
+        'DUPLICATE_ID',
+        `스킬 폴더가 이미 존재합니다: ${archive.id}`,
+        { id: archive.id, label: archive.label || archive.id },
+      );
     }
 
     try {
@@ -170,7 +188,7 @@ export class UserSkillStore {
   delete(id: string): boolean {
     const safe = sanitizeSkillId(id);
     if (!safe) return false;
-    const index = this.loadIndex();
+    const index = this.reconcileIndex(this.loadIndex());
     const rec = index.skills.find((skill) => skill.id === safe);
     const next = index.skills.filter((s) => s.id !== safe);
     if (next.length === index.skills.length) return false;
@@ -219,13 +237,58 @@ export class UserSkillStore {
     writeFileSync(promptPath, prompt.trim() + '\n', 'utf8');
   }
 
+  private recoverPackageRecord(id: string): UserSkillRecord | null {
+    const safe = sanitizeSkillId(id);
+    if (!safe) return null;
+    const packageDir = this.packagePath(safe);
+    if (!existsSync(packageDir)) return null;
+    const meta = readInstalledSkillPackageMeta(packageDir);
+    if (!meta) return null;
+    const now = new Date().toISOString();
+    return {
+      id: safe,
+      label: meta.label || safe,
+      description: meta.description,
+      install_kind: 'package',
+      file_count: meta.file_count,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
+  private reconcileIndex(index: UserSkillIndex): UserSkillIndex {
+    const packagesDir = path.join(this.skillsDir, 'packages');
+    if (!existsSync(packagesDir)) return index;
+    let changed = false;
+    const known = new Set(index.skills.map((skill) => skill.id));
+    try {
+      for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+        const id = sanitizeSkillId(entry.name);
+        if (!id || known.has(id)) continue;
+        const recovered = this.recoverPackageRecord(id);
+        if (!recovered) continue;
+        index.skills.push(recovered);
+        known.add(id);
+        changed = true;
+      }
+    } catch {
+      return index;
+    }
+    if (changed) this.saveIndex(index);
+    return index;
+  }
+
   private loadIndex(): UserSkillIndex {
     if (!existsSync(this.indexPath)) {
       return { version: 1, skills: [] };
     }
     try {
       const doc = JSON.parse(readFileSync(this.indexPath, 'utf8')) as UserSkillIndex;
-      return { version: 1, skills: Array.isArray(doc.skills) ? doc.skills : [] };
+      const skills = Array.isArray(doc.skills)
+        ? doc.skills.map(normalizeUserSkillRecord).filter((skill): skill is UserSkillRecord => skill !== null)
+        : [];
+      return { version: 1, skills };
     } catch {
       return { version: 1, skills: [] };
     }
@@ -241,10 +304,38 @@ export class UserSkillError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly existing?: { id: string; label: string },
   ) {
     super(message);
     this.name = 'UserSkillError';
   }
+}
+
+function duplicateSkillError(existing: { id: string; label?: string }): UserSkillError {
+  const label = (existing.label || existing.id).trim() || existing.id;
+  const message = label === existing.id
+    ? `이미 설치된 스킬입니다: ${existing.id}`
+    : `이미 설치된 스킬입니다: ${label} (${existing.id})`;
+  return new UserSkillError('DUPLICATE_ID', message, { id: existing.id, label });
+}
+
+function normalizeUserSkillRecord(raw: unknown): UserSkillRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Partial<UserSkillRecord>;
+  const id = typeof rec.id === 'string' ? sanitizeSkillId(rec.id) : null;
+  if (!id) return null;
+  const label = (typeof rec.label === 'string' && rec.label.trim() ? rec.label.trim() : id).slice(0, 64);
+  return {
+    id,
+    label,
+    anchors_ko: rec.anchors_ko,
+    anchors_en: rec.anchors_en,
+    install_kind: rec.install_kind === 'package' ? 'package' : rec.install_kind === 'prompt' ? 'prompt' : undefined,
+    description: typeof rec.description === 'string' ? rec.description : undefined,
+    file_count: typeof rec.file_count === 'number' ? rec.file_count : undefined,
+    created_at: typeof rec.created_at === 'string' ? rec.created_at : new Date().toISOString(),
+    updated_at: typeof rec.updated_at === 'string' ? rec.updated_at : new Date().toISOString(),
+  };
 }
 
 export function sanitizeSkillId(id: string): string | null {

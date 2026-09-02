@@ -1872,7 +1872,15 @@ export async function importSkillPackage(zipPath: string): Promise<SkillListItem
     body: JSON.stringify({ zip_path: zipPath }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `스킬 설치 실패 (${res.status})`);
+  if (!res.ok) {
+    const error = new Error(data.message || data.error || `스킬 설치 실패 (${res.status})`) as Error & {
+      existingId?: string;
+      existingLabel?: string;
+    };
+    if (typeof data.existing_id === 'string' && data.existing_id) error.existingId = data.existing_id;
+    if (typeof data.existing_label === 'string' && data.existing_label) error.existingLabel = data.existing_label;
+    throw error;
+  }
   return data as SkillListItem;
 }
 

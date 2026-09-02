@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
@@ -65,6 +65,35 @@ export function readSkillPackageArchive(zipPath: string): SkillPackageArchive {
     description: frontmatter.description.slice(0, 500),
     files: normalized,
   };
+}
+
+export function readInstalledSkillPackageMeta(packageDir: string): {
+  id: string;
+  label: string;
+  description: string;
+  file_count: number;
+} | null {
+  const skillMdPath = path.join(packageDir, 'SKILL.md');
+  if (!existsSync(skillMdPath)) return null;
+  try {
+    const frontmatter = parseSkillFrontmatter(readFileSync(skillMdPath, 'utf8'));
+    const id = /^[a-z0-9-]{1,63}$/.test(frontmatter.name) ? frontmatter.name : null;
+    if (!id) return null;
+    const yamlPath = path.join(packageDir, 'agents', 'openai.yaml');
+    const displayName = existsSync(yamlPath)
+      ? readYamlScalar(readFileSync(yamlPath, 'utf8'), 'display_name')
+      : null;
+    const files = readdirSync(packageDir, { recursive: true, withFileTypes: true });
+    const fileCount = files.filter((entry) => entry.isFile()).length;
+    return {
+      id,
+      label: (displayName || id).slice(0, 64),
+      description: frontmatter.description.slice(0, 500),
+      file_count: fileCount,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function extractEntries(zip: Buffer): Array<{ path: string; content: Buffer }> {

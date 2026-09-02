@@ -2012,7 +2012,11 @@ export async function dispatchApiRequest(
           });
         } catch (e: unknown) {
           if (e instanceof UserSkillError) {
-            return sendJson(res, 400, { error: e.code, message: e.message });
+            return sendJson(res, 400, {
+              error: e.code,
+              message: e.message,
+              ...(e.existing ? { existing_id: e.existing.id, existing_label: e.existing.label } : {}),
+            });
           }
           throw e;
         }
