@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 25,
+    "update_sequence": 26,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T04:46:23.882Z",
+    "published_at": "2026-09-02T05:29:22.766Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-25",
+      "release_tag": "update-26",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267187590,
-      "sha256": "ebc5553542eedb9634ad65c90edeef130ea89f2d5602f66512e338c8cf8eedd7"
+      "size": 267187584,
+      "sha256": "094d8ff0cb4590b8ecb2e40ef93390052f67b469c078459dc02a147a907eb2e4"
     },
-    "payload_manifest_sha256": "07f29d59871403a5af86a101ab9e5bd103ed5772252e68698b7b9ea04d04c4b3",
-    "release_notes": "MY Agent 1.1.0 (update 25) — 폴더/프로젝트 우클릭 새 대화가 개인 작업에 생기던 버그 수정."
+    "payload_manifest_sha256": "15f0845fedbea8a27699e7cd1d0ecd385bb20a1f42eef4261bf8b09739985fff",
+    "release_notes": "MY Agent 1.1.0 (update 26) — 작업폴더 우클릭 세션 가져오기가 개인 작업으로 떨어지던 버그 수정. 폴더/프로젝트 우클릭 새 대화 위치 수정 포함."
   },
-  "signature": "ZNeYbkWAOxxlFSYYdrrTmKaf+sk9bBeWIulAOdL3HW5UDDFisZ0mbPoFOG8VAq6yTKN2I6MOGtxeGhB5aedGPxobyiYSQNTqV2N0+zMBOVGTN6t5P0ttfeqW3TiN+9N92yZSsUMdbcNeIxTprGlG8mkYAtC3LfxGpPzmKrc0SsIWiB61fOf7TzbDfAB5Uf9RSzpko3oNgqredolnqxe12SpC2HJAGP9rP3/ouVBqDmjZwjcj0ASaCyh9kYOdw1/XvzU7LL+BGFqJfOefZq+P8lihHQiXgjNbYn/iY1hI56EHO+86BawvNj1dwBzUW6K7X5Wd2y8plE27r6uL2gX9BxmKQIodaoD0sSeFilsvU8gF2YlW1JsXL6NyNcMQiBZEtEsOOrz07/TPQR2l+I190Bgp4a6KHBIPB/4ZYHqNgvf1zCBN/xJJO/4TcSYqoPqIWRUn9wkSxHKw/tL83Pq+ODfzPSg4hELABoiLGwZdUTMLZC0TQ1bai3NvHYT745va"
+  "signature": "fzLF3Wml6R7KVK6C8L0AZG8VmCZl0BH60hyXoldEThJ2mh5itL8xxE8dmLyCbkSL6hEU2nLnmNt1ZSCGkMPdk4ZEP8nFw7hZjKrkStA8DAqDt0Tnh/HpvpOk9yIIZ/I3TJBW1pTDtDCrgM0k7+40Pb6mqId/EZ73GG0w54hdeoHmI0Kw1zUHDyf5VncVR8H2JOsFFsujsbKoR28iPLimcvGNGn31WZYNXzYtbMnAihdEyDADTPo7OHE8jOavXyDalRYNUxfyS35T7dRa/pE4q8okIRkcjgiQTJxD9raRIlQZIiM5nElsfIV9FToXNhkzTBVpkVcZU2gDqG0MfTZSL1VIFrJrltvQJVbwLGWI9sNCmyOkhAl56XJi+27H8J3EOB4CG6WYdlB2vHg85izHwu8NmxIy5mZ7bjAN8XP1feU7J5OR2TY5T5TjAwby9/GNOLyDEhZpcWhfX4tv+tCyskgxAHVgbLR8TdEEkHsi5UEo9gWnaGu5GOkt4cMmsqZA"
 }
