@@ -91,6 +91,10 @@ cpSync(
   path.join(stageDir, 'tools', 'install', 'install-launcher.ps1'),
 );
 cpSync(
+  path.join(root, 'tools', 'install', 'install-launcher-discovery.ps1'),
+  path.join(stageDir, 'tools', 'install', 'install-launcher-discovery.ps1'),
+);
+cpSync(
   path.join(root, 'tools', 'install', 'install-paths.ps1'),
   path.join(stageDir, 'tools', 'install', 'install-paths.ps1'),
 );
