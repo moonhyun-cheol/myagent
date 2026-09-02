@@ -1,3 +1,3 @@
 MY Agent stable v1.1.0
-update_sequence: 22
+update_sequence: 23
 channel: stable
