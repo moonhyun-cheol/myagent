@@ -9,12 +9,6 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'install-paths.ps1')
 
-trap {
-  Write-Host ''
-  Write-Host $_.Exception.Message
-  Wait-BeforeExit 1
-}
-
 function Get-FullPath([string]$p) {
   if (-not $p) { return $null }
   return [IO.Path]::GetFullPath($p).TrimEnd('\')
@@ -53,7 +47,7 @@ function Resolve-ShortcutInstallRoot([string]$shortcutPath) {
   if (-not (Test-Path -LiteralPath $shortcutPath)) { return $null }
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($shortcutPath)
-  foreach ($candidate in @($shortcut.WorkingDirectory, (Split-Path $shortcut.TargetPath -Parent)) {
+  foreach ($candidate in @($shortcut.WorkingDirectory, (Split-Path $shortcut.TargetPath -Parent))) {
     $fromExe = Resolve-InstallRootFromExe $shortcut.TargetPath
     if ($fromExe) { return $fromExe }
     if (Test-MyAgentInstallRoot $candidate) {
@@ -127,27 +121,33 @@ function Find-MyAgentInstallRoot {
 
 function Read-InstallRootFromUser {
   Write-Host ''
-  Write-Host '자동으로 MY Agent 설치 폴더를 찾지 못했습니다.'
-  Write-Host 'MY Agent -> 설정 -> 일반 -> 설치 폴더 경로를 복사해 아래에 붙여넣고 Enter 하세요.'
-  Write-Host '(빈 칸 + Enter = 종료)'
+  Write-Host 'Could not find MY Agent install folder automatically.'
+  Write-Host 'Copy the path from MY Agent -> Settings -> General -> Install folder, paste below, then Enter.'
+  Write-Host '(Empty + Enter = quit)'
   Write-Host ''
-  $raw = Read-Host '설치 폴더'
+  $raw = Read-Host 'Install folder'
   $trimmed = $raw.Trim().Trim('"')
   if (-not $trimmed) { return $null }
   $full = Get-FullPath $trimmed
   if (Test-MyAgentInstallRoot $full) { return $full }
-  Write-Host "유효하지 않은 설치 폴더입니다: $full"
-  Write-Host 'manifest.json 과 MYAgent.exe 가 있는 폴더여야 합니다.'
+  Write-Host "Invalid install folder: $full"
+  Write-Host 'Expected manifest.json and MYAgent.exe in that folder.'
   return $null
 }
 
 function Wait-BeforeExit([int]$exitCode) {
   Write-Host ''
   if ($exitCode -ne 0) {
-    Write-Host '창이 바로 닫히면 install-launcher.bat 를 다시 실행하세요.'
+    Write-Host 'Re-run install-launcher.bat if this window closes too quickly.'
   }
-  Read-Host '종료하려면 Enter'
+  Read-Host 'Press Enter to close'
   exit $exitCode
+}
+
+trap {
+  Write-Host ''
+  Write-Host $_.Exception.Message
+  Wait-BeforeExit 1
 }
 
 function New-WorkKitLauncherDesktopShortcut {

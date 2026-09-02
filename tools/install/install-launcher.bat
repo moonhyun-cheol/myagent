@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul 2>&1
 setlocal EnableExtensions
 cd /d "%~dp0"
 
@@ -19,9 +20,9 @@ if "%~1"=="" (
 set EXITCODE=%ERRORLEVEL%
 if not "%EXITCODE%"=="0" (
   echo.
-  echo [WorkKitLauncher] 설치에 실패했습니다. 위 안내를 확인하세요.
+  echo [WorkKitLauncher] Install failed. See messages above.
 )
 echo.
-echo 종료하려면 아무 키나 누르세요...
+echo Press any key to close...
 pause >nul
 exit /b %EXITCODE%
