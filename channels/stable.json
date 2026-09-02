@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 20,
+    "update_sequence": 21,
     "minimum_supported_sequence": 1,
     "version": "1.0.3",
     "channel": "stable",
-    "published_at": "2026-09-01T08:12:49.733Z",
+    "published_at": "2026-09-02T02:03:11.876Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-20",
+      "release_tag": "update-21",
       "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 267119622,
-      "sha256": "1ab5dcbada08ab2a36eb61098d7ccfc1ddc6f28026c9acf3cb43716264038a2d"
+      "size": 267187267,
+      "sha256": "cf3ddc64941dbb21e76d01f8baa189f98e6b7fd96e38c242e3969fc5d185c738"
     },
-    "payload_manifest_sha256": "d54e504a514518054cb9eb675c276d43bc5391a464cc4b767da1194694532422",
-    "release_notes": "Idle-gated core live update while the app stays in the tray. Model-directed single agent loop (MAR/heuristics/auto diagnostics removed). Session drafts stay per-chat, file deletes go to workspace trash, scheduler lists real tasks with run-now, and memory/session rename UX is in."
+    "payload_manifest_sha256": "b063278aa4937cbc81c7d3cbea463bd87184dfafebce88beb793f49072ce2eb5",
+    "release_notes": ""
   },
-  "signature": "ICuyDZI1gRxysixCgbwbouS+crKCgje7vr5J2F1cLXsw+eQG43Un+F5cFNmNWWuaedQ8aCzwx1FFhkPH7ukv73hmDnO2vu/yaqg0Rj4HSdAXpNGLpoGi0Ae3hBArrB+5fH9u74RrHR0S0ASGpXbEOjmm0XB1w2lC4L4wDHJM1TRYHZK/oAV/oFig0akjBiM+1xxYiWvis9Kf4E+SbiRspIcwD/w1GRCBMuKIChO3nbt+NlSV9HjNE170ONa79u0VKe51E5JrGG83eEb4UPOdcelX89ZQtBKPq/JzTRM0QuWzaHDVchSvq1FIyBovTbEY6j2yK8nzecz/y81TweikiljcRQD1KO7MOdID30WPwDaczzeu8UMLJTMEivZ64+g7Y6j8MRWvsADO3KUZJCAuckV68/1ubeFTcjXZchNoghohy3b8w2oZKQ8DqRmI6cL99xMJ/nQsXCpATiMJawR0nlgrU2t+6mMEGlhCakf6kV7r+WCISfRWpeZLp3kPdu9P"
+  "signature": "NELogEzh8KULR063G3uQJgNpdiaDjyaLvhYrg905H4D3LLLK+MdpZ/E2394IIUne4m6PqL4skN+NE2aQ2r8AGRsUv7DICMFaWczErb0MpGpy7thna3AHbrn36/f8CTy8tYd/Wfx7SmgVKGoG3Q3mDgxWtPlMyB+CSjcV1711+BAclJ0qQscKRMij8dI27jGOTpyIxAlKoJNPoFXtV+xLF4FMThLBxX4iUQN1BuRloZaeFTXI0S8nR56n4dZQirwiHQkI0LdTo+XXynGTdxXiXO9CN/QLqvZdgPi8aqYWTIFAW0ARc3iM3Tu1NcSiHjGAUG6CwRAMxBq0+zo1hnIKxaK/5B/szre9AOvvZNJnEjK1huT9pYzvTi89rbJFwh0eORFocfzNtZpcC/dtJWgpsuqCTxjy+zn14BLQ42zIvhqCrmmUDdu4gm4k5felQwjobD4EhbpmmF3tnt+/QNrg1+cv3DnIr7QKPFCwXTb98SIMZH7tjRnGKG7x+lvrQluA"
 }

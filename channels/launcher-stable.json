@@ -7,15 +7,16 @@
     "minimum_supported_sequence": 1,
     "version": "1.0.0",
     "channel": "stable",
-    "published_at": "2026-09-02T00:00:00.000Z",
+    "published_at": "2026-09-02T02:04:30.271Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
       "release_tag": "launcher-update-1",
       "name": "WorkKitLauncher-v1.0.0-update-1.zip",
-      "size": 0,
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "size": 66673753,
+      "sha256": "6799a31d5b65012407d3127c76fa64d37c7d4da3b078920a44ba829b70807ae6"
     },
-    "release_notes": "Initial Work Kit Launcher (mod manager) — separate from MY Agent core."
+    "payload_manifest_sha256": "33e6d5bf26069d1d1801e9443e54bd3eff6a77124d50ad5df01cbd4601fa0cad",
+    "release_notes": ""
   },
-  "signature": ""
+  "signature": "WHVB2tAR+Vx4GtFWRpp7izLdDrAgYe6GPi5eYjUWCz4V5roTDUlnu5zSnT7u+t7JYZjVYq4egvuVAhbCvn0OX/WLvtD0fbj4VhypT2AYfW/C8HfYlzT0gZWpEKWecseHgbXJXcOKyVGjLJ04b9h8X+1UvsJ5mkrOR9ncXIJY9zpzVSDwLNbisAu7YlkQzZ+b2u5YtKvjYnWOCwk+4wQCx4eLc7cMVDF5B51rorSu7Jc5aZ/KqlhNXesYWP7RZYQvI50AtyUaydebNZXFNs379GdJ0w297LolvKykHz6zdAyfU7Bmyx4Q5e1bPVkx+9gHW6uZhQ0drX7p4m0tE0uKgmHeWvsXUceZZqkWJekKtaIL8DSQHhGs/9Ka3jw8nO2hbUgkDVU5Bp9ah5c54rJFmRFl/kNYzafzAtILmNFagTDdvYtYq+XmbVtmSmUTv7A9tThvlba1j0pepTTvqiOs/WaDtAWsUeyh46KZMSUwd2lrznm+vB/bR26fzKL4WV16"
 }
