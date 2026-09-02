@@ -57,33 +57,68 @@ function Get-AllDesktopFolders {
   return $unique.ToArray()
 }
 
+function Get-StartMenuFolders {
+  $paths = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($special in @('Programs', 'CommonPrograms')) {
+    $p = [Environment]::GetFolderPath($special)
+    if ($p) { [void]$paths.Add($p) }
+  }
+  if ($env:APPDATA) {
+    [void]$paths.Add((Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))
+  }
+  $unique = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($candidate in $paths) {
+    if (-not $candidate) { continue }
+    try {
+      $full = [IO.Path]::GetFullPath($candidate).TrimEnd('\')
+    } catch {
+      continue
+    }
+    if (-not (Test-Path -LiteralPath $full)) {
+      try {
+        New-Item -ItemType Directory -Force -Path $full | Out-Null
+      } catch {
+        continue
+      }
+    }
+    if (-not $unique.Contains($full)) {
+      [void]$unique.Add($full)
+    }
+  }
+  return $unique.ToArray()
+}
+
 function New-LauncherShortcutFile {
   param(
     [string]$ShortcutPath,
     [string]$TargetExe,
     [string]$WorkingDirectory,
-    [string]$Description
+    [string]$Description = 'MY Agent Manager'
   )
 
-  $parent = Split-Path $ShortcutPath -Parent
+  $parent = [IO.Path]::GetDirectoryName($ShortcutPath)
   if ($parent -and -not (Test-Path -LiteralPath $parent)) {
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
   }
 
+  $tempPath = [IO.Path]::Combine($parent, "myagent-wkl-$PID-$([Guid]::NewGuid().ToString('N').Substring(0,8)).lnk")
   if (Test-Path -LiteralPath $ShortcutPath) {
     Remove-Item -LiteralPath $ShortcutPath -Force -ErrorAction SilentlyContinue
   }
+  if (Test-Path -LiteralPath $tempPath) {
+    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+  }
 
   $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($ShortcutPath)
+  $shortcut = $shell.CreateShortcut($tempPath)
   $shortcut.TargetPath = $TargetExe
   $shortcut.Arguments = ''
   $shortcut.WorkingDirectory = $WorkingDirectory
   $shortcut.WindowStyle = 1
-  if ($Description) { $shortcut.Description = $Description }
+  $shortcut.Description = $Description
 
   $saved = $false
-  foreach ($icon in @("$TargetExe,0", "$TargetExe")) {
+  foreach ($icon in @("$TargetExe,0", "$TargetExe", '')) {
     try {
       $shortcut.IconLocation = $icon
       $shortcut.Save()
@@ -94,8 +129,17 @@ function New-LauncherShortcutFile {
     }
   }
   if (-not $saved) {
-    $shortcut.IconLocation = ''
-    $shortcut.Save()
+    throw "WScript shortcut Save() failed for temp file: $tempPath"
+  }
+  if (-not (Test-Path -LiteralPath $tempPath)) {
+    throw "Temp shortcut file was not created: $tempPath"
+  }
+
+  if ($ShortcutPath -ne $tempPath) {
+    if (Test-Path -LiteralPath $ShortcutPath) {
+      Remove-Item -LiteralPath $ShortcutPath -Force -ErrorAction Stop
+    }
+    [IO.File]::Move($tempPath, $ShortcutPath)
   }
 
   if (-not (Test-Path -LiteralPath $ShortcutPath)) {
@@ -103,26 +147,53 @@ function New-LauncherShortcutFile {
   }
 }
 
+function Test-ShortcutPointsTo {
+  param(
+    [string]$ShortcutPath,
+    [string]$TargetExe
+  )
+  if (-not (Test-Path -LiteralPath $ShortcutPath)) { return $false }
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $targetPath = $shell.CreateShortcut($ShortcutPath).TargetPath
+    return ($targetPath -and ($targetPath -ieq $TargetExe))
+  } catch {
+    return $false
+  }
+}
+
 function Find-ExistingLauncherShortcut {
   param(
     [string]$LauncherExe,
-    [string[]]$DesktopFolders
+    [string[]]$SearchFolders
   )
 
-  foreach ($desktop in $DesktopFolders) {
-    foreach ($item in @(Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue)) {
-      try {
-        $shell = New-Object -ComObject WScript.Shell
-        $targetPath = $shell.CreateShortcut($item.FullName).TargetPath
-        if ($targetPath -and ($targetPath -ieq $LauncherExe)) {
-          return $item.FullName
-        }
-      } catch {
-        continue
+  foreach ($folder in $SearchFolders) {
+    foreach ($item in @(Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -ErrorAction SilentlyContinue)) {
+      if (Test-ShortcutPointsTo -ShortcutPath $item.FullName -TargetExe $LauncherExe) {
+        return $item.FullName
       }
     }
   }
   return $null
+}
+
+function New-LauncherShortcutAt {
+  param(
+    [string]$Folder,
+    [string]$ShortcutName,
+    [string]$LauncherExe,
+    [string]$WorkingDir,
+    [string]$Description
+  )
+
+  $shortcutPath = [IO.Path]::Combine($Folder, $ShortcutName)
+  New-LauncherShortcutFile `
+    -ShortcutPath $shortcutPath `
+    -TargetExe $LauncherExe `
+    -WorkingDirectory $WorkingDir `
+    -Description $Description | Out-Null
+  return $shortcutPath
 }
 
 function Install-WorkKitLauncherDesktopShortcut {
@@ -136,46 +207,55 @@ function Install-WorkKitLauncherDesktopShortcut {
   $workingDir = (Get-Item -LiteralPath $AppRoot).FullName
   $label = Get-ManagerShortcutLabel
   $desktops = Get-AllDesktopFolders
-  if ($desktops.Count -eq 0) {
-    throw 'No desktop folder found.'
+  $startMenus = Get-StartMenuFolders
+  if ($desktops.Count -eq 0 -and $startMenus.Count -eq 0) {
+    throw 'No desktop or Start Menu folder found.'
   }
 
   $preferredName = $label + '.lnk'
-  foreach ($desktop in $desktops) {
-    $preferredPath = Join-Path $desktop $preferredName
-    if (Test-Path -LiteralPath $preferredPath) {
-      try {
-        $shell = New-Object -ComObject WScript.Shell
-        $targetPath = $shell.CreateShortcut($preferredPath).TargetPath
-        if ($targetPath -and ($targetPath -ieq $launcherExe)) {
-          return $preferredPath
-        }
-      } catch {
-        continue
-      }
+  $searchFolders = @($desktops + $startMenus)
+
+  foreach ($folder in $searchFolders) {
+    $preferredPath = [IO.Path]::Combine($folder, $preferredName)
+    if (Test-ShortcutPointsTo -ShortcutPath $preferredPath -TargetExe $launcherExe) {
+      return $preferredPath
     }
   }
 
-  $existing = Find-ExistingLauncherShortcut -LauncherExe $launcherExe -DesktopFolders $desktops
-  if ($existing -and ((Split-Path $existing -Leaf) -ieq $preferredName)) {
+  $existing = Find-ExistingLauncherShortcut -LauncherExe $launcherExe -SearchFolders $searchFolders
+  if ($existing -and (([IO.Path]::GetFileName($existing)) -ieq $preferredName)) {
     return $existing
   }
 
   $shortcutNames = Get-ManagerShortcutNames
-
   $errors = New-Object 'System.Collections.Generic.List[string]'
-  foreach ($desktop in $desktops) {
+
+  foreach ($folder in $desktops) {
     foreach ($shortcutName in $shortcutNames) {
-      $shortcutPath = Join-Path $desktop $shortcutName
       try {
-        New-LauncherShortcutFile `
-          -ShortcutPath $shortcutPath `
-          -TargetExe $launcherExe `
-          -WorkingDirectory $workingDir `
-          -Description $label
-        return $shortcutPath
+        return (New-LauncherShortcutAt `
+          -Folder $folder `
+          -ShortcutName $shortcutName `
+          -LauncherExe $launcherExe `
+          -WorkingDir $workingDir `
+          -Description 'MY Agent Manager')
       } catch {
-        [void]$errors.Add("$shortcutPath -> $($_.Exception.Message)")
+        [void]$errors.Add("$folder\$shortcutName -> $($_.Exception.Message)")
+      }
+    }
+  }
+
+  foreach ($folder in $startMenus) {
+    foreach ($shortcutName in $shortcutNames) {
+      try {
+        return (New-LauncherShortcutAt `
+          -Folder $folder `
+          -ShortcutName $shortcutName `
+          -LauncherExe $launcherExe `
+          -WorkingDir $workingDir `
+          -Description 'MY Agent Manager')
+      } catch {
+        [void]$errors.Add("$folder\$shortcutName -> $($_.Exception.Message)")
       }
     }
   }

@@ -77,11 +77,17 @@ Write-Host "Installing WorkKitLauncher into: $targetRoot"
 Copy-Item -LiteralPath (Join-Path $SourceAppDir '*') -Destination $targetRoot -Recurse -Force
 
 $launcherExe = Join-Path $targetRoot 'WorkKitLauncher.exe'
+if (-not (Test-Path -LiteralPath $launcherExe)) {
+  throw "Install finished but WorkKitLauncher.exe is missing: $launcherExe"
+}
+
 $shortcutPath = $null
 try {
   $shortcutPath = Install-WorkKitLauncherDesktopShortcut -AppRoot $targetRoot
 } catch {
-  Write-Host "Desktop shortcut warning: $($_.Exception.Message)"
+  Write-Host ''
+  Write-Host "Desktop shortcut FAILED: $($_.Exception.Message)"
+  Write-Host "You can run WorkKitLauncher.exe directly: $launcherExe"
 }
 
 Write-Host ''
