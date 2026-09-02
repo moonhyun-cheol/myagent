@@ -166,6 +166,14 @@ for (const m of installLauncherUi.matchAll(/-match\s+'([^']*)'/g)) {
 const installLauncherBat = read('tools/install/install-launcher.bat');
 assert.match(installLauncherBat, /install-launcher-ui\.ps1/);
 
+const installLauncherPs1 = read('tools/install/install-launcher.ps1');
+assert.match(installLauncherPs1, /function Copy-LauncherPayload/);
+assert.doesNotMatch(
+  installLauncherPs1,
+  /Copy-Item\s+-LiteralPath\s+\(Join-Path\s+\$SourceAppDir\s+'\*'\)/,
+  'install-launcher.ps1 must not use LiteralPath with wildcards (silent no-copy bug on PS 5.1)',
+);
+
 assert.equal(existsSync(path.join(root, 'START.bat')), false, 'root START.bat must stay removed');
 const start = read('tools/commands/start-legacy.bat');
 const exeBranch = start.indexOf('MYAgent.exe');

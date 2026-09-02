@@ -44,6 +44,65 @@ function Get-DesktopFolders {
   return Get-AllDesktopFolders
 }
 
+function Test-InstallFolderWritable([string]$folder) {
+  try {
+    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+    $writeProbe = Join-Path $folder ".my-agent-launcher-install-probe-$PID.tmp"
+    [IO.File]::WriteAllText($writeProbe, 'probe')
+    Remove-Item -LiteralPath $writeProbe -Force
+    return $true
+  } catch {
+    Remove-Item -LiteralPath (Join-Path $folder ".my-agent-launcher-install-probe-$PID.tmp") -Force -ErrorAction SilentlyContinue
+    return $false
+  }
+}
+
+function Stop-RunningWorkKitLauncher {
+  $procs = @(Get-Process -Name 'WorkKitLauncher' -ErrorAction SilentlyContinue)
+  if ($procs.Count -eq 0) { return }
+  Write-Host "Stopping $($procs.Count) running WorkKitLauncher process(es) before install..."
+  foreach ($proc in $procs) {
+    try {
+      if (-not $proc.HasExited -and $proc.MainWindowHandle -ne 0) {
+        [void]$proc.CloseMainWindow()
+      }
+    } catch { }
+  }
+  Start-Sleep -Milliseconds 500
+  Get-Process -Name 'WorkKitLauncher' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 200
+}
+
+function Copy-LauncherPayload {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourceDir,
+    [Parameter(Mandatory = $true)][string]$TargetDir
+  )
+
+  $sourceFull = (Resolve-Path -LiteralPath $SourceDir).Path.TrimEnd('\')
+  if (-not (Test-Path -LiteralPath (Join-Path $sourceFull 'WorkKitLauncher.exe'))) {
+    throw "Source app folder is missing WorkKitLauncher.exe: $sourceFull"
+  }
+
+  $copiedFiles = 0
+  Get-ChildItem -LiteralPath $sourceFull -Recurse -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($sourceFull.Length).TrimStart('\')
+    if (-not $rel) { return }
+    $dest = Join-Path $TargetDir $rel
+    if ($_.PSIsContainer) {
+      New-Item -ItemType Directory -Force -Path $dest | Out-Null
+      return
+    }
+    $destParent = Split-Path $dest -Parent
+    if ($destParent -and -not (Test-Path -LiteralPath $destParent)) {
+      New-Item -ItemType Directory -Force -Path $destParent | Out-Null
+    }
+    Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+    $copiedFiles++
+  }
+  return $copiedFiles
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $SourceAppDir 'WorkKitLauncher.exe'))) {
   throw "Source app folder is missing WorkKitLauncher.exe: $SourceAppDir"
 }
@@ -82,16 +141,19 @@ if (-not (Test-MyAgentInstallRoot $targetRoot)) {
   Wait-BeforeExit 1
 }
 
-Write-Host "Installing WorkKitLauncher into: $targetRoot"
-$sourceItems = Join-Path $SourceAppDir '*'
-if (-not (Test-Path -LiteralPath $SourceAppDir)) {
-  throw "Source app folder is missing: $SourceAppDir"
+if (-not (Test-InstallFolderWritable $targetRoot)) {
+  throw "Install folder is not writable: $targetRoot. Run as the same Windows user who uses MY Agent (not administrator)."
 }
-Copy-Item -Path $sourceItems -Destination $targetRoot -Recurse -Force
+
+Write-Host "Installing WorkKitLauncher into: $targetRoot"
+Write-Host "Copying from: $SourceAppDir"
+Stop-RunningWorkKitLauncher
+$copiedCount = Copy-LauncherPayload -SourceDir $SourceAppDir -TargetDir $targetRoot
+Write-Host "Copied $copiedCount file(s)."
 
 $launcherExe = Join-Path $targetRoot 'WorkKitLauncher.exe'
 if (-not (Test-Path -LiteralPath $launcherExe)) {
-  throw "Install finished but WorkKitLauncher.exe is missing: $launcherExe"
+  throw "Install finished but WorkKitLauncher.exe is missing: $launcherExe (source: $SourceAppDir, copied files: $copiedCount). Re-download the install zip and run install-launcher.bat again."
 }
 
 $shortcutPath = $null
