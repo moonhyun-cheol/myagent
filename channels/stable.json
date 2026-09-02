@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 28,
+    "update_sequence": 29,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T06:48:02.876Z",
+    "published_at": "2026-09-02T07:04:21.882Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-28",
+      "release_tag": "update-29",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267193062,
-      "sha256": "558396010c0a3f4979bbb2a91a769dade710ce26e12f01ef39fd0b633d073751"
+      "size": 267193205,
+      "sha256": "d7a4858442643a8882a267d43edb45ec7e88d6631f29b71c46b7525e77f6a50d"
     },
-    "payload_manifest_sha256": "e6d2cd2a531f27074c5b294aa7599e2bdd481cff4454bf1ed98aebb7d3b06a83",
-    "release_notes": "## 자동화 UI MVP\n\n- **새 일정**: 정기(요일+시각), 한 번 실행, 수동 실행 + 실행 지시 저장\n- **일정 관리**: 즉시 실행, 일시 중지/재개, 삭제\n- **실행 기록** 탭: 최근 실행 상태·오류 확인\n- **요약 카드**: 다음 실행, 최근 7일 실패 건수\n- read_only 라이선스에서 저장/변경 차단\n\n백엔드 Personal Scheduler는 기존과 동일; 이번 업데이트는 UI를 실제 API에 연결합니다."
+    "payload_manifest_sha256": "476b3fb920aa4edd0f99286595f4446166b98c19bf2c433d00f2d438c7e57eb8",
+    "release_notes": "## 설정 UX + 자동화 안내\n\n### 설정 (일반)\n- **설치 폴더**, **앱 및 업데이트**, **연결 프로그램**을 각각 독립 카드로 분리\n- 사이드바 라벨을 페이지와 맞춰 **「일반」**으로 통일\n\n### 자동화\n- 트리거 태그 안내에 Time / Sequence / On action / Condition / Manual **5종 복원**\n- 아직 미지원인 3종은 흐리게 표시 + 다음 업데이트 안내"
   },
-  "signature": "YLjh+SGhHUCs+Q8mzi/q1NhiAZf++vqGC4QAN9A7uXTrI+fLtGG8JvRpXzhj+JjL92uhOjZwt5c2/h9LmLkVdUYFp2lpRGTDHCICR35IzeSxAAE/np9AdlLHhcU4BbkhtvAKPOdxdo5JVCCS5GmWsiBkUxw1ze3k/q/SRq2zi0/xVmlPxerBVbOoqaniIKQUCRwshicNg5Q2c8dt8bLlQMjysDQWtZs9BNeVlJ+JK1FeCvtmDUgFMhqEEC8mLD4i02BdRSo6PG5GYNMljH0zPawX3ab+cJu9qKbxcTmhJ0Ux3u5lJmaiCmR24pOJPJxtHgqNEVEkrPXsqe+RJebs7qP0f1tgYEKEHGrAthFAy1hHXt4KPmHkpSjZpvXO8RMKVJmlFZqRGS54/wEoVYxrNaVtOm1DnWTELavOXH3CHaW/Vn0V3uaRTbW9PyexgsvkSMrB+u6h/7V70WBa7KnwDaBj8LdLieDYYRZWXbzTJG79VC4biiY5vjY76Vhxmf0s"
+  "signature": "uzruUOHrNvQOCnwWo2xCstu67jv+cxGIgnkySPdFVmUDzY/7kkrIZxx08l0Bb02i8gSyQTu8fAPyGK8c+n8xh0tKD2hXpeYFL8w9RWBnRcfAONiTbP9khQOi/rfhS23KVwQSj2yqjUQBfOoZGLxMUaQ0JRkaYOPDrW4FUi/R7y9R0u5OH4PfprVKDKNoWTlyQ6N9bOcpcAgz7mJ6ARudxxZF1qqhzSGOBWY8Fy5It9jj5ES5kRdx2lmG/YZFxIBCKoZD+REpxE+XmJAHK+zyVCBzMN9YkrlQfSyDorPoqa+4e1J1zEeYxZdro2dFTbadAfdEQoB1CXzVWql6LiIGTl/BTobxg9wMWiwomF3f6fKcESkToogzgMjfZ3RN8PYug454kHuC2ntPnAuqrjI84PTmKNT3Gt4unQ7FCNlwD/SK5H+cAyNTSrbAHQ7BfHgs2T5eJHFz6slzGLebuAx6i8raCgjoePMn55rTcGcn8XoseUzGMfm2//CN2VRI8xPq"
 }
