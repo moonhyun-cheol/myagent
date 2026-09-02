@@ -169,6 +169,7 @@
     "publish:update": "node tools/publish-secure-update.mjs",
     "publish:update:github": "node tools/publish-github-update.mjs",
     "publish:launcher-update": "node tools/publish-launcher-update.mjs",
+    "publish:launcher-install": "node tools/publish-launcher-install.mjs",
     "publish:launcher-update:github": "node tools/publish-github-launcher-update.mjs",
     "verify:launcher-update": "node tools/verify-launcher-update.mjs",
     "verify:work-environment-pending": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-work-environment-pending.mjs",
