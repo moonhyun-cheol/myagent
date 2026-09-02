@@ -16,11 +16,12 @@ if "%~1"=="" (
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\install\install-launcher.ps1" -SourceAppDir "%~dp0app" -TargetRoot "%~1" -Launch
 )
-if errorlevel 1 (
+set EXITCODE=%ERRORLEVEL%
+if not "%EXITCODE%"=="0" (
   echo.
-  pause
-  exit /b 1
+  echo [WorkKitLauncher] 설치에 실패했습니다. 위 안내를 확인하세요.
 )
 echo.
-pause
-exit /b 0
+echo 종료하려면 아무 키나 누르세요...
+pause >nul
+exit /b %EXITCODE%
