@@ -151,6 +151,20 @@ for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
   );
 }
 
+const installLauncherUi = read('tools/install/install-launcher-ui.ps1');
+assert.match(installLauncherUi, /Show-TargetPickerForm/);
+assert.match(installLauncherUi, /Get-ManagerProductLabel/);
+assert.match(installLauncherUi, /-NoInteractive/);
+for (const m of installLauncherUi.matchAll(/-match\s+'([^']*)'/g)) {
+  assert.ok(
+    !/[^\x00-\x7F]/.test(m[1]),
+    `install-launcher-ui.ps1 -match must be ASCII-only: ${m[1]}`,
+  );
+}
+
+const installLauncherBat = read('tools/install/install-launcher.bat');
+assert.match(installLauncherBat, /install-launcher-ui\.ps1/);
+
 assert.equal(existsSync(path.join(root, 'START.bat')), false, 'root START.bat must stay removed');
 const start = read('tools/commands/start-legacy.bat');
 const exeBranch = start.indexOf('MYAgent.exe');

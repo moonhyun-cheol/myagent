@@ -3,7 +3,8 @@
 param(
   [string]$SourceAppDir = (Join-Path (Split-Path $PSScriptRoot -Parent) 'app'),
   [string]$TargetRoot = '',
-  [switch]$Launch
+  [switch]$Launch,
+  [switch]$NoInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,6 +34,9 @@ function Wait-BeforeExit([int]$exitCode) {
 trap {
   Write-Host ''
   Write-Host $_.Exception.Message
+  if ($NoInteractive) {
+    exit 1
+  }
   Wait-BeforeExit 1
 }
 
@@ -59,13 +63,18 @@ if (-not $targetRoot) {
 }
 
 while (-not (Test-MyAgentInstallRoot $targetRoot)) {
+  if ($NoInteractive) { break }
   $targetRoot = Read-InstallRootFromUser
   if (-not $targetRoot) { break }
 }
 
 if (-not (Test-MyAgentInstallRoot $targetRoot)) {
+  $message = 'Could not find an existing MY Agent installation.'
+  if ($NoInteractive) {
+    throw $message
+  }
   Write-Host ''
-  Write-Host 'ERROR: Could not find an existing MY Agent installation.'
+  Write-Host "ERROR: $message"
   Write-Host '1) Open MY Agent, then run install-launcher.bat again (auto-detect uses the running app).'
   Write-Host '2) Settings -> General -> copy install folder, then:'
   Write-Host '   install-launcher.bat "PASTE_PATH_HERE"'

@@ -72,7 +72,7 @@ const readme = `WorkKitLauncher v${version} (install only)
 기존 MY Agent 설치에 작업 환경 프로그램만 추가·갱신합니다.
 MY Agent 코어(MYAgent.exe)는 포함하지 않습니다.
 
-1. install-launcher.bat 실행 (더블클릭)
+1. install-launcher.bat (GUI) or install-launcher-ui.ps1
 2. MY Agent 설치 폴더를 자동으로 찾아 WorkKitLauncher.exe 를 복사합니다.
    - 기본 후보: %SystemDrive%\\MYAgent, 바탕화면 "MY Agent" 바로가기, MY_AGENT_ROOT
 3. Desktop shortcut: MY Agent 관리자.lnk
@@ -86,6 +86,10 @@ MY Agent 코어(MYAgent.exe)는 포함하지 않습니다.
 writeFileSync(path.join(stageDir, 'README-launcher-install.txt'), readme, 'utf8');
 cpSync(path.join(root, 'tools', 'install', 'install-launcher.bat'), path.join(stageDir, 'install-launcher.bat'));
 mkdirSync(path.join(stageDir, 'tools', 'install'), { recursive: true });
+cpSync(
+  path.join(root, 'tools', 'install', 'install-launcher-ui.ps1'),
+  path.join(stageDir, 'tools', 'install', 'install-launcher-ui.ps1'),
+);
 cpSync(
   path.join(root, 'tools', 'install', 'install-launcher.ps1'),
   path.join(stageDir, 'tools', 'install', 'install-launcher.ps1'),
