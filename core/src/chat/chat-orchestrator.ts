@@ -539,6 +539,12 @@ export class ChatOrchestrator {
 
   async handleStream(req: ChatRequest, sessionId: string, res: ServerResponse, signal?: AbortSignal): Promise<void> {
     initSse(res);
+    this.sessionStore.beginAssistantThought(sessionId);
+    const emitThought = (text: string, label?: string) => {
+      if (!text) return;
+      this.sessionStore.appendAssistantThought(sessionId, text);
+      sseEvent(res, { type: 'thought', text, ...(label ? { label } : {}) });
+    };
     const inlet = applyChatInletFilter((req.message ?? '').trim(), {
       sessionId,
       mode: req.mode,
@@ -554,7 +560,7 @@ export class ChatOrchestrator {
     beginActiveWork(streamWorkKey, 'chat_stream');
     try {
     for (const w of inlet.warnings ?? []) {
-      sseEvent(res, { type: 'thought', text: applyChatStreamFilter(w), label: 'filter' });
+      emitThought(applyChatStreamFilter(w), 'filter');
     }
     const message = inlet.text;
     const explicitMode = normalizeMode(req.mode);
@@ -596,7 +602,7 @@ export class ChatOrchestrator {
         sseEvent(res, { type: 'status', text: statusLabelForMode('automaton_direct') });
         const full = await this.handleAutomatonDirect(sessionId, routing, automatonText, {
           onStatus: (text) => sseEvent(res, { type: 'status', text }),
-          onThought: (text) => sseEvent(res, { type: 'thought', text, label: '작업 로그' }),
+          onThought: (text) => emitThought(text, '작업 로그'),
         });
         const finalized = await this.finalizeAssistantReply(full.content, sessionId, null);
         sseEvent(res, { type: 'meta', routing: full.routing, model: full.model });
@@ -695,7 +701,7 @@ export class ChatOrchestrator {
                   ]
                 : undefined,
             callbacks: {
-              onThought: (text) => sseEvent(res, { type: 'thought', text }),
+              onThought: (text) => emitThought(text),
               onCode: (snippet) => sseEvent(res, { type: 'code', ...snippet }),
               onWorkspaceMutate: (paths) => {
                 const clean = (paths ?? [])

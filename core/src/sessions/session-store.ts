@@ -13,6 +13,9 @@ import type {
 import { gcDeletedSessionTemp, pruneSessionTemp } from './session-temp-gc.js';
 
 const MAX_MESSAGES = 80;
+const MAX_ASSISTANT_THOUGHT_CHARS = 200_000;
+const TRUNCATED_THOUGHT_PREFIX = '[이전 작업 로그 일부 생략]\n';
+
 const MAX_SESSION_TITLE_LENGTH = 80;
 
 export function normalizeSessionTitle(title: string): string {
@@ -20,6 +23,9 @@ export function normalizeSessionTitle(title: string): string {
 }
 
 export class SessionStore {
+  /** Work-log deltas collected before the matching assistant message is persisted. */
+  private readonly pendingAssistantThought = new Map<string, string>();
+
   constructor(
     private readonly sessionsDir: string,
     private readonly cqrRoot: string,
@@ -31,6 +37,40 @@ export class SessionStore {
     return this.loadAll()
       .map((rec) => this.toSummary(rec))
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+
+  /** Import the portable cqr-pa conversation export as a new local session. */
+  importPortable(raw: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): SessionRecord {
+    const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const conversation = source.conversation && typeof source.conversation === 'object'
+      ? source.conversation as Record<string, unknown>
+      : source;
+    const rawMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+    const messages: SessionMessage[] = rawMessages
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item): SessionMessage => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: typeof item.content === 'string' ? item.content : '',
+        at: typeof item.at === 'string' ? item.at : new Date().toISOString(),
+        ...(typeof item.mode === 'string' ? { mode: item.mode } : {}),
+        ...(typeof item.thought === 'string' && item.thought.trim()
+          ? { thought: item.thought }
+          : {}),
+      }))
+      .filter((item) => item.content.trim())
+      .slice(-MAX_MESSAGES);
+    const title = normalizeSessionTitle(
+      typeof conversation.title === 'string' && conversation.title.trim()
+        ? conversation.title
+        : messages.find((message) => message.role === 'user')?.content ?? '가져온 세션',
+    ) || '가져온 세션';
+    const now = new Date().toISOString();
+    const rec: SessionRecord = {
+      id: randomUUID(), title, created_at: now, updated_at: now, messages,
+      project_id: projectId, workspace_project_id: workspaceProjectId,
+    };
+    this.save(rec);
+    return rec;
   }
 
   loadAll(): SessionRecord[] {
@@ -97,21 +137,21 @@ export class SessionStore {
     return rec;
   }
 
+  setProject(id: string, projectId: string | null): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    rec.project_id = projectId ? sanitizeId(projectId) : null;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    return rec;
+  }
+
   rename(id: string, title: string): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;
     const next = normalizeSessionTitle(title);
     if (!next) return null;
     rec.title = next;
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
-    return rec;
-  }
-
-  setProject(id: string, projectId: string | null): SessionRecord | null {
-    const rec = this.load(id);
-    if (!rec) return null;
-    rec.project_id = projectId ? sanitizeId(projectId) : null;
     rec.updated_at = new Date().toISOString();
     this.save(rec);
     return rec;
@@ -161,15 +201,41 @@ export class SessionStore {
     return n;
   }
 
+  /** Start collecting the public work log for one streamed assistant turn. */
+  beginAssistantThought(id: string): void {
+    const safe = sanitizeId(id);
+    if (!safe) return;
+    this.pendingAssistantThought.delete(safe);
+  }
+
+  /** Append an SSE `thought` delta without feeding it back into future model context. */
+  appendAssistantThought(id: string, delta: string): void {
+    const safe = sanitizeId(id);
+    if (!safe || !delta) return;
+    const combined = `${this.pendingAssistantThought.get(safe) ?? ''}${delta}`;
+    const bounded = combined.length <= MAX_ASSISTANT_THOUGHT_CHARS
+      ? combined
+      : `${TRUNCATED_THOUGHT_PREFIX}${combined.slice(-(MAX_ASSISTANT_THOUGHT_CHARS - TRUNCATED_THOUGHT_PREFIX.length))}`;
+    this.pendingAssistantThought.set(safe, bounded);
+  }
+
   append(id: string, message: SessionMessage): SessionRecord {
     const rec = this.ensure(id);
-    rec.messages.push(message);
+    let storedMessage = message;
+    if (message.role === 'assistant') {
+      const pendingThought = this.pendingAssistantThought.get(rec.id);
+      this.pendingAssistantThought.delete(rec.id);
+      if (!message.thought && pendingThought?.trim()) {
+        storedMessage = { ...message, thought: pendingThought };
+      }
+    }
+    rec.messages.push(storedMessage);
     const trimmed = rec.messages.length > MAX_MESSAGES;
     if (trimmed) {
       rec.messages = rec.messages.slice(-MAX_MESSAGES);
     }
-    if (message.role === 'user' && rec.title === '새 대화') {
-      rec.title = message.content.trim().slice(0, 48) || '새 대화';
+    if (storedMessage.role === 'user' && rec.title === '새 대화') {
+      rec.title = storedMessage.content.trim().slice(0, 48) || '새 대화';
     }
     rec.updated_at = new Date().toISOString();
     this.save(rec);

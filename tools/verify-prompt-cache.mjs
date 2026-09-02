@@ -91,7 +91,7 @@ try {
   rmSync(cleanPcRoot, { recursive: true, force: true });
 }
 
-const originalFetch = globalThis.fetch;
+const originalAnthropicFetch = globalThis.fetch;
 let anthropicBody;
 globalThis.fetch = async (_url, init) => {
   anthropicBody = JSON.parse(String(init.body));
@@ -120,7 +120,7 @@ try {
   assert.equal(result.usage.cached_tokens, 20);
   assert.equal(result.usage.cache_write_tokens, 80);
 } finally {
-  globalThis.fetch = originalFetch;
+  globalThis.fetch = originalAnthropicFetch;
 }
 
 console.log('cache pipeline: stable prefix, RAG candidate dedupe, persistent verified reads, Anthropic usage PASS');

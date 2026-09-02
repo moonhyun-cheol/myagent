@@ -119,7 +119,9 @@ export function buildResponsesInput(messages: ChatMessage[]): unknown[] {
 
 function responseInstructions(messages: ChatMessage[]): string | undefined {
   const instructions = messages
-    .filter((message) => message.role === 'system')
+    // Ephemeral user-tail guidance is native Responses instruction metadata, not
+    // a durable conversation item. This keeps continuation chains free of phase notes.
+    .filter((message) => message.role === 'system' || message.ephemeral === true)
     .map((message) => typeof message.content === 'string' ? message.content.trim() : '')
     .filter(Boolean)
     .join('\n\n');
@@ -130,14 +132,18 @@ function continuationItems(
   messages: ChatMessage[],
   state: ResponsesContinuationState | undefined,
 ): { items: unknown[]; continued: boolean } {
+  // Index only durable non-system messages. System content and ephemeral phase
+  // guidance travel via `instructions`, so neither may shift the stored item chain.
+  // Legacy chains without index_basis rebuild in full once, then heal.
+  const dynamic = messages.filter((message) => message.role !== 'system' && message.ephemeral !== true);
   if (!state?.previous_response_id && !state?.replay_items?.length) {
-    return { items: buildResponsesInput(messages), continued: false };
+    return { items: buildResponsesInput(dynamic), continued: false };
   }
-  if (state.next_message_index < 0 || state.next_message_index > messages.length) {
-    return { items: buildResponsesInput(messages), continued: false };
+  if (state.index_basis !== 'dynamic' || state.next_message_index < 0 || state.next_message_index > dynamic.length) {
+    return { items: buildResponsesInput(dynamic), continued: false };
   }
   return {
-    items: buildResponsesInput(messages.slice(state.next_message_index)),
+    items: buildResponsesInput(dynamic.slice(state.next_message_index)),
     continued: true,
   };
 }
@@ -194,6 +200,9 @@ function buildBody(
   if (tools?.length) {
     body.tools = buildResponsesTools(tools);
     body.tool_choice = opts?.toolChoice ?? 'auto';
+    if (opts?.parallelToolCalls !== undefined) {
+      body.parallel_tool_calls = opts.parallelToolCalls;
+    }
   }
   if (opts?.extraBody) Object.assign(body, opts.extraBody);
   delete body.messages;
@@ -225,7 +234,11 @@ function advanceResponsesState(
     tool_schema_hash: opts?.promptContext?.tool_schema_hash ?? current.tool_schema_hash,
     previous_response_id: doc.id,
     // The completed response becomes one assistant ChatMessage before the next call.
-    next_message_index: messages.length + 1,
+    // Count only durable non-system messages (see continuationItems).
+    next_message_index: messages.filter(
+      (message) => message.role !== 'system' && message.ephemeral !== true,
+    ).length + 1,
+    index_basis: 'dynamic',
     reasoning_context: doc.reasoning?.context ?? current.reasoning_context,
     usage: {
       input_tokens: doc.usage?.input_tokens,

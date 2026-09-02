@@ -47,6 +47,8 @@ export function GeminiNavSidebar({
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const startNewChat = useWorkspaceStore((state) => state.startNewChat);
+  const activeProjectId = useWorkspaceStore((state) => state.activeProjectId);
+  const activeWorkspaceProjectId = useWorkspaceStore((state) => state.activeWorkspaceProjectId);
 
   const refreshProviders = useCallback(async () => {
     try {
@@ -61,10 +63,11 @@ export function GeminiNavSidebar({
   const onNewChat = async () => {
     setBusyMsg('');
     try {
-      await startNewChat(null);
+      const projectId = activeProjectId === activeWorkspaceProjectId ? null : activeProjectId;
+      await startNewChat(projectId, activeWorkspaceProjectId);
       onSurfaceChange('chat');
     } catch (err) {
-      setBusyMsg(err instanceof Error ? err.message : '새 세션을 만들지 못했습니다.');
+      setBusyMsg(err instanceof Error ? err.message : '새 대화를 만들지 못했습니다.');
     }
   };
 
@@ -87,7 +90,7 @@ export function GeminiNavSidebar({
           active={!collapsed}
           onClick={() => setCollapsed((value) => !value)}
         />
-        <DockIcon icon={PencilSimple} label="새 세션" onClick={() => void onNewChat()} />
+        <DockIcon icon={PencilSimple} label="현재 위치에 새 대화" onClick={() => void onNewChat()} />
 
         <div className="mt-auto flex flex-col items-center gap-1">
           <DockIcon

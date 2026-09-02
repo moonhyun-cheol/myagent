@@ -40,6 +40,14 @@ const {
   buildChatCompletionBody,
   shouldFallbackToClientToolProtocol,
 } = await import('../core/dist/providers/openai-compatible.js');
+const {
+  DEFAULT_AGENT_READ_PARALLELISM,
+  MAX_AGENT_READ_PARALLELISM,
+  isParallelReadOnlyTool,
+  resolveAgentReadParallelism,
+  runParallelToolCalls,
+} = await import('../core/dist/agent/agent-tool-parallel.js');
+const { formatChatErrorMessage } = await import('../core/dist/debug-session-log.js');
 const { formatExitGateToolNudge } = await import('../core/dist/agent/agent-claim-gates.js');
 const { getHistoryTurns, applyHistoryContentBudget } = await import(
   '../core/dist/chat/history-budget.js',
@@ -227,15 +235,60 @@ function withEnv(patch, fn) {
   });
 }
 
-// body merge
+// body merge + native parallel tool-call request
 {
   const body = buildChatCompletionBody(
-    { model: 'm', messages: [], stream: false },
-    { reasoningEffort: 'high', extraBody: { temperature: 0.2 } },
+    {
+      model: 'm',
+      messages: [],
+      stream: false,
+      tools: [{ type: 'function', function: { name: 'read_file', parameters: {} } }],
+    },
+    {
+      reasoningEffort: 'high',
+      extraBody: { temperature: 0.2 },
+      parallelToolCalls: true,
+    },
   );
   assert.equal(body.reasoning_effort, 'high');
   assert.equal(body.temperature, 0.2);
+  assert.equal(body.parallel_tool_calls, true);
   assert.equal(body.model, 'm');
+}
+
+// bounded read-only parallelism preserves model tool-call order
+{
+  assert.equal(DEFAULT_AGENT_READ_PARALLELISM, 4);
+  assert.equal(MAX_AGENT_READ_PARALLELISM, 8);
+  assert.equal(resolveAgentReadParallelism({ MY_AGENT_READ_PARALLELISM: '99' }), 8);
+  assert.equal(resolveAgentReadParallelism({ MY_AGENT_READ_PARALLELISM: '1' }), 1);
+  assert.equal(isParallelReadOnlyTool('read_file'), true);
+  assert.equal(isParallelReadOnlyTool('apply_patch'), false);
+
+  const calls = [30, 5, 15].map((delay, index) => ({
+    id: `call-${index}`,
+    type: 'function',
+    function: { name: 'read_file', arguments: JSON.stringify({ delay }) },
+  }));
+  let active = 0;
+  let peak = 0;
+  const results = await runParallelToolCalls(calls, 2, async (call) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    const { delay } = JSON.parse(call.function.arguments);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    active -= 1;
+    return { output: call.id };
+  });
+  assert.equal(peak, 2);
+  assert.deepEqual(results.map((row) => row.output), ['call-0', 'call-1', 'call-2']);
+}
+
+{
+  const message = formatChatErrorMessage(
+    'Code agent exceeded 45 LLM orchestration rounds (not tool calls).',
+  );
+  assert.match(message, /모델 왕복 횟수/);
 }
 
 // history content budget

@@ -17,6 +17,7 @@ import {
   createProject,
   deleteProject,
   deleteSession,
+  importSession,
   renameSession,
   fetchWorkspaceTree,
   getPinnedSessionIds,
@@ -31,6 +32,7 @@ import {
 } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { confirmDialog, promptDialog } from '../lib/confirmDialog';
+import { pickPortableSessionFile } from '../lib/sessionImport';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
 
@@ -252,14 +254,44 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     }
   };
 
-  const onNewChatIn = async (projectId: string | null) => {
+  const importPortableSession = async (file: File, projectId: string | null, workspaceProjectId: string | null) => {
     try {
-      await startNewChat(projectId);
+      const raw = JSON.parse(await file.text());
+      await importSession(raw, projectId, workspaceProjectId);
       await refresh();
-      onChatOpened?.();
+      onMessage?.('세션을 가져왔습니다.');
     } catch (err) {
-      onMessage?.(err instanceof Error ? err.message : '새 채팅 실패');
+      onMessage?.(err instanceof Error ? err.message : '세션 가져오기 실패');
     }
+  };
+
+  const chooseAndImportSession = async (projectId: string | null, workspaceProjectId: string | null) => {
+    const file = await pickPortableSessionFile();
+    if (file) await importPortableSession(file, projectId, workspaceProjectId);
+  };
+
+
+  const findWorkspaceTarget = (id: string): { node: WorkspaceNode; root: WorkspaceNode } | null => {
+    const visit = (node: WorkspaceNode, root: WorkspaceNode): { node: WorkspaceNode; root: WorkspaceNode } | null => {
+      if (node.id === id) return { node, root };
+      for (const child of node.children ?? []) {
+        const found = visit(child, root);
+        if (found) return found;
+      }
+      return null;
+    };
+    for (const root of tree?.workspace_trees ?? []) {
+      const found = visit(root, root);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  const onNewChatIn = async (id: string) => {
+    const target = findWorkspaceTarget(id);
+    const isWorkspaceRoot = target?.node.kind === 'workspace_root';
+    await startNewChat(isWorkspaceRoot ? null : id, target?.root.id ?? null);
+    onChatOpened?.();
   };
 
   const openSession = async (id: string, _projectId: string | null) => {
@@ -344,9 +376,9 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       await refresh();
       const projectId = result.active_workspace_project_id ?? null;
       if (projectId) {
-        await startNewChat(projectId);
+        await startNewChat(null, projectId);
         onChatOpened?.();
-        onMessage?.(`작업 폴더 연결 · 프로젝트 채팅 시작: ${folderPath}`);
+        onMessage?.(`작업 폴더 연결 · 새 대화 시작: ${folderPath}`);
       } else {
         onMessage?.(`작업 폴더 연결: ${folderPath}`);
       }
@@ -467,6 +499,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                 depth={0}
                 collapsed={collapsed}
                 pinnedNodes={pinnedNodes}
+                pinnedSessionIds={pinned}
                 activeSessionId={activeSessionId}
                 activeWorkspaceId={tree?.active_workspace_project_id ?? null}
                 matchSession={matchSession}
@@ -476,7 +509,9 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                 onOpenNodeChat={(n) => void openNodeChat(n)}
                 onSelectSession={(s, wsRoot) => void onSelectSessionUnderWorkspace(s, wsRoot)}
                 onDeleteSession={(id) => void onDeleteSession(id)}
+                onToggleSessionPin={togglePin}
                 onNewChat={(id) => void onNewChatIn(id)}
+                onImportSession={(projectId, workspaceProjectId) => void chooseAndImportSession(projectId, workspaceProjectId)}
                 onAddFolder={(id) => void onAddFolder(id)}
                 onRenameNode={(n) => void onRenameNode(n)}
                 onDeleteNode={(n) => void onDeleteNode(n)}
@@ -495,6 +530,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   color={p.color ?? 'gray'}
                   pinned={pinnedNodes.includes(p.id)}
                   sessions={p.sessions}
+                  pinnedSessionIds={pinned}
                   collapsed={collapsed.has(p.id)}
                   activeSessionId={activeSessionId}
                   matchSession={matchSession}
@@ -511,6 +547,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   }
                   onSelectSession={(id) => void onSelectSession(id, p.id)}
                   onDeleteSession={(id) => void onDeleteSession(id)}
+                  onToggleSessionPin={togglePin}
                   onNewChat={() => void onNewChatIn(p.id)}
                   onRename={() => void onRenameNode({
                     id: p.id,
@@ -555,6 +592,7 @@ function TreeNode({
   depth,
   collapsed,
   pinnedNodes,
+  pinnedSessionIds,
   activeSessionId,
   activeWorkspaceId,
   matchSession,
@@ -564,7 +602,9 @@ function TreeNode({
   onOpenNodeChat,
   onSelectSession,
   onDeleteSession,
+  onToggleSessionPin,
   onNewChat,
+  onImportSession,
   onAddFolder,
   onRenameNode,
   onDeleteNode,
@@ -576,6 +616,7 @@ function TreeNode({
   depth: number;
   collapsed: Set<string>;
   pinnedNodes: string[];
+  pinnedSessionIds: string[];
   activeSessionId: string | null;
   activeWorkspaceId: string | null;
   matchSession: (s: SessionSummary) => boolean;
@@ -585,7 +626,9 @@ function TreeNode({
   onOpenNodeChat: (node: WorkspaceNode) => void;
   onSelectSession: (session: SessionSummary, workspaceRoot: WorkspaceNode) => void;
   onDeleteSession: (id: string) => void;
+  onToggleSessionPin: (id: string) => void;
   onNewChat: (projectId: string) => void;
+  onImportSession: (projectId: string | null, workspaceProjectId: string | null) => void;
   onAddFolder: (parentId: string) => void;
   onRenameNode: (node: WorkspaceNode) => void;
   onDeleteNode: (node: WorkspaceNode) => void;
@@ -683,6 +726,7 @@ function TreeNode({
                 ))}
               </div>
               <div className="border-t border-line pt-1">
+                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.kind === 'project' ? node.id : null, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />워크스페이스 지식·메모리</button>
@@ -691,7 +735,7 @@ function TreeNode({
               </div>
               <div className="mt-1 border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                  <ChatTeardropText size={13} />새 세션
+                  <ChatTeardropText size={13} />새 대화
                 </button>
                 {isContainer ? (
                   <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
@@ -706,12 +750,14 @@ function TreeNode({
 
       {isOpen ? (
         <div className="ml-[11px] border-l border-line/70 pl-1">
-          {(node.sessions ?? []).filter(matchSession).map((s) => (
+          {pinnedFirst((node.sessions ?? []).filter(matchSession), pinnedSessionIds).map((s) => (
             <SessionRow
               key={s.id}
               session={s}
               active={s.id === activeSessionId}
               indent={pad + 18}
+              pinned={pinnedSessionIds.includes(s.id)}
+              onTogglePin={() => onToggleSessionPin(s.id)}
               onSelect={() => onSelectSession(s, workspaceRoot)}
               onDelete={() => onDeleteSession(s.id)}
             />
@@ -724,6 +770,7 @@ function TreeNode({
               depth={depth + 1}
               collapsed={collapsed}
               pinnedNodes={pinnedNodes}
+              pinnedSessionIds={pinnedSessionIds}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorkspaceId}
               matchSession={matchSession}
@@ -733,7 +780,9 @@ function TreeNode({
               onOpenNodeChat={onOpenNodeChat}
               onSelectSession={onSelectSession}
               onDeleteSession={onDeleteSession}
+              onToggleSessionPin={onToggleSessionPin}
               onNewChat={onNewChat}
+              onImportSession={onImportSession}
               onAddFolder={onAddFolder}
               onRenameNode={onRenameNode}
               onDeleteNode={onDeleteNode}
@@ -753,6 +802,7 @@ function ProjectBlock({
   color,
   pinned,
   sessions,
+  pinnedSessionIds,
   collapsed,
   activeSessionId,
   matchSession,
@@ -760,6 +810,7 @@ function ProjectBlock({
   onOpenChat,
   onSelectSession,
   onDeleteSession,
+  onToggleSessionPin,
   onNewChat,
   onRename,
   onDelete,
@@ -771,6 +822,7 @@ function ProjectBlock({
   color: ProjectColor;
   pinned: boolean;
   sessions: SessionSummary[];
+  pinnedSessionIds: string[];
   collapsed: boolean;
   activeSessionId: string | null;
   matchSession: (s: SessionSummary) => boolean;
@@ -778,6 +830,7 @@ function ProjectBlock({
   onOpenChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onToggleSessionPin: (id: string) => void;
   onNewChat: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -828,26 +881,25 @@ function ProjectBlock({
               </div>
               <div className="border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 대화</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
-            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
-              </div>
-              <div className="mt-1 border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 세션</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
               </div>
             </div>
           ) : null}
         </div>
       </div>
       {!collapsed
-        ? sessions.filter(matchSession).map((s) => (
+        ? pinnedFirst(sessions.filter(matchSession), pinnedSessionIds).map((s) => (
             <SessionRow
               key={s.id}
               session={s}
               active={s.id === activeSessionId}
               indent={28}
+              pinned={pinnedSessionIds.includes(s.id)}
+              onTogglePin={() => onToggleSessionPin(s.id)}
               onSelect={() => onSelectSession(s.id)}
               onDelete={() => onDeleteSession(s.id)}
             />
@@ -942,7 +994,8 @@ function SessionRow({
         <button
           type="button"
           className={`shrink-0 rounded p-0.5 transition ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-          title={pinned ? '고정 해제' : '고정'}
+          title={pinned ? '대화 고정 해제' : '이 묶음 상단에 대화 고정'}
+          aria-label={pinned ? `${session.title || '세션'} 대화 고정 해제` : `${session.title || '세션'} 이 묶음 상단에 대화 고정`}
           onClick={(event) => { event.stopPropagation(); onTogglePin(); }}
         >
           <PushPin size={11} weight={pinned ? 'fill' : 'regular'} />
@@ -961,7 +1014,7 @@ function SessionRow({
         {menuOpen ? (
           <div className="absolute right-0 top-6 z-30 w-36 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
             {onTogglePin ? (
-              <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '고정'}</button>
+              <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '대화 고정 해제' : '이 묶음에 대화 고정'}</button>
             ) : null}
             <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
             <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>

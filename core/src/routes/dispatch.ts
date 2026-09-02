@@ -2499,7 +2499,7 @@ export async function dispatchApiRequest(
       if (method === 'POST' && url.pathname === '/sessions') {
         license.assertWritable();
         license.assertFeature('chat');
-        const body = JSON.parse(await readBody(req)) as { id?: string; project_id?: string | null };
+        const body = JSON.parse(await readBody(req)) as { id?: string; project_id?: string | null; workspace_project_id?: string | null };
         const id = body.id?.trim() || randomUUID();
         const hasProjectField = Object.prototype.hasOwnProperty.call(body, 'project_id');
         let ensureOpts: Parameters<typeof sessionStore.ensure>[1];
@@ -2521,7 +2521,19 @@ export async function dispatchApiRequest(
           execution_policy: defaultExecutionPolicyFromConfig(loadUserOverrides(userConfigPath)),
         };
         const rec = sessionStore.ensure(id, ensureOpts);
+        if (body.workspace_project_id !== undefined) sessionStore.setWorkspaceProject(id, body.workspace_project_id ?? null);
         if (ensureOpts?.project_id) projectStore.touch(ensureOpts.project_id);
+        return sendJson(res, 201, sessionStore.publicRecord(rec));
+      }
+
+      if (method === 'POST' && url.pathname === '/sessions/import') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { session?: unknown; project_id?: string | null; workspace_project_id?: string | null };
+        const projectId = body.project_id ?? null;
+        if (projectId && !projectStore.get(projectId)) return sendJson(res, 404, { error: 'PROJECT_NOT_FOUND' });
+        const rec = sessionStore.importPortable(body.session, projectId, body.workspace_project_id ?? null);
+        if (projectId) projectStore.touch(projectId);
         return sendJson(res, 201, sessionStore.publicRecord(rec));
       }
 

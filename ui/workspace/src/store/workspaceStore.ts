@@ -20,6 +20,7 @@ import {
   clearStoredSessionId,
   createSession,
   deleteAttachment,
+  fetchDefaultModelOverride,
   fetchModelPicker,
   fetchSession,
   fetchWorkspaceFsTree,
@@ -215,6 +216,9 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       mode: (m.mode === 'image_gen' ? 'image' : m.mode === 'web_dev' ? 'code' : 'text') as AiWorkMode,
       text: isPlaceholder ? '' : text,
       model: m.role === 'assistant' ? m.model : undefined,
+      thought: m.role === 'assistant' && typeof m.thought === 'string' && m.thought.trim()
+        ? m.thought
+        : undefined,
       imageUrls: urls.length ? urls : undefined,
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
@@ -454,7 +458,7 @@ interface WorkspaceState {
   uploadFiles: (files: File[]) => Promise<void>;
   /** @deprecated Prefer uploadFiles — kept for clipboard paste call sites. */
   uploadClipboardImages: (files: File[]) => Promise<void>;
-  startNewChat: (projectId?: string | null) => Promise<void>;
+  startNewChat: (projectId?: string | null, workspaceProjectId?: string | null) => Promise<void>;
   /** Clear current chat without creating a replacement session (allows zero chats). */
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
@@ -1409,11 +1413,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     uploadClipboardImages: async (files) => get().uploadFiles(files),
 
-    startNewChat: async (projectId = null) => {
+    startNewChat: async (projectId = null, workspaceProjectId = null) => {
       get().clearPendingAttachments();
       cacheActiveSessionView();
-      const id = await createSession(projectId);
+      const id = await createSession(projectId, workspaceProjectId);
       const rec = await fetchSession(id);
+      const globalDefaultModel = await fetchDefaultModelOverride().catch(() => 'auto');
       const policy = rec.execution_policy ?? {
         reasoning: 'auto' as const,
         autopilot: 'auto' as const,
@@ -1423,9 +1428,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({
         activeSessionId: id,
         activeProjectId: projectId,
-        activeWorkspaceProjectId: rec.workspace_project_id ?? null,
+        activeWorkspaceProjectId: rec.workspace_project_id ?? workspaceProjectId,
         chat: [],
-        selectedModel: readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
+        selectedModel: rec.preferred_model ?? globalDefaultModel,
         activeExecutionPolicy: {
           ...policy,
           workspace_behavior: policy.workspace_behavior ?? 'agent',

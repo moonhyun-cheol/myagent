@@ -68,7 +68,8 @@ function compileStablePrefix(messages: ChatMessage[], tools: unknown[]): CachedP
   const systems: string[] = [];
   let duplicateSystems = 0;
   for (const message of messages) {
-    if (message.role !== 'system' || typeof message.content !== 'string') continue;
+    // Ephemeral notes are dynamic-tail content; they must never move the prefix hash.
+    if (message.role !== 'system' || message.ephemeral === true || typeof message.content !== 'string') continue;
     const normalized = normalizeStaticText(message.content);
     if (!normalized) continue;
     if (seenSystems.has(normalized)) {
@@ -133,9 +134,10 @@ export function compilePromptContext(messages: ChatMessage[], tools: unknown[] =
   if (!cached) remember(key, candidate);
 
   const dynamicMessages = messages.filter((message) => message.role !== 'system');
-  const compiledMessages: ChatMessage[] = stable.system
-    ? [{ role: 'system', content: stable.system }, ...dynamicMessages]
-    : dynamicMessages;
+  const compiledMessages: ChatMessage[] = [
+    ...(stable.system ? [{ role: 'system', content: stable.system } as ChatMessage] : []),
+    ...dynamicMessages,
+  ];
   return {
     messages: compiledMessages,
     tools: stable.tools,

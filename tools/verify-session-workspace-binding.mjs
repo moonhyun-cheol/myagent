@@ -32,9 +32,26 @@ try {
   sessions.setWorkspaceProject('chat-a', null);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
 
+  // Public SSE thought deltas are attached to the matching assistant message,
+  // survive a disk reload, and remain separate from the model-facing content.
+  sessions.beginAssistantThought('chat-a');
+  sessions.appendAssistantThought('chat-a', '도구 확인\n');
+  sessions.appendAssistantThought('chat-a', '수정 및 검증');
+  sessions.append('chat-a', {
+    role: 'assistant',
+    content: '작업 완료',
+    at: new Date().toISOString(),
+    mode: 'web_dev',
+  });
+  const persistedThought = new SessionStore(sessionsDir, temp).load('chat-a')?.messages.at(-1);
+  assert.equal(persistedThought?.thought, '도구 확인\n수정 및 검증');
+  assert.equal(persistedThought?.content, '작업 완료');
+
   const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
   const store = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
-  const client = readFileSync(path.join(root, 'ui/workspace/src/api/cqrClient.ts'), 'utf8');
+  const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
+  const projectsTree = readFileSync(path.join(root, 'ui/workspace/src/components/ProjectsTree.tsx'), 'utf8');
+  const app = readFileSync(path.join(root, 'ui/workspace/src/App.tsx'), 'utf8');
   const orchestrator = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
   const dispatch = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
 
@@ -47,11 +64,41 @@ try {
   assert.ok(dispatch.includes("url.pathname.match(/^\\/sessions\\/([^/]+)\\/workspace$/)"));
   assert.match(dispatch, /workspaceRootForRequest/);
   assert.match(orchestrator, /type: 'tool_complete'/);
+  assert.match(orchestrator, /this\.sessionStore\.beginAssistantThought\(sessionId\)/);
+  assert.match(orchestrator, /this\.sessionStore\.appendAssistantThought\(sessionId, text\)/);
+  assert.match(client, /thought\?: string/);
+  assert.match(store, /thought: m\.role === 'assistant'.*m\.thought/s);
   assert.match(store, /event\.tool === 'run_terminal'/);
   assert.match(store, /finishedJob\?\.terminalUsed/);
   assert.doesNotMatch(store, /Blink bottom terminal chrome so completion/);
 
-  console.log('session workspace binding + terminal attention: PASS');
+  // Session pins remain independent from node pins and are applied only to the
+  // already-selected conversations inside each project/workspace container.
+  assert.ok(projectsTree.includes("const PINNED_NODES_KEY = 'my-agent-workspace-pinned-nodes'"));
+  assert.ok(projectsTree.includes('getPinnedSessionIds()'));
+  assert.ok(projectsTree.includes('pinnedFirst((node.sessions ?? []).filter(matchSession), pinnedSessionIds)'));
+  assert.ok(projectsTree.includes('pinnedFirst(sessions.filter(matchSession), pinnedSessionIds)'));
+  assert.ok(projectsTree.includes('onToggleSessionPin'));
+  assert.ok(projectsTree.includes('이 묶음에 대화 고정'));
+
+  // The native browser/WebView context menu is disabled globally. Preventing
+  // only the default action keeps the application-defined React handlers live.
+  assert.match(app, /document\.addEventListener\('contextmenu', blockNativeContextMenu, true\)/);
+  assert.match(app, /document\.removeEventListener\('contextmenu', blockNativeContextMenu, true\)/);
+  assert.match(app, /const blockNativeContextMenu = \(event: MouseEvent\) => \{\s*event\.preventDefault\(\);\s*\}/);
+
+  // Chat open scroll contract (absorbed from the retired one-off
+  // tools/verify-chat-open-scroll.mjs): a conversation reopens at the position
+  // last viewed on this PC, falling back to its latest turn on first open.
+  assert.match(ui, /useLayoutEffect\(\(\) => \{/);
+  assert.match(ui, /openedSessionRef\.current === activeSessionId/);
+  assert.match(ui, /readChatScrollPosition\(activeSessionId\)/);
+  assert.match(ui, /scroller\.scrollTop = savedPosition \?\? scroller\.scrollHeight/);
+  assert.match(ui, /writeChatScrollPosition\(sessionId, scroller\.scrollTop\)/);
+  assert.match(ui, /\[activeSessionId, chat\.length\]/);
+  assert.doesNotMatch(ui, /\[activeSessionId, chat\]/);
+
+  console.log('session workspace binding + persisted model work log + scoped session pinning + native context-menu blocking + terminal attention + chat open scroll: PASS');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

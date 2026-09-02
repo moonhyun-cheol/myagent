@@ -25,6 +25,12 @@ export interface ChatMessage {
   content: string | null | ChatContentPart[];
   tool_calls?: AgentToolCallPayload[];
   tool_call_id?: string;
+  /**
+   * Volatile per-step guidance kept outside the stable cacheable prefix. It is a
+   * user-tail message for Chat Completions/Anthropic and is promoted to native
+   * instructions by the Responses adapter. The flag is never sent on the wire.
+   */
+  ephemeral?: boolean;
 }
 
 /** Flatten multimodal content to plain text (for agent loops / logging). */
@@ -85,6 +91,8 @@ export interface ChatCompletionOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   toolChoice?: 'auto' | 'required' | 'none';
+  /** Ask providers that support it to emit multiple independent tool calls. */
+  parallelToolCalls?: boolean;
   stream?: boolean;
   /** Merged into chat/completions JSON body (e.g. provider-specific knobs). */
   extraBody?: Record<string, unknown>;
@@ -138,6 +146,16 @@ export function buildChatCompletionBody(
   }
   const effort = opts?.reasoningEffort?.trim();
   if (effort) body.reasoning_effort = effort;
+  if (opts?.parallelToolCalls !== undefined && Array.isArray(body.tools) && body.tools.length > 0) {
+    body.parallel_tool_calls = opts.parallelToolCalls;
+  }
+  if (Array.isArray(body.messages)) {
+    body.messages = body.messages.map((message) => {
+      if (!message || typeof message !== 'object') return message;
+      const { ephemeral: _ephemeral, ...wireMessage } = message as ChatMessage;
+      return wireMessage;
+    });
+  }
   return body;
 }
 

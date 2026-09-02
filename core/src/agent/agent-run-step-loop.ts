@@ -103,6 +103,11 @@ import {
   compileAgentStepContext,
   resolveAgentContextProfile,
 } from './agent-context-profile.js';
+import {
+  isParallelReadOnlyTool,
+  resolveAgentReadParallelism,
+  runParallelToolCalls,
+} from './agent-tool-parallel.js';
 
 function noteFirstTool(state: AgentRunStepState): void {
   if (state.firstToolMs == null && state.runStartedAt > 0) {
@@ -382,8 +387,70 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     let syntaxBrokenThisStep = false;
     let syntaxBrokenOutput = '';
 
+    // Start independent read-only calls together so one model round does not
+    // become N serial disk/index waits. Custom tool hooks keep serial semantics.
+    type ParallelPreflight = {
+      compat: ReturnType<typeof applyToolSchemaCompat>;
+      admit: ReturnType<typeof loopGuard.admit>;
+      beforeTool: Awaited<ReturnType<NonNullable<typeof state.hooks.beforeTool>>>;
+      runnable: boolean;
+    };
+    const parallelPreflight = new Map<string, ParallelPreflight>();
+    let parallelResults: Promise<Map<string, { output: string; durationMs: number }>> | null = null;
+    const parallelism = resolveAgentReadParallelism();
+    const parallelEligible = parallelism > 1
+      && toolCalls.length > 1
+      && !state.opts.hooks?.beforeTool
+      && !state.opts.hooks?.afterTool
+      && toolCalls.every((call) => {
+        const compat = applyToolSchemaCompat(call, state.agentTools);
+        if (!compat.validation.ok || !isParallelReadOnlyTool(compat.toolCall.function.name)) return false;
+        const args = parseToolArgs(compat.toolCall.function.arguments);
+        return !needsHumanApproval(compat.toolCall.function.name, args, process.env, {
+          workspaceRoot: state.opts.workspaceRoot,
+          approvedExternalReadRoots: state.approvedExternalReadRoots,
+        }).needed;
+      });
+
+    if (parallelEligible) {
+      const runnable: AgentToolCall[] = [];
+      for (const call of toolCalls) {
+        const compat = applyToolSchemaCompat(call, state.agentTools);
+        const execCall = compat.toolCall;
+        const admit = loopGuard.admit(execCall);
+        const args = parseToolArgs(execCall.function.arguments);
+        const beforeTool = admit.triggered
+          ? undefined
+          : await state.hooks.beforeTool?.({
+              tool: execCall.function.name,
+              args,
+              step: state.steps,
+            });
+        const canRun = !admit.triggered && !isHookStop(beforeTool);
+        parallelPreflight.set(call.id, { compat, admit, beforeTool, runnable: canRun });
+        if (canRun) runnable.push(execCall);
+      }
+      if (runnable.length > 0) {
+        state.reportStatus(`병렬 조회 · ${runnable.length}개 (동시 실행 최대 ${parallelism})`);
+        for (const execCall of runnable) {
+          state.hooks.onEvent?.({ type: 'tool_start', tool: execCall.function.name, step: state.steps });
+          state.toolCallCount += 1;
+          noteFirstTool(state);
+        }
+        parallelResults = runParallelToolCalls(
+          runnable,
+          parallelism,
+          (execCall) => executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx),
+        ).then((rows) => new Map(rows.map((row) => [row.call.id, {
+          output: row.output,
+          durationMs: row.durationMs,
+        }])));
+      }
+    }
+
     for (const call of toolCalls) {
-      const compat = applyToolSchemaCompat(call, state.agentTools);
+      const preflight = parallelPreflight.get(call.id);
+      const compat = preflight?.compat ?? applyToolSchemaCompat(call, state.agentTools);
       const execCall = compat.toolCall;
 
       if (compat.reroutedFrom) {
@@ -652,12 +719,14 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
 
       const label = toolStatusLabel(execCall);
-      state.reportStatus(`실행 · ${label}`);
-      const beforeTool = await state.hooks.beforeTool?.({
-        tool: execCall.function.name,
-        args,
-        step: state.steps,
-      });
+      if (!preflight?.runnable) state.reportStatus(`실행 · ${label}`);
+      const beforeTool = preflight
+        ? preflight.beforeTool
+        : await state.hooks.beforeTool?.({
+            tool: execCall.function.name,
+            args,
+            step: state.steps,
+          });
       if (isHookStop(beforeTool)) {
         state.hooks.onEvent?.({ type: 'hook_stop', reason: beforeTool.reason, phase: 'beforeTool' });
         const output = `ERROR: hook_blocked\n${beforeTool.reason}`;
@@ -665,11 +734,21 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
         continue;
       }
-      state.hooks.onEvent?.({ type: 'tool_start', tool: execCall.function.name, step: state.steps });
-      const toolStarted = Date.now();
-      state.toolCallCount += 1;
-      noteFirstTool(state);
-      let { output } = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx);
+      let output: string;
+      let durationMs: number;
+      if (preflight?.runnable && parallelResults) {
+        const resultMap = await parallelResults;
+        const parallelResult = resultMap.get(execCall.id);
+        output = parallelResult?.output ?? 'ERROR: parallel_tool_result_missing';
+        durationMs = parallelResult?.durationMs ?? 0;
+      } else {
+        state.hooks.onEvent?.({ type: 'tool_start', tool: execCall.function.name, step: state.steps });
+        const toolStarted = Date.now();
+        state.toolCallCount += 1;
+        noteFirstTool(state);
+        ({ output } = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx));
+        durationMs = Date.now() - toolStarted;
+      }
       if (
         execCall.function.name === 'edit_file'
         && typeof args.path === 'string'
@@ -689,7 +768,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         output = formatToolSelfCorrection(execCall.function.name, output, state.toolNames, { writeFailStreak: state.writeFailStreak,
         });
       }
-      const durationMs = Date.now() - toolStarted;
       const syntaxBroken = outputHasSyntaxBroken(output);
       const toolOk = !syntaxBroken && agentToolOutputOk(output);
       const toolSummary = summarizeAgentToolResult(output);
@@ -949,5 +1027,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   }
 
 
-  throw new Error(`Code agent exceeded ${state.maxSteps} tool steps. Try a smaller task.`);
+  throw new Error(
+    `Code agent exceeded ${state.maxSteps} LLM orchestration rounds (not tool calls). `
+    + 'Independent tool calls may be batched within one round. Try a smaller task.',
+  );
 }

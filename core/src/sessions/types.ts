@@ -6,6 +6,8 @@ export interface SessionMessage {
   at: string;
   model?: string;
   mode?: string;
+  /** Public model work log streamed to the UI; excluded from future model context. */
+  thought?: string;
   /** Local `/outputs/images/...` URLs for chat + image_gen restore */
   image_urls?: string[];
   /**
@@ -13,10 +15,6 @@ export interface SessionMessage {
    * Used for guardrail / hallucination-block notices that would pollute later turns.
    */
   model_exclude?: boolean;
-  /** Workspace behavior active when this assistant reply was produced (Plan Build UI). */
-  workspace_behavior?: ExecutionPolicy['workspace_behavior'];
-  /** Plan turn: locked-constraints extract succeeded (weak UI signal; Build still allowed). */
-  plan_constraints_locked?: boolean;
 }
 
 export type ResponsesStateMode = 'provider_state' | 'client_replay';
@@ -32,6 +30,12 @@ export interface ResponsesContinuationState {
   tool_schema_hash?: string;
   /** First ChatMessage index not represented by the preceding response chain. */
   next_message_index: number;
+  /**
+   * Counting basis for next_message_index. 'dynamic' = durable non-system messages
+   * only; system and ephemeral context-profile guidance travel via `instructions`.
+   * Absent = legacy full-array chain; safely rebuilt in full on next call.
+   */
+  index_basis?: 'dynamic';
   /** Exact Responses input/output items used when provider-side storage is unavailable. */
   replay_items?: unknown[];
   reasoning_context?: string;

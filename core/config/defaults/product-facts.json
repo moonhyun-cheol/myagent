@@ -1,18 +1,28 @@
 {
   "version": 1,
-  "generated_at": "2026-09-01T08:09:07.560Z",
+  "generated_at": "2026-09-02T01:33:07.788Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
     "shell": "shell/CqrPa.Shell",
     "core_src": "core/src",
     "api_dispatch": "core/src/routes/dispatch.ts",
-    "rulebook": "rulebook/docs",
+    "rulebook": "../RULEBOOK/MY_CUSTOM_CODEX/docs",
+    "rulebook_canonical": "../RULEBOOK/MY_CUSTOM_CODEX",
     "agents_md": "AGENTS.md",
-    "ui_facts": "core/config/defaults/ui-facts.json"
+    "ui_facts": "core/config/defaults/ui-facts.json",
+    "work_kit_launcher_ui": "ui/work-kit-launcher",
+    "work_kit_launcher_shell": "shell/WorkKitLauncher",
+    "launcher_manifest": "launcher-manifest.json"
   },
   "memory_files": [
-    "AGENTS.md"
+    "AGENTS.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/00_PROJECT_BRIEF.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/01_CURRENT_STATUS.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/02_ALWAYS_ON_RULES.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/03_RULE_INDEX.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/specs/technical/01-architecture.md",
+    "../RULEBOOK/MY_CUSTOM_CODEX/docs/specs/technical/04-interface-api.md"
   ],
   "api": {
     "source": "core/src/routes/dispatch.ts",
@@ -45,7 +55,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 95,
+    "route_count": 96,
     "routes": [
       {
         "method": "GET",
@@ -455,6 +465,11 @@
       {
         "method": "POST",
         "path": "/sessions",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/sessions/import",
         "match": "exact"
       },
       {

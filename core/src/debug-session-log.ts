@@ -59,8 +59,11 @@ export function formatChatErrorMessage(err: unknown): string {
   if (raw.includes('EMPTY_COMPLETION')) {
     return '모델이 빈 응답을 반환했습니다. 모델 설정·컨텍스트 길이를 확인하세요.';
   }
-  if (raw.includes('exceeded') && raw.includes('tool steps')) {
-    return `${raw} 작업을 더 작은 단위로 나눠 다시 요청하세요.`;
+  if (
+    raw.includes('exceeded')
+    && (raw.includes('tool steps') || raw.includes('LLM orchestration rounds'))
+  ) {
+    return `${raw} 이 상한은 개별 툴 수가 아니라 모델 왕복 횟수입니다. 작업을 더 작은 단위로 나눠 다시 요청하세요.`;
   }
   if (isUpstreamConnectionDrop(raw)) {
     return [

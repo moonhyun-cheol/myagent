@@ -85,6 +85,8 @@ export interface SessionMessage {
   model?: string;
   mode?: string;
   image_urls?: string[];
+  /** Persisted public model work log received through SSE `thought` events. */
+  thought?: string;
   workspace_behavior?: WorkspaceBehavior;
   plan_constraints_locked?: boolean;
 }
@@ -439,11 +441,11 @@ export async function ensureSession(): Promise<string> {
   return createSession();
 }
 
-export async function createSession(projectId: string | null = null): Promise<string> {
+export async function createSession(projectId: string | null = null, workspaceProjectId: string | null = null): Promise<string> {
   const res = await fetch('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: projectId }),
+    body: JSON.stringify({ project_id: projectId, workspace_project_id: workspaceProjectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) {
@@ -451,6 +453,18 @@ export async function createSession(projectId: string | null = null): Promise<st
   }
   localStorage.setItem(SESSION_KEY, data.id);
   return data.id as string;
+}
+
+export async function importSession(session: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): Promise<SessionSummary> {
+  const res = await fetch('/sessions/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session, project_id: projectId, workspace_project_id: workspaceProjectId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.id) throw new Error(data.message || data.error || '세션 가져오기 실패');
+  localStorage.setItem(SESSION_KEY, data.id);
+  return data as SessionSummary;
 }
 
 export type ProjectKind = 'workspace_root' | 'folder' | 'project';
@@ -681,6 +695,23 @@ export async function renameSession(id: string, title: string): Promise<SessionR
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `세션 이름 변경 실패 (${res.status})`);
   return data as SessionRecord;
+}
+
+export async function fetchDefaultModelOverride(): Promise<string> {
+  const res = await fetch('/config');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `설정 로드 실패 (${res.status})`);
+  return typeof data.default_model === 'string' && data.default_model ? data.default_model : 'auto';
+}
+
+export async function saveDefaultModelOverride(value: string): Promise<void> {
+  const res = await fetch('/config/default-model', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ default_model: value || 'auto' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `기본 모델 저장 실패 (${res.status})`);
 }
 
 export async function deleteSession(id: string): Promise<void> {

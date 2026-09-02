@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadUserOverrides, saveUserOverrides } from '../core/dist/config/user-overrides.js';
 import { SessionStore } from '../core/dist/sessions/session-store.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,7 +37,43 @@ try {
   assert.match(workspace, /sendAiMessage\(next\.text, next\.model\)/);
   assert.doesNotMatch(chatPane, /localStorage\.setItem\(MODEL_PREF_KEY/);
 
-  console.log('session preferred model: PASS');
+  // Focused new-chat + global default model contract (absorbed from the retired
+  // one-off tools/verify-focused-new-chat-default-model.mjs).
+  const configPath = path.join(temp, 'config', 'user-overrides.json');
+  mkdirSync(path.dirname(configPath), { recursive: true });
+  saveUserOverrides(configPath, { default_model: 'openai/gpt-test' }, temp);
+  assert.equal(loadUserOverrides(configPath).default_model, 'openai/gpt-test');
+  saveUserOverrides(configPath, { default_model: 'auto' }, temp);
+  assert.equal(loadUserOverrides(configPath).default_model, 'auto');
+
+  const projectsTree = readFileSync(path.join(root, 'ui/workspace/src/components/ProjectsTree.tsx'), 'utf8');
+  const sidebar = readFileSync(path.join(root, 'ui/workspace/src/components/GeminiNavSidebar.tsx'), 'utf8');
+  const modelModal = readFileSync(path.join(root, 'ui/workspace/src/components/ModelManagementModal.tsx'), 'utf8');
+
+  // Both workspace-tree nodes and ordinary projects expose a context-menu action.
+  assert.ok((projectsTree.match(/<ChatTeardropText size=\{13\} \/>새 대화/g) ?? []).length >= 2);
+  assert.match(projectsTree, /const findWorkspaceTarget = \(id: string\)/);
+  assert.match(projectsTree, /startNewChat\(isWorkspaceRoot \? null : id, target\?\.root\.id \?\? null\)/);
+
+  // The left-most action inherits the currently focused project/workspace binding.
+  assert.match(sidebar, /const activeProjectId = useWorkspaceStore/);
+  assert.match(sidebar, /const activeWorkspaceProjectId = useWorkspaceStore/);
+  assert.match(sidebar, /activeProjectId === activeWorkspaceProjectId \? null : activeProjectId/);
+  assert.match(sidebar, /startNewChat\(projectId, activeWorkspaceProjectId\)/);
+  assert.match(sidebar, /label="현재 위치에 새 대화"/);
+
+  // Model management edits only the persisted global override.
+  assert.match(modelModal, /대화 기본 모델/);
+  assert.match(modelModal, /fetchDefaultModelOverride\(\)/);
+  assert.match(modelModal, /saveDefaultModelOverride\(value\)/);
+  assert.match(client, /fetch\('\/config\/default-model'/);
+  assert.match(dispatch, /saveUserOverrides\(userConfigPath, \{ default_model: defaultModel \}, cqrRoot\)/);
+
+  // New conversations resolve session-specific preference before the global fallback.
+  assert.match(workspace, /const globalDefaultModel = await fetchDefaultModelOverride\(\)\.catch\(\(\) => 'auto'\)/);
+  assert.match(workspace, /selectedModel: rec\.preferred_model \?\? globalDefaultModel/);
+
+  console.log('session preferred model + focused new chat + global default model: PASS');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

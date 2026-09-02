@@ -14,6 +14,9 @@ import {
   deleteProviderKey,
   deleteUserProvider,
   fetchCompanyModelSettings,
+  fetchDefaultModelOverride,
+  fetchModelPicker,
+  saveDefaultModelOverride,
   listProviders,
   saveCompanyModelSelection,
   saveProviderKey,
@@ -90,6 +93,8 @@ export function ModelManagementModal({
   const [companyModelSearch, setCompanyModelSearch] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [defaultModel, setDefaultModel] = useState('auto');
+  const [pickerModels, setPickerModels] = useState<{ id: string; label?: string }[]>([]);
   const refreshModelPicker = useWorkspaceStore((s) => s.refreshModelPicker);
 
   const refresh = async () => {
@@ -100,6 +105,10 @@ export function ModelManagementModal({
 
   useEffect(() => {
     if (!open) return;
+    void fetchDefaultModelOverride().then(setDefaultModel).catch(() => setDefaultModel('auto'));
+    void fetchModelPicker()
+      .then((data) => setPickerModels(data.models.map((m) => ({ id: m.id, label: m.label }))))
+      .catch(() => setPickerModels([]));
     void refresh().catch((err) => setMessage(err instanceof Error ? err.message : '모델 목록 실패'));
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -110,6 +119,19 @@ export function ModelManagementModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose, companyModelsOpen]);
+
+  const onChangeDefaultModel = async (value: string) => {
+    const prev = defaultModel;
+    setDefaultModel(value);
+    try {
+      await saveDefaultModelOverride(value);
+      setMessage(value === 'auto' ? '대화 기본 모델을 자동 선택(auto)으로 설정했습니다.' : `대화 기본 모델을 ${value}(으)로 설정했습니다.`);
+      void refreshModelPicker();
+    } catch (err) {
+      setDefaultModel(prev);
+      setMessage(err instanceof Error ? err.message : '대화 기본 모델 저장 실패');
+    }
+  };
 
   const company = providers.find((p) => p.id === COMPANY_ID);
   const personal = PERSONAL_IDS.map((id) => providers.find((p) => p.id === id)).filter(
@@ -573,6 +595,30 @@ export function ModelManagementModal({
               );
             })}
           </div>
+
+          <section className="mt-5 rounded-2xl border border-line bg-panel p-4" aria-labelledby="global-default-model-title">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="max-w-2xl">
+                <h3 id="global-default-model-title" className="text-sm font-semibold">대화 기본 모델</h3>
+                <p className="mt-1 text-xs text-muted">새 대화에 적용되는 글로벌 설정입니다. 기존 대화에서 선택한 모델은 유지되며, auto는 요청 유형에 따라 자동 선택합니다.</p>
+              </div>
+              <select
+                value={defaultModel}
+                disabled={busy}
+                onChange={(event) => void onChangeDefaultModel(event.target.value)}
+                className="min-w-[220px] rounded-lg border border-line bg-panel-2 px-3 py-2 text-sm text-text outline-none focus:border-accent disabled:opacity-50"
+                aria-label="글로벌 대화 기본 모델 선택"
+              >
+                <option value="auto">auto — 자동 선택</option>
+                {defaultModel !== 'auto' && !pickerModels.some((model) => model.id === defaultModel) ? (
+                  <option value={defaultModel}>{defaultModel}</option>
+                ) : null}
+                {pickerModels.filter((model) => model.id !== 'auto').map((model) => (
+                  <option key={model.id} value={model.id}>{model.label || model.id}</option>
+                ))}
+              </select>
+            </div>
+          </section>
 
           <div className="mt-5 rounded-2xl border border-line bg-ink/25">
             <button
