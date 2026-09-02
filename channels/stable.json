@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 29,
+    "update_sequence": 30,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T07:04:21.882Z",
+    "published_at": "2026-09-02T07:22:20.735Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-29",
+      "release_tag": "update-30",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267193205,
-      "sha256": "d7a4858442643a8882a267d43edb45ec7e88d6631f29b71c46b7525e77f6a50d"
+      "size": 267195175,
+      "sha256": "9692d843e98ae1bbfd1864a34dcc7eab08a53586d5a2a5e95fc255658753a285"
     },
-    "payload_manifest_sha256": "476b3fb920aa4edd0f99286595f4446166b98c19bf2c433d00f2d438c7e57eb8",
-    "release_notes": "## 설정 UX + 자동화 안내\n\n### 설정 (일반)\n- **설치 폴더**, **앱 및 업데이트**, **연결 프로그램**을 각각 독립 카드로 분리\n- 사이드바 라벨을 페이지와 맞춰 **「일반」**으로 통일\n\n### 자동화\n- 트리거 태그 안내에 Time / Sequence / On action / Condition / Manual **5종 복원**\n- 아직 미지원인 3종은 흐리게 표시 + 다음 업데이트 안내"
+    "payload_manifest_sha256": "9f0aac9aac126064fc6c2c9ba5261629074da59996f8028dcf0c977638e10d23",
+    "release_notes": ""
   },
-  "signature": "uzruUOHrNvQOCnwWo2xCstu67jv+cxGIgnkySPdFVmUDzY/7kkrIZxx08l0Bb02i8gSyQTu8fAPyGK8c+n8xh0tKD2hXpeYFL8w9RWBnRcfAONiTbP9khQOi/rfhS23KVwQSj2yqjUQBfOoZGLxMUaQ0JRkaYOPDrW4FUi/R7y9R0u5OH4PfprVKDKNoWTlyQ6N9bOcpcAgz7mJ6ARudxxZF1qqhzSGOBWY8Fy5It9jj5ES5kRdx2lmG/YZFxIBCKoZD+REpxE+XmJAHK+zyVCBzMN9YkrlQfSyDorPoqa+4e1J1zEeYxZdro2dFTbadAfdEQoB1CXzVWql6LiIGTl/BTobxg9wMWiwomF3f6fKcESkToogzgMjfZ3RN8PYug454kHuC2ntPnAuqrjI84PTmKNT3Gt4unQ7FCNlwD/SK5H+cAyNTSrbAHQ7BfHgs2T5eJHFz6slzGLebuAx6i8raCgjoePMn55rTcGcn8XoseUzGMfm2//CN2VRI8xPq"
+  "signature": "k5COIvEgIRmI5Mt3+mdmNRvHexwryRqdbSBlnraMtEK8co4NFZfy+JoklLaI7O9S7uJAOEaJ3Xwr2myDdMJVDnBTYg7Lcekr97+S4wUfS9vPiDltG46k4OhE6mifcwQdWe2XyqAigNPfotdbRFUsd033ulTZnQJ5nYkLCUGupkDKeh2M1p+gIW8h9Jkb0nwS6mOfXdzLwCG7xoZc6/p2NmlwFocNnIFRF70u3HNjNHyzHmD/HilVDE+yHuVglv32x78rOW3VxqE+MHKd8wMDm/9QhUMovlOTs8NFsJbWRIIlJMCUsnUIxDysDsB+09twbulxrOIZxIkTyhEa1yX5Bqoad9W4DZsUtzFy0RTv7QZyLqg1IfuyX3oPuwLMCkZ33abzeap1GualWSi/RN6MYPq7w70TRpzz5EulFnf8ssxTGw3t3RCe1B0hZ1uEIkhffouZ4Kv8paKwjRY5Z0VZXojJPY1Edwo9Ex/yqmb9AMZ1y1ShoTAkTGyDDx5iBDtz"
 }
