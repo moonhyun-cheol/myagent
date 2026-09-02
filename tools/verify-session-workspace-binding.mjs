@@ -80,6 +80,7 @@ try {
   assert.ok(projectsTree.includes('pinnedFirst(sessions.filter(matchSession), pinnedSessionIds)'));
   assert.ok(projectsTree.includes('onToggleSessionPin'));
   assert.ok(projectsTree.includes('이 묶음에 대화 고정'));
+  assert.ok(projectsTree.includes('event.stopPropagation();'));
 
   // The native browser/WebView context menu is disabled globally. Preventing
   // only the default action keeps the application-defined React handlers live.

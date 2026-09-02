@@ -53,7 +53,7 @@ try {
   // Both workspace-tree nodes and ordinary projects expose a context-menu action.
   assert.ok((projectsTree.match(/<ChatTeardropText size=\{13\} \/>새 대화/g) ?? []).length >= 2);
   assert.match(projectsTree, /const findWorkspaceTarget = \(id: string\)/);
-  assert.match(projectsTree, /startNewChat\(isWorkspaceRoot \? null : id, target\?\.root\.id \?\? null\)/);
+  assert.match(projectsTree, /if \(target\) \{\s*\/\/ Keep project_id on the clicked node so the session renders inside that folder\/workspace\.\s*await startNewChat\(id, target\.root\.id\);/s);
 
   // The left-most action inherits the currently focused project/workspace binding.
   assert.match(sidebar, /const activeProjectId = useWorkspaceStore/);

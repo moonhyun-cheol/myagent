@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-02T02:16:19.421Z",
+  "generated_at": "2026-09-02T04:45:54.829Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",

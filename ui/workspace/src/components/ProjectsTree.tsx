@@ -289,8 +289,12 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
 
   const onNewChatIn = async (id: string) => {
     const target = findWorkspaceTarget(id);
-    const isWorkspaceRoot = target?.node.kind === 'workspace_root';
-    await startNewChat(isWorkspaceRoot ? null : id, target?.root.id ?? null);
+    if (target) {
+      // Keep project_id on the clicked node so the session renders inside that folder/workspace.
+      await startNewChat(id, target.root.id);
+    } else {
+      await startNewChat(id, null);
+    }
     onChatOpened?.();
   };
 
@@ -659,6 +663,7 @@ function TreeNode({
         style={{ paddingLeft: pad }}
         onContextMenu={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           openMenu();
         }}
       >
@@ -842,7 +847,7 @@ function ProjectBlock({
   const [labelColor, setLabelColor] = useState(color);
   return (
     <div className="mb-0.5" data-sidebar-menu-id={menuId}>
-      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); openMenu(); }}>
+      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openMenu(); }}>
         <button type="button" className="rounded p-0.5" onClick={onToggle} aria-label={collapsed ? '펼치기' : '접기'}>
           {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
         </button>
