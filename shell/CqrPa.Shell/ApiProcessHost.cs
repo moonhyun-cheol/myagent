@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace CqrPa.Shell;
 
-internal sealed class ApiProcessHost : IDisposable
+public sealed class ApiProcessHost : IDisposable
 {
     private const int DefaultPort = 10200;
     private const int ReuseWindow = 32;

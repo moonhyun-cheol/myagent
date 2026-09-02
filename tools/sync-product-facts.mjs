@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveRulebookDocsDir, resolveRulebookRoot, rulebookMemoryFileRels } from './rulebook-paths.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -62,25 +63,38 @@ for (const m of dispatch.matchAll(
 
 routes.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
 
+const rulebookDocs = resolveRulebookDocsDir(root);
+const rulebookRoot = resolveRulebookRoot(root);
+
 const layout = {
   primary_ui: existsSync(path.join(root, 'ui/workspace')) ? 'ui/workspace' : null,
   shell: existsSync(path.join(root, 'shell/CqrPa.Shell')) ? 'shell/CqrPa.Shell' : null,
   core_src: existsSync(path.join(root, 'core/src')) ? 'core/src' : null,
   api_dispatch: existsSync(path.join(root, dispatchRel)) ? dispatchRel : null,
-  rulebook: existsSync(path.join(root, 'rulebook/docs')) ? 'rulebook/docs' : null,
+  rulebook: rulebookDocs
+    ? path.relative(root, rulebookDocs).replace(/\\/g, '/')
+    : existsSync(path.join(root, 'rulebook/docs'))
+      ? 'rulebook/docs'
+      : null,
+  rulebook_canonical: rulebookRoot
+    ? path.relative(root, rulebookRoot).replace(/\\/g, '/')
+    : null,
   agents_md: existsSync(path.join(root, 'AGENTS.md')) ? 'AGENTS.md' : null,
   ui_facts: existsSync(path.join(root, 'core/config/defaults/ui-facts.json'))
     ? 'core/config/defaults/ui-facts.json'
     : null,
+  work_kit_launcher_ui: existsSync(path.join(root, 'ui/work-kit-launcher'))
+    ? 'ui/work-kit-launcher'
+    : null,
+  work_kit_launcher_shell: existsSync(path.join(root, 'shell/WorkKitLauncher'))
+    ? 'shell/WorkKitLauncher'
+    : null,
+  launcher_manifest: existsSync(path.join(root, 'launcher-manifest.json'))
+    ? 'launcher-manifest.json'
+    : null,
 };
 
-const memoryFiles = [
-  'AGENTS.md',
-  'rulebook/docs/00_PROJECT_BRIEF.md',
-  'rulebook/docs/01_CURRENT_STATUS.md',
-  'rulebook/docs/specs/technical/ui-target-map.md',
-  'rulebook/docs/specs/technical/architecture.md',
-].filter((rel) => existsSync(path.join(root, rel)));
+const memoryFiles = ['AGENTS.md', ...rulebookMemoryFileRels(root)].filter((rel, i, arr) => arr.indexOf(rel) === i);
 
 const facts = {
   version: 1,

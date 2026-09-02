@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, CloudArrowDown } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CloudArrowDown, Play } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyWorkKitProfile,
@@ -11,17 +11,15 @@ import {
   type ShelfInstallStatus,
   type WorkKitCatalogGroup,
   type WorkKitShelf,
-} from '../api/myAgentClient';
+} from '../api/profilesClient';
+import { syncOrganizationModuleIfNeeded } from '../api/organizationModule';
 import { confirmDialog } from '../lib/confirmDialog';
 
-interface WorkKitLibraryProps {
-  readOnly: boolean;
-  busy?: boolean;
-  onBeforeApply?: () => Promise<void>;
-  onApplied?: () => void;
+interface ProfileLibraryProps {
+  onLaunchMyAgent?: () => void;
 }
 
-export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApply, onApplied }: WorkKitLibraryProps) {
+export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const [groups, setGroups] = useState<WorkKitCatalogGroup[]>([]);
   const [feedSequence, setFeedSequence] = useState<number | null>(null);
   const [applied, setApplied] = useState<AgentProfileApplied | null>(null);
@@ -57,7 +55,7 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
       const check = await checkWorkKitCatalog();
       if (!check.feed_url) {
         setMessage(
-          '작업 키트 목록 피드가 연결되지 않았습니다. 앱을 최신으로 업데이트하거나 MY_AGENT_WORK_KIT_CATALOG_FEED_URL을 설정한 뒤 「목록 새로고침」을 누르세요.',
+          '작업 키트 목록 피드가 연결되지 않았습니다. MY_AGENT_WORK_KIT_CATALOG_FEED_URL을 설정한 뒤 「목록 새로고침」을 누르세요.',
         );
         await load();
         return;
@@ -114,7 +112,6 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
       await restoreProfileLastState();
       setMessage('이전 상태로 되돌렸습니다.');
       await load();
-      onApplied?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '되돌리기 실패');
     } finally {
@@ -140,15 +137,18 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
       title: '작업 환경 적용',
       message: `「${shelf.label}」로 맞출까요?`,
       confirmLabel: '적용',
+      danger: false,
     });
     if (!ok) return;
     setBusy(true);
     try {
-      if (onBeforeApply) await onBeforeApply();
-      await applyWorkKitProfile(shelf.group, shelf.id);
-      setMessage(`「${shelf.label}」 적용했습니다.`);
+      if (shelf.hints?.needs_organization_module) {
+        await syncOrganizationModuleIfNeeded();
+      }
+      const result = await applyWorkKitProfile(shelf.group, shelf.id);
+      const warn = result.warnings?.length ? ` (${result.warnings[0]})` : '';
+      setMessage(`「${shelf.label}」 적용했습니다.${warn}`);
       await load();
-      onApplied?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '적용 실패');
     } finally {
@@ -156,18 +156,18 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
     }
   };
 
-  const disabled = readOnly || busy || parentBusy || syncing;
+  const disabled = busy || syncing;
 
   return (
     <section
       data-testid="work-kit-library"
-      className="mb-6 max-w-4xl overflow-hidden rounded-2xl border border-line bg-panel shadow-sm"
+      className="mx-auto max-w-4xl overflow-hidden rounded-2xl border border-line bg-panel shadow-sm"
     >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
-          <h3 className="text-lg font-semibold text-text">작업 환경</h3>
+          <h1 className="text-lg font-semibold text-text">작업 환경</h1>
           <p className="mt-0.5 text-sm text-muted">
-            브랜드를 고른 뒤, 키트를 받고 오늘 할 일에 맞게 적용하세요.
+            브랜드를 고르고, 쓸 키트를 받은 다음 적용하세요.
           </p>
           {feedSequence != null ? (
             <p className="mt-1 text-[11px] text-muted">카탈로그 seq {feedSequence}</p>
@@ -179,6 +179,18 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {onLaunchMyAgent ? (
+            <button
+              type="button"
+              data-testid="launcher-open-my-agent"
+              disabled={disabled}
+              onClick={onLaunchMyAgent}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <Play size={15} weight="fill" />
+              MY Agent 실행
+            </button>
+          ) : null}
           <button
             type="button"
             data-testid="work-kit-catalog-sync"
@@ -215,7 +227,7 @@ export function WorkKitLibrary({ readOnly, busy: parentBusy = false, onBeforeApp
       {groups.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-muted">
           <p>등록된 작업 환경이 없습니다.</p>
-          <p className="mt-2 text-xs">「목록 새로고침」으로 카탈로그를 가져오거나, 이미 받은 키트가 있으면 표시됩니다.</p>
+          <p className="mt-2 text-xs">「목록 새로고침」으로 카탈로그를 가져오세요.</p>
         </div>
       ) : (
         <div className="flex min-h-[320px]">

@@ -18,6 +18,7 @@
       "reason": "This repo's name, version, GitHub target, and public docs.",
       "files": [
         "manifest.json",
+        "launcher-manifest.json",
         "repo-target.json",
         "VERSION.txt",
         "AGENTS.md",

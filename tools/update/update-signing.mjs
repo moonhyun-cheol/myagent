@@ -14,6 +14,9 @@ import path from 'node:path';
 export const UPDATE_SIGNATURE_ALGORITHM = 'RSA-PSS-SHA256';
 export const UPDATE_PAYLOAD_SCHEMA = 'cqr-pa-update-payload/v1';
 export const UPDATE_FEED_SCHEMA = 'cqr-pa-update-feed/v1';
+export const LAUNCHER_FEED_SCHEMA = 'my-agent-launcher-feed/v1';
+export const LAUNCHER_PAYLOAD_SCHEMA = 'my-agent-launcher-payload/v1';
+export const LAUNCHER_KIND = 'work-kit-launcher';
 
 const PROTECTED_ROOTS = new Set(['.git', 'data', 'logs', 'runtime']);
 
@@ -268,4 +271,173 @@ export function buildReleaseFeed({
     throw new Error('feed minimum_supported_sequence cannot exceed update_sequence');
   }
   return document;
+}
+
+function launcherAssetName(version, updateSequence) {
+  return `WorkKitLauncher-v${version}-update-${updateSequence}.zip`;
+}
+
+export function normalizeLauncherUpdatePath(input) {
+  const normalized = normalizeUpdatePath(input);
+  const lower = normalized.toLowerCase();
+  const base = lower.split('/').at(-1);
+  if (base === 'myagent.exe' || base === 'myagent.updater.exe') {
+    throw new Error(`launcher payload cannot include ${normalized}`);
+  }
+  if (lower === 'manifest.json') {
+    throw new Error('launcher payload cannot replace product manifest.json');
+  }
+  const root = lower.split('/')[0];
+  if (root === 'core') {
+    throw new Error(`launcher payload cannot include core files: ${normalized}`);
+  }
+  if (
+    lower === 'workkitlauncher.exe'
+    || lower === 'launcher-manifest.json'
+    || lower === 'launcher-payload.json'
+    || lower.startsWith('web/')
+    || lower.startsWith('bin/work-kit-launcher/')
+    || lower.startsWith('ui/work-kit-launcher/')
+  ) {
+    return normalized;
+  }
+  throw new Error(`launcher payload path is not allowed: ${normalized}`);
+}
+
+export function assertLauncherPayloadManifest(document) {
+  if (!document || document.schema !== LAUNCHER_PAYLOAD_SCHEMA) {
+    throw new Error('unsupported launcher payload schema');
+  }
+  if (document.kind !== LAUNCHER_KIND) {
+    throw new Error('launcher payload kind must be work-kit-launcher');
+  }
+  if (!Number.isSafeInteger(document.update_sequence) || document.update_sequence < 1) {
+    throw new Error('update_sequence must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(document.minimum_supported_sequence) || document.minimum_supported_sequence < 1) {
+    throw new Error('minimum_supported_sequence must be a positive safe integer');
+  }
+  if (document.minimum_supported_sequence > document.update_sequence) {
+    throw new Error('minimum_supported_sequence cannot exceed update_sequence');
+  }
+  if (typeof document.version !== 'string' || !document.version.trim()) {
+    throw new Error('version is required');
+  }
+  if (typeof document.channel !== 'string' || !/^[a-z0-9-]+$/.test(document.channel)) {
+    throw new Error('channel must use lowercase letters, numbers, and hyphens');
+  }
+  if (!Array.isArray(document.files) || document.files.length === 0) {
+    throw new Error('payload files are required');
+  }
+  const seen = new Set();
+  for (const file of document.files) {
+    const safePath = normalizeLauncherUpdatePath(file?.path);
+    if (seen.has(safePath)) throw new Error(`duplicate update path: ${safePath}`);
+    seen.add(safePath);
+    if (!Number.isSafeInteger(file.size) || file.size < 0) {
+      throw new Error(`invalid file size: ${safePath}`);
+    }
+    assertHexSha256(file.sha256, `file sha256 (${safePath})`);
+  }
+  if (!Array.isArray(document.deleted)) throw new Error('deleted must be an array');
+  for (const deletedPath of document.deleted) normalizeLauncherUpdatePath(deletedPath);
+  return document;
+}
+
+export function buildLauncherPayloadManifest(
+  stageDir,
+  {
+    updateSequence,
+    minimumSupportedSequence = 1,
+    version,
+    channel = 'stable',
+    createdAt = new Date().toISOString(),
+    deleted = [],
+    excludedPaths = ['launcher-payload.json'],
+  },
+) {
+  const excluded = new Set(excludedPaths.map((item) => normalizeLauncherUpdatePath(item)));
+  const files = walkManagedFiles(stageDir)
+    .map((file) => ({
+      ...file,
+      path: normalizeLauncherUpdatePath(file.path),
+    }))
+    .filter((file) => !excluded.has(file.path))
+    .sort((a, b) => a.path.localeCompare(b.path, 'en'));
+  return assertLauncherPayloadManifest({
+    schema: LAUNCHER_PAYLOAD_SCHEMA,
+    kind: LAUNCHER_KIND,
+    update_sequence: updateSequence,
+    minimum_supported_sequence: minimumSupportedSequence,
+    version,
+    channel,
+    created_at: createdAt,
+    files,
+    deleted: [...deleted].map(normalizeLauncherUpdatePath).sort((a, b) => a.localeCompare(b, 'en')),
+  });
+}
+
+export function buildLauncherReleaseFeed({
+  updateSequence,
+  minimumSupportedSequence = 1,
+  version,
+  channel = 'stable',
+  publishedAt,
+  repository,
+  releaseTag,
+  assetName,
+  assetSize,
+  assetSha256,
+  payloadManifestSha256,
+  releaseNotes = '',
+}) {
+  if (
+    typeof repository !== 'string'
+    || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)
+  ) {
+    throw new Error('repository must use owner/name format');
+  }
+  if (releaseTag !== `launcher-update-${updateSequence}`) {
+    throw new Error(`release tag must be launcher-update-${updateSequence}`);
+  }
+  const expectedName = launcherAssetName(version, updateSequence);
+  if (
+    typeof assetName !== 'string'
+    || !assetName
+    || assetName !== path.basename(assetName)
+    || assetName.includes('\\')
+    || assetName !== expectedName
+  ) {
+    throw new Error(`asset name must be ${expectedName}`);
+  }
+  if (!Number.isSafeInteger(assetSize) || assetSize < 1) throw new Error('asset size is required');
+  assertHexSha256(assetSha256, 'asset sha256');
+  assertHexSha256(payloadManifestSha256, 'payload manifest sha256');
+  if (!Number.isSafeInteger(updateSequence) || updateSequence < 1) {
+    throw new Error('feed update_sequence must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(minimumSupportedSequence) || minimumSupportedSequence < 1) {
+    throw new Error('feed minimum_supported_sequence must be a positive safe integer');
+  }
+  if (minimumSupportedSequence > updateSequence) {
+    throw new Error('feed minimum_supported_sequence cannot exceed update_sequence');
+  }
+  return {
+    schema: LAUNCHER_FEED_SCHEMA,
+    kind: LAUNCHER_KIND,
+    update_sequence: updateSequence,
+    minimum_supported_sequence: minimumSupportedSequence,
+    version,
+    channel,
+    published_at: publishedAt,
+    asset: {
+      repository,
+      release_tag: releaseTag,
+      name: assetName,
+      size: assetSize,
+      sha256: assetSha256,
+    },
+    payload_manifest_sha256: payloadManifestSha256,
+    release_notes: String(releaseNotes),
+  };
 }

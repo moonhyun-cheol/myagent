@@ -1,0 +1,9 @@
+global using System.Diagnostics;
+global using System.IO;
+global using System.IO.Compression;
+global using System.Net;
+global using System.Net.Http;
+global using System.Net.Sockets;
+global using System.Security.Cryptography;
+global using System.Text;
+global using System.Text.Json;

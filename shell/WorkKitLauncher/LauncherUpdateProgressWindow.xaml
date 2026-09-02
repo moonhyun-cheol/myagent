@@ -1,0 +1,57 @@
+<Window x:Class="CqrPa.WorkKitLauncher.LauncherUpdateProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="작업 환경 업데이트"
+        Width="420" Height="188"
+        MinWidth="420" MinHeight="188"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None"
+        Background="#f4f5f2"
+        BorderBrush="#adb9b4"
+        BorderThickness="1"
+        ShowInTaskbar="True"
+        Topmost="True"
+        Closing="OnClosing">
+  <Grid Margin="22,18,22,18">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+    <TextBlock Text="작업 환경 업데이트"
+               FontSize="16"
+               FontWeight="SemiBold"
+               Foreground="#17211d" />
+    <TextBlock x:Name="StatusText"
+               Grid.Row="1"
+               Margin="0,10,0,0"
+               Text="업데이트 파일을 다운로드하는 중…"
+               TextWrapping="Wrap"
+               FontSize="12"
+               Foreground="#4f5d57" />
+    <ProgressBar x:Name="Bar"
+                 Grid.Row="2"
+                 Margin="0,16,0,0"
+                 Height="8"
+                 Minimum="0"
+                 Maximum="100"
+                 IsIndeterminate="True"
+                 Foreground="#0f8f83"
+                 Background="#adb9b4" />
+    <TextBlock x:Name="DetailText"
+               Grid.Row="3"
+               Margin="0,8,0,0"
+               FontSize="11"
+               Foreground="#4f5d57" />
+    <Button x:Name="CancelButton"
+            Grid.Row="4"
+            HorizontalAlignment="Right"
+            Margin="0,12,0,0"
+            Padding="14,6"
+            Content="취소"
+            Click="OnCancelClick" />
+  </Grid>
+</Window>

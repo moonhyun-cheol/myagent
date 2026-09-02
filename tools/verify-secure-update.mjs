@@ -11,8 +11,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  LAUNCHER_FEED_SCHEMA,
   UPDATE_FEED_SCHEMA,
   UPDATE_PAYLOAD_SCHEMA,
+  buildLauncherReleaseFeed,
   buildPayloadManifest,
   buildReleaseFeed,
   canonicalJson,
@@ -21,7 +23,7 @@ import {
   sha256Bytes,
   verifySignedEnvelope,
 } from './update/update-signing.mjs';
-import { buildGitHubReleasePlan, formatGitHubReleaseTitle } from './update/github-release-plan.mjs';
+import { buildGitHubReleasePlan, coreUpdateTag, formatGitHubReleaseTitle, isCoreUpdateAssetName, isLauncherUpdateAssetName, launcherUpdateTag } from './update/github-release-plan.mjs';
 
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-secure-update-'));
 
@@ -101,6 +103,23 @@ try {
     }),
     /release tag must be update-7/,
   );
+  assert.throws(
+    () => buildLauncherReleaseFeed({
+      updateSequence: 7,
+      minimumSupportedSequence: 3,
+      version: '1.0.0',
+      channel: 'stable',
+      publishedAt: payload.created_at,
+      repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+      releaseTag: 'update-7',
+      assetName: 'WorkKitLauncher-v1.0.0-update-7.zip',
+      assetSize: 1,
+      assetSha256: assetSha,
+      payloadManifestSha256: sha256Bytes(payloadEnvelopeBytes),
+    }),
+    /launcher-update-7/,
+  );
+  assert.equal(LAUNCHER_FEED_SCHEMA, 'my-agent-launcher-feed/v1');
 
   const releasePlan = buildGitHubReleasePlan({
     repository: feed.asset.repository,
@@ -138,6 +157,13 @@ try {
     }),
     /unsafe GitHub default branch/,
   );
+
+  assert.equal(coreUpdateTag(7), 'update-7');
+  assert.equal(launcherUpdateTag(1), 'launcher-update-1');
+  assert.equal(isCoreUpdateAssetName('MYAgent-v0.9.1-beta-delta.zip'), true);
+  assert.equal(isLauncherUpdateAssetName('WorkKitLauncher-v1.0.0-update-1.zip'), true);
+  assert.equal(isLauncherUpdateAssetName('MYAgent-v1.0.3-delta.zip'), false);
+  assert.equal(isCoreUpdateAssetName('WorkKitLauncher-v1.0.0-update-1.zip'), false);
 
   console.log('verify-secure-update: ok');
 } finally {

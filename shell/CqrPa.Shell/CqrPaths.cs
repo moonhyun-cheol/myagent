@@ -1,6 +1,6 @@
 namespace CqrPa.Shell;
 
-internal static class CqrPaths
+public static class CqrPaths
 {
     public static string ResolveCqrRoot()
     {

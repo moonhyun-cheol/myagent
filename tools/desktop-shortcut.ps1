@@ -62,6 +62,20 @@ function New-CqrDesktopShortcut {
   $shortcut.IconLocation = "$productExe,0"
 
   $shortcut.Save()
+  $launcherExe = Join-Path $AppRoot 'WorkKitLauncher.exe'
+  if (Test-Path -LiteralPath $launcherExe) {
+    $launcherShortcutPath = Join-Path $desktop 'MY Agent 작업 환경.lnk'
+    $launcherShortcut = $shell.CreateShortcut($launcherShortcutPath)
+    $launcherShortcut.TargetPath = $launcherExe
+    $launcherShortcut.Arguments = ''
+    $launcherShortcut.WorkingDirectory = $AppRoot
+    $launcherShortcut.Description = 'MY Agent 작업 환경'
+    $launcherShortcut.WindowStyle = 7
+    $launcherShortcut.IconLocation = "$launcherExe,0"
+    $launcherShortcut.Save()
+    Write-Host "Desktop shortcut: $launcherShortcutPath"
+  }
+
   return $shortcutPath
 }
 

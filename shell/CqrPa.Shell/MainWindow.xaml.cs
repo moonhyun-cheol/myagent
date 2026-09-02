@@ -33,6 +33,8 @@ public partial class MainWindow : Window
 
     internal UpdatePollingService? UpdatePolling { get; set; }
 
+    internal string CqrRoot => _cqrRoot;
+
     internal MainWindow(string cqrRoot, int port, ApiProcessHost api)
     {
         _cqrRoot = cqrRoot;

@@ -12,6 +12,34 @@ export function formatGitHubReleaseTitle(version, updateSequence) {
   return `MY Agent ${String(version ?? '').trim()} (update ${updateSequence})`;
 }
 
+export function formatGitHubLauncherReleaseTitle(version, updateSequence) {
+  return `WorkKitLauncher ${String(version ?? '').trim()} (launcher-update ${updateSequence})`;
+}
+
+export function coreUpdateTag(updateSequence) {
+  if (!Number.isSafeInteger(updateSequence) || updateSequence < 1) {
+    throw new Error('update sequence must be a positive safe integer');
+  }
+  return `update-${updateSequence}`;
+}
+
+export function launcherUpdateTag(updateSequence) {
+  if (!Number.isSafeInteger(updateSequence) || updateSequence < 1) {
+    throw new Error('update sequence must be a positive safe integer');
+  }
+  return `launcher-update-${updateSequence}`;
+}
+
+export function isCoreUpdateAssetName(name) {
+  const file = path.basename(String(name ?? ''));
+  return /^MYAgent-v.+-delta\.zip$/i.test(file) || /^MYAgent-v.+-install.*\.zip$/i.test(file);
+}
+
+export function isLauncherUpdateAssetName(name) {
+  const file = path.basename(String(name ?? ''));
+  return /^WorkKitLauncher-v.+-update-\d+\.zip$/i.test(file);
+}
+
 export function validateGitHubBranch(branch) {
   const value = String(branch ?? '').trim();
   if (!value || value.startsWith('-') || value.includes('..') || /[\s~^:?*\[\]\\]/.test(value)) {
@@ -39,7 +67,7 @@ export function buildGitHubReleasePlan({
   }
   const safeVersion = String(version ?? '').trim();
   if (!safeVersion) throw new Error('version is required');
-  const tag = `update-${updateSequence}`;
+  const tag = coreUpdateTag(updateSequence);
   const zipName = path.basename(zipPath);
   const feedName = path.basename(feedPath);
   if (!zipName.toLowerCase().endsWith('.zip')) throw new Error('release payload must be a zip');
@@ -84,6 +112,75 @@ export function buildGitHubReleasePlan({
     tag,
     release_args: releaseArgs,
     feed_api_path: `repos/${repo}/contents/channels/${safeChannel}.json`,
+    feed_branch: branch,
+    raw_feed_url: rawFeedUrl,
+  };
+}
+
+export function buildGitHubLauncherReleasePlan({
+  repository,
+  defaultBranch,
+  channel,
+  updateSequence,
+  version,
+  zipPath,
+  feedPath,
+  releaseNotes = '',
+}) {
+  const repo = validateGitHubRepository(repository);
+  const branch = validateGitHubBranch(defaultBranch);
+  const safeChannel = String(channel ?? '').trim();
+  if (!/^[a-z0-9-]+$/.test(safeChannel)) throw new Error('invalid update channel');
+  if (!Number.isSafeInteger(updateSequence) || updateSequence < 1) {
+    throw new Error('update sequence must be a positive safe integer');
+  }
+  const safeVersion = String(version ?? '').trim();
+  if (!safeVersion) throw new Error('version is required');
+  const tag = launcherUpdateTag(updateSequence);
+  const zipName = path.basename(zipPath);
+  const feedName = path.basename(feedPath);
+  if (!isLauncherUpdateAssetName(zipName)) {
+    throw new Error(`launcher zip must be WorkKitLauncher-v{ver}-update-${updateSequence}.zip`);
+  }
+  if (feedName !== `launcher-feed-${safeChannel}.json`) {
+    throw new Error(`feed file must be launcher-feed-${safeChannel}.json`);
+  }
+
+  const releaseArgs = [
+    'release',
+    'create',
+    tag,
+    zipPath,
+    feedPath,
+    '--repo',
+    repo,
+    '--title',
+    formatGitHubLauncherReleaseTitle(safeVersion, updateSequence),
+    '--notes',
+    releaseNotes || formatGitHubLauncherReleaseTitle(safeVersion, updateSequence),
+  ];
+  if (safeChannel !== 'stable') releaseArgs.push('--prerelease');
+
+  const feedUrlBase = String(process.env.MY_AGENT_UPDATE_FEED_URL_BASE ?? '').trim();
+  const rawFeedUrl = feedUrlBase
+    ? `${feedUrlBase
+        .replaceAll('{owner}', encodeURIComponent(repo.split('/')[0]))
+        .replaceAll('{repo}', encodeURIComponent(repo.split('/')[1]))
+        .replaceAll('{repository}', repo)
+        .replaceAll('{branch}', encodeURIComponent(branch))
+        .replace(/\/$/, '')}/channels/launcher-${safeChannel}.json`
+    : `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(branch)}`
+      + `/channels/launcher-${safeChannel}.json`;
+
+  return {
+    repository: repo,
+    default_branch: branch,
+    channel: safeChannel,
+    update_sequence: updateSequence,
+    version: safeVersion,
+    tag,
+    release_args: releaseArgs,
+    feed_api_path: `repos/${repo}/contents/channels/launcher-${safeChannel}.json`,
     feed_branch: branch,
     raw_feed_url: rawFeedUrl,
   };

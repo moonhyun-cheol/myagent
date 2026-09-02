@@ -270,11 +270,14 @@ MY Agent install complete
 Path: $targetFull
 
 Desktop shortcut: MY Agent.lnk
+Work kit launcher shortcut: MY Agent 작업 환경.lnk (if WorkKitLauncher.exe is present)
 
-1. Launch MY Agent from the desktop shortcut or MYAgent.exe
+1. Launch MY Agent 작업 환경 (WorkKitLauncher) to pick a work kit, then MY Agent
+2. Or launch MY Agent.exe directly for chat
 
 First run: optional activation and provider setup.
 Organization skills are installed separately through their signed module stream.
+Work kits are chosen in WorkKitLauncher, not in MY Agent Settings → Skills.
 Slim zip: first install may need internet for Node. Optional extras (ffmpeg, Playwright, OSS sidecars) download only if checked. Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
@@ -299,6 +302,18 @@ if (-not (Test-Path -LiteralPath $productExe)) {
       $shortcut.WindowStyle = 7
       $shortcut.Save()
       Write-Host "Desktop shortcut: $shortcutPath"
+      $launcherExe = Join-Path $targetFull 'WorkKitLauncher.exe'
+      if (Test-Path -LiteralPath $launcherExe) {
+        $launcherShortcutPath = Join-Path $desktop 'MY Agent 작업 환경.lnk'
+        $launcherShortcut = $shell.CreateShortcut($launcherShortcutPath)
+        $launcherShortcut.TargetPath = $launcherExe
+        $launcherShortcut.Arguments = ''
+        $launcherShortcut.WorkingDirectory = $targetFull
+        $launcherShortcut.Description = 'MY Agent 작업 환경'
+        $launcherShortcut.WindowStyle = 7
+        $launcherShortcut.Save()
+        Write-Host "Desktop shortcut: $launcherShortcutPath"
+      }
     }
   } catch {
     Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
@@ -307,4 +322,4 @@ if (-not (Test-Path -LiteralPath $productExe)) {
 
 Write-Host ''
 Write-Host "Install complete: $targetFull"
-Write-Host 'Next: run MY Agent from the desktop shortcut (or MYAgent.exe)'
+Write-Host 'Next: run WorkKitLauncher (MY Agent 작업 환경) to apply a kit, then MY Agent'

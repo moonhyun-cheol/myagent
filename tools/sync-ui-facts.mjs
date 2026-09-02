@@ -70,6 +70,18 @@ const facts = {
     delete_confirm: [confirmModalRel, confirmLibRel, navRel, treeRel],
     composer: [chatPaneRel, 'ui/workspace/src/store/workspaceStore.ts'],
   },
+  work_kit_launcher: {
+    shell: existsSync(path.join(root, 'shell/WorkKitLauncher/MainWindow.xaml'))
+      ? 'shell/WorkKitLauncher/MainWindow.xaml'
+      : null,
+    ui: existsSync(path.join(root, 'ui/work-kit-launcher/src/App.tsx'))
+      ? 'ui/work-kit-launcher/src/App.tsx'
+      : null,
+    profile_library: existsSync(path.join(root, 'ui/work-kit-launcher/src/components/ProfileLibrary.tsx'))
+      ? 'ui/work-kit-launcher/src/components/ProfileLibrary.tsx'
+      : null,
+    serve_path: '/launcher/',
+  },
 };
 
 const outDir = path.join(root, 'core', 'config', 'defaults');

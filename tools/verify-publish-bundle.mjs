@@ -47,6 +47,24 @@ const checks = [
     label: 'transactional update helper (MYAgent.Updater.exe)',
   },
   {
+    id: 'launcher',
+    path: 'WorkKitLauncher.exe',
+    label: 'Work Kit Launcher (WorkKitLauncher.exe)',
+  },
+  {
+    id: 'launcher_ui',
+    paths: [
+      'bin/work-kit-launcher/web/index.html',
+      'ui/work-kit-launcher/dist/index.html',
+    ],
+    label: 'Work Kit Launcher UI',
+  },
+  {
+    id: 'launcher_manifest',
+    path: 'launcher-manifest.json',
+    label: 'launcher-manifest.json',
+  },
+  {
     id: 'keys_bundle',
     path: 'core/config/defaults/keys-bundle.default.enc',
     label: 'Ollama NAS default keys bundle',

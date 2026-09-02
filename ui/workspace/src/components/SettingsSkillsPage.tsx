@@ -11,7 +11,6 @@ import {
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
-import { WorkKitLibrary } from './WorkKitLibrary';
 
 function isSkillPinned(skill: SkillListItem, pinned: ReadonlySet<string>): boolean {
   return pinned.has(skill.id) || pinned.has(skill.mode) || pinned.has(`org:${skill.id}`);
@@ -213,9 +212,9 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-ink px-8 py-7">
       <header className="mb-5 pr-12">
-        <h2 className="text-xl font-semibold">스킬 · 작업 환경</h2>
+        <h2 className="text-xl font-semibold">스킬</h2>
         <p className="mt-1 text-sm text-muted">
-          오늘 할 일에 맞는 키트를 고르면 스킬과 플러그인이 자동으로 맞춰집니다.
+          조직 모듈·ZIP 스킬을 관리합니다. 작업 환경(프로필)은 WorkKitLauncher에서 설정하세요.
         </p>
       </header>
 
@@ -225,14 +224,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
         </p>
       ) : null}
 
-      <WorkKitLibrary
-        readOnly={readOnly}
-        busy={busy}
-        onBeforeApply={syncOrgModuleSilently}
-        onApplied={() => void refresh()}
-      />
-
-      <details className="mt-6 max-w-4xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      <details className="max-w-4xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <summary className="cursor-pointer text-sm font-medium text-text">고급 · 스킬 관리</summary>
 
         {organization.length > 0 ? (
@@ -242,7 +234,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           >
             {pinnedOrgSkills.length > 0 ? (
               <p data-testid="organization-pinned-summary" className="mb-2 text-xs text-muted">
-                작업 환경에 맞춰 켜진 스킬 {pinnedOrgSkills.length}개
+                적용된 작업 키트에 맞춰 켜진 스킬 {pinnedOrgSkills.length}개
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2">

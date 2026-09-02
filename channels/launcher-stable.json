@@ -1,0 +1,21 @@
+{
+  "algorithm": "RSA-PSS-SHA256",
+  "document": {
+    "schema": "my-agent-launcher-feed/v1",
+    "kind": "work-kit-launcher",
+    "update_sequence": 1,
+    "minimum_supported_sequence": 1,
+    "version": "1.0.0",
+    "channel": "stable",
+    "published_at": "2026-09-02T00:00:00.000Z",
+    "asset": {
+      "repository": "moonhyun-cheol/myagent",
+      "release_tag": "launcher-update-1",
+      "name": "WorkKitLauncher-v1.0.0-update-1.zip",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "release_notes": "Initial Work Kit Launcher (mod manager) — separate from MY Agent core."
+  },
+  "signature": ""
+}

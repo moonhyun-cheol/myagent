@@ -59,6 +59,8 @@ import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-
 import { parseMultipart } from '../attachments/multipart.js';
 import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error-report-service.js';
 import { evaluateUpdateGate } from '../system/update-gate.js';
+import { evaluateWorkEnvironmentPending } from '../system/work-environment-pending.js';
+import { LauncherUpdateError } from '../updates/launcher-update-feed.js';
 import { setMutateReviewPending, uiBusySnapshot } from '../system/ui-busy-state.js';
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
@@ -273,6 +275,19 @@ export async function dispatchApiRequest(
           personalScheduler,
           personalSchedulerRuntime,
         }));
+      }
+
+      if (method === 'GET' && url.pathname === '/system/work-environment/pending') {
+        license.assertFeature('chat');
+        try {
+          const result = await evaluateWorkEnvironmentPending(cqrRoot);
+          return sendJson(res, 200, result);
+        } catch (e: unknown) {
+          if (e instanceof LauncherUpdateError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
       }
 
       if (method === 'POST' && url.pathname === '/system/ui-busy') {
