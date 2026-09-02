@@ -343,6 +343,15 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
             if (_pending is null || _promptInFlight) return;
             _promptInFlight = true;
         }
+        if (!UpdatePromptGate.TryAcquire())
+        {
+            // Another update prompt is already on screen; retry on a later tick.
+            lock (_sync)
+            {
+                _promptInFlight = false;
+            }
+            return;
+        }
 
         try
         {
@@ -370,6 +379,7 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
         }
         finally
         {
+            UpdatePromptGate.Release();
             lock (_sync)
             {
                 _promptInFlight = false;

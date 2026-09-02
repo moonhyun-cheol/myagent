@@ -6,6 +6,36 @@ using MessageBox = System.Windows.MessageBox;
 
 namespace CqrPa.Shell;
 
+/// <summary>
+/// Process-wide gate so only one update-style prompt (core update,
+/// work-environment update) is visible at a time. Without this, a prompt
+/// left unanswered lets the other polling service open a second window
+/// on its next refresh tick.
+/// </summary>
+internal static class UpdatePromptGate
+{
+    private static readonly object Sync = new();
+    private static bool _promptVisible;
+
+    internal static bool TryAcquire()
+    {
+        lock (Sync)
+        {
+            if (_promptVisible) return false;
+            _promptVisible = true;
+            return true;
+        }
+    }
+
+    internal static void Release()
+    {
+        lock (Sync)
+        {
+            _promptVisible = false;
+        }
+    }
+}
+
 internal static class UpdateApplyCoordinator
 {
     internal static async Task RunPromptDownloadAndApplyAsync(
@@ -302,6 +332,15 @@ internal sealed class UpdatePollingService : IDisposable
             if (_pendingUpdate is null || _promptInFlight) return;
             _promptInFlight = true;
         }
+        if (!UpdatePromptGate.TryAcquire())
+        {
+            // Another update prompt is already on screen; retry on a later tick.
+            lock (_sync)
+            {
+                _promptInFlight = false;
+            }
+            return;
+        }
 
         try
         {
@@ -324,6 +363,7 @@ internal sealed class UpdatePollingService : IDisposable
         }
         finally
         {
+            UpdatePromptGate.Release();
             lock (_sync)
             {
                 _promptInFlight = false;
