@@ -1,7 +1,7 @@
 #requires -Version 5.1
 # WorkKitLauncher-only install into an existing MY Agent tree (no folder picker).
 param(
-  [string]$SourceAppDir = (Join-Path (Split-Path $PSScriptRoot -Parent) 'app'),
+  [string]$SourceAppDir = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'app'),
   [string]$TargetRoot = '',
   [switch]$Launch,
   [switch]$NoInteractive
@@ -83,7 +83,11 @@ if (-not (Test-MyAgentInstallRoot $targetRoot)) {
 }
 
 Write-Host "Installing WorkKitLauncher into: $targetRoot"
-Copy-Item -LiteralPath (Join-Path $SourceAppDir '*') -Destination $targetRoot -Recurse -Force
+$sourceItems = Join-Path $SourceAppDir '*'
+if (-not (Test-Path -LiteralPath $SourceAppDir)) {
+  throw "Source app folder is missing: $SourceAppDir"
+}
+Copy-Item -Path $sourceItems -Destination $targetRoot -Recurse -Force
 
 $launcherExe = Join-Path $targetRoot 'WorkKitLauncher.exe'
 if (-not (Test-Path -LiteralPath $launcherExe)) {

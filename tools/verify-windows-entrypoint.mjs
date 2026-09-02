@@ -153,7 +153,8 @@ for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
 
 const installLauncherUi = read('tools/install/install-launcher-ui.ps1');
 assert.match(installLauncherUi, /Show-TargetPickerForm/);
-assert.match(installLauncherUi, /Get-ManagerProductLabel/);
+assert.match(installLauncherUi, /Get-LauncherUiText/);
+assert.match(installLauncherUi, /Format-LauncherLogLineForUi/);
 assert.match(installLauncherUi, /-NoInteractive/);
 for (const m of installLauncherUi.matchAll(/-match\s+'([^']*)'/g)) {
   assert.ok(
