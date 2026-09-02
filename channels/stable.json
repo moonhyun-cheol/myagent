@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 21,
+    "update_sequence": 22,
     "minimum_supported_sequence": 1,
-    "version": "1.0.3",
+    "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T02:03:11.876Z",
+    "published_at": "2026-09-02T02:20:18.483Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-21",
-      "name": "MYAgent-v1.0.3-delta.zip",
-      "size": 267187267,
-      "sha256": "cf3ddc64941dbb21e76d01f8baa189f98e6b7fd96e38c242e3969fc5d185c738"
+      "release_tag": "update-22",
+      "name": "MYAgent-v1.1.0-delta.zip",
+      "size": 267187224,
+      "sha256": "dbcc5fa9dd1eb0da9630e3a0cf343e95f22a5bf7581be3d76bcee1ef363c621c"
     },
-    "payload_manifest_sha256": "b063278aa4937cbc81c7d3cbea463bd87184dfafebce88beb793f49072ce2eb5",
-    "release_notes": ""
+    "payload_manifest_sha256": "e72398f6785afceab2c6ec405059347810c1bbb9baff4fb6114fbe75b3e394ea",
+    "release_notes": "MY Agent 1.1.0 — WorkKitLauncher standalone app, companion work-environment prompt (R-618), launcher auto-update (R-617)."
   },
-  "signature": "NELogEzh8KULR063G3uQJgNpdiaDjyaLvhYrg905H4D3LLLK+MdpZ/E2394IIUne4m6PqL4skN+NE2aQ2r8AGRsUv7DICMFaWczErb0MpGpy7thna3AHbrn36/f8CTy8tYd/Wfx7SmgVKGoG3Q3mDgxWtPlMyB+CSjcV1711+BAclJ0qQscKRMij8dI27jGOTpyIxAlKoJNPoFXtV+xLF4FMThLBxX4iUQN1BuRloZaeFTXI0S8nR56n4dZQirwiHQkI0LdTo+XXynGTdxXiXO9CN/QLqvZdgPi8aqYWTIFAW0ARc3iM3Tu1NcSiHjGAUG6CwRAMxBq0+zo1hnIKxaK/5B/szre9AOvvZNJnEjK1huT9pYzvTi89rbJFwh0eORFocfzNtZpcC/dtJWgpsuqCTxjy+zn14BLQ42zIvhqCrmmUDdu4gm4k5felQwjobD4EhbpmmF3tnt+/QNrg1+cv3DnIr7QKPFCwXTb98SIMZH7tjRnGKG7x+lvrQluA"
+  "signature": "wUkPcnZzPs2RjrZnrKxi++HAKJ1MN4XihVPJxDSKJEwAldVA4wqYrqMH7F2WoyZ4F5cGZTp9JfF9VRJnbqhnEbvS1vwhEUDyl/YWXaF00ZsTzb+1uXhQwnLE+4gUeU5902E8XwhU4JXUvcbZ4vFi6tIgWYNzRTPN3CVP33f+UnqGowZR8ITXUqGaEZV4h3sm0J4JRboLtI4H3AIlDbU0qP9+5rYeKDSR3/OEUNS6jV5awBQaxaaHNjuPxgAn2f4W929d++i9ciAkSyqySTx6PfYn41JfoqwwX3nN/sG6A0ihvRW1F7mrNlnTDYKwHQMyU6wrMs/FXRiar2p8120020GX2/5FJXD4IxfREnPmxyezJzT8OAIHoAY1b+ExMiRBt580eZY0TPG/f5BLSmwd00186m0KXIsN+00LQwFQI8u/4/dqTEM1QKLO5SvGDkCxZ8xXnHFbihwrVPPFofd919Kc+bbUF8qPMKAKuupz3Vd27WuKH7UTvD201yNLSXNn"
 }
