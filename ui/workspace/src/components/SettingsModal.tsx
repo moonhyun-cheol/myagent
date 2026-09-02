@@ -41,7 +41,7 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     group: '일반',
     label: '프로그램',
     icon: GearSix,
-    keywords: ['프로그램', '파일 연결', '연결 프로그램', 'applications', 'file association'],
+    keywords: ['프로그램', '파일 연결', '연결 프로그램', 'applications', 'file association', '설치 폴더', 'install root', 'MY_AGENT_ROOT', 'workkit'],
     render: ({ readOnly }) => <SettingsGeneralPage readOnly={readOnly} />,
   },
   {

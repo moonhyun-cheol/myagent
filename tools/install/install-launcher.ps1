@@ -111,9 +111,9 @@ $targetRoot = Get-FullPath $TargetRoot
 if (-not (Test-MyAgentInstallRoot $targetRoot)) {
   Write-Host ''
   Write-Host 'ERROR: Could not find an existing MY Agent installation automatically.'
-  Write-Host '1) Install MY Agent first (MYAgent-v*-install.zip from GitHub v* release).'
-  Write-Host '2) Then run install-launcher.bat again.'
-  Write-Host '3) Or set MY_AGENT_ROOT to the folder that contains manifest.json and MYAgent.exe.'
+  Write-Host '1) Open MY Agent -> Settings -> General and copy the install folder path.'
+  Write-Host '2) Run: install-launcher.bat "PASTE_PATH_HERE"'
+  Write-Host '   or set MY_AGENT_ROOT to that folder, then run install-launcher.bat again.'
   Write-Host ''
   exit 1
 }

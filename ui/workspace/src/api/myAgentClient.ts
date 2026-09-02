@@ -366,6 +366,22 @@ export async function fetchLicense(): Promise<{ mode: string; features: string[]
   };
 }
 
+export interface AgentHealthPayload {
+  ok: boolean;
+  product: string;
+  version: string;
+  cqr_root: string;
+  port: number;
+}
+
+export async function fetchAgentHealth(): Promise<AgentHealthPayload> {
+  const res = await fetch('/health', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`상태 확인 실패 (${res.status})`);
+  const data = (await res.json()) as AgentHealthPayload;
+  if (!data.cqr_root?.trim()) throw new Error('설치 폴더 경로를 확인하지 못했습니다.');
+  return data;
+}
+
 export interface SetupStatusPayload {
   needs_license: boolean;
   license_mode: string;

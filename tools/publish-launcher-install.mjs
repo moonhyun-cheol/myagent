@@ -77,8 +77,9 @@ MY Agent 코어(MYAgent.exe)는 포함하지 않습니다.
    - 기본 후보: %SystemDrive%\\MYAgent, 바탕화면 "MY Agent" 바로가기, MY_AGENT_ROOT
 3. 바탕화면에 "MY Agent 작업 환경" 바로가기가 생성됩니다.
 
-수동 경로가 필요하면 환경 변수 MY_AGENT_ROOT 를 manifest.json 이 있는 폴더로 설정한 뒤 다시 실행하세요.
-런처 UI 하단 「관리 · 설치 루트」에서 현재 연결된 경로를 복사할 수 있습니다.
+수동 경로: MY Agent 설정 - 일반 - 설치 폴더에서 복사 후
+  install-launcher.bat "C:\\MYAgent"
+  또는 MY_AGENT_ROOT 환경 변수에 붙여넣기.
 
 자동 업데이트: channels/launcher-stable.json (launcher-update 스트림)
 `;

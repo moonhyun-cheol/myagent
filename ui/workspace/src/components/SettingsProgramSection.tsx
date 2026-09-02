@@ -40,7 +40,7 @@ export function SettingsProgramSection({ readOnly }: { readOnly: boolean }) {
   };
 
   return (
-    <section className="space-y-4 border-t border-border pt-6">
+    <section className="space-y-4">
       <div>
         <div className="mb-1 flex items-center gap-2">
           <Power size={18} className="text-accent" />

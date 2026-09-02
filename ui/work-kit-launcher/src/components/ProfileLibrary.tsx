@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, CloudArrowDown, Copy, Play } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CloudArrowDown, Play } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyWorkKitProfile,
@@ -28,9 +28,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
-  const [installRootCopied, setInstallRootCopied] = useState(false);
   const catalogSyncedRef = useRef(false);
-  const installRoot = window.__MY_AGENT_API__?.cqrRoot?.trim() ?? '';
 
   const load = useCallback(async () => {
     try {
@@ -160,17 +158,6 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
 
   const disabled = busy || syncing;
 
-  const copyInstallRoot = async () => {
-    if (!installRoot) return;
-    try {
-      await navigator.clipboard.writeText(installRoot);
-      setInstallRootCopied(true);
-      window.setTimeout(() => setInstallRootCopied(false), 2000);
-    } catch {
-      setMessage('설치 루트 경로를 클립보드에 복사하지 못했습니다.');
-    }
-  };
-
   return (
     <section
       data-testid="work-kit-library"
@@ -285,32 +272,6 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
           </div>
         </div>
       )}
-      <footer className="border-t border-line bg-ink/20 px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">관리 · 설치 루트</p>
-            <p className="mt-1 text-[11px] text-muted">
-              MY Agent와 공유하는 설치 폴더입니다. 지원·백업 시 이 경로를 알려주세요.
-            </p>
-            <code
-              data-testid="launcher-install-root"
-              className="mt-2 block break-all rounded-lg border border-line bg-panel px-3 py-2 text-xs text-text"
-            >
-              {installRoot || '(연결되지 않음)'}
-            </code>
-          </div>
-          <button
-            type="button"
-            data-testid="launcher-install-root-copy"
-            disabled={!installRoot}
-            onClick={() => void copyInstallRoot()}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-2 text-xs font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <Copy size={15} />
-            {installRootCopied ? '복사됨' : '복사'}
-          </button>
-        </div>
-      </footer>
     </section>
   );
 }
