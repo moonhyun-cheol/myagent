@@ -1,5 +1,19 @@
 #requires -Version 5.1
-# ASCII-only strings: PowerShell 5.1 loads no-BOM scripts as system ANSI (Korean regex/name failures).
+# Korean shortcut labels are loaded from UTF-8 base64 so PowerShell 5.1 (no-BOM) does not mangle them.
+
+function Get-ManagerShortcutLabel {
+  # "MY Agent 관리자"
+  return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('TVkgQWdlbnQg6rSA66as7J6Q'))
+}
+
+function Get-ManagerShortcutNames {
+  $primary = (Get-ManagerShortcutLabel) + '.lnk'
+  return @(
+    $primary,
+    'MY Agent Work Kit.lnk',
+    'WorkKitLauncher.lnk'
+  )
+}
 
 function Get-AllDesktopFolders {
   $paths = New-Object 'System.Collections.Generic.List[string]'
@@ -120,18 +134,34 @@ function Install-WorkKitLauncherDesktopShortcut {
   }
   $launcherExe = (Get-Item -LiteralPath $launcherExe).FullName
   $workingDir = (Get-Item -LiteralPath $AppRoot).FullName
+  $label = Get-ManagerShortcutLabel
   $desktops = Get-AllDesktopFolders
   if ($desktops.Count -eq 0) {
     throw 'No desktop folder found.'
   }
 
-  $existing = Find-ExistingLauncherShortcut -LauncherExe $launcherExe -DesktopFolders $desktops
-  if ($existing) { return $existing }
+  $preferredName = $label + '.lnk'
+  foreach ($desktop in $desktops) {
+    $preferredPath = Join-Path $desktop $preferredName
+    if (Test-Path -LiteralPath $preferredPath) {
+      try {
+        $shell = New-Object -ComObject WScript.Shell
+        $targetPath = $shell.CreateShortcut($preferredPath).TargetPath
+        if ($targetPath -and ($targetPath -ieq $launcherExe)) {
+          return $preferredPath
+        }
+      } catch {
+        continue
+      }
+    }
+  }
 
-  $shortcutNames = @(
-    'MY Agent Manager.lnk',
-    'WorkKitLauncher.lnk'
-  )
+  $existing = Find-ExistingLauncherShortcut -LauncherExe $launcherExe -DesktopFolders $desktops
+  if ($existing -and ((Split-Path $existing -Leaf) -ieq $preferredName)) {
+    return $existing
+  }
+
+  $shortcutNames = Get-ManagerShortcutNames
 
   $errors = New-Object 'System.Collections.Generic.List[string]'
   foreach ($desktop in $desktops) {
@@ -142,13 +172,15 @@ function Install-WorkKitLauncherDesktopShortcut {
           -ShortcutPath $shortcutPath `
           -TargetExe $launcherExe `
           -WorkingDirectory $workingDir `
-          -Description 'MY Agent Manager'
+          -Description $label
         return $shortcutPath
       } catch {
         [void]$errors.Add("$shortcutPath -> $($_.Exception.Message)")
       }
     }
   }
+
+  if ($existing) { return $existing }
 
   $detail = ($errors.ToArray() -join '; ')
   if ($detail) {

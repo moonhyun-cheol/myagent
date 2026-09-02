@@ -1,7 +1,7 @@
 {
   "name": "MY Agent 관리자",
   "kind": "work-kit-launcher",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "update_channel": "stable",
   "update_sequence": 2,
   "minimum_supported_sequence": 1,
