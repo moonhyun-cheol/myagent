@@ -304,10 +304,13 @@ function ScheduleDashboard({
             <h3 className="text-sm font-bold text-text">트리거 태그 안내</h3>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <TriggerTag kind="Time" />
+              <TriggerTag kind="Sequence" pending />
+              <TriggerTag kind="On action" pending />
+              <TriggerTag kind="Condition" pending />
               <TriggerTag kind="Manual" />
             </div>
             <p className="mt-2.5 text-xs leading-5 text-muted">
-              현재는 시간 기반 실행과 수동 실행을 지원합니다. Sequence, On action, Condition 트리거는 다음 업데이트에서 추가됩니다.
+              Time·Manual은 지금 새 일정에서 설정할 수 있습니다. Sequence, On action, Condition은 범례만 표시되며 다음 업데이트에서 추가됩니다.
             </p>
           </div>
         </div>
@@ -352,9 +355,18 @@ function SummaryCard({
   );
 }
 
-function TriggerTag({ kind }: { kind: TriggerKind }) {
+function TriggerTag({ kind, pending = false }: { kind: TriggerKind; pending?: boolean }) {
   const meta = TRIGGER_META[kind];
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${meta.className}`}>{meta.label}</span>;
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${meta.className} ${
+        pending ? 'opacity-60 ring-1 ring-dashed ring-current' : ''
+      }`}
+      title={pending ? '다음 업데이트 예정' : undefined}
+    >
+      {meta.label}
+    </span>
+  );
 }
 
 function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; canMutate: boolean; onChanged: () => void }) {

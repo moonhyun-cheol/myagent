@@ -39,9 +39,9 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: 'general',
     group: '일반',
-    label: '프로그램',
+    label: '일반',
     icon: GearSix,
-    keywords: ['프로그램', '파일 연결', '연결 프로그램', 'applications', 'file association', '설치 폴더', 'install root', 'MY_AGENT_ROOT', '관리자', '작업 키트'],
+    keywords: ['일반', '프로그램', '트레이', '업데이트', '파일 연결', '연결 프로그램', 'applications', 'file association', '설치 폴더', 'install root', 'MY_AGENT_ROOT', '관리자', '작업 키트'],
     render: ({ readOnly }) => <SettingsGeneralPage readOnly={readOnly} />,
   },
   {

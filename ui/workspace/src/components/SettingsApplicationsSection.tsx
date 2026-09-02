@@ -138,13 +138,13 @@ export function SettingsApplicationsSection({ readOnly }: { readOnly: boolean })
   };
 
   return (
-    <section className="mt-5 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+    <section className="mb-6 max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
       <div className="mb-4 flex items-start gap-3">
         <NotePencil size={21} className="mt-0.5 shrink-0 text-accent" />
         <div>
-          <h3 className="font-semibold">연결 프로그램</h3>
+          <h3 className="text-sm font-semibold text-text">연결 프로그램</h3>
           <p className="mt-1 text-xs leading-5 text-muted">
-            파일 탐색기의 ‘연결 프로그램으로 열기’가 사용할 Windows 실행 파일을 지정합니다.
+            작업 폴더 파일 탐색기의 ‘연결 프로그램으로 열기’가 사용할 Windows 실행 파일을 지정합니다.
           </p>
         </div>
       </div>
