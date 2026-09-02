@@ -6,16 +6,16 @@
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T02:43:25.155Z",
+    "published_at": "2026-09-02T02:47:45.095Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
       "release_tag": "update-23",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267186577,
-      "sha256": "587051a0b1cdb534bd03cf8bb940e0aa2f5afc4c46d0c2d4dd5b97709e16f666"
+      "size": 267186575,
+      "sha256": "e781d399fbabb4d9bb00b2a47025a1c6c8432c79eee637f3b37de1c1779443be"
     },
-    "payload_manifest_sha256": "94f9ac0b2b783630f298c96c44477b0fd384f9c9a8f78b750acfad5daed7c1e4",
-    "release_notes": "MY Agent 1.1.0 — WorkKitLauncher standalone app, companion work-environment prompt (R-618), launcher auto-update (R-617)."
+    "payload_manifest_sha256": "d2118fa8970fe0f882a0cb728e4045af1d382fa29e32ccaa04cbffa1c47d9ec8",
+    "release_notes": "MY Agent 1.1.0 (update 23) — MY Agent 관리자 branding, 설치 폴더 설정, launcher install 자동 감지·바로가기."
   },
-  "signature": "EEka36rXnaYGstFgX206eogqjG0sQDXtaF5ATYbx9/K6dcHZxcEIG5OJ0hIVt72KoGXdofuBXw1c14GanVdDwrNzq7fEQm6AULUZSFvD7XyN70i1uomWGyFF/9qiT0zmBS/os0MEXkfWvExHfYvJo1QkDebd2BnQqEt9v937McE9RknmEJ3DvYK7oc7IHepZ9kqExSmcEYJClnb64pGPkE4zcMHMI9bkoq0MwRZX3dqwST5ozQu/3jxkEbfegU9CSjdi/aGqPRLKjXnKkhj1xXhz2P6yjDYMa7laLzThHVaerf/wJSaOBf8jhw7vzHSWBymD8f1sjRMgjeJTm8KRVg5BkrKIRDH/61DB0NubB6hVqJSrg2QKn1lml3BbiRm+iSOYjNljhMHLjEroC0uNFNnC8uPOJeFLyLY9SModAZP/mRStZLgFdrOKvmE0JKVLNhdB2B7yY1Qp55YTDdJDvqc8tavxbzS7NAEuzeQqsyXlRGGpSkUbmagsfxheVPBZ"
+  "signature": "WZOnejR+sYrrJwxrpA8dXcRRDDeK1WgwwNYtZWMO3heXZiN1mexDGahs5EY1J9mN6co7O/LCELlT1PgCxiWk7tiXlUbQDqMHucCzvqK706+leKaRr9r6MkcBCwBr7PPHexOBF1kWxODgy34GfJZD+s1//7sEe2rPZthkFPpY7Pm0aTXPWyMHtYgFZYvAyv131WqPtt5+lIl3oHNUQfKmFKa8kV0ZhGFFIUOMfu4hXDyN27MPzwLHnFKBl6r5BWAoX2T/hdMq2gCFValSy4JDwrvzMAuiQ9YNbOE1f9oIv/li615oZYSHRJzUDLCt6+yAR8c52u5NqX3zkJ4uDf/ucAfBK9rKJkvpkMvN8RgyHv6bYO4cgNWvGloocP7dPFDvqD4DHXwLbkN2WalJIkL7kw8nKPRVtNB0nIsxa9s45YUK0HBnB/bGDNlIFn8V/m+onsUTRiHWgVwg42dmlT+9PkzJO7J/Lv++l9RWnUouyFmjQOmoCKEOy1hm9aTLtI2e"
 }
