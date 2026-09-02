@@ -67,6 +67,8 @@ assert.match(serviceSource, /CryptographicOperations\.FixedTimeEquals/);
 assert.match(serviceSource, /MY_AGENT_UPDATE_TRUSTED_HOSTS/);
 assert.match(verifierSource, /my-agent-launcher-feed\/v1/);
 assert.match(verifierSource, /work-kit-launcher/);
+assert.match(readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8'), /sendLauncherIndex/);
+assert.match(readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8'), /\/launcher\/assets\//);
 assert.match(verifierSource, /launcher-update-\{sequence\}/);
 assert.match(verifierSource, /RSASignaturePadding\.Pss/);
 assert.match(applierSource, /WorkKitLauncher\.exe/);

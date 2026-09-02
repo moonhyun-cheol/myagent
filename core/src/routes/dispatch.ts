@@ -161,6 +161,30 @@ function sendWorkspaceIndex(res: ServerResponse, workspaceUiDir: string, appVers
   res.end(html);
 }
 
+function isLauncherUiPath(pathname: string): boolean {
+  return pathname === '/launcher'
+    || pathname === '/launcher/'
+    || pathname.startsWith('/launcher/');
+}
+
+function sendLauncherIndex(res: ServerResponse, launcherUiDir: string, appVersion: string): void {
+  const indexPath = path.join(launcherUiDir, 'index.html');
+  let assetV = appVersion;
+  try {
+    assetV = `${appVersion}-${statSync(indexPath).mtimeMs}`;
+  } catch {
+    /* ignore */
+  }
+  const html = readFileSync(indexPath, 'utf8')
+    .replace(/(src|href)="(\.\/assets\/[^"]+)"/g, `$1="$2?v=${encodeURIComponent(assetV)}"`);
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store, no-cache, must-revalidate',
+    Pragma: 'no-cache',
+  });
+  res.end(html);
+}
+
 function looksLikeApiPath(pathname: string): boolean {
   const roots = [
     '/chat',
@@ -214,6 +238,7 @@ export async function dispatchApiRequest(
     port,
     appVersion,
     workspaceUiDir,
+    workKitLauncherUiDir,
     userConfigPath,
     license,
     getOverrides,
@@ -1164,6 +1189,32 @@ export async function dispatchApiRequest(
       const workspaceReady =
         Boolean(workspaceUiDir)
         && existsSync(path.join(workspaceUiDir, 'index.html'));
+      const launcherUiDir = workKitLauncherUiDir;
+      const launcherReady = launcherUiDir !== null
+        && existsSync(path.join(launcherUiDir, 'index.html'));
+
+      if (
+        method === 'GET'
+        && launcherReady
+        && launcherUiDir
+        && (
+          url.pathname === '/launcher'
+          || url.pathname === '/launcher/'
+          || url.pathname === '/launcher/index.html'
+        )
+      ) {
+        return sendLauncherIndex(res, launcherUiDir, appVersion);
+      }
+
+      if (method === 'GET' && launcherReady && launcherUiDir && url.pathname.startsWith('/launcher/assets/')) {
+        const relative = url.pathname.slice('/launcher/'.length);
+        const filePath = path.join(launcherUiDir, relative);
+        assertPathUnder(launcherUiDir, filePath);
+        if (!existsSync(filePath)) {
+          return sendJson(res, 404, { error: 'Not found' });
+        }
+        return sendUiAsset(res, filePath);
+      }
 
       if (method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
         if (!workspaceReady) {
@@ -1188,6 +1239,7 @@ export async function dispatchApiRequest(
       if (
         method === 'GET'
         && workspaceReady
+        && !isLauncherUiPath(url.pathname)
         && !url.pathname.startsWith('/api')
         && !looksLikeApiPath(url.pathname)
         && !isRemovedUiPath(url.pathname)
