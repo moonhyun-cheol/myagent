@@ -11,7 +11,7 @@ if not exist "%~dp0app\WorkKitLauncher.exe" (
   exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\install\install-launcher.ps1" -Interactive -SourceAppDir "%~dp0app"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\install\install-launcher.ps1" -SourceAppDir "%~dp0app" -Launch
 if errorlevel 1 (
   echo.
   pause

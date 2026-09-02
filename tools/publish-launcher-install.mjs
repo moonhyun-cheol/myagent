@@ -69,14 +69,16 @@ cpSync(uiDist, stagedLauncherUi, { recursive: true });
 const readme = `WorkKitLauncher v${version} (install only)
 =====================================
 
-이 zip은 **기존 MY Agent 설치**에 작업 환경 프로그램만 추가·갱신합니다.
+기존 MY Agent 설치에 작업 환경 프로그램만 추가·갱신합니다.
 MY Agent 코어(MYAgent.exe)는 포함하지 않습니다.
 
-1. install-launcher.bat 실행
-2. MY Agent가 설치된 폴더 선택 (manifest.json이 있는 위치)
-3. app\\ 아래에 WorkKitLauncher.exe · UI · launcher-manifest.json 이 복사됩니다.
+1. install-launcher.bat 실행 (더블클릭)
+2. MY Agent 설치 폴더를 자동으로 찾아 WorkKitLauncher.exe 를 복사합니다.
+   - 기본 후보: %SystemDrive%\\MYAgent, 바탕화면 "MY Agent" 바로가기, MY_AGENT_ROOT
+3. 바탕화면에 "MY Agent 작업 환경" 바로가기가 생성됩니다.
 
-또는 app\\ 내용을 직접 기존 MY Agent 설치의 app\\ 폴더에 덮어쓸 수 있습니다.
+수동 경로가 필요하면 환경 변수 MY_AGENT_ROOT 를 manifest.json 이 있는 폴더로 설정한 뒤 다시 실행하세요.
+런처 UI 하단 「관리 · 설치 루트」에서 현재 연결된 경로를 복사할 수 있습니다.
 
 자동 업데이트: channels/launcher-stable.json (launcher-update 스트림)
 `;
@@ -86,6 +88,10 @@ mkdirSync(path.join(stageDir, 'tools', 'install'), { recursive: true });
 cpSync(
   path.join(root, 'tools', 'install', 'install-launcher.ps1'),
   path.join(stageDir, 'tools', 'install', 'install-launcher.ps1'),
+);
+cpSync(
+  path.join(root, 'tools', 'install', 'install-paths.ps1'),
+  path.join(stageDir, 'tools', 'install', 'install-paths.ps1'),
 );
 
 mkdirSync(outDir, { recursive: true });
