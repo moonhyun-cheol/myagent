@@ -75,7 +75,7 @@ MY Agent 코어(MYAgent.exe)는 포함하지 않습니다.
 1. install-launcher.bat 실행 (더블클릭)
 2. MY Agent 설치 폴더를 자동으로 찾아 WorkKitLauncher.exe 를 복사합니다.
    - 기본 후보: %SystemDrive%\\MYAgent, 바탕화면 "MY Agent" 바로가기, MY_AGENT_ROOT
-3. 바탕화면에 "MY Agent 관리자" 바로가기가 생성됩니다.
+3. Desktop shortcut: MY Agent Manager.lnk (MY Agent 관리자)
 
 수동 경로: MY Agent 설정 - 일반 - 설치 폴더에서 복사 후
   install-launcher.bat "C:\\MYAgent"
@@ -93,6 +93,10 @@ cpSync(
 cpSync(
   path.join(root, 'tools', 'install', 'install-launcher-discovery.ps1'),
   path.join(stageDir, 'tools', 'install', 'install-launcher-discovery.ps1'),
+);
+cpSync(
+  path.join(root, 'tools', 'install', 'install-launcher-shortcut.ps1'),
+  path.join(stageDir, 'tools', 'install', 'install-launcher-shortcut.ps1'),
 );
 cpSync(
   path.join(root, 'tools', 'install', 'install-paths.ps1'),

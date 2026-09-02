@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'install-paths.ps1')
 . (Join-Path $PSScriptRoot 'install-launcher-discovery.ps1')
+. (Join-Path $PSScriptRoot 'install-launcher-shortcut.ps1')
 
 function Read-InstallRootFromUser {
   Write-Host ''
@@ -36,40 +37,7 @@ trap {
 }
 
 function Get-DesktopFolders {
-  $paths = @([Environment]::GetFolderPath('Desktop'))
-  if ($env:OneDrive) {
-    $paths += (Join-Path $env:OneDrive 'Desktop')
-  }
-  return $paths | Where-Object { $_ } | Select-Object -Unique
-}
-
-function New-WorkKitLauncherDesktopShortcut {
-  param([string]$AppRoot)
-
-  $launcherExe = Join-Path $AppRoot 'WorkKitLauncher.exe'
-  if (-not (Test-Path -LiteralPath $launcherExe)) { return $null }
-
-  foreach ($desktop in Get-DesktopFolders) {
-    if (-not (Test-Path -LiteralPath $desktop)) { continue }
-    foreach ($shortcutName in @('MY Agent 관리자.lnk', 'MY Agent Work Kit.lnk', 'MY Agent 작업 환경.lnk', 'WorkKitLauncher.lnk')) {
-      try {
-        $candidate = Join-Path $desktop $shortcutName
-        $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($candidate)
-        $shortcut.TargetPath = $launcherExe
-        $shortcut.Arguments = ''
-        $shortcut.WorkingDirectory = $AppRoot
-        $shortcut.Description = 'MY Agent 관리자'
-        $shortcut.WindowStyle = 7
-        $shortcut.IconLocation = "$launcherExe,0"
-        $shortcut.Save()
-        return $candidate
-      } catch {
-        continue
-      }
-    }
-  }
-  return $null
+  return Get-AllDesktopFolders
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $SourceAppDir 'WorkKitLauncher.exe'))) {
@@ -109,29 +77,11 @@ Write-Host "Installing WorkKitLauncher into: $targetRoot"
 Copy-Item -LiteralPath (Join-Path $SourceAppDir '*') -Destination $targetRoot -Recurse -Force
 
 $launcherExe = Join-Path $targetRoot 'WorkKitLauncher.exe'
-$shortcutScript = Join-Path $targetRoot 'tools\desktop-shortcut.ps1'
 $shortcutPath = $null
-if (Test-Path -LiteralPath $shortcutScript) {
-  try {
-    & $shortcutScript -Root $targetRoot | Out-Null
-  } catch {
-    # desktop-shortcut may fail on locked Desktop paths; fallback below.
-  }
-}
-foreach ($desktop in Get-DesktopFolders) {
-  if (-not (Test-Path -LiteralPath $desktop)) { continue }
-  Get-ChildItem -LiteralPath $desktop -Filter '*.lnk' -ErrorAction SilentlyContinue | ForEach-Object {
-    if ($shortcutPath) { return }
-    $shell = New-Object -ComObject WScript.Shell
-    $targetPath = $shell.CreateShortcut($_.FullName).TargetPath
-    if ($targetPath -and ($targetPath -ieq $launcherExe)) {
-      $shortcutPath = $_.FullName
-    }
-  }
-  if ($shortcutPath) { break }
-}
-if (-not $shortcutPath) {
-  $shortcutPath = New-WorkKitLauncherDesktopShortcut -AppRoot $targetRoot
+try {
+  $shortcutPath = Install-WorkKitLauncherDesktopShortcut -AppRoot $targetRoot
+} catch {
+  Write-Host "Desktop shortcut warning: $($_.Exception.Message)"
 }
 
 Write-Host ''
