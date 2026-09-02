@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 27,
+    "update_sequence": 28,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T05:53:14.784Z",
+    "published_at": "2026-09-02T06:48:02.876Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-27",
+      "release_tag": "update-28",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267190256,
-      "sha256": "115d31a00481ad2e1c9b77734e8810d78bdb9ff88fc64fd3a57010a53d100523"
+      "size": 267193062,
+      "sha256": "558396010c0a3f4979bbb2a91a769dade710ce26e12f01ef39fd0b633d073751"
     },
-    "payload_manifest_sha256": "505404557720a9587a0750cbc07094d10b8d0de4a19a78e8af0a6ad4fad79742",
-    "release_notes": "MY Agent 1.1.0 (update 27) — ZIP 스킬 중복 설치 메시지에 표시 이름 표시, 설치된 스킬 목록을 상단에 항상 노출, 고아 패키지 폴더 자동 복구, 재설치 시 해당 스킬 강조."
+    "payload_manifest_sha256": "e6d2cd2a531f27074c5b294aa7599e2bdd481cff4454bf1ed98aebb7d3b06a83",
+    "release_notes": "## 자동화 UI MVP\n\n- **새 일정**: 정기(요일+시각), 한 번 실행, 수동 실행 + 실행 지시 저장\n- **일정 관리**: 즉시 실행, 일시 중지/재개, 삭제\n- **실행 기록** 탭: 최근 실행 상태·오류 확인\n- **요약 카드**: 다음 실행, 최근 7일 실패 건수\n- read_only 라이선스에서 저장/변경 차단\n\n백엔드 Personal Scheduler는 기존과 동일; 이번 업데이트는 UI를 실제 API에 연결합니다."
   },
-  "signature": "ZoY1XCiCkr6/9bK1upik2lCxHmEb9upH7HQTOIVF9lXuivCPEpB/hUCMIsyc+xiH3XnsbLVUJpVDUj4FjXfpGXY36IYmd0k4aO4rA75g6SpP/M7rfwx0jwtxYwJ2H0uO1AFzW1nUB9hIgFIpqLHViJgzFbSp1pdDKEUmGRo+BP6t/GNNJqaJl8hAu2UZ/RBU8L8Mhno/2LHYwrN9IuB16riKzfZHr7VB3avLz8xMIenFPwX5VFmpvy1rpQfQih/dR3cGOfiqoMR5aqPdBGNfI1hii7beb3QgNkNhyWk+mWmoXHe85Rb9hLwEqYOQazSaJADLAIyzRVEzDnLI3WZgIuHT/U2lyudkP8VMDejM9XAwqa6ybGehemyHEb7+wXFlcD8O5o5cRab+T/xnjDzYpAdwJtonJKQyUr8WNo56xWGhOEIigCX+qY7maYWkt6YNF6MFjTyrzWy7OGGHYsZJMl7Z4fOwOJTFx66NNP1XOjOo2F5/qPyuTQVCrEBp0mOy"
+  "signature": "YLjh+SGhHUCs+Q8mzi/q1NhiAZf++vqGC4QAN9A7uXTrI+fLtGG8JvRpXzhj+JjL92uhOjZwt5c2/h9LmLkVdUYFp2lpRGTDHCICR35IzeSxAAE/np9AdlLHhcU4BbkhtvAKPOdxdo5JVCCS5GmWsiBkUxw1ze3k/q/SRq2zi0/xVmlPxerBVbOoqaniIKQUCRwshicNg5Q2c8dt8bLlQMjysDQWtZs9BNeVlJ+JK1FeCvtmDUgFMhqEEC8mLD4i02BdRSo6PG5GYNMljH0zPawX3ab+cJu9qKbxcTmhJ0Ux3u5lJmaiCmR24pOJPJxtHgqNEVEkrPXsqe+RJebs7qP0f1tgYEKEHGrAthFAy1hHXt4KPmHkpSjZpvXO8RMKVJmlFZqRGS54/wEoVYxrNaVtOm1DnWTELavOXH3CHaW/Vn0V3uaRTbW9PyexgsvkSMrB+u6h/7V70WBa7KnwDaBj8LdLieDYYRZWXbzTJG79VC4biiY5vjY76Vhxmf0s"
 }
