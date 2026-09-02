@@ -22,7 +22,7 @@ interface ProfileLibraryProps {
 export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const [groups, setGroups] = useState<WorkKitCatalogGroup[]>([]);
   const [feedSequence, setFeedSequence] = useState<number | null>(null);
-  const [applied, setApplied] = useState<AgentProfileApplied | null>(null);
+  const [appliedKits, setAppliedKits] = useState<AgentProfileApplied[]>([]);
   const [canRestore, setCanRestore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -35,7 +35,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
       const data = await fetchProfiles();
       setGroups(data.groups);
       setFeedSequence(data.feed_sequence);
-      setApplied(data.applied);
+      setAppliedKits(Array.isArray(data.applied_kits) ? data.applied_kits : (data.applied ? [data.applied] : []));
       setCanRestore(data.can_restore);
       setSelectedGroup((prev) => {
         if (prev && data.groups.some((g) => g.id === prev)) return prev;
@@ -97,14 +97,20 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   );
 
   const appliedLabel = (() => {
-    if (!applied) return null;
-    if (applied.group && applied.kit_id) {
-      const g = groups.find((x) => x.id === applied.group);
-      const s = g?.shelves.find((x) => x.id === applied.kit_id);
-      return s?.label ?? `${applied.group}/${applied.kit_id}`;
-    }
-    return applied.profile_id;
+    if (appliedKits.length === 0) return null;
+    const labels = appliedKits.map((kit) => {
+      if (kit.group && kit.kit_id) {
+        const g = groups.find((x) => x.id === kit.group);
+        const s = g?.shelves.find((x) => x.id === kit.kit_id);
+        return s?.label ?? `${kit.group}/${kit.kit_id}`;
+      }
+      return kit.profile_id;
+    });
+    return labels.join(', ');
   })();
+
+  const isKitApplied = (shelf: WorkKitShelf) =>
+    appliedKits.some((kit) => kit.group === shelf.group && kit.kit_id === shelf.id);
 
   const restore = async () => {
     setBusy(true);
@@ -174,7 +180,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
           ) : null}
           {appliedLabel ? (
             <p className="mt-2 text-sm text-text">
-              지금 적용 중 · <span className="font-semibold text-accent">{appliedLabel}</span>
+              적용 중 · <span className="font-semibold text-accent">{appliedLabel}</span>
             </p>
           ) : null}
         </div>
@@ -261,7 +267,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
                   <KitCard
                     key={`${shelf.group}/${shelf.id}`}
                     shelf={shelf}
-                    applied={applied}
+                    isApplied={isKitApplied(shelf)}
                     disabled={disabled}
                     onInstall={() => void installKit(shelf)}
                     onApply={() => void applyKit(shelf)}
@@ -295,18 +301,17 @@ function resolveInstallStatus(shelf: WorkKitShelf): ShelfInstallStatus {
 
 function KitCard({
   shelf,
-  applied,
+  isApplied,
   disabled,
   onInstall,
   onApply,
 }: {
   shelf: WorkKitShelf;
-  applied: AgentProfileApplied | null;
+  isApplied: boolean;
   disabled: boolean;
   onInstall: () => void;
   onApply: () => void;
 }) {
-  const isApplied = applied?.group === shelf.group && applied?.kit_id === shelf.id;
   const status = resolveInstallStatus(shelf);
   const canApply = status === 'installed' || status === 'update_available';
   const needsInstall = status === 'available' || status === 'update_available';

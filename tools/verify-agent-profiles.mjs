@@ -208,6 +208,25 @@ try {
   assert.ok(kit.warnings.some((w) => w.includes('조직 모듈')));
   assert.equal(hasProfileLastState(root), true);
 
+  const opsKit = applyWorkKit(root, {
+    group: 'cqr',
+    id: 'ops',
+    confirm: true,
+    lockerRoot: locker,
+  });
+  assert.equal(opsKit.ok, true);
+  const { getAppliedProfileStates } = await import('../core/dist/config/agent-profile-store.js');
+  const appliedKits = getAppliedProfileStates(root);
+  assert.equal(appliedKits.length, 2, 'additive apply keeps both kits');
+  assert.ok(
+    appliedKits.some((entry) => entry.kit_id === 'product-dev'),
+    'product-dev still applied',
+  );
+  assert.ok(
+    appliedKits.some((entry) => entry.kit_id === 'ops'),
+    'ops also applied',
+  );
+
   const { loadWorkKitContextNote } = await import('../core/dist/config/work-kit-context.js');
   const note = loadWorkKitContextNote(root);
   assert.ok(note && note.includes('Work context'), 'context note after apply');

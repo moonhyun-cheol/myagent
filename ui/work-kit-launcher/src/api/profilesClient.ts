@@ -78,6 +78,7 @@ export async function fetchProfiles(): Promise<{
   feed_sequence: number | null;
   groups: WorkKitCatalogGroup[];
   applied: AgentProfileApplied | null;
+  applied_kits: AgentProfileApplied[];
   can_restore: boolean;
 }> {
   const res = await apiFetch('/profiles');
@@ -88,6 +89,7 @@ export async function fetchProfiles(): Promise<{
     feed_sequence: typeof data.feed_sequence === 'number' ? data.feed_sequence : null,
     groups: Array.isArray(data.groups) ? data.groups : [],
     applied: data.applied ?? null,
+    applied_kits: Array.isArray(data.applied_kits) ? data.applied_kits : (data.applied ? [data.applied] : []),
     can_restore: data.can_restore === true,
   };
 }

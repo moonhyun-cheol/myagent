@@ -60,10 +60,17 @@ export interface AgentProfileAppliedState {
   applied_at: string;
 }
 
+interface AgentProfileAppliedDocument {
+  schema_version: 2;
+  entries: AgentProfileAppliedState[];
+}
+
 interface ProfileLastState {
   saved_at: string;
   plugins: Record<string, boolean>;
+  /** @deprecated single-entry snapshot; use applied_entries */
   applied: AgentProfileAppliedState | null;
+  applied_entries?: AgentProfileAppliedState[];
 }
 
 export interface ProfileApplyResult {
@@ -172,15 +179,18 @@ export function listWorkKitProfileCatalog(
   groups: WorkKitCatalogGroup[];
   overlays: AgentProfile[];
   applied: AgentProfileAppliedState | null;
+  applied_kits: AgentProfileAppliedState[];
   can_restore: boolean;
 } {
   const cat = listWorkKitCatalog(cqrRoot, opts);
+  const appliedKits = getAppliedProfileStates(cqrRoot);
   return {
     locker_root: cat.locker_root,
     feed_sequence: cat.feed_sequence,
     groups: cat.groups,
     overlays: listAgentProfiles(cqrRoot),
     applied: getAppliedProfileState(cqrRoot),
+    applied_kits: appliedKits,
     can_restore: hasProfileLastState(cqrRoot),
   };
 }
@@ -215,10 +225,80 @@ export function deleteAgentProfile(cqrRoot: string, id: string): boolean {
   return true;
 }
 
-export function getAppliedProfileState(cqrRoot: string): AgentProfileAppliedState | null {
-  return readJson<AgentProfileAppliedState>(
-    path.join(profilesRoot(cqrRoot), APPLIED_FILE),
+export function getAppliedProfileStates(cqrRoot: string): AgentProfileAppliedState[] {
+  return readAppliedDocument(cqrRoot).entries;
+}
+
+function readAppliedDocument(cqrRoot: string): AgentProfileAppliedDocument {
+  const file = path.join(profilesRoot(cqrRoot), APPLIED_FILE);
+  const raw = readJson<AgentProfileAppliedDocument | AgentProfileAppliedState>(file);
+  if (!raw) return { schema_version: 2, entries: [] };
+  if (Array.isArray((raw as AgentProfileAppliedDocument).entries)) {
+    const doc = raw as AgentProfileAppliedDocument;
+    return {
+      schema_version: 2,
+      entries: doc.entries.filter((entry) => entry && typeof entry.profile_id === 'string'),
+    };
+  }
+  const legacy = raw as AgentProfileAppliedState;
+  if (typeof legacy.profile_id === 'string') {
+    return { schema_version: 2, entries: [legacy] };
+  }
+  return { schema_version: 2, entries: [] };
+}
+
+function writeAppliedDocument(cqrRoot: string, entries: AgentProfileAppliedState[]): void {
+  ensureDir(cqrRoot);
+  const doc: AgentProfileAppliedDocument = { schema_version: 2, entries };
+  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), APPLIED_FILE), doc);
+}
+
+function mergeAppliedUi(entries: AgentProfileAppliedState[]): AgentProfileUi {
+  const pinned: string[] = [];
+  const seen = new Set<string>();
+  let defaultSkillMode: string | undefined;
+  for (const entry of entries) {
+    for (const sid of entry.ui.pinned_skill_ids ?? []) {
+      if (!seen.has(sid)) {
+        seen.add(sid);
+        pinned.push(sid);
+      }
+    }
+    if (entry.ui.default_skill_mode) {
+      defaultSkillMode = entry.ui.default_skill_mode;
+    }
+  }
+  return {
+    pinned_skill_ids: pinned.slice(0, 32),
+    default_skill_mode: defaultSkillMode,
+  };
+}
+
+export function isWorkKitApplied(
+  cqrRoot: string,
+  group: string,
+  id: string,
+): boolean {
+  const g = String(group ?? '').trim();
+  const kitId = String(id ?? '').trim();
+  return getAppliedProfileStates(cqrRoot).some(
+    (entry) => entry.group === g && entry.kit_id === kitId,
   );
+}
+
+export function getAppliedProfileState(cqrRoot: string): AgentProfileAppliedState | null {
+  const entries = getAppliedProfileStates(cqrRoot);
+  if (entries.length === 0) return null;
+  if (entries.length === 1) return entries[0];
+  const last = entries[entries.length - 1];
+  return {
+    profile_id: entries.map((entry) => entry.profile_id).join(' + '),
+    group: last.group,
+    kit_id: last.kit_id,
+    origin: last.origin,
+    ui: mergeAppliedUi(entries),
+    applied_at: last.applied_at,
+  };
 }
 
 export function hasProfileLastState(cqrRoot: string): boolean {
@@ -229,11 +309,13 @@ function snapshotBeforeApply(cqrRoot: string): void {
   const records = listAgentPlugins(cqrRoot, { useCache: false });
   const currentEnabled: Record<string, boolean> = {};
   for (const rec of records) currentEnabled[rec.id] = rec.enabled;
+  const entries = getAppliedProfileStates(cqrRoot);
   ensureDir(cqrRoot);
   const snapshot: ProfileLastState = {
     saved_at: new Date().toISOString(),
     plugins: { ...currentEnabled },
     applied: getAppliedProfileState(cqrRoot),
+    applied_entries: entries,
   };
   writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), LAST_STATE_FILE), snapshot);
 }
@@ -303,7 +385,7 @@ export function applyAgentProfile(
     ui: normalized.ui,
     applied_at: new Date().toISOString(),
   };
-  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), APPLIED_FILE), applied);
+  writeAppliedDocument(cqrRoot, [applied]);
 
   return { ok: true, profile_id: id, toggled, warnings };
 }
@@ -324,6 +406,17 @@ export function applyWorkKit(
   }
   const group = String(input.group ?? '').trim();
   const id = String(input.id ?? '').trim();
+  if (isWorkKitApplied(cqrRoot, group, id)) {
+    return {
+      ok: true,
+      profile_id: `${group}/${id}`,
+      group,
+      kit_id: id,
+      toggled: [],
+      warnings: [],
+    };
+  }
+
   let shelf: WorkKitShelf | null = findWorkKitShelf(cqrRoot, group, id, {
     lockerRoot: input.lockerRoot,
   });
@@ -395,7 +488,11 @@ export function applyWorkKit(
     ui: shelf.ui,
     applied_at: new Date().toISOString(),
   };
-  writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), APPLIED_FILE), applied);
+  const nextEntries = getAppliedProfileStates(cqrRoot).filter(
+    (entry) => !(entry.origin === 'overlay' && !entry.group),
+  );
+  nextEntries.push(applied);
+  writeAppliedDocument(cqrRoot, nextEntries);
 
   return {
     ok: true,
@@ -433,8 +530,14 @@ export function restoreAgentProfileLastState(
     else warnings.push(`플러그인 복원 실패: ${rec.id} (${doc.error ?? 'unknown'})`);
   }
   const appliedFile = path.join(profilesRoot(cqrRoot), APPLIED_FILE);
-  if (snapshot.applied) writeJson(cqrRoot, appliedFile, snapshot.applied);
-  else if (existsSync(appliedFile)) {
+  const restoredEntries = Array.isArray(snapshot.applied_entries)
+    ? snapshot.applied_entries
+    : snapshot.applied
+      ? [snapshot.applied]
+      : [];
+  if (restoredEntries.length > 0) {
+    writeAppliedDocument(cqrRoot, restoredEntries);
+  } else if (existsSync(appliedFile)) {
     assertWritablePath(appliedFile, cqrRoot);
     rmSync(appliedFile);
   }
