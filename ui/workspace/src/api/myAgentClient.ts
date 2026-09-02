@@ -178,6 +178,42 @@ export interface AutomationTask {
 
 export type AutomationTaskInput = Pick<AutomationTask, 'name' | 'description' | 'instruction' | 'triggers' | 'enabled' | 'misfire_policy'>;
 
+export type AutomationScheduleMode = 'manual' | 'recurring' | 'once';
+
+export interface AutomationRun {
+  id: string;
+  task_id: string;
+  source: 'scheduled' | 'manual' | 'action';
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  started_at: string | null;
+  finished_at: string | null;
+  result_text: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export function buildAutomationTriggers(input: {
+  mode: AutomationScheduleMode;
+  dailyTime?: string;
+  weekdays?: number[];
+  onceAt?: string;
+}): AutomationTaskTrigger[] {
+  if (input.mode === 'manual') return [{ type: 'manual', config: {} }];
+  if (input.mode === 'once') {
+    const at = input.onceAt?.trim();
+    if (!at) throw new Error('한 번 실행 시각을 선택하세요.');
+    const parsed = new Date(at);
+    if (Number.isNaN(parsed.getTime())) throw new Error('실행 시각 형식이 올바르지 않습니다.');
+    if (parsed.getTime() <= Date.now()) throw new Error('실행 시각은 현재 이후여야 합니다.');
+    return [{ type: 'time', config: { at: parsed.toISOString() } }];
+  }
+  const dailyTime = input.dailyTime?.trim() ?? '';
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dailyTime)) throw new Error('실행 시각을 HH:MM 형식으로 입력하세요.');
+  const weekdays = (input.weekdays ?? []).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
+  if (weekdays.length === 0) throw new Error('반복 요일을 하나 이상 선택하세요.');
+  return [{ type: 'time', config: { daily_time: dailyTime, weekdays } }];
+}
+
 export async function listAutomationTasks(): Promise<AutomationTask[]> {
   const res = await fetch('/automations/tasks', { cache: 'no-store' });
   if (!res.ok) throw new Error(`자동화 작업을 불러오지 못했습니다. (${res.status})`);
@@ -208,6 +244,18 @@ export async function setAutomationTaskEnabled(id: string, enabled: boolean): Pr
 export async function runAutomationTask(id: string): Promise<void> {
   const res = await fetch(`/automations/tasks/${encodeURIComponent(id)}/run`, { method: 'POST' });
   if (!res.ok) throw new Error(`자동화 작업을 실행하지 못했습니다. (${res.status})`);
+}
+
+export async function deleteAutomationTask(id: string): Promise<void> {
+  const res = await fetch(`/automations/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`자동화 작업을 삭제하지 못했습니다. (${res.status})`);
+}
+
+export async function listAutomationRuns(limit = 50): Promise<AutomationRun[]> {
+  const res = await fetch(`/automations/runs?limit=${encodeURIComponent(String(limit))}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`자동화 실행 기록을 불러오지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { runs?: AutomationRun[] };
+  return Array.isArray(payload.runs) ? payload.runs : [];
 }
 
 export interface AutomationFeedAttachment {
