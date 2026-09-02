@@ -81,6 +81,24 @@ try {
   assert.ok(projectsTree.includes('onToggleSessionPin'));
   assert.ok(projectsTree.includes('이 묶음에 대화 고정'));
   assert.ok(projectsTree.includes('event.stopPropagation();'));
+  assert.match(projectsTree, /onImportSession\(node\.id, workspaceRoot\.id\)/);
+  assert.doesNotMatch(projectsTree, /onImportSession\(node\.kind === 'project' \? node\.id : null/);
+
+  const imported = sessions.importPortable(
+    {
+      format: 'cqr-pa-conversation-session',
+      conversation: {
+        title: 'Imported workspace chat',
+        messages: [{ role: 'user', content: 'hello', at: new Date().toISOString() }],
+      },
+    },
+    workspace.id,
+    workspace.id,
+  );
+  assert.equal(imported.project_id, workspace.id);
+  assert.equal(imported.workspace_project_id, workspace.id);
+  const tree = projects.buildNodeTree(workspace.id, sessions.list());
+  assert.ok(tree?.sessions.some((session) => session.id === imported.id));
 
   // The native browser/WebView context menu is disabled globally. Preventing
   // only the default action keeps the application-defined React handlers live.

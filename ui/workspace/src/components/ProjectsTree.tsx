@@ -731,7 +731,7 @@ function TreeNode({
                 ))}
               </div>
               <div className="border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.kind === 'project' ? node.id : null, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.id, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />워크스페이스 지식·메모리</button>
