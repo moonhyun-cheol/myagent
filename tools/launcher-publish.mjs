@@ -3,7 +3,7 @@
  * Build WorkKitLauncher UI + publish WPF exe to bin/work-kit-launcher.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, cpSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -54,6 +54,11 @@ export function publishWorkKitLauncher({
   if (!existsSync(executable)) {
     return { ok: false, reason: `${label}: missing ${executable}` };
   }
+
+  const webOut = path.join(outDir, 'web');
+  rmSync(webOut, { recursive: true, force: true });
+  cpSync(uiDist, webOut, { recursive: true });
+
   return { ok: true, executable, outDir, uiDist };
 }
 

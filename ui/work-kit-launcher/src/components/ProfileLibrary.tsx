@@ -141,11 +141,14 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const applyKit = async (shelf: WorkKitShelf) => {
     const ok = await confirmDialog({
       title: '작업 키트 적용',
-      message: `「${shelf.label}」로 맞출까요?`,
-      confirmLabel: '적용',
+      message: isKitApplied(shelf)
+        ? `「${shelf.label}」는 이미 적용 중입니다.`
+        : `「${shelf.label}」를 추가로 적용할까요? (기존에 적용한 키트는 유지됩니다)`,
+      confirmLabel: isKitApplied(shelf) ? '확인' : '적용',
       danger: false,
     });
     if (!ok) return;
+    if (isKitApplied(shelf)) return;
     setBusy(true);
     try {
       if (shelf.hints?.needs_organization_module) {

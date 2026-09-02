@@ -65,6 +65,9 @@ cpSync(path.join(root, 'bin', 'work-kit-launcher'), stagedLauncherDir, { recursi
 const stagedLauncherUi = path.join(appDir, 'ui', 'work-kit-launcher', 'dist');
 mkdirSync(path.dirname(stagedLauncherUi), { recursive: true });
 cpSync(uiDist, stagedLauncherUi, { recursive: true });
+const stagedWeb = path.join(stagedLauncherDir, 'web');
+rmSync(stagedWeb, { recursive: true, force: true });
+cpSync(uiDist, stagedWeb, { recursive: true });
 
 const readme = `WorkKitLauncher v${version} (install only)
 =====================================

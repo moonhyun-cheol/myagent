@@ -103,6 +103,24 @@ function Copy-LauncherPayload {
   return $copiedFiles
 }
 
+function Sync-LauncherWebUi {
+  param([string]$AppRoot)
+
+  $uiDist = Join-Path $AppRoot 'ui\work-kit-launcher\dist'
+  $webDir = Join-Path $AppRoot 'bin\work-kit-launcher\web'
+  if (-not (Test-Path -LiteralPath (Join-Path $uiDist 'index.html'))) {
+    return
+  }
+  if (Test-Path -LiteralPath $webDir) {
+    Remove-Item -LiteralPath $webDir -Recurse -Force
+  }
+  $parent = Split-Path $webDir -Parent
+  if (-not (Test-Path -LiteralPath $parent)) {
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+  }
+  Copy-Item -Path $uiDist -Destination $webDir -Recurse -Force
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $SourceAppDir 'WorkKitLauncher.exe'))) {
   throw "Source app folder is missing WorkKitLauncher.exe: $SourceAppDir"
 }
@@ -150,6 +168,7 @@ Write-Host "Copying from: $SourceAppDir"
 Stop-RunningWorkKitLauncher
 $copiedCount = Copy-LauncherPayload -SourceDir $SourceAppDir -TargetDir $targetRoot
 Write-Host "Copied $copiedCount file(s)."
+Sync-LauncherWebUi -AppRoot $targetRoot
 
 $launcherExe = Join-Path $targetRoot 'WorkKitLauncher.exe'
 if (-not (Test-Path -LiteralPath $launcherExe)) {
