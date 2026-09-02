@@ -72,6 +72,7 @@ public partial class App : Application
             };
         }
         _workEnvironmentPolling = new WorkEnvironmentUpdatePollingService(win, _api.Port);
+        win.WorkEnvironmentPolling = _workEnvironmentPolling;
         win.ContentRendered += async (_, _) =>
         {
             try

@@ -154,7 +154,6 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
     private const int MinPollMs = 15 * 60 * 1000;
     private const int MaxPollMs = 24 * 60 * 60 * 1000;
     private const int DefaultIdleWatchMs = 60 * 1000;
-    private const int DefaultSnoozeMs = 24 * 60 * 60 * 1000;
 
     private readonly MainWindow _owner;
     private readonly int _port;
@@ -167,6 +166,7 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
     private DateTime _snoozeUntilUtc = DateTime.MinValue;
     private bool _promptInFlight;
     private bool _disposed;
+    private int _pollIntervalMs = DefaultPollMs;
     private bool _feedPollEnabled = true;
 
     public WorkEnvironmentUpdatePollingService(MainWindow owner, int port)
@@ -175,6 +175,29 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
         _port = port;
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         _gateClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+    }
+
+    public void ApplySettings(bool enabled, int? pollIntervalMs = null)
+    {
+        lock (_sync)
+        {
+            _feedPollEnabled = enabled;
+        }
+        if (pollIntervalMs is int intervalMs)
+        {
+            _pollIntervalMs = Math.Clamp(intervalMs, MinPollMs, MaxPollMs);
+            if (_feedPollTimer is not null)
+                _feedPollTimer.Interval = TimeSpan.FromMilliseconds(_pollIntervalMs);
+        }
+        if (!enabled)
+        {
+            _feedPollTimer?.Stop();
+            return;
+        }
+        if (_feedPollTimer is null)
+            StartFeedPollTimer();
+        else
+            _feedPollTimer.Start();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -205,7 +228,7 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
 
     private void StartFeedPollTimer()
     {
-        var interval = TimeSpan.FromMilliseconds(ReadPollIntervalMs());
+        var interval = TimeSpan.FromMilliseconds(CurrentPollIntervalMs());
         _feedPollTimer = new System.Windows.Threading.DispatcherTimer { Interval = interval };
         _feedPollTimer.Tick += (_, _) =>
         {
@@ -338,7 +361,7 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
         {
             lock (_sync)
             {
-                _snoozeUntilUtc = DateTime.UtcNow.AddMilliseconds(ReadSnoozeMs());
+                _snoozeUntilUtc = DateTime.UtcNow.AddMilliseconds(CurrentSnoozeMs());
             }
         }
         catch
@@ -378,12 +401,21 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
         return _owner.Dispatcher.InvokeAsync(action).Task.Unwrap();
     }
 
-    private static int ReadPollIntervalMs()
+    private int CurrentPollIntervalMs()
     {
         return ClampInterval(
             Environment.GetEnvironmentVariable("MY_AGENT_COMPANION_UPDATE_POLL_INTERVAL_MS")
             ?? Environment.GetEnvironmentVariable("MY_AGENT_UPDATE_POLL_INTERVAL_MS"),
-            DefaultPollMs,
+            _pollIntervalMs,
+            MinPollMs,
+            MaxPollMs);
+    }
+
+    private int CurrentSnoozeMs()
+    {
+        return ClampInterval(
+            Environment.GetEnvironmentVariable("MY_AGENT_UPDATE_IDLE_PROMPT_SNOOZE_MS"),
+            _pollIntervalMs,
             MinPollMs,
             MaxPollMs);
     }
@@ -395,15 +427,6 @@ internal sealed class WorkEnvironmentUpdatePollingService : IDisposable
             DefaultIdleWatchMs,
             15_000,
             5 * 60 * 1000);
-    }
-
-    private static int ReadSnoozeMs()
-    {
-        return ClampInterval(
-            Environment.GetEnvironmentVariable("MY_AGENT_UPDATE_IDLE_PROMPT_SNOOZE_MS"),
-            DefaultSnoozeMs,
-            60 * 60 * 1000,
-            7 * 24 * 60 * 60 * 1000);
     }
 
     private static int ClampInterval(string? raw, int fallback, int min, int max)

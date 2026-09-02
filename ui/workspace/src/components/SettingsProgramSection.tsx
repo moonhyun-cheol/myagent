@@ -73,6 +73,7 @@ export function SettingsProgramSection({ readOnly }: { readOnly: boolean }) {
             <span className="block text-sm font-medium text-text">업데이트 자동 확인</span>
             <span className="mt-1 block text-xs leading-5 text-muted">
               GitHub 릴리즈를 주기적으로 확인합니다. 에이전트 작업과 자동화가 모두 끝난 뒤에만 알림 후 설치할 수 있습니다.
+              「아니오」를 누르면 확인 주기(15분·30분·1시간)가 지난 뒤, 다시 한가할 때 물어봅니다.
             </span>
           </span>
           <input

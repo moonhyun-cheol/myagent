@@ -45,14 +45,25 @@ function Resolve-InstallRootFromExe([string]$exePath) {
 
 function Resolve-ShortcutInstallRoot([string]$shortcutPath) {
   if (-not (Test-Path -LiteralPath $shortcutPath)) { return $null }
-  $shell = New-Object -ComObject WScript.Shell
-  $shortcut = $shell.CreateShortcut($shortcutPath)
-  foreach ($candidate in @($shortcut.WorkingDirectory, (Split-Path $shortcut.TargetPath -Parent))) {
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
     $fromExe = Resolve-InstallRootFromExe $shortcut.TargetPath
     if ($fromExe) { return $fromExe }
-    if (Test-MyAgentInstallRoot $candidate) {
-      return (Get-FullPath $candidate)
+
+    $candidates = @()
+    if ($shortcut.WorkingDirectory) { $candidates += $shortcut.WorkingDirectory }
+    if ($shortcut.TargetPath) {
+      $parent = Split-Path -Path $shortcut.TargetPath -Parent -ErrorAction SilentlyContinue
+      if ($parent) { $candidates += $parent }
     }
+    foreach ($candidate in $candidates) {
+      if (Test-MyAgentInstallRoot $candidate) {
+        return (Get-FullPath $candidate)
+      }
+    }
+  } catch {
+    return $null
   }
   return $null
 }
@@ -108,11 +119,19 @@ function Find-MyAgentInstallRoot {
     foreach ($shortcutName in @('MY Agent.lnk', 'MY Agent 관리자.lnk', 'MY Agent Work Kit.lnk', 'MY Agent 작업 환경.lnk', 'WorkKitLauncher.lnk')) {
       $shortcutPath = Join-Path $folder $shortcutName
       if (Test-Path -LiteralPath $shortcutPath) {
-        Try-Root (Resolve-ShortcutInstallRoot $shortcutPath)
+        try {
+          Try-Root (Resolve-ShortcutInstallRoot $shortcutPath)
+        } catch {
+          # Broken shortcut; keep scanning.
+        }
       }
     }
     Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -ErrorAction SilentlyContinue | ForEach-Object {
-      Try-Root (Resolve-ShortcutInstallRoot $_.FullName)
+      try {
+        Try-Root (Resolve-ShortcutInstallRoot $_.FullName)
+      } catch {
+        # Broken shortcut; keep scanning.
+      }
     }
   }
 
@@ -184,12 +203,20 @@ if (-not (Test-Path -LiteralPath (Join-Path $SourceAppDir 'WorkKitLauncher.exe')
 }
 
 if (-not $TargetRoot) {
-  $TargetRoot = Find-MyAgentInstallRoot
+  try {
+    $TargetRoot = Find-MyAgentInstallRoot
+  } catch {
+    $TargetRoot = $null
+  }
 }
 
-$targetRoot = Get-FullPath $TargetRoot
-if (-not (Test-MyAgentInstallRoot $targetRoot)) {
+$targetRoot = $null
+if ($TargetRoot) {
+  $targetRoot = Get-FullPath $TargetRoot
+}
+while (-not (Test-MyAgentInstallRoot $targetRoot)) {
   $targetRoot = Read-InstallRootFromUser
+  if (-not $targetRoot) { break }
 }
 if (-not (Test-MyAgentInstallRoot $targetRoot)) {
   Write-Host ''
