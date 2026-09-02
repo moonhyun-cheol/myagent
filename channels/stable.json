@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 23,
+    "update_sequence": 24,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T02:47:45.095Z",
+    "published_at": "2026-09-02T03:17:33.840Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-23",
+      "release_tag": "update-24",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267186575,
-      "sha256": "e781d399fbabb4d9bb00b2a47025a1c6c8432c79eee637f3b37de1c1779443be"
+      "size": 267186481,
+      "sha256": "f77b146aab47b60a915a1e6075b435e60236697d36bf7fb62bc29bfe5424e094"
     },
-    "payload_manifest_sha256": "d2118fa8970fe0f882a0cb728e4045af1d382fa29e32ccaa04cbffa1c47d9ec8",
+    "payload_manifest_sha256": "dfc87e1c39c80f55472554555fe07fc120eb7a0d0e4e45e758bc91b0ec8c11a6",
     "release_notes": "MY Agent 1.1.0 (update 23) — MY Agent 관리자 branding, 설치 폴더 설정, launcher install 자동 감지·바로가기."
   },
-  "signature": "WZOnejR+sYrrJwxrpA8dXcRRDDeK1WgwwNYtZWMO3heXZiN1mexDGahs5EY1J9mN6co7O/LCELlT1PgCxiWk7tiXlUbQDqMHucCzvqK706+leKaRr9r6MkcBCwBr7PPHexOBF1kWxODgy34GfJZD+s1//7sEe2rPZthkFPpY7Pm0aTXPWyMHtYgFZYvAyv131WqPtt5+lIl3oHNUQfKmFKa8kV0ZhGFFIUOMfu4hXDyN27MPzwLHnFKBl6r5BWAoX2T/hdMq2gCFValSy4JDwrvzMAuiQ9YNbOE1f9oIv/li615oZYSHRJzUDLCt6+yAR8c52u5NqX3zkJ4uDf/ucAfBK9rKJkvpkMvN8RgyHv6bYO4cgNWvGloocP7dPFDvqD4DHXwLbkN2WalJIkL7kw8nKPRVtNB0nIsxa9s45YUK0HBnB/bGDNlIFn8V/m+onsUTRiHWgVwg42dmlT+9PkzJO7J/Lv++l9RWnUouyFmjQOmoCKEOy1hm9aTLtI2e"
+  "signature": "Ck0Z2KDScOhxyHUBfqsfUUd/78geiPsivaaT9aEd/Au1SaPSc39r36T2y2OdNPu8m6Z3w2O2qjcGrzoHCC7HQ4JTpr2TM4aOXu6t0Li/ERh5b5pT6+XBtVp+ktHIa9WcxcCC3+kmg7UygQiU+dNBLOwxfu5YZYwOpEzpGjkuXadb/sErywvB1hqN3o02Sprbzx1Ga+qbpARO+m9hrenLrbH5Hu1IG8xROnhO/obvnyP6kqfz5wyRb3rz/1/GpIeojGqNQ7sZ9tTmWSouzf5lMtTRSbwj5to0PSnQi7fkp4eoqyCRjo99DA6gDEqPcl0/weNePb8V9tpgXzX+G/ISOCEu0rlV1RTRsnIlwMMrhPBLLBoblUHyrGeqCLLa6eHIXIoY3cCBUhlKEe/h7kd7AehVB5gabTiEBICoMjB3v9Yc1ekD3b/PTeKJi0i75K3N2AOGQZ3RjbuXtMdPwYrEr2QjnDYxJnLHbyKajT03uIQwjHbQX5/ANbQdr3i+hM70"
 }
