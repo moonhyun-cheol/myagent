@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 26,
+    "update_sequence": 27,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T05:29:22.766Z",
+    "published_at": "2026-09-02T05:53:14.784Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-26",
+      "release_tag": "update-27",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267187584,
-      "sha256": "094d8ff0cb4590b8ecb2e40ef93390052f67b469c078459dc02a147a907eb2e4"
+      "size": 267190256,
+      "sha256": "115d31a00481ad2e1c9b77734e8810d78bdb9ff88fc64fd3a57010a53d100523"
     },
-    "payload_manifest_sha256": "15f0845fedbea8a27699e7cd1d0ecd385bb20a1f42eef4261bf8b09739985fff",
-    "release_notes": "MY Agent 1.1.0 (update 26) — 작업폴더 우클릭 세션 가져오기가 개인 작업으로 떨어지던 버그 수정. 폴더/프로젝트 우클릭 새 대화 위치 수정 포함."
+    "payload_manifest_sha256": "505404557720a9587a0750cbc07094d10b8d0de4a19a78e8af0a6ad4fad79742",
+    "release_notes": "MY Agent 1.1.0 (update 27) — ZIP 스킬 중복 설치 메시지에 표시 이름 표시, 설치된 스킬 목록을 상단에 항상 노출, 고아 패키지 폴더 자동 복구, 재설치 시 해당 스킬 강조."
   },
-  "signature": "fzLF3Wml6R7KVK6C8L0AZG8VmCZl0BH60hyXoldEThJ2mh5itL8xxE8dmLyCbkSL6hEU2nLnmNt1ZSCGkMPdk4ZEP8nFw7hZjKrkStA8DAqDt0Tnh/HpvpOk9yIIZ/I3TJBW1pTDtDCrgM0k7+40Pb6mqId/EZ73GG0w54hdeoHmI0Kw1zUHDyf5VncVR8H2JOsFFsujsbKoR28iPLimcvGNGn31WZYNXzYtbMnAihdEyDADTPo7OHE8jOavXyDalRYNUxfyS35T7dRa/pE4q8okIRkcjgiQTJxD9raRIlQZIiM5nElsfIV9FToXNhkzTBVpkVcZU2gDqG0MfTZSL1VIFrJrltvQJVbwLGWI9sNCmyOkhAl56XJi+27H8J3EOB4CG6WYdlB2vHg85izHwu8NmxIy5mZ7bjAN8XP1feU7J5OR2TY5T5TjAwby9/GNOLyDEhZpcWhfX4tv+tCyskgxAHVgbLR8TdEEkHsi5UEo9gWnaGu5GOkt4cMmsqZA"
+  "signature": "ZoY1XCiCkr6/9bK1upik2lCxHmEb9upH7HQTOIVF9lXuivCPEpB/hUCMIsyc+xiH3XnsbLVUJpVDUj4FjXfpGXY36IYmd0k4aO4rA75g6SpP/M7rfwx0jwtxYwJ2H0uO1AFzW1nUB9hIgFIpqLHViJgzFbSp1pdDKEUmGRo+BP6t/GNNJqaJl8hAu2UZ/RBU8L8Mhno/2LHYwrN9IuB16riKzfZHr7VB3avLz8xMIenFPwX5VFmpvy1rpQfQih/dR3cGOfiqoMR5aqPdBGNfI1hii7beb3QgNkNhyWk+mWmoXHe85Rb9hLwEqYOQazSaJADLAIyzRVEzDnLI3WZgIuHT/U2lyudkP8VMDejM9XAwqa6ybGehemyHEb7+wXFlcD8O5o5cRab+T/xnjDzYpAdwJtonJKQyUr8WNo56xWGhOEIigCX+qY7maYWkt6YNF6MFjTyrzWy7OGGHYsZJMl7Z4fOwOJTFx66NNP1XOjOo2F5/qPyuTQVCrEBp0mOy"
 }
