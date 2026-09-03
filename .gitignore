@@ -118,3 +118,9 @@ cqr_brand_manager/**/~$*
 tsconfig.tsbuildinfo
 **/*.tsbuildinfo
 
+# MY Agent document scratch (session temp)
+.my-agent/docs/
+
+# Code Agent apply-patch trash (deleted-file safety copies)
+.cqr-pa/
+
