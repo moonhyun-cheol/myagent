@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 30,
+    "update_sequence": 31,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-02T07:22:20.735Z",
+    "published_at": "2026-09-03T01:24:08.709Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-30",
+      "release_tag": "update-31",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267195175,
-      "sha256": "9692d843e98ae1bbfd1864a34dcc7eab08a53586d5a2a5e95fc255658753a285"
+      "size": 267160457,
+      "sha256": "328fd7df78452feb770201e95befbdf554dffe35e1f133c899a70c659c34f280"
     },
-    "payload_manifest_sha256": "9f0aac9aac126064fc6c2c9ba5261629074da59996f8028dcf0c977638e10d23",
-    "release_notes": ""
+    "payload_manifest_sha256": "0403707422bb647c5d07da044265da7ddd9f529e973dd4f11ffa5443aec71d38",
+    "release_notes": "## Scope settings + progress checkpoints (update 31)\n\n### Agent runtime\n- Progressive stage checkpoints (10-round stages, continuation on host limit)\n- Host execution limit converts to durable checkpoint + continuation notice\n- Parallel independent tool calls within one orchestration round\n- Orchestration limit error copy cleanup\n\n### Workspace\n- Scope settings modal + automation feed\n- Session scope-settings route and project scope via PUT /projects/:id\n- Continuation notices in ChatPane (applicationNotice)\n\n### Scheduler\n- SQLite to JSON store migration + migrate tool"
   },
-  "signature": "k5COIvEgIRmI5Mt3+mdmNRvHexwryRqdbSBlnraMtEK8co4NFZfy+JoklLaI7O9S7uJAOEaJ3Xwr2myDdMJVDnBTYg7Lcekr97+S4wUfS9vPiDltG46k4OhE6mifcwQdWe2XyqAigNPfotdbRFUsd033ulTZnQJ5nYkLCUGupkDKeh2M1p+gIW8h9Jkb0nwS6mOfXdzLwCG7xoZc6/p2NmlwFocNnIFRF70u3HNjNHyzHmD/HilVDE+yHuVglv32x78rOW3VxqE+MHKd8wMDm/9QhUMovlOTs8NFsJbWRIIlJMCUsnUIxDysDsB+09twbulxrOIZxIkTyhEa1yX5Bqoad9W4DZsUtzFy0RTv7QZyLqg1IfuyX3oPuwLMCkZ33abzeap1GualWSi/RN6MYPq7w70TRpzz5EulFnf8ssxTGw3t3RCe1B0hZ1uEIkhffouZ4Kv8paKwjRY5Z0VZXojJPY1Edwo9Ex/yqmb9AMZ1y1ShoTAkTGyDDx5iBDtz"
+  "signature": "UNRcd5LkV3amfQxtT5DL7Xq43177vDcVfwo/dG4n8FB07OA2F6LpnzqdgKsbP4L4slMlIh/6Aw7kQbek6WZO+DRzDAoTNt6PFVK/VvRHPh9w/unVMvok14sF6K/N6J4Z0GdKITbRsa3A+MJSHkjQglxz6m34jJWDyEc2wSnlmBziC6/6ltJV0WerbSIoZA+ozj90uXX3/sQYOrmIm4lNEWme4xavpQnZLC5CYGdTlD204TW0C4z9s6z0f+rGhhKegWvigcgzErcCSidhBWgK3uP0v+IwV0uvAvfbN5xBFYyAAxuZZZRIkShOlh5qxUEpZOETJVq3RaVw+8nPgf8RKqCC6kjHa/rw9/IW4bAS0G4IgXyfiK+F63IiHsqbC97FK6WBh0Kel3Bco0OhJffb3pSC6L+g2Z51O7Gdu/o2oKBK6NKFjc5YqttvCFlAYosbZPzfeftVB92NG+b9FRLKm/kw2+Rrjx15HT2htA0FKdq8Txm3TgOo7249JdEMXSf8"
 }
