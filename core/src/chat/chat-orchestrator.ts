@@ -29,7 +29,7 @@ import { waitForToolApproval } from '../agent/tool-approval.js';
 import { reviewToolApproval } from '../agent/approval-auto-review.js';
 import { queueAutoErrorReport } from '../support/error-report-service.js';
 import { getUserMemoryStore } from '../memory/user-memory-store.js';
-import { resolveMemoryProjectId } from './session-context.js';
+import { resolveMemoryProjectId, resolveRequestedModelForSession } from './session-context.js';
 import {
   applyChatInletFilter,
   applyChatOutletFilter,
@@ -45,16 +45,13 @@ import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool } from '../automaton/adapter.js';
-import { beginActiveWork, endActiveWork } from '../system/active-work-registry.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
-import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { peekAutomatonIntent, automatonIntentToRoute } from '../router/automaton-intent.js';
-import { withAutomatonBackground } from '../system/automaton-background-registry.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -67,7 +64,6 @@ import {
   shouldRunWorkspaceAgent,
   runWorkspaceCodeAgent,
   promoteWorkspaceAgentRouting,
-  shouldEnterWorkspaceToolPlane,
 } from './modes/workspace-agent.js';
 import { appendAssistantReply } from './assistant-reply.js';
 import {
@@ -181,17 +177,11 @@ export class ChatOrchestrator {
         cqrRoot: this.cqrRoot,
         vaultDir,
       });
-    let openclaw = resolveOpenclaw();
+    const openclaw = resolveOpenclaw();
     if (defaults.openclaw_adapter_base_url?.trim() && !openclaw) {
-      options?.onStatus?.('OpenClaw 토큰을 활성화 서버에서 받는 중…');
-      const pulled = await ensureOpenClawAdapterVault(this.cqrRoot, vaultDir);
-      openclaw = resolveOpenclaw();
-      if (!openclaw) {
-        const hint = pulled.error ? ` (${pulled.error})` : '';
-        throw new Error(
-          `OpenClaw URL은 있으나 토큰이 없습니다${hint}. 활성화 서버(${defaults.activation_server_url ?? '미설정'})가 켜져 있는지 확인하거나, data/vault/openclaw-adapter.json 에 {"token":"..."} 또는 env OPENCLAW_ADAPTER_TOKEN 을 넣으세요.`,
-        );
-      }
+      throw new Error(
+        'OpenClaw URL은 있으나 토큰이 없습니다. data/vault/openclaw-adapter.json에 {"token":"..."}을 저장하거나 OPENCLAW_ADAPTER_TOKEN 환경 변수를 설정하세요.',
+      );
     }
     if (!openclaw && !automatonRoot) {
       throw new Error(
@@ -238,7 +228,6 @@ export class ChatOrchestrator {
       fallbackLocal: boolean;
     },
   ): Promise<void> {
-    await withAutomatonBackground(async () => {
     try {
       await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
         progressFile: job.progressFile,
@@ -267,7 +256,6 @@ export class ChatOrchestrator {
         rawError: err instanceof Error ? err.message : String(err),
       });
     }
-    });
   }
 
   private autoReportError(payload: {
@@ -293,9 +281,6 @@ export class ChatOrchestrator {
         model: 'filter/inlet',
       };
     }
-    const chatWorkKey = `chat:${sessionId}`;
-    beginActiveWork(chatWorkKey, 'chat');
-    try {
     const message = inlet.text;
     const explicitMode = normalizeMode(req.mode);
     const hasAttachments = (req.attachments?.length ?? 0) > 0;
@@ -326,7 +311,7 @@ export class ChatOrchestrator {
     req = { ...req, execution_policy: requestedExecutionPolicy };
 
     const resolved = await resolveChatModelAsync(
-      req.model,
+      resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
       this.modelRegistry,
       loadUserOverrides(this.configPath),
       this.providerStore,
@@ -406,17 +391,14 @@ export class ChatOrchestrator {
     }
 
     if (
-      shouldEnterWorkspaceToolPlane(
-        shouldRunWorkspaceAgent(
-          this.configPath,
-          this.sessionStore,
-          this.projectStore,
-          sessionId,
-          routing.mode,
-          message,
-          explicitMode,
-        ),
-        requestedExecutionPolicy,
+      shouldRunWorkspaceAgent(
+        this.configPath,
+        this.sessionStore,
+        this.projectStore,
+        sessionId,
+        routing.mode,
+        message,
+        explicitMode,
       )
     ) {
       return runWorkspaceCodeAgent({
@@ -532,9 +514,6 @@ export class ChatOrchestrator {
       image: finalized.imageUrls[0] ? { url: finalized.imageUrls[0] } : undefined,
       images: finalized.imageUrls.map((url) => ({ url })),
     };
-    } finally {
-      endActiveWork(chatWorkKey);
-    }
   }
 
   async handleStream(req: ChatRequest, sessionId: string, res: ServerResponse, signal?: AbortSignal): Promise<void> {
@@ -556,9 +535,6 @@ export class ChatOrchestrator {
       sseDone(res);
       return;
     }
-    const streamWorkKey = `chat:${sessionId}`;
-    beginActiveWork(streamWorkKey, 'chat_stream');
-    try {
     for (const w of inlet.warnings ?? []) {
       emitThought(applyChatStreamFilter(w), 'filter');
     }
@@ -607,7 +583,12 @@ export class ChatOrchestrator {
         const finalized = await this.finalizeAssistantReply(full.content, sessionId, null);
         sseEvent(res, { type: 'meta', routing: full.routing, model: full.model });
         sseEvent(res, { type: 'token', text: finalized.content });
-        sseEvent(res, { type: 'done', model: full.model, mode: full.mode });
+        sseEvent(res, {
+          type: 'done',
+          model: full.model,
+          mode: full.mode,
+          ...(full.applicationNotice ? { applicationNotice: full.applicationNotice } : {}),
+        });
       } catch (e: unknown) {
         const msg = formatChatErrorMessage(e);
         this.autoReportError({
@@ -624,24 +605,21 @@ export class ChatOrchestrator {
     }
 
     if (
-      shouldEnterWorkspaceToolPlane(
-        shouldRunWorkspaceAgent(
-          this.configPath,
-          this.sessionStore,
-          this.projectStore,
-          sessionId,
-          routing.mode,
-          message,
-          explicitMode,
-        ),
-        requestedExecutionPolicy,
+      shouldRunWorkspaceAgent(
+        this.configPath,
+        this.sessionStore,
+        this.projectStore,
+        sessionId,
+        routing.mode,
+        message,
+        explicitMode,
       )
     ) {
       const agentRouting = promoteWorkspaceAgentRouting(routing);
       let userAppended = false;
       try {
         const resolved = await resolveChatModelAsync(
-          req.model,
+          resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
           this.modelRegistry,
           loadUserOverrides(this.configPath),
           this.providerStore,
@@ -657,12 +635,7 @@ export class ChatOrchestrator {
           mode: agentRouting.mode,
         });
         userAppended = true;
-        sseEvent(res, {
-          type: 'status',
-          text: requestedExecutionPolicy.workspace_behavior === 'plan'
-            ? 'Plan · read-only 설계 (코드 탐색만)'
-            : '코드 에이전트 · 도구 실행 중…',
-        });
+        sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
         const runAgentOnce = async (attempt = 1) =>
@@ -874,16 +847,15 @@ export class ChatOrchestrator {
         const lastProcessedTokens = lastUsage
           ? Math.max(0, (lastUsage.prompt_tokens ?? 0) + (lastUsage.completion_tokens ?? 0))
           : undefined;
+        const applicationNotice = (full as { applicationNotice?: import('../sessions/types.js').ApplicationNotice }).applicationNotice;
         sseEvent(res, {
           type: 'done',
           model: full.model,
           mode: full.mode,
+          ...(applicationNotice ? { applicationNotice } : {}),
           ...(lastProcessedTokens !== undefined ? { lastProcessedTokens } : {}),
           ...(donePaths.length ? { mutatedPaths: donePaths } : {}),
           ...(checkpointId ? { checkpointId } : {}),
-          ...((full as { planConstraintsLocked?: boolean }).planConstraintsLocked !== undefined
-            ? { planConstraintsLocked: (full as { planConstraintsLocked?: boolean }).planConstraintsLocked }
-            : {}),
         });
       } catch (e: unknown) {
         if (isAbortError(e) || signal?.aborted) {
@@ -972,7 +944,7 @@ export class ChatOrchestrator {
     }
 
     const resolved = await resolveChatModelAsync(
-      req.model,
+      resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
       this.modelRegistry,
       loadUserOverrides(this.configPath),
       this.providerStore,
@@ -1079,6 +1051,7 @@ export class ChatOrchestrator {
             imageDataUrls,
             sessionId,
             reasoningEffort: effectiveReasoning,
+            onThought: (text) => emitThought(text, '모델 추론'),
           },
         );
         const finalized = await this.finalizeAssistantReply(
@@ -1173,9 +1146,6 @@ export class ChatOrchestrator {
       });
       sseEvent(res, { type: 'error', message: msg });
       sseDone(res);
-    }
-    } finally {
-      endActiveWork(streamWorkKey);
     }
   }
 

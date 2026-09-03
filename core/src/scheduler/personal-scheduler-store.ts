@@ -1,372 +1,438 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import type {
   PersonalSchedulerTask,
-  SchedulerFeedAttachment,
   SchedulerFeedItem,
-  SchedulerMisfirePolicy,
   SchedulerRun,
   SchedulerRunSource,
   SchedulerTaskInput,
-  SchedulerTrigger,
+  SchedulerWeeklyCompletedList,
   SchedulerWeeklyQueue,
   SchedulerWeeklyQueueItem,
 } from './types.js';
+import { migrateSchedulerSqliteToJson } from './migrate-sqlite-to-json.js';
 
-type Row = Record<string, unknown>;
+interface RunsDocument { schema_version: 1; updated_at: string; runs: SchedulerRun[] }
+interface FeedDocument { schema_version: 1; updated_at: string; items: SchedulerFeedItem[] }
+interface QueueDocument { schema_version: 1; updated_at: string; weeks: Record<string, SchedulerWeeklyQueue> }
+interface CompletedDocument { schema_version: 1; updated_at: string; weeks: Record<string, SchedulerWeeklyCompletedList> }
 
-function asText(value: unknown): string {
-  return typeof value === 'string' ? value : String(value ?? '');
+function clone<T>(value: T): T {
+  return structuredClone(value);
 }
 
-function parseJson<T>(value: unknown, fallback: T): T {
+function timestamp(): string {
+  return new Date().toISOString();
+}
+
+function writeJsonAtomic(filePath: string, value: unknown): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.${process.pid}.tmp`;
   try {
-    return JSON.parse(asText(value)) as T;
-  } catch {
-    return fallback;
+    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    renameSync(tempPath, filePath);
+  } catch (error) {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+    throw error;
   }
 }
 
-function taskFromRow(row: Row): PersonalSchedulerTask {
-  return {
-    id: asText(row.id),
-    name: asText(row.name),
-    description: asText(row.description),
-    instruction: asText(row.instruction),
-    triggers: parseJson<SchedulerTrigger[]>(row.triggers_json, []),
-    enabled: Number(row.enabled) === 1,
-    next_run_at: row.next_run_at == null ? null : asText(row.next_run_at),
-    misfire_policy: asText(row.misfire_policy) as SchedulerMisfirePolicy,
-    created_at: asText(row.created_at),
-    updated_at: asText(row.updated_at),
-    last_run_at: row.last_run_at == null ? null : asText(row.last_run_at),
-  };
+function readJson<T>(filePath: string, fallback: T, validate: (value: unknown) => value is T): T {
+  if (!existsSync(filePath)) {
+    writeJsonAtomic(filePath, fallback);
+    return fallback;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new Error(`Personal scheduler JSON is unreadable: ${filePath}`, { cause: error });
+  }
+  if (!validate(parsed)) throw new Error(`Personal scheduler JSON has an unsupported shape: ${filePath}`);
+  return parsed;
 }
 
-function runFromRow(row: Row): SchedulerRun {
-  return {
-    id: asText(row.id),
-    task_id: asText(row.task_id),
-    source: asText(row.source) as SchedulerRunSource,
-    status: asText(row.status) as SchedulerRun['status'],
-    started_at: row.started_at == null ? null : asText(row.started_at),
-    finished_at: row.finished_at == null ? null : asText(row.finished_at),
-    result_text: row.result_text == null ? null : asText(row.result_text),
-    error: row.error == null ? null : asText(row.error),
-    created_at: asText(row.created_at),
-  };
+function hasBase(value: unknown): value is { schema_version: 1; updated_at: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const base = value as { schema_version?: unknown; updated_at?: unknown };
+  return base.schema_version === 1 && typeof base.updated_at === 'string';
 }
 
-function feedFromRow(row: Row): SchedulerFeedItem {
-  return {
-    id: asText(row.id),
-    run_id: row.run_id == null ? null : asText(row.run_id),
-    task_id: asText(row.task_id),
-    kind: asText(row.kind) as SchedulerFeedItem['kind'],
-    title: asText(row.title),
-    message: asText(row.message),
-    attachments: parseJson<SchedulerFeedAttachment[]>(row.attachments_json, []),
-    created_at: asText(row.created_at),
-    read_at: row.read_at == null ? null : asText(row.read_at),
-  };
+function isTask(value: unknown): value is PersonalSchedulerTask {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const task = value as Partial<PersonalSchedulerTask>;
+  return typeof task.id === 'string'
+    && typeof task.name === 'string'
+    && typeof task.instruction === 'string'
+    && Array.isArray(task.triggers)
+    && typeof task.enabled === 'boolean';
+}
+
+function isRuns(value: unknown): value is RunsDocument {
+  return hasBase(value) && Array.isArray((value as RunsDocument).runs);
+}
+
+function isFeed(value: unknown): value is FeedDocument {
+  return hasBase(value) && Array.isArray((value as FeedDocument).items);
+}
+
+function isQueues(value: unknown): value is QueueDocument {
+  return hasBase(value) && Boolean((value as QueueDocument).weeks)
+    && typeof (value as QueueDocument).weeks === 'object'
+    && !Array.isArray((value as QueueDocument).weeks);
+}
+
+function isCompleted(value: unknown): value is CompletedDocument {
+  return hasBase(value) && Boolean((value as CompletedDocument).weeks)
+    && typeof (value as CompletedDocument).weeks === 'object'
+    && !Array.isArray((value as CompletedDocument).weeks);
 }
 
 export class PersonalSchedulerStore {
-  private readonly db: DatabaseSync;
+  private readonly tasksDirectory: string;
+  private readonly runsPath: string;
+  private readonly feedPath: string;
+  private readonly queuePath: string;
+  private readonly completedPath: string;
+  private readonly tasks = new Map<string, PersonalSchedulerTask>();
+  private runs: RunsDocument;
+  private feed: FeedDocument;
+  private queues: QueueDocument;
+  private completed: CompletedDocument;
 
-  constructor(dbPath: string) {
-    mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new DatabaseSync(dbPath);
-    this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS scheduler_tasks (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        instruction TEXT NOT NULL,
-        triggers_json TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 0,
-        next_run_at TEXT,
-        misfire_policy TEXT NOT NULL DEFAULT 'skip',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        last_run_at TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_scheduler_tasks_due
-        ON scheduler_tasks(enabled, next_run_at);
-      CREATE TABLE IF NOT EXISTS scheduler_runs (
-        id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL,
-        source TEXT NOT NULL,
-        status TEXT NOT NULL,
-        started_at TEXT,
-        finished_at TEXT,
-        result_text TEXT,
-        error TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY(task_id) REFERENCES scheduler_tasks(id) ON DELETE CASCADE
-      );
-      CREATE INDEX IF NOT EXISTS idx_scheduler_runs_created
-        ON scheduler_runs(created_at DESC);
-      CREATE TABLE IF NOT EXISTS scheduler_feed (
-        id TEXT PRIMARY KEY,
-        run_id TEXT,
-        task_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        title TEXT NOT NULL,
-        message TEXT NOT NULL,
-        attachments_json TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL,
-        read_at TEXT,
-        FOREIGN KEY(task_id) REFERENCES scheduler_tasks(id) ON DELETE CASCADE,
-        FOREIGN KEY(run_id) REFERENCES scheduler_runs(id) ON DELETE SET NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_scheduler_feed_created
-        ON scheduler_feed(created_at DESC);
-      CREATE TABLE IF NOT EXISTS scheduler_week_queues (
-        week_key TEXT PRIMARY KEY,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS scheduler_week_queue_items (
-        week_key TEXT NOT NULL,
-        task_id TEXT NOT NULL,
-        available_at TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY(week_key, task_id),
-        FOREIGN KEY(week_key) REFERENCES scheduler_week_queues(week_key) ON DELETE CASCADE,
-        FOREIGN KEY(task_id) REFERENCES scheduler_tasks(id) ON DELETE CASCADE
-      );
-      CREATE INDEX IF NOT EXISTS idx_scheduler_week_queue_ready
-        ON scheduler_week_queue_items(week_key, available_at);
-    `);
+  constructor(private readonly schedulerRoot: string) {
+    migrateSchedulerSqliteToJson(schedulerRoot);
+    this.tasksDirectory = path.join(schedulerRoot, 'tasks');
+    this.runsPath = path.join(schedulerRoot, 'runs.json');
+    this.feedPath = path.join(schedulerRoot, 'feed.json');
+    this.queuePath = path.join(schedulerRoot, 'weekly-queue.json');
+    this.completedPath = path.join(schedulerRoot, 'weekly-completed.json');
+    mkdirSync(this.tasksDirectory, { recursive: true });
+    this.loadTasks();
+    const now = timestamp();
+    this.runs = readJson(this.runsPath, { schema_version: 1, updated_at: now, runs: [] }, isRuns);
+    this.feed = readJson(this.feedPath, { schema_version: 1, updated_at: now, items: [] }, isFeed);
+    this.queues = readJson(this.queuePath, { schema_version: 1, updated_at: now, weeks: {} }, isQueues);
+    this.completed = readJson(this.completedPath, { schema_version: 1, updated_at: now, weeks: {} }, isCompleted);
+    this.reconcileConsumedWeeklyItems();
   }
 
-  close(): void {
-    this.db.close();
+  close(): void {}
+
+  private loadTasks(): void {
+    for (const name of readdirSync(this.tasksDirectory).filter((entry) => entry.endsWith('.json'))) {
+      const filePath = path.join(this.tasksDirectory, name);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+      } catch (error) {
+        throw new Error(`Personal scheduler task JSON is unreadable: ${filePath}`, { cause: error });
+      }
+      if (!isTask(parsed) || name !== `${parsed.id}.json`) {
+        throw new Error(`Personal scheduler task JSON has an unsupported shape: ${filePath}`);
+      }
+      this.tasks.set(parsed.id, parsed);
+    }
+  }
+
+  private taskPath(id: string): string {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`Invalid scheduler task id: ${id}`);
+    return path.join(this.tasksDirectory, `${id}.json`);
+  }
+
+  private saveTaskFile(task: PersonalSchedulerTask): void {
+    writeJsonAtomic(this.taskPath(task.id), task);
+  }
+
+  private saveRuns(): void {
+    this.runs.updated_at = timestamp();
+    writeJsonAtomic(this.runsPath, this.runs);
+  }
+
+  private saveFeed(): void {
+    this.feed.updated_at = timestamp();
+    writeJsonAtomic(this.feedPath, this.feed);
+  }
+
+  private saveQueues(): void {
+    this.queues.updated_at = timestamp();
+    writeJsonAtomic(this.queuePath, this.queues);
+  }
+
+  private saveCompleted(): void {
+    this.completed.updated_at = timestamp();
+    writeJsonAtomic(this.completedPath, this.completed);
+  }
+
+  private reconcileConsumedWeeklyItems(): void {
+    let changed = false;
+    for (const [weekKey, completedList] of Object.entries(this.completed.weeks)) {
+      const queue = this.queues.weeks[weekKey];
+      if (!queue || completedList.items.length === 0) continue;
+      const consumedTaskIds = new Set(completedList.items.map((item) => item.task_id));
+      const remaining = queue.remaining.filter((item) => !consumedTaskIds.has(item.task_id));
+      if (remaining.length !== queue.remaining.length) {
+        queue.remaining = remaining;
+        changed = true;
+      }
+    }
+    if (changed) this.saveQueues();
   }
 
   listTasks(): PersonalSchedulerTask[] {
-    return (this.db.prepare('SELECT * FROM scheduler_tasks ORDER BY updated_at DESC').all() as Row[])
-      .map(taskFromRow);
+    return clone([...this.tasks.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)));
   }
 
   getTask(id: string): PersonalSchedulerTask | null {
-    const row = this.db.prepare('SELECT * FROM scheduler_tasks WHERE id = ?').get(id) as Row | undefined;
-    return row ? taskFromRow(row) : null;
+    const task = this.tasks.get(id);
+    return task ? clone(task) : null;
   }
 
   saveTask(input: SchedulerTaskInput, nextRunAt: string | null, id?: string): PersonalSchedulerTask {
-    const now = new Date().toISOString();
+    const now = timestamp();
     const taskId = id || randomUUID();
-    const existing = this.getTask(taskId);
-    this.db.prepare(`
-      INSERT INTO scheduler_tasks (
-        id, name, description, instruction, triggers_json, enabled,
-        next_run_at, misfire_policy, created_at, updated_at, last_run_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name, description=excluded.description,
-        instruction=excluded.instruction, triggers_json=excluded.triggers_json,
-        enabled=excluded.enabled, next_run_at=excluded.next_run_at,
-        misfire_policy=excluded.misfire_policy, updated_at=excluded.updated_at
-    `).run(
-      taskId,
-      input.name,
-      input.description ?? '',
-      input.instruction,
-      JSON.stringify(input.triggers),
-      input.enabled === false ? 0 : 1,
-      nextRunAt,
-      input.misfire_policy ?? 'skip',
-      existing?.created_at ?? now,
-      now,
-      existing?.last_run_at ?? null,
-    );
-    return this.getTask(taskId)!;
+    const existing = this.tasks.get(taskId);
+    const task: PersonalSchedulerTask = {
+      id: taskId,
+      name: input.name,
+      description: input.description ?? '',
+      instruction: input.instruction,
+      triggers: clone(input.triggers),
+      enabled: input.enabled !== false,
+      next_run_at: nextRunAt,
+      misfire_policy: input.misfire_policy ?? 'skip',
+      created_at: existing?.created_at ?? now,
+      updated_at: now,
+      last_run_at: existing?.last_run_at ?? null,
+    };
+    this.saveTaskFile(task);
+    this.tasks.set(task.id, task);
+    return clone(task);
   }
 
   setTaskEnabled(id: string, enabled: boolean, nextRunAt: string | null): PersonalSchedulerTask | null {
-    this.db.prepare(`
-      UPDATE scheduler_tasks
-      SET enabled = ?, next_run_at = ?, updated_at = ?
-      WHERE id = ?
-    `).run(enabled ? 1 : 0, enabled ? nextRunAt : null, new Date().toISOString(), id);
-    return this.getTask(id);
+    const task = this.tasks.get(id);
+    if (!task) return null;
+    task.enabled = enabled;
+    task.next_run_at = enabled ? nextRunAt : null;
+    task.updated_at = timestamp();
+    this.saveTaskFile(task);
+    return clone(task);
   }
 
   setNextRun(id: string, nextRunAt: string | null, lastRunAt?: string): void {
-    this.db.prepare(`
-      UPDATE scheduler_tasks
-      SET next_run_at = ?, last_run_at = COALESCE(?, last_run_at), updated_at = ?
-      WHERE id = ?
-    `).run(nextRunAt, lastRunAt ?? null, new Date().toISOString(), id);
+    const task = this.tasks.get(id);
+    if (!task) return;
+    task.next_run_at = nextRunAt;
+    if (lastRunAt !== undefined) task.last_run_at = lastRunAt;
+    task.updated_at = timestamp();
+    this.saveTaskFile(task);
   }
 
   deleteTask(id: string): boolean {
-    return Number(this.db.prepare('DELETE FROM scheduler_tasks WHERE id = ?').run(id).changes) > 0;
+    const task = this.tasks.get(id);
+    if (!task) return false;
+    const filePath = this.taskPath(id);
+    if (existsSync(filePath)) unlinkSync(filePath);
+    this.tasks.delete(id);
+    let queuesChanged = false;
+    for (const queue of Object.values(this.queues.weeks)) {
+      const remaining = queue.remaining.filter((item) => item.task_id !== id);
+      if (remaining.length !== queue.remaining.length) {
+        queue.remaining = remaining;
+        queuesChanged = true;
+      }
+    }
+    if (queuesChanged) this.saveQueues();
+    return true;
   }
 
   dueTasks(nowIso: string): PersonalSchedulerTask[] {
-    return (this.db.prepare(`
-      SELECT * FROM scheduler_tasks
-      WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
-      ORDER BY next_run_at ASC
-    `).all(nowIso) as Row[]).map(taskFromRow);
+    return clone([...this.tasks.values()]
+      .filter((task) => task.enabled && task.next_run_at !== null && task.next_run_at <= nowIso)
+      .sort((a, b) => String(a.next_run_at).localeCompare(String(b.next_run_at))));
   }
 
   createRun(taskId: string, source: SchedulerRunSource): SchedulerRun {
-    const id = randomUUID();
-    const createdAt = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO scheduler_runs (id, task_id, source, status, created_at)
-      VALUES (?, ?, ?, 'queued', ?)
-    `).run(id, taskId, source, createdAt);
-    return this.getRun(id)!;
+    const run: SchedulerRun = {
+      id: randomUUID(), task_id: taskId, source, status: 'queued',
+      started_at: null, finished_at: null, result_text: null, error: null, created_at: timestamp(),
+    };
+    this.runs.runs.push(run);
+    this.saveRuns();
+    return clone(run);
   }
 
   getRun(id: string): SchedulerRun | null {
-    const row = this.db.prepare('SELECT * FROM scheduler_runs WHERE id = ?').get(id) as Row | undefined;
-    return row ? runFromRow(row) : null;
+    const run = this.runs.runs.find((candidate) => candidate.id === id);
+    return run ? clone(run) : null;
   }
 
   listRuns(limit = 50): SchedulerRun[] {
-    return (this.db.prepare('SELECT * FROM scheduler_runs ORDER BY created_at DESC LIMIT ?')
-      .all(Math.max(1, Math.min(200, Math.trunc(limit)))) as Row[]).map(runFromRow);
+    const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+    return clone([...this.runs.runs].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit));
   }
 
   countActiveRuns(): number {
-    const row = this.db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM scheduler_runs
-      WHERE status IN ('queued', 'running')
-    `).get() as { count?: number } | undefined;
-    return Number(row?.count ?? 0);
+    return this.runs.runs.filter((run) => run.status === 'queued' || run.status === 'running').length;
   }
 
   markRunRunning(id: string): void {
-    this.db.prepare(`UPDATE scheduler_runs SET status='running', started_at=? WHERE id=?`)
-      .run(new Date().toISOString(), id);
+    const run = this.runs.runs.find((candidate) => candidate.id === id);
+    if (!run) return;
+    run.status = 'running';
+    run.started_at = timestamp();
+    this.saveRuns();
   }
 
   completeRun(id: string, resultText: string): void {
-    this.db.prepare(`
-      UPDATE scheduler_runs
-      SET status='succeeded', result_text=?, error=NULL, finished_at=?
-      WHERE id=?
-    `).run(resultText, new Date().toISOString(), id);
+    const run = this.runs.runs.find((candidate) => candidate.id === id);
+    if (!run) return;
+    run.status = 'succeeded';
+    run.result_text = resultText;
+    run.error = null;
+    run.finished_at = timestamp();
+    this.saveRuns();
   }
 
   failRun(id: string, error: string): void {
-    this.db.prepare(`
-      UPDATE scheduler_runs
-      SET status='failed', error=?, finished_at=?
-      WHERE id=?
-    `).run(error, new Date().toISOString(), id);
+    const run = this.runs.runs.find((candidate) => candidate.id === id);
+    if (!run) return;
+    run.status = 'failed';
+    run.error = error;
+    run.finished_at = timestamp();
+    this.saveRuns();
   }
 
   addFeedItem(input: Omit<SchedulerFeedItem, 'id' | 'created_at' | 'read_at'>): SchedulerFeedItem {
-    const id = randomUUID();
-    const createdAt = new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO scheduler_feed (
-        id, run_id, task_id, kind, title, message, attachments_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      input.run_id,
-      input.task_id,
-      input.kind,
-      input.title,
-      input.message,
-      JSON.stringify(input.attachments),
-      createdAt,
-    );
-    return feedFromRow(this.db.prepare('SELECT * FROM scheduler_feed WHERE id = ?').get(id) as Row);
+    const item: SchedulerFeedItem = { ...clone(input), id: randomUUID(), created_at: timestamp(), read_at: null };
+    this.feed.items.push(item);
+    this.saveFeed();
+    return clone(item);
   }
 
   listFeed(limit = 50): SchedulerFeedItem[] {
-    return (this.db.prepare('SELECT * FROM scheduler_feed ORDER BY created_at DESC LIMIT ?')
-      .all(Math.max(1, Math.min(200, Math.trunc(limit)))) as Row[]).map(feedFromRow);
+    const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+    return clone([...this.feed.items].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit));
   }
 
-  ensureWeeklyQueue(
-    weekKey: string,
-    items: Array<{ taskId: string; availableAt: string }>,
-  ): boolean {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      const exists = this.db.prepare('SELECT 1 FROM scheduler_week_queues WHERE week_key = ?')
-        .get(weekKey);
-      if (exists) {
-        this.db.exec('COMMIT');
-        return false;
+  ensureWeeklyQueue(weekKey: string, items: Array<{ taskId: string; availableAt: string }>): boolean {
+    if (this.queues.weeks[weekKey] || this.completed.weeks[weekKey]) return false;
+    const createdAt = timestamp();
+    this.queues.weeks[weekKey] = {
+      week_key: weekKey,
+      created_at: createdAt,
+      remaining: items.map((item): SchedulerWeeklyQueueItem => ({
+        week_key: weekKey, task_id: item.taskId, available_at: item.availableAt, created_at: createdAt,
+      })),
+    };
+    this.saveQueues();
+    return true;
+  }
+
+  rolloverWeeklyQueues(currentWeekKey: string, tasks: PersonalSchedulerTask[], nowIso: string): void {
+    const currentQueue = this.queues.weeks[currentWeekKey];
+    if (!currentQueue) return;
+    const tasksById = new Map(tasks.map((task) => [task.id, task]));
+    const completedCurrent = new Set(
+      (this.completed.weeks[currentWeekKey]?.items ?? []).map((item) => item.task_id),
+    );
+    let queuesChanged = false;
+    let completedChanged = false;
+
+    for (const [weekKey, queue] of Object.entries(this.queues.weeks)) {
+      if (weekKey >= currentWeekKey || queue.remaining.length === 0) continue;
+      const completedList = this.completed.weeks[weekKey] ?? {
+        week_key: weekKey,
+        created_at: nowIso,
+        items: [],
+      };
+      const alreadyResolved = new Set(completedList.items.map((item) => item.task_id));
+
+      for (const item of queue.remaining) {
+        if (alreadyResolved.has(item.task_id)) continue;
+        const task = tasksById.get(item.task_id);
+        const carry = task?.enabled === true && task.misfire_policy === 'run_once';
+        if (carry && !completedCurrent.has(item.task_id)) {
+          const currentItem = currentQueue.remaining.find((candidate) => candidate.task_id === item.task_id);
+          if (currentItem) {
+            currentItem.available_at = nowIso;
+            currentItem.origin_week_key = item.origin_week_key ?? item.week_key;
+          } else {
+            currentQueue.remaining.push({
+              ...item,
+              week_key: currentWeekKey,
+              available_at: nowIso,
+              created_at: nowIso,
+              origin_week_key: item.origin_week_key ?? item.week_key,
+            });
+          }
+        }
+        completedList.items.push({
+          ...item,
+          consumed_at: nowIso,
+          resolution: carry ? 'carried' : 'expired',
+          reason: 'week_changed',
+        });
+        alreadyResolved.add(item.task_id);
+        completedChanged = true;
       }
-      const createdAt = new Date().toISOString();
-      this.db.prepare('INSERT INTO scheduler_week_queues (week_key, created_at) VALUES (?, ?)')
-        .run(weekKey, createdAt);
-      const insert = this.db.prepare(`
-        INSERT INTO scheduler_week_queue_items (week_key, task_id, available_at, created_at)
-        VALUES (?, ?, ?, ?)
-      `);
-      for (const item of items) insert.run(weekKey, item.taskId, item.availableAt, createdAt);
-      this.db.exec('COMMIT');
-      return true;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
+      queue.remaining = [];
+      this.completed.weeks[weekKey] = completedList;
+      queuesChanged = true;
     }
+
+    if (queuesChanged) this.saveQueues();
+    if (completedChanged) this.saveCompleted();
   }
 
   getWeeklyQueue(weekKey: string): SchedulerWeeklyQueue | null {
-    const header = this.db.prepare('SELECT * FROM scheduler_week_queues WHERE week_key = ?')
-      .get(weekKey) as Row | undefined;
-    if (!header) return null;
-    const remaining = this.db.prepare(`
-      SELECT week_key, task_id, available_at, created_at
-      FROM scheduler_week_queue_items
-      WHERE week_key = ?
-      ORDER BY available_at, task_id
-    `).all(weekKey) as Row[];
-    return {
-      week_key: asText(header.week_key),
-      created_at: asText(header.created_at),
-      remaining: remaining.map((row): SchedulerWeeklyQueueItem => ({
-        week_key: asText(row.week_key),
-        task_id: asText(row.task_id),
-        available_at: asText(row.available_at),
-        created_at: asText(row.created_at),
-      })),
-    };
+    const queue = this.queues.weeks[weekKey];
+    if (!queue) return null;
+    const result = clone(queue);
+    result.remaining.sort((a, b) => a.available_at.localeCompare(b.available_at) || a.task_id.localeCompare(b.task_id));
+    return result;
+  }
+
+  getCompletedWeeklyQueue(weekKey: string): SchedulerWeeklyCompletedList | null {
+    const completed = this.completed.weeks[weekKey];
+    return completed ? clone(completed) : null;
   }
 
   claimReadyWeeklyItem(weekKey: string, nowIso: string): SchedulerWeeklyQueueItem | null {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      const row = this.db.prepare(`
-        SELECT week_key, task_id, available_at, created_at
-        FROM scheduler_week_queue_items
-        WHERE week_key = ? AND available_at <= ?
-        ORDER BY available_at, task_id
-        LIMIT 1
-      `).get(weekKey, nowIso) as Row | undefined;
-      if (!row) {
-        this.db.exec('COMMIT');
-        return null;
-      }
-      this.db.prepare('DELETE FROM scheduler_week_queue_items WHERE week_key = ? AND task_id = ?')
-        .run(weekKey, asText(row.task_id));
-      this.db.exec('COMMIT');
-      return {
-        week_key: asText(row.week_key),
-        task_id: asText(row.task_id),
-        available_at: asText(row.available_at),
-        created_at: asText(row.created_at),
-      };
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+    const queue = this.queues.weeks[weekKey];
+    if (!queue) return null;
+    const match = queue.remaining
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .filter(({ item }) => item.available_at <= nowIso)
+      .sort((a, b) => a.item.available_at.localeCompare(b.item.available_at) || a.item.task_id.localeCompare(b.item.task_id))[0];
+    if (!match) return null;
+
+    const completedList = this.completed.weeks[weekKey] ?? {
+      week_key: weekKey,
+      created_at: timestamp(),
+      items: [],
+    };
+    completedList.items.push({
+      ...match.item,
+      consumed_at: timestamp(),
+      resolution: 'executed',
+      reason: 'claimed',
+    });
+    this.completed.weeks[weekKey] = completedList;
+    this.saveCompleted();
+
+    queue.remaining.splice(match.originalIndex, 1);
+    this.saveQueues();
+    return clone(match.item);
   }
 }

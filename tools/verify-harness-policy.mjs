@@ -285,10 +285,11 @@ function withEnv(patch, fn) {
 }
 
 {
-  const message = formatChatErrorMessage(
-    'Code agent exceeded 45 LLM orchestration rounds (not tool calls).',
-  );
-  assert.match(message, /모델 왕복 횟수/);
+  const raw = 'Code agent exceeded 45 LLM orchestration rounds (not tool calls).';
+  const message = formatChatErrorMessage(raw);
+  assert.equal(message, raw);
+  assert.doesNotMatch(message, /Independent tool calls/);
+  assert.doesNotMatch(message, /작업을 더 작은 단위로/);
 }
 
 // history content budget
@@ -355,7 +356,6 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
     looksLikeAutopilotContinue,
     resolveAutopilotEnabled,
     shouldOrInContinuityAutopilot,
-    autopilotMaxSteps,
   } = await import('../core/dist/agent/agent-autopilot.js');
   const { formatAcceptanceScenarioSystemNote } = await import(
     '../core/dist/agent/agent-planner.js'
@@ -365,7 +365,54 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, true), true, 'user override wins');
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, false), false);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, null), true);
-  assert.equal(autopilotMaxSteps(30, true), 45);
+  const {
+    FAILURE_CHECKPOINT_THRESHOLD,
+    MAX_PROGRESSIVE_RUN_ROUNDS,
+    MAX_PROGRESSIVE_STAGES,
+    MAX_PROGRESSIVE_TOTAL_ROUNDS,
+    ORCHESTRATION_STEP_DEFINITION,
+    buildAgentProgressCheckpoint,
+    normalizeProgressiveMaxSteps,
+    progressiveRunBudget,
+  } = await import('../core/dist/agent/agent-progress-checkpoint.js');
+  assert.equal(FAILURE_CHECKPOINT_THRESHOLD, 3);
+  assert.equal(MAX_PROGRESSIVE_STAGES, 10);
+  assert.equal(MAX_PROGRESSIVE_RUN_ROUNDS, 30);
+  assert.equal(MAX_PROGRESSIVE_TOTAL_ROUNDS, 100);
+  assert.match(ORCHESTRATION_STEP_DEFINITION, /0\.\.N tool calls/);
+  assert.equal(normalizeProgressiveMaxSteps(45), 30);
+  assert.equal(normalizeProgressiveMaxSteps(500), 30);
+  assert.equal(progressiveRunBudget(45, 0), 30);
+  assert.equal(progressiveRunBudget(45, 80), 20);
+  assert.equal(progressiveRunBudget(45, 100), 0);
+  const checkpoint = buildAgentProgressCheckpoint({
+    reason: 'three_failures',
+    step: 13,
+    maxSteps: 100,
+    failureCount: 3,
+    readPaths: ['src/a.ts'],
+    mutatedPaths: ['src/a.ts'],
+    toolsUsed: ['read_file', 'edit_file'],
+    failureDetails: ['edit_file: atomic_abort'],
+    verifyWitness: null,
+    activeTask: { objective: '루프 복구', acceptance: '테스트 통과' },
+    modelOutput: '모델이 작성한 실제 작업 내용',
+    model: 'OpenAI/gpt-test',
+    elapsedMs: 125_000,
+    payloadChars: 32_768,
+    recentActivity: ['read_file: ok (step 12)', 'edit_file: failed (step 13)'],
+    now: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(checkpoint.stage, 2);
+  assert.match(checkpoint.remaining.join('\n'), /실패 복구/);
+  assert.match(checkpoint.remaining.join('\n'), /테스트 통과/);
+  assert.match(checkpoint.resumeFrom, /루프 복구/);
+  assert.equal(checkpoint.maxStages, 10);
+  assert.equal(checkpoint.modelOutput, '모델이 작성한 실제 작업 내용');
+  assert.equal(checkpoint.runtime?.model, 'OpenAI/gpt-test');
+  assert.equal(checkpoint.runtime?.elapsedMs, 125_000);
+  assert.equal(checkpoint.runtime?.payloadChars, 32_768);
+  assert.equal(checkpoint.recentActivity?.length, 2);
   assert.equal(
     resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, null, '인앱 브라우저 ChatPane 링크 연결 구현'),
     false,

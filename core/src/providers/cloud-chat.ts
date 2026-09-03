@@ -89,6 +89,7 @@ export class CloudChatService {
       imageDataUrls?: string[];
       sessionId?: string;
       reasoningEffort?: string | null;
+      onThought?: (text: string) => void;
     },
   ): Promise<{ content: string; model: string }> {
     try {
@@ -121,6 +122,7 @@ export class CloudChatService {
       imageDataUrls?: string[];
       sessionId?: string;
       reasoningEffort?: string | null;
+      onThought?: (text: string) => void;
     },
   ): Promise<{ content: string; model: string }> {
     try {
@@ -174,6 +176,7 @@ export class CloudChatService {
       imageDataUrls?: string[];
       sessionId?: string;
       reasoningEffort?: string | null;
+      onThought?: (text: string) => void;
     },
   ): Promise<{ content: string; model: string }> {
     const resolved = this.store.resolveProvider(providerId, opts?.modelId);
@@ -223,6 +226,7 @@ export class CloudChatService {
       imageDataUrls?: string[];
       sessionId?: string;
       reasoningEffort?: string | null;
+      onThought?: (text: string) => void;
     },
   ): Promise<{ content: string; model: string }> {
     const resolved = this.store.resolveProvider(providerId, opts?.modelId);
@@ -253,6 +257,7 @@ export class CloudChatService {
         ...this.responsesOptions(providerId, modelId, wireApi, opts?.sessionId),
         ...harnessCompletionExtras(process.env, { providerId, modelId }),
         ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
+        ...(opts?.onThought ? { onThought: opts.onThought } : {}),
       },
     );
     return { content: result.content, model: `${def.name}/${result.model}` };

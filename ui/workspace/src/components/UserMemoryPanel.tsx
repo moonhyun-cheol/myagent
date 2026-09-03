@@ -13,6 +13,7 @@ const OPEN_EVENT = 'cqr:open-user-memory';
 
 export interface UserMemoryPanelDetail {
   projectId?: string | null;
+  sessionId?: string | null;
   title?: string;
 }
 

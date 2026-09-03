@@ -163,6 +163,57 @@ export class ProjectStore {
     return rec;
   }
 
+  setScopeSettings(
+    id: string,
+    patch: { preferred_model?: string | null; allowed_paths?: string[] },
+  ): ProjectRecord | null {
+    const safe = sanitizeId(id);
+    if (!safe) return null;
+    const index = this.loadIndex();
+    const rec = index.projects.find((project) => project.id === safe);
+    if (!rec) return null;
+    if (patch.preferred_model !== undefined) {
+      const model = patch.preferred_model?.trim();
+      if (model) rec.preferred_model = model.slice(0, 240);
+      else delete rec.preferred_model;
+    }
+    if (patch.allowed_paths !== undefined) {
+      const roots = [...new Set(
+        patch.allowed_paths
+          .map((entry) => String(entry ?? '').trim())
+          .filter((entry) => entry && path.isAbsolute(entry))
+          .map((entry) => path.resolve(entry)),
+      )];
+      if (roots.length) rec.allowed_paths = roots;
+      else delete rec.allowed_paths;
+    }
+    rec.updated_at = new Date().toISOString();
+    this.saveIndex(index);
+    return rec;
+  }
+
+  resolvePreferredModelForProject(projectId: string): string | null {
+    const rec = this.get(projectId);
+    if (!rec) return null;
+    if (rec.preferred_model?.trim()) return rec.preferred_model.trim();
+    return rec.parent_id ? this.resolvePreferredModelForProject(rec.parent_id) : null;
+  }
+
+  resolveAllowedPathsForProject(projectId: string): string[] {
+    const rec = this.get(projectId);
+    if (!rec) return [];
+    const explicit = [...new Set((rec.allowed_paths ?? []).map((candidate) => candidate.trim()).filter(Boolean))];
+    if (explicit.length) return explicit;
+    if (rec.parent_id) return this.resolveAllowedPathsForProject(rec.parent_id);
+    const workspaceRoot = this.resolveKind(rec) === 'workspace_root' ? rec.folder_path?.trim() : '';
+    return workspaceRoot ? [workspaceRoot] : [];
+  }
+
+  /** @deprecated Use resolveAllowedPathsForProject when enforcing access. */
+  resolveAllowedPathForProject(projectId: string): string | null {
+    return this.resolveAllowedPathsForProject(projectId)[0] ?? null;
+  }
+
   touch(id: string): void {
     const safe = sanitizeId(id);
     if (!safe) return;
@@ -272,6 +323,8 @@ export class ProjectStore {
       kind: this.resolveKind(rec),
       parent_id: rec.parent_id ?? null,
       folder_path: rec.folder_path ?? null,
+      preferred_model: rec.preferred_model,
+      allowed_paths: rec.allowed_paths ?? [],
       color: rec.color ?? null,
       created_at: rec.created_at,
       updated_at: rec.updated_at,

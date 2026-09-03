@@ -5,6 +5,7 @@ import {
   FileText,
   GearSix,
   DownloadSimple,
+  ArrowsOut,
   MagnifyingGlass,
   Notebook,
   PencilSimple,
@@ -22,6 +23,7 @@ import {
 } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ErrorReportMenu } from './ErrorReportMenu';
+import { AutomationFeedModal } from './AutomationFeedModal';
 import { SettingsModal } from './SettingsModal';
 import { ProjectsTree } from './ProjectsTree';
 
@@ -45,6 +47,7 @@ export function GeminiNavSidebar({
   const [providers, setProviders] = useState<ProviderPublic[]>([]);
   const [busyMsg, setBusyMsg] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [automationFeedOpen, setAutomationFeedOpen] = useState(false);
 
   const startNewChat = useWorkspaceStore((state) => state.startNewChat);
   const activeProjectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -161,7 +164,7 @@ export function GeminiNavSidebar({
             {activeSurface === 'chat' ? (
               <ProjectsTree query={query} onMessage={setBusyMsg} />
             ) : (
-              <AutomationSidebarSummary unreadCount={automationUnreadCount} />
+              <AutomationSidebarSummary unreadCount={automationUnreadCount} onOpenFeed={() => setAutomationFeedOpen(true)} />
             )}
           </div>
 
@@ -179,11 +182,12 @@ export function GeminiNavSidebar({
       ) : null}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AutomationFeedModal open={automationFeedOpen} onClose={() => setAutomationFeedOpen(false)} />
     </aside>
   );
 }
 
-function AutomationSidebarSummary({ unreadCount }: { unreadCount: number }) {
+function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: number; onOpenFeed: () => void }) {
   const [items, setItems] = useState<AutomationFeedItem[]>([]);
   const [loadError, setLoadError] = useState('');
 
@@ -208,6 +212,15 @@ function AutomationSidebarSummary({ unreadCount }: { unreadCount: number }) {
           {unreadCount > 0 ? (
             <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white">{unreadCount}</span>
           ) : null}
+          <button
+            type="button"
+            onClick={onOpenFeed}
+            className="ml-auto rounded-md border border-line bg-white/70 p-1.5 text-muted transition hover:border-accent/40 hover:text-accent"
+            aria-label="작업 뉴스피드 크게 보기"
+            title="크게 보기"
+          >
+            <ArrowsOut size={13} weight="bold" />
+          </button>
         </div>
         <p className="mt-1 text-[10px] leading-4 text-muted">자동화 결과와 생성된 파일을 채팅 형태로 전달합니다.</p>
       </div>

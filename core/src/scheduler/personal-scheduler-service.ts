@@ -9,6 +9,7 @@ import type {
   SchedulerRunSource,
   SchedulerTaskInput,
   SchedulerTrigger,
+  SchedulerWeeklyCompletedList,
   SchedulerWeeklyQueue,
   SchedulerWeeklyQueueItem,
 } from './types.js';
@@ -84,7 +85,7 @@ export function isoWeekKey(date: Date): string {
   const isoYear = utc.getUTCFullYear();
   const yearStart = new Date(Date.UTC(isoYear, 0, 1));
   const week = Math.ceil((((utc.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
-  return `${isoYear}-W${String(week).padStart(2, '0')}`;
+  return `${isoYear}-W${String(Math.min(week, 52)).padStart(2, '0')}`;
 }
 
 function weeklyOccurrence(task: PersonalSchedulerTask, weekDate: Date): string | null {
@@ -112,14 +113,14 @@ export class PersonalSchedulerService {
   readonly store: PersonalSchedulerStore;
   readonly artifactRoot: string;
 
-  constructor(dbPath: string, artifactRoot = path.join(path.dirname(path.dirname(dbPath)), 'outputs', 'automations')) {
-    this.store = new PersonalSchedulerStore(dbPath);
+  constructor(schedulerRoot: string, artifactRoot = path.join(path.dirname(schedulerRoot), 'outputs', 'automations')) {
+    this.store = new PersonalSchedulerStore(schedulerRoot);
     this.artifactRoot = artifactRoot;
   }
 
   static forRoot(cqrRoot: string): PersonalSchedulerService {
     return new PersonalSchedulerService(
-      path.join(cqrRoot, 'data', 'scheduler', 'personal-scheduler.sqlite'),
+      path.join(cqrRoot, 'data', 'scheduler'),
       path.join(cqrRoot, 'data', 'outputs', 'automations'),
     );
   }
@@ -137,17 +138,23 @@ export class PersonalSchedulerService {
 
   ensureCurrentWeeklyQueue(now = new Date()): SchedulerWeeklyQueue {
     const weekKey = isoWeekKey(now);
-    const items = this.listTasks()
+    const tasks = this.listTasks();
+    const items = tasks
       .filter((task) => task.enabled)
       .map((task) => ({ task, availableAt: weeklyOccurrence(task, now) }))
       .filter((row): row is { task: PersonalSchedulerTask; availableAt: string } => Boolean(row.availableAt))
       .map((row) => ({ taskId: row.task.id, availableAt: row.availableAt }));
     this.store.ensureWeeklyQueue(weekKey, items);
+    this.store.rolloverWeeklyQueues(weekKey, tasks, now.toISOString());
     return this.store.getWeeklyQueue(weekKey)!;
   }
 
   getWeeklyQueue(weekKey = isoWeekKey(new Date())): SchedulerWeeklyQueue | null {
     return this.store.getWeeklyQueue(weekKey);
+  }
+
+  getCompletedWeeklyQueue(weekKey = isoWeekKey(new Date())): SchedulerWeeklyCompletedList | null {
+    return this.store.getCompletedWeeklyQueue(weekKey);
   }
 
   claimReadyWeeklyItem(now = new Date()): SchedulerWeeklyQueueItem | null {

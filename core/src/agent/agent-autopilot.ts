@@ -62,7 +62,4 @@ export function formatAutopilotSystemNote(): string {
   ].join('\n');
 }
 
-export function autopilotMaxSteps(base: number, enabled: boolean): number {
-  if (!enabled) return base;
-  return Math.min(60, Math.max(base, base + 15));
-}
+

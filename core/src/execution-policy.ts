@@ -1,6 +1,6 @@
 import { codingPlanLockEnabled } from './providers/harness-policy.js';
 
-export type ReasoningLevel = 'auto' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = 'none' | 'auto' | 'low' | 'medium' | 'high';
 export type AutopilotLevel = 'off' | 'auto' | 'on';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
 export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';

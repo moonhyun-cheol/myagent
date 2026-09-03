@@ -10,6 +10,7 @@ import {
   PencilSimple,
   Plus,
   PushPin,
+  SlidersHorizontal,
   Trash,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
@@ -35,6 +36,7 @@ import { confirmDialog, promptDialog } from '../lib/confirmDialog';
 import { pickPortableSessionFile } from '../lib/sessionImport';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
+import { openScopeSettings, ScopeSettingsModalHost } from './ScopeSettingsModal';
 
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
@@ -289,12 +291,8 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
 
   const onNewChatIn = async (id: string) => {
     const target = findWorkspaceTarget(id);
-    if (target) {
-      // Keep project_id on the clicked node so the session renders inside that folder/workspace.
-      await startNewChat(id, target.root.id);
-    } else {
-      await startNewChat(id, null);
-    }
+    const isWorkspaceRoot = target?.node.kind === 'workspace_root';
+    await startNewChat(isWorkspaceRoot ? null : id, target?.root.id ?? null);
     onChatOpened?.();
   };
 
@@ -531,6 +529,8 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   key={p.id}
                   id={p.id}
                   title={p.title}
+                  preferredModel={p.preferred_model}
+                  allowedPaths={p.allowed_paths}
                   color={p.color ?? 'gray'}
                   pinned={pinnedNodes.includes(p.id)}
                   sessions={p.sessions}
@@ -581,6 +581,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       </div>
 
       <UserMemoryPanelHost />
+      <ScopeSettingsModalHost />
       <FolderBrowserModal
         open={browseOpen}
         onClose={() => setBrowseOpen(false)}
@@ -663,7 +664,6 @@ function TreeNode({
         style={{ paddingLeft: pad }}
         onContextMenu={(event) => {
           event.preventDefault();
-          event.stopPropagation();
           openMenu();
         }}
       >
@@ -731,10 +731,11 @@ function TreeNode({
                 ))}
               </div>
               <div className="border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.id, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.kind === 'project' ? node.id : null, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />워크스페이스 지식·메모리</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />{node.kind === 'workspace_root' ? '작업폴더 설정' : '프로젝트 설정'}</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />{node.kind === 'workspace_root' ? '작업폴더 지식·메모리' : '프로젝트 지식·메모리'}</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
               </div>
@@ -804,6 +805,8 @@ function TreeNode({
 function ProjectBlock({
   id,
   title,
+  preferredModel,
+  allowedPaths,
   color,
   pinned,
   sessions,
@@ -824,6 +827,8 @@ function ProjectBlock({
 }: {
   id: string;
   title: string;
+  preferredModel?: string | null;
+  allowedPaths?: string[];
   color: ProjectColor;
   pinned: boolean;
   sessions: SessionSummary[];
@@ -847,7 +852,7 @@ function ProjectBlock({
   const [labelColor, setLabelColor] = useState(color);
   return (
     <div className="mb-0.5" data-sidebar-menu-id={menuId}>
-      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openMenu(); }}>
+      <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); openMenu(); }}>
         <button type="button" className="rounded p-0.5" onClick={onToggle} aria-label={collapsed ? '펼치기' : '접기'}>
           {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
         </button>
@@ -888,6 +893,7 @@ function ProjectBlock({
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 대화</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'project', id, title, preferredModel, allowedPaths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />프로젝트 설정</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
@@ -1021,6 +1027,7 @@ function SessionRow({
             {onTogglePin ? (
               <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '대화 고정 해제' : '이 묶음에 대화 고정'}</button>
             ) : null}
+            <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'session', id: session.id, title: session.title || '제목 없음', preferredModel: session.preferred_model, allowedPaths: session.allowed_paths, projectId: session.project_id ?? session.workspace_project_id }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />대화 설정</button>
             <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
             <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
           </div>

@@ -8,11 +8,7 @@ import {
   ollamaAllowedForCodeAgent,
   resolveSessionReasoningEffort,
 } from '../../providers/harness-policy.js';
-import {
-  normalizeExecutionPolicy,
-  resolveWorkspaceBehavior,
-  type ExecutionPolicy,
-} from '../../execution-policy.js';
+import { normalizeExecutionPolicy } from '../../execution-policy.js';
 import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
 import { appendAgentAuditEvent } from '../../agent/agent-audit-ledger.js';
@@ -32,7 +28,9 @@ import {
   tryGetDevWorkspaceRoot,
   resolveSessionContextScope,
   resolveWorkspaceRootForSession,
+  resolveWorkspaceRootsForSession,
   buildWorkspaceContext,
+  buildUserMemoryContext,
 } from '../session-context.js';
 import { buildDevWorkspaceContext } from '../../agent/dev-workspace-fs.js';
 import { buildEditorContextSnippet } from '../editor-context.js';
@@ -40,19 +38,6 @@ import {
   formatWorkspaceLockNote,
   resolveTurnWorkspaceLock,
 } from '../../agent/agent-workspace-lock.js';
-import {
-  extractLockedConstraintsFromText,
-  loadLockedConstraints,
-  persistConstraintsFromAssistantText,
-} from '../../agent/agent-locked-constraints.js';
-import {
-  behaviorAllowsAutopilot,
-  behaviorPersistsLockedConstraints,
-  loadPlanModeSystemNote,
-  resolveForcedToolPack,
-  shouldUseWorkspaceToolPlane,
-} from '../../agent/agent-runtime-facts.js';
-import { loadWorkKitContextNote } from '../../config/work-kit-context.js';
 
 /**
  * Run Code Agent when the session is bound to a work folder, or the user
@@ -76,15 +61,6 @@ export function shouldRunWorkspaceAgent(
   void message;
   void explicitMode;
   return Boolean(sessionRoot || (scope === 'standalone' && hasDevWorkspace(configPath)));
-}
-
-/** Tool plane entry — explicit execution_policy only (not message regex). */
-export function shouldEnterWorkspaceToolPlane(
-  workspaceAgentAvailable: boolean,
-  policy: ExecutionPolicy,
-): boolean {
-  if (!workspaceAgentAvailable) return false;
-  return shouldUseWorkspaceToolPlane(resolveWorkspaceBehavior(policy));
 }
 
 /** So the UI shows「코드 에이전트」instead of「일반 채팅」when tools actually run. */
@@ -214,7 +190,8 @@ export async function runWorkspaceCodeAgent(opts: {
   } = opts;
 
   const routing = promoteWorkspaceAgentRouting(rawRouting);
-  const sessionRoot = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
+  const sessionRoots = resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId);
+  const sessionRoot = sessionRoots[0] ?? null;
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
   let workspaceRoot =
     sessionRoot
@@ -270,6 +247,7 @@ export async function runWorkspaceCodeAgent(opts: {
   const workspaceContext = workspaceLock.narrowed
     ? [
         editorSnippet,
+        buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
         buildDevWorkspaceContext(workspaceRoot, {}, {
           tier: 'agent',
           includeRepoMap: true,
@@ -306,21 +284,16 @@ export async function runWorkspaceCodeAgent(opts: {
     sessionStore.load(sessionId)?.execution_policy,
   );
   sessionStore.setExecutionPolicy(sessionId, requestedPolicy);
-  const workspaceBehavior = resolveWorkspaceBehavior(requestedPolicy);
   const autopilotOverride =
     requestedPolicy.autopilot === 'on' ? true : requestedPolicy.autopilot === 'off' ? false : null;
-  const autopilotHeuristic = behaviorAllowsAutopilot(workspaceBehavior, cqrRoot)
-    ? resolveAutopilotEnabled(
-      process.env,
-      autopilotOverride,
-      message,
-      { codeSession: true },
-    )
-    : false;
+  const autopilotHeuristic = resolveAutopilotEnabled(
+    process.env,
+    autopilotOverride,
+    message,
+    { codeSession: true },
+  );
   const autopilot =
-    workspaceBehavior === 'plan'
-      ? false
-      : autopilotOverride !== null ? autopilotOverride : autopilotHeuristic ? true : undefined;
+    autopilotOverride !== null ? autopilotOverride : autopilotHeuristic ? true : undefined;
   const reasoningEffort = resolveSessionReasoningEffort(requestedPolicy.reasoning, process.env, {
     providerId: provider.providerId,
     modelId: provider.modelId,
@@ -332,23 +305,9 @@ export async function runWorkspaceCodeAgent(opts: {
   appendAgentAuditEvent(cqrRoot, {
     type: 'run_start',
     sessionId,
-    detail: `workspace_agent:${workspaceBehavior}`,
+    detail: 'workspace_agent:model_directed_tools',
   });
-  callbacks?.onStatus?.(
-    workspaceBehavior === 'plan'
-      ? 'Plan · read-only 설계 (코드 탐색만)'
-      : 'Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다',
-  );
-
-  const planNotes = workspaceBehavior === 'plan'
-    ? [loadPlanModeSystemNote(cqrRoot)].filter(Boolean)
-    : [];
-  const workKitNote = loadWorkKitContextNote(cqrRoot);
-  const mergedExtraNotes = [
-    ...planNotes,
-    ...(workKitNote ? [workKitNote] : []),
-    ...lockSystemNotes,
-  ];
+  callbacks?.onStatus?.('Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다');
 
   const agent = await runMarOrCodeAgent({
     workspaceRoot,
@@ -366,6 +325,7 @@ export async function runWorkspaceCodeAgent(opts: {
       onUpdate: (state) => sessionStore.saveResponsesState(sessionId, state, lane),
     }),
     nasWriteConsent: hasNasWriteConsent(overrides),
+    allowedWriteRoots: sessionRoots,
     cqrRoot,
     configPath,
     sessionId,
@@ -373,10 +333,8 @@ export async function runWorkspaceCodeAgent(opts: {
     // Code agent default ON for 127.0.0.1 dev E2E; set user-overrides false to lock.
     playwrightAllowLocalhost: overrides.playwright_allow_localhost !== false,
     autopilot,
-    workspaceBehavior,
-    forceToolPack: resolveForcedToolPack(workspaceBehavior, cqrRoot),
     imageDataUrls: opts.imageDataUrls,
-    extraSystemNotes: mergedExtraNotes,
+    extraSystemNotes: lockSystemNotes,
     onThought: callbacks?.onThought,
     onCode: callbacks?.onCode,
     onWorkspaceMutate: callbacks?.onWorkspaceMutate,
@@ -387,31 +345,15 @@ export async function runWorkspaceCodeAgent(opts: {
     signal,
   });
 
-  let planConstraintsLocked: boolean | undefined;
-  if (behaviorPersistsLockedConstraints(workspaceBehavior, cqrRoot)) {
-    const extracted = extractLockedConstraintsFromText(agent.content ?? '');
-    planConstraintsLocked = Boolean(extracted);
-  }
-
   const scrubbed = appendAssistantReply(sessionStore, sessionId, {
     content: agent.content,
     model: agent.model,
     mode: routing.mode,
+    application_notice: agent.applicationNotice,
     userMessage: message,
-    workspace_behavior: workspaceBehavior === 'plan' ? 'plan' : undefined,
-    plan_constraints_locked: planConstraintsLocked,
     emptyFallback:
       '코드 에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
   });
-
-  if (behaviorPersistsLockedConstraints(workspaceBehavior, cqrRoot)) {
-    persistConstraintsFromAssistantText({
-      cqrRoot,
-      sessionId,
-      assistantText: scrubbed,
-      previous: loadLockedConstraints(cqrRoot, sessionId),
-    });
-  }
 
   return {
     role: 'assistant',
@@ -420,6 +362,6 @@ export async function runWorkspaceCodeAgent(opts: {
     routing,
     model: agent.model,
     mutatedPaths: agent.mutatedPaths ?? [],
-    ...(planConstraintsLocked !== undefined ? { planConstraintsLocked } : {}),
+    ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
   };
 }

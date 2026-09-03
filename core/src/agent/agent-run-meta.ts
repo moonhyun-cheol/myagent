@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentPerfSnapshot } from './agent-perf-metrics.js';
+import type { AgentProgressCheckpoint } from './agent-progress-checkpoint.js';
 
 /** Per-role contribution under a Supervisor parent run (ADR-005 MAR). */
 export interface AgentRoleContribution {
@@ -49,6 +50,8 @@ export interface AgentRunMeta {
   roleContributions?: AgentRoleContribution[];
   /** Single model-authored task that may survive a blocked/deferred turn. */
   activeTask?: SessionActiveTask | null;
+  /** Last deterministic hand-off produced at a ten-round boundary or after failures. */
+  lastProgressCheckpoint?: AgentProgressCheckpoint;
   /**
    * Short durable facts that must survive history compress
    * (paths, product names, numeric decisions). Newest-first, capped.
@@ -144,6 +147,38 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
   if (contributions?.length) out.roleContributions = contributions;
   const activeTask = normalizeActiveTask(raw?.activeTask ?? null);
   if (activeTask) out.activeTask = activeTask;
+  if (raw?.lastProgressCheckpoint && typeof raw.lastProgressCheckpoint === 'object') {
+    const checkpoint = raw.lastProgressCheckpoint as AgentProgressCheckpoint;
+    if (
+      checkpoint.version === 1
+      && ['stage_boundary', 'three_failures', 'budget_exhausted'].includes(checkpoint.reason)
+      && Array.isArray(checkpoint.completed)
+      && Array.isArray(checkpoint.remaining)
+      && typeof checkpoint.resumeFrom === 'string'
+    ) {
+      out.lastProgressCheckpoint = {
+        ...checkpoint,
+        completed: normalizePathList(checkpoint.completed, 8),
+        remaining: normalizePathList(checkpoint.remaining, 8),
+        resumeFrom: checkpoint.resumeFrom.slice(0, 1_000),
+        ...(typeof checkpoint.modelOutput === 'string' && checkpoint.modelOutput.trim()
+          ? { modelOutput: checkpoint.modelOutput.trim().slice(-6_000) }
+          : {}),
+        ...(checkpoint.runtime && typeof checkpoint.runtime.model === 'string'
+          ? {
+              runtime: {
+                model: checkpoint.runtime.model.trim().slice(0, 200),
+                elapsedMs: Math.max(0, Math.floor(Number(checkpoint.runtime.elapsedMs) || 0)),
+                payloadChars: Math.max(0, Math.floor(Number(checkpoint.runtime.payloadChars) || 0)),
+              },
+            }
+          : {}),
+        ...(Array.isArray(checkpoint.recentActivity)
+          ? { recentActivity: normalizePathList(checkpoint.recentActivity, 8) }
+          : {}),
+      };
+    }
+  }
   const pins = Array.isArray(raw?.pinnedFacts)
     ? [...new Set(raw!.pinnedFacts.map((f) => String(f || '').trim()).filter(Boolean))].slice(0, 24)
     : [];
@@ -164,6 +199,7 @@ function carryMeta(prev: AgentRunMeta): Pick<
   | 'roleContributions'
   | 'activeTask'
   | 'readPaths'
+  | 'lastProgressCheckpoint'
   | 'pinnedFacts'
   | 'lastContextBudget'
   | 'lockedTargetRoot'
@@ -176,6 +212,7 @@ function carryMeta(prev: AgentRunMeta): Pick<
     | 'roleContributions'
     | 'activeTask'
     | 'readPaths'
+    | 'lastProgressCheckpoint'
     | 'pinnedFacts'
     | 'lastContextBudget'
     | 'lockedTargetRoot'
@@ -186,6 +223,7 @@ function carryMeta(prev: AgentRunMeta): Pick<
   if (prev.roleContributions?.length) out.roleContributions = prev.roleContributions;
   if (prev.activeTask) out.activeTask = prev.activeTask;
   if (prev.readPaths?.length) out.readPaths = prev.readPaths;
+  if (prev.lastProgressCheckpoint) out.lastProgressCheckpoint = prev.lastProgressCheckpoint;
   if (prev.pinnedFacts?.length) out.pinnedFacts = prev.pinnedFacts;
   if (prev.lastContextBudget) out.lastContextBudget = prev.lastContextBudget;
   if (prev.lockedTargetRoot) out.lockedTargetRoot = prev.lockedTargetRoot;
@@ -317,6 +355,22 @@ export function setSessionActiveTask(
     activeTask: normalized,
   });
   if (!normalized) delete next.activeTask;
+  saveAgentRunMeta(cqrRoot, sessionId, next);
+  return next;
+}
+
+export function recordSessionProgressCheckpoint(
+  cqrRoot: string,
+  sessionId: string | undefined,
+  checkpoint: AgentProgressCheckpoint,
+): AgentRunMeta {
+  const prev = loadAgentRunMeta(cqrRoot, sessionId);
+  const next = normalizeMeta({
+    updatedAt: new Date().toISOString(),
+    mutatedPaths: prev.mutatedPaths,
+    ...carryMeta(prev),
+    lastProgressCheckpoint: checkpoint,
+  });
   saveAgentRunMeta(cqrRoot, sessionId, next);
   return next;
 }

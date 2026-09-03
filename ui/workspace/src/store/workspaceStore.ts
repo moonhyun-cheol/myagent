@@ -216,10 +216,15 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       role: m.role,
       mode: (m.mode === 'image_gen' ? 'image' : m.mode === 'web_dev' ? 'code' : 'text') as AiWorkMode,
       text: isPlaceholder ? '' : text,
-      model: m.role === 'assistant' ? m.model : undefined,
-      thought: m.role === 'assistant' && typeof m.thought === 'string' && m.thought.trim()
-        ? m.thought
+      model: m.role === 'assistant' ? m.reasoning?.model ?? m.model : undefined,
+      thought: m.role === 'assistant'
+        ? (typeof m.reasoning?.content === 'string' && m.reasoning.content.trim()
+          ? m.reasoning.content
+          : typeof m.thought === 'string' && m.thought.trim()
+            ? m.thought
+            : undefined)
         : undefined,
+      applicationNotice: m.role === 'assistant' ? m.application_notice : undefined,
       imageUrls: urls.length ? urls : undefined,
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
@@ -907,6 +912,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 }
               }
         if (info.model && info.model !== '중지됨') patchAssistant({ model: info.model });
+              if (info.applicationNotice) {
+                patchAssistant({ applicationNotice: info.applicationNotice });
+              }
               const resolvedMode: AiWorkMode = info.mode === 'web_dev'
                 ? 'code'
                 : info.mode === 'image_gen'
@@ -934,10 +942,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 });
               }
               if (info.model !== '중지됨') {
+                const isContinuation = info.applicationNotice?.kind === 'continuation';
                 showUserNotification({
                   kind: 'complete',
-                  title: finalOnly ? '작업이 완료되었습니다' : '답변이 완료되었습니다',
-                  message: finalOnly ? '요청한 작업 결과를 확인할 수 있습니다.' : '새 답변을 확인할 수 있습니다.',
+                  title: isContinuation
+                    ? '실행 제한으로 중간 종료되었습니다'
+                    : finalOnly ? '작업이 완료되었습니다' : '답변이 완료되었습니다',
+                  message: isContinuation
+                    ? '현재 결과는 보존됐습니다. 같은 대화에서 이어서 진행할 수 있습니다.'
+                    : finalOnly ? '요청한 작업 결과를 확인할 수 있습니다.' : '새 답변을 확인할 수 있습니다.',
                   persistent: false,
                   system: 'when-hidden',
                 });

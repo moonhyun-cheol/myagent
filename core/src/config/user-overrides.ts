@@ -50,9 +50,12 @@ export interface UserOverrides {
   organization_module_feed_url?: string;
   /** Bootstrap work-kit catalog feed URL (HTTPS JSON). Env MY_AGENT_WORK_KIT_CATALOG_FEED_URL wins. */
   work_kit_catalog_feed_url?: string;
+  /** Default model for personal scheduler runs (reasoning disabled). */
+  scheduler_default_model?: string;
 }
 const DEFAULT_MAX = 20 * 1024 * 1024;
 const DEFAULT_MODEL_MAX = 32 * 1024 * 1024 * 1024;
+export const DEFAULT_SCHEDULER_MODEL = 'provider:custom@openai%2Fgpt-5.6-luna';
 
 export function loadUserOverrides(configPath: string): UserOverrides {
   if (!existsSync(configPath)) {

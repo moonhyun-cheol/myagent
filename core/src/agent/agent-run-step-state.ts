@@ -36,8 +36,10 @@ export interface AgentRunStepState {
   toolPack: import('./agent-tool-pack.js').AgentToolPack;
   /** Effective continuous-run flag (CODE/UI/GATE autopilot). */
   autopilot: boolean;
-  /** Cap for this run (from opts.maxSteps ?? MAX_AGENT_STEPS). */
+  /** Cap for this app run; cumulative continuation is tracked separately. */
   maxSteps: number;
+  /** Completed orchestration steps from the persisted continuation chain. */
+  priorSteps: number;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
   selfWorkspace: boolean;
   uiFacts: UiFacts | null;
@@ -51,11 +53,16 @@ export interface AgentRunStepState {
    */
   persistLiveSessionMeta: () => void;
   hooks: AgentRuntimeHooks;
+  /** Actual provider/model label used by the latest orchestration step. */
   lastModel: string;
+  /** Last non-empty model-authored content across orchestration steps. */
+  lastModelOutput: string;
   lockedConstraints: LockedConstraints | null;
   mutatedPathsThisRun: Set<string>;
   /** Epoch ms when this agent run started (for first_tool_ms). */
   runStartedAt: number;
+  /** Wall time already accumulated by the explicit continuation chain. */
+  priorElapsedMs: number;
   /**
    * Wall ms until first tool call booked; set once by noteFirstTool.
    * undefined until first tool.
@@ -76,7 +83,6 @@ export interface AgentRunStepState {
   readGate: WorkspaceReadGate;
   autoCheckpointTaken: boolean;
   silentVerifyAttempts: number;
-  verifyExhaustedNotified: boolean;
   maxVerify: number;
   selfCorrectionStreak: number;
   writeFailStreak: number;

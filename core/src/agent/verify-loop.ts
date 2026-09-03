@@ -142,10 +142,7 @@ export function formatSilentVerifyRepairPrompt(
   const nextCall = primaryPath
     ? `TOOL_CALL: ${JSON.stringify({ name: 'read_file', arguments: { path: primaryPath } })}`
     : 'TOOL_CALL: {"name":"run_diagnostics","arguments":{}}';
-  const gate =
-    kind === 'syntax'
-      ? 'fix SYNTAX_BROKEN so node --check / JSON.parse pass'
-      : `fix ${kind} to exit 0 (edit → re-verify)`;
+  const gate = `fix ${kind} to exit 0 (edit → re-verify)`;
   return [
     `INTERNAL_VERIFY_FAILED kind=${kind} attempt=${payload.attempt}/${payload.maxAttempts}`,
     payload.command ? `command: ${payload.command}` : null,
@@ -153,9 +150,7 @@ export function formatSilentVerifyRepairPrompt(
     `EXIT_GATE (close this one only): ${gate}`,
     'Do NOT apologize. Do NOT claim success. First line = TOOL_CALL.',
     nextCall,
-    kind === 'syntax'
-      ? 'Then edit_file/apply_patch (syntax gate re-runs automatically on mutate).'
-      : 'Then edit_file/apply_patch if needed, then run_diagnostics (and run_tests if present).',
+    'Then edit_file/apply_patch if needed, then run_diagnostics (and run_tests if present).',
     '',
     '--- verifier output ---',
     out || '(no output)',

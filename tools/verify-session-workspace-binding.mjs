@@ -5,7 +5,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { ProjectStore } from '../core/dist/projects/project-store.js';
 import { SessionStore } from '../core/dist/sessions/session-store.js';
-import { resolveWorkspaceRootForSession } from '../core/dist/chat/session-context.js';
+import {
+  resolveMemoryProjectId,
+  resolveRequestedModelForSession,
+  resolveSessionContextScope,
+  resolveWorkspaceRootForSession,
+  resolveWorkspaceRootsForSession,
+} from '../core/dist/chat/session-context.js';
+import { needsHumanApproval } from '../core/dist/agent/tool-approval.js';
 
 const root = process.cwd();
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-session-workspace-'));
@@ -14,9 +21,13 @@ try {
   const sessionsDir = path.join(temp, 'sessions');
   const projectsDir = path.join(temp, 'projects');
   const workspaceDir = path.join(temp, 'workspace-a');
+  const extraDir = path.join(temp, 'workspace-extra');
+  const outsideDir = path.join(temp, 'outside');
   mkdirSync(sessionsDir, { recursive: true });
   mkdirSync(projectsDir, { recursive: true });
   mkdirSync(workspaceDir, { recursive: true });
+  mkdirSync(extraDir, { recursive: true });
+  mkdirSync(outsideDir, { recursive: true });
 
   const projects = new ProjectStore(projectsDir, temp);
   const sessions = new SessionStore(sessionsDir, temp);
@@ -25,15 +36,64 @@ try {
   sessions.ensure('chat-a', { project_id: general.id });
 
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'general_project');
   sessions.setWorkspaceProject('chat-a', workspace.id);
-  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
+  // project_id remains the active peer scope; workspace_project_id is only a
+  // dormant binding until this conversation is moved to the workspace scope.
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'general_project');
   assert.equal(sessions.load('chat-a')?.workspace_project_id, workspace.id);
   assert.equal(sessions.list()[0]?.workspace_project_id, workspace.id);
+
+  // Workspace roots and top-level projects are peer scopes. A session resolves
+  // exactly one of them; workspace binding is not an extra preference layer.
+  projects.setScopeSettings(general.id, { preferred_model: 'openai/project-model' });
+  projects.setScopeSettings(workspace.id, {
+    preferred_model: 'openai/workspace-model',
+    allowed_paths: [workspaceDir, extraDir],
+  });
+  assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), general.id);
+  assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'openai/project-model');
+  sessions.setProject('chat-a', null);
+  assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'workspace_tree');
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
+  assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), workspace.id);
+  assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'openai/workspace-model');
+  assert.deepEqual(resolveWorkspaceRootsForSession(sessions, projects, 'chat-a'), [
+    path.resolve(workspaceDir),
+    path.resolve(extraDir),
+  ]);
+
+  // Every configured root participates in the real approval boundary. The
+  // first root is only the relative-path base, not the sole effective grant.
+  const roots = resolveWorkspaceRootsForSession(sessions, projects, 'chat-a');
+  assert.equal(needsHumanApproval('write_file', { path: path.join(extraDir, 'ok.txt') }, {}, {
+    workspaceRoot: roots[0],
+    allowedWriteRoots: roots,
+  }).needed, false);
+  const externalWrite = needsHumanApproval('write_file', { path: path.join(outsideDir, 'blocked.txt') }, {}, {
+    workspaceRoot: roots[0],
+    allowedWriteRoots: roots,
+  });
+  assert.equal(externalWrite.needed, true);
+  assert.equal(externalWrite.access, 'external_write');
+
+  // Conversation settings override its one parent scope, including all paths.
+  sessions.setScopeSettings('chat-a', {
+    preferred_model: 'anthropic/conversation-model',
+    allowed_paths: [extraDir, workspaceDir],
+  });
+  assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'anthropic/conversation-model');
+  assert.deepEqual(resolveWorkspaceRootsForSession(sessions, projects, 'chat-a'), [
+    path.resolve(extraDir),
+    path.resolve(workspaceDir),
+  ]);
+  sessions.setScopeSettings('chat-a', { preferred_model: null, allowed_paths: [] });
   sessions.setWorkspaceProject('chat-a', null);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
 
-  // Public SSE thought deltas are attached to the matching assistant message,
-  // survive a disk reload, and remain separate from the model-facing content.
+  // Public SSE thought deltas are normalized onto the matching assistant
+  // response, survive disk reload, and stay separate from model-facing content.
   sessions.beginAssistantThought('chat-a');
   sessions.appendAssistantThought('chat-a', '도구 확인\n');
   sessions.appendAssistantThought('chat-a', '수정 및 검증');
@@ -42,10 +102,17 @@ try {
     content: '작업 완료',
     at: new Date().toISOString(),
     mode: 'web_dev',
+    model: 'openai/gpt-response-unit',
   });
-  const persistedThought = new SessionStore(sessionsDir, temp).load('chat-a')?.messages.at(-1);
-  assert.equal(persistedThought?.thought, '도구 확인\n수정 및 검증');
-  assert.equal(persistedThought?.content, '작업 완료');
+  const persistedReasoning = new SessionStore(sessionsDir, temp).load('chat-a')?.messages.at(-1);
+  assert.deepEqual(persistedReasoning?.reasoning, {
+    version: 1,
+    format: 'public_summary',
+    content: '도구 확인\n수정 및 검증',
+    model: 'openai/gpt-response-unit',
+  });
+  assert.equal(persistedReasoning?.thought, undefined);
+  assert.equal(persistedReasoning?.content, '작업 완료');
 
   const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
   const store = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
@@ -66,8 +133,9 @@ try {
   assert.match(orchestrator, /type: 'tool_complete'/);
   assert.match(orchestrator, /this\.sessionStore\.beginAssistantThought\(sessionId\)/);
   assert.match(orchestrator, /this\.sessionStore\.appendAssistantThought\(sessionId, text\)/);
-  assert.match(client, /thought\?: string/);
-  assert.match(store, /thought: m\.role === 'assistant'.*m\.thought/s);
+  assert.match(client, /reasoning\?: \{/);
+  assert.match(store, /m\.reasoning\?\.model \?\? m\.model/);
+  assert.match(store, /m\.reasoning\?\.content/);
   assert.match(store, /event\.tool === 'run_terminal'/);
   assert.match(store, /finishedJob\?\.terminalUsed/);
   assert.doesNotMatch(store, /Blink bottom terminal chrome so completion/);
@@ -80,25 +148,6 @@ try {
   assert.ok(projectsTree.includes('pinnedFirst(sessions.filter(matchSession), pinnedSessionIds)'));
   assert.ok(projectsTree.includes('onToggleSessionPin'));
   assert.ok(projectsTree.includes('이 묶음에 대화 고정'));
-  assert.ok(projectsTree.includes('event.stopPropagation();'));
-  assert.match(projectsTree, /onImportSession\(node\.id, workspaceRoot\.id\)/);
-  assert.doesNotMatch(projectsTree, /onImportSession\(node\.kind === 'project' \? node\.id : null/);
-
-  const imported = sessions.importPortable(
-    {
-      format: 'cqr-pa-conversation-session',
-      conversation: {
-        title: 'Imported workspace chat',
-        messages: [{ role: 'user', content: 'hello', at: new Date().toISOString() }],
-      },
-    },
-    workspace.id,
-    workspace.id,
-  );
-  assert.equal(imported.project_id, workspace.id);
-  assert.equal(imported.workspace_project_id, workspace.id);
-  const tree = projects.buildNodeTree(workspace.id, sessions.list());
-  assert.ok(tree?.sessions.some((session) => session.id === imported.id));
 
   // The native browser/WebView context menu is disabled globally. Preventing
   // only the default action keeps the application-defined React handlers live.
@@ -117,7 +166,7 @@ try {
   assert.match(ui, /\[activeSessionId, chat\.length\]/);
   assert.doesNotMatch(ui, /\[activeSessionId, chat\]/);
 
-  console.log('session workspace binding + persisted model work log + scoped session pinning + native context-menu blocking + terminal attention + chat open scroll: PASS');
+  console.log('session workspace binding + peer scope settings + multi-root approval + normalized response reasoning + scoped session pinning + native context-menu blocking + terminal attention + chat open scroll: PASS');
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

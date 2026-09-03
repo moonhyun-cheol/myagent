@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 const {
   classifyLlmFailure,
+  isAgentExecutionLimit,
   isInfraLlmFailure,
   mustNotDemoteToolPlaneToChat,
   contentLooksLikeLeakedRoleInfraFailure,
@@ -23,6 +24,14 @@ assert.equal(classifyLlmFailure(new Error('OWUI_GATEWAY_TIMEOUT (504)')), 'infra
 assert.equal(isInfraLlmFailure(new Error('UPSTREAM_HTML_ERROR')), true);
 assert.equal(classifyLlmFailure(new Error('AbortError')), 'abort');
 assert.equal(classifyLlmFailure(new Error('syntax oops')), 'other');
+assert.equal(
+  isAgentExecutionLimit(
+    new Error('Code agent exceeded 45 LLM orchestration rounds (not tool calls).'),
+  ),
+  true,
+);
+assert.equal(isAgentExecutionLimit(new Error('Code agent exceeded 45 tool steps')), true);
+assert.equal(isAgentExecutionLimit(new Error('OWUI_GATEWAY_TIMEOUT (504)')), false);
 
 assert.equal(mustNotDemoteToolPlaneToChat(true), true);
 assert.equal(mustNotDemoteToolPlaneToChat(false), false);
@@ -53,11 +62,11 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
   });
   assert.match(body, /AI 공급자 오류/);
   assert.match(body, /app\.js/);
-  assert.match(body, /자동으로 재시도/);
+  assert.match(body, /자동 재시도를 모두 수행했지만 복구되지 않았습니다/);
   assert.equal(toolPlaneInfraRetryLimit({}), 2);
   assert.equal(toolPlaneInfraRetryLimit({ MY_AGENT_TOOL_PLANE_INFRA_RETRIES: '4' }), 4);
-  assert.equal(toolPlaneAutoResumeLimit({}), 2);
-  assert.equal(toolPlaneAutoResumeLimit({ MY_AGENT_TOOL_PLANE_AUTO_RESUME: '0' }), 0);
+  assert.equal(toolPlaneAutoResumeLimit({}), 0);
+  assert.equal(toolPlaneAutoResumeLimit({ MY_AGENT_TOOL_PLANE_AUTO_RESUME: '2' }), 2);
   assert.equal(shouldAutoResumeAfterInfra({ mutatedPaths: ['a.ts'] }), true);
   assert.equal(shouldAutoResumeAfterInfra({ readPaths: ['a.ts'] }), true);
   assert.equal(
@@ -65,6 +74,16 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
     false,
     'empty meta must not auto-resume (infra retries cover cold 504)',
   );
+}
+
+{
+  const body = formatToolPlaneFailureAssistant({
+    formattedError: 'Code agent exceeded 45 LLM orchestration rounds (not tool calls).',
+    kind: 'other',
+  });
+  assert.doesNotMatch(body, /자동 재시도/);
+  assert.doesNotMatch(body, /요청을 더 짧게 나눠/);
+  assert.match(body, /이어서 진행/);
 }
 
 {

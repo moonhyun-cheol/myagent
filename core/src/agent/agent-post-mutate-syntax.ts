@@ -12,7 +12,9 @@ import { spawnSync } from 'node:child_process';
 const JS_EXT_RE = /\.(?:js|mjs|cjs)$/i;
 const JSON_EXT_RE = /\.json$/i;
 const TS_EXT_RE = /\.(?:ts|tsx)$/i;
-const SYNTAX_BROKEN_RE = /\bERROR:\s*SYNTAX_BROKEN\b/;
+const POST_MUTATE_SYNTAX_FAILED_RE = /\bERROR:\s*POST_MUTATE_SYNTAX_FAILED\b/;
+const LEGACY_SYNTAX_BROKEN_RE = /\bERROR:\s*SYNTAX_BROKEN\b/;
+const POST_MUTATE_SYNTAX_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch']);
 
 /** Top-level decl keywords; indented lines are skipped (class methods, nested blocks). */
 const TOP_LEVEL_DECL_RE =
@@ -199,7 +201,7 @@ export function formatSyntaxBrokenAppendix(result: PostMutateSyntaxResult): stri
   const hasDup = fails.some((f) => f.checker === 'duplicate-decl');
   return [
     '',
-    'ERROR: SYNTAX_BROKEN',
+    'ERROR: POST_MUTATE_SYNTAX_FAILED',
     hasDup
       ? 'Post-mutate gate failed: duplicate module-scope declarations (refine appended instead of replacing). Delete the older copies — keep one definition of each name.'
       : 'Post-mutate syntax gate failed. Disk write landed but the file does not parse.',
@@ -223,7 +225,18 @@ export function appendPostMutateSyntaxCheck(
 }
 
 export function outputHasSyntaxBroken(output: string): boolean {
-  return SYNTAX_BROKEN_RE.test(String(output || ''));
+  const text = String(output || '');
+  return POST_MUTATE_SYNTAX_FAILED_RE.test(text) || LEGACY_SYNTAX_BROKEN_RE.test(text);
+}
+
+/**
+ * Only mutation tools can carry the appendix produced by appendPostMutateSyntaxCheck.
+ * Read/search output may legitimately contain the marker as source text and must not
+ * start the autonomous syntax-repair loop.
+ */
+export function toolOutputHasSyntaxBroken(toolName: string, output: string): boolean {
+  return POST_MUTATE_SYNTAX_TOOLS.has(String(toolName || ''))
+    && outputHasSyntaxBroken(output);
 }
 
 export function formatSyntaxBrokenRepairPrompt(payload: {
@@ -240,7 +253,7 @@ export function formatSyntaxBrokenRepairPrompt(payload: {
   return [
     `INTERNAL_VERIFY_FAILED kind=syntax attempt=${payload.attempt}/${payload.maxAttempts}`,
     paths.length ? `mutated: ${paths.join(', ')}` : null,
-    'EXIT_GATE (close this one only): fix SYNTAX_BROKEN (parse error or duplicate-decl)',
+    'EXIT_GATE (close this one only): fix the post-mutate parse or duplicate-declaration failure',
     'Do NOT apologize. Do NOT claim success. First line = TOOL_CALL.',
     nextCall,
     'Then edit_file/apply_patch (replace — do not append a second copy of the same export/const), then continue.',

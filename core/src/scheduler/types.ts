@@ -72,10 +72,23 @@ export interface SchedulerWeeklyQueueItem {
   task_id: string;
   available_at: string;
   created_at: string;
+  origin_week_key?: string;
 }
 
 export interface SchedulerWeeklyQueue {
   week_key: string;
   created_at: string;
   remaining: SchedulerWeeklyQueueItem[];
+}
+
+export interface SchedulerWeeklyCompletedItem extends SchedulerWeeklyQueueItem {
+  consumed_at: string;
+  resolution: 'executed' | 'expired' | 'carried';
+  reason: 'claimed' | 'week_changed';
+}
+
+export interface SchedulerWeeklyCompletedList {
+  week_key: string;
+  created_at: string;
+  items: SchedulerWeeklyCompletedItem[];
 }

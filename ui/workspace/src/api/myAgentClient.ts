@@ -75,6 +75,19 @@ export interface SessionSummary {
   updated_at: string;
   message_count: number;
   project_id?: string | null;
+  workspace_project_id?: string | null;
+  preferred_model?: string;
+  effective_preferred_model?: string;
+  allowed_paths?: string[];
+}
+
+export interface ApplicationNotice {
+  kind: 'continuation' | 'failure';
+  title: string;
+  message: string;
+  model?: string;
+  elapsedMs?: number;
+  step?: number;
 }
 
 export interface SessionMessage {
@@ -84,10 +97,19 @@ export interface SessionMessage {
   model?: string;
   mode?: string;
   image_urls?: string[];
+  /** Normalized public reasoning/work log tied to this exact assistant response. */
+  reasoning?: {
+    version: 1;
+    format: 'public_summary';
+    content: string;
+    model?: string;
+  };
   /** Persisted public model work log received through SSE `thought` events. */
   thought?: string;
   workspace_behavior?: WorkspaceBehavior;
   plan_constraints_locked?: boolean;
+  /** Host/application notice, never model-authored chat content. */
+  application_notice?: ApplicationNotice;
 }
 
 export interface SessionRecord {
@@ -100,10 +122,12 @@ export interface SessionRecord {
   /** @deprecated Read-only compatibility for legacy export UI; new APIs do not send or store it. */
   workspace_project_id?: string | null;
   preferred_model?: string;
+  effective_preferred_model?: string;
+  allowed_paths?: string[];
   execution_policy?: ExecutionPolicy;
 }
 
-export type ReasoningLevel = 'auto' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = 'none' | 'auto' | 'low' | 'medium' | 'high';
 export type AgentAutopilotMode = 'auto' | 'on' | 'off';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
 export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';
@@ -349,6 +373,7 @@ export interface StreamHandlers {
     checkpointId?: string;
     planConstraintsLocked?: boolean;
     lastProcessedTokens?: number;
+    applicationNotice?: ApplicationNotice;
   }) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
@@ -543,6 +568,8 @@ export interface WorkspaceNode {
   parent_id?: string | null;
   folder_path?: string | null;
   color?: ProjectColor | null;
+  preferred_model?: string | null;
+  allowed_paths?: string[];
   sessions: SessionSummary[];
   children: WorkspaceNode[];
   session_count: number;
@@ -557,6 +584,8 @@ export interface WorkspaceTreePayload {
     title: string;
     kind?: ProjectKind;
     color?: ProjectColor | null;
+    preferred_model?: string | null;
+    allowed_paths?: string[];
     sessions: SessionSummary[];
     session_count: number;
   }>;
@@ -674,6 +703,34 @@ export async function deleteUserMemory(id: string): Promise<void> {
   const res = await fetch(`/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `메모리 삭제 실패 (${res.status})`);
+}
+
+export async function updateProjectScopeSettings(
+  id: string,
+  patch: { preferred_model?: string | null; allowed_paths?: string[] },
+): Promise<WorkspaceNode> {
+  const res = await fetch(`/projects/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `설정 저장 실패 (${res.status})`);
+  return data as WorkspaceNode;
+}
+
+export async function updateSessionScopeSettings(
+  id: string,
+  patch: { preferred_model?: string | null; allowed_paths?: string[] },
+): Promise<SessionSummary> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}/scope-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `설정 저장 실패 (${res.status})`);
+  return data as SessionSummary;
 }
 
 export async function setDevWorkspace(root: string): Promise<{
@@ -1648,6 +1705,23 @@ export async function streamChat(
           typeof evt.checkpointId === 'string' && evt.checkpointId.trim()
             ? evt.checkpointId.trim()
             : undefined;
+        const rawNotice = evt.applicationNotice;
+        const noticeRecord = rawNotice && typeof rawNotice === 'object'
+          ? rawNotice as Record<string, unknown>
+          : undefined;
+        const applicationNotice = noticeRecord
+          && (noticeRecord.kind === 'continuation' || noticeRecord.kind === 'failure')
+          && typeof noticeRecord.title === 'string'
+          && typeof noticeRecord.message === 'string'
+          ? {
+              kind: noticeRecord.kind,
+              title: noticeRecord.title,
+              message: noticeRecord.message,
+              ...(typeof noticeRecord.model === 'string' ? { model: noticeRecord.model } : {}),
+              ...(typeof noticeRecord.elapsedMs === 'number' ? { elapsedMs: noticeRecord.elapsedMs } : {}),
+              ...(typeof noticeRecord.step === 'number' ? { step: noticeRecord.step } : {}),
+            } satisfies ApplicationNotice
+          : undefined;
         handlers.onDone?.({
           model: evt.model as string | undefined,
           mode: evt.mode as string | undefined,
@@ -1657,6 +1731,7 @@ export async function streamChat(
             typeof evt.planConstraintsLocked === 'boolean' ? evt.planConstraintsLocked : undefined,
           lastProcessedTokens:
             typeof evt.lastProcessedTokens === 'number' ? evt.lastProcessedTokens : undefined,
+          applicationNotice,
         });
       } else if (type === 'error') {
         handlers.onError?.(String(evt.message ?? '오류'));

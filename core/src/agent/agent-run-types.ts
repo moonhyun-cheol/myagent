@@ -3,7 +3,6 @@ import type { SessionMessage } from '../sessions/types.js';
 import type { ToolApprovalRequest } from './tool-approval.js';
 import type { AgentRuntimeHooks } from './agent-hooks.js';
 import type { AgentToolPack } from './agent-tool-pack.js';
-import type { WorkspaceBehavior } from '../execution-policy.js';
 import type { ProviderWireApi } from '../providers/types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 
@@ -54,6 +53,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   providerStore: ProviderStore;
   signal?: AbortSignal;
   nasWriteConsent?: boolean;
+  /** Optional write roots inherited by the exact conversation scope. */
+  allowedWriteRoots?: string[];
   workspaceContext?: string;
   /** Text extracted from attachments (logs, code, docs). */
   attachmentContext?: string;
@@ -67,8 +68,6 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   imageDataUrls?: string[];
   /** Force tool pack instead of message heuristic. */
   forceToolPack?: AgentToolPack;
-  /** Plan/Ask/Agent workspace behavior from the session execution policy. */
-  workspaceBehavior?: WorkspaceBehavior;
   /** Cap steps for this role (default MAX_AGENT_STEPS). */
   maxSteps?: number;
   /** Extra system notes prepended after skill prompt. */
@@ -89,4 +88,6 @@ export interface CodeAgentResult {
   diagnostics?: import('./agent-outcome-gate.js').DiagnosticsEvidenceStatus;
   /** Verify witness from this run. */
   verifyWitness?: import('./agent-claim-gates.js').VerifyWitness | null;
+  /** Host/application notice kept separate from model-authored content. */
+  applicationNotice?: import('../sessions/types.js').ApplicationNotice;
 }

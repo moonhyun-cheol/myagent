@@ -30,6 +30,7 @@ const autopilot = read('core/src/agent/agent-autopilot.ts');
 const planner = read('core/src/agent/agent-planner.ts');
 const runHelpers = read('core/src/agent/agent-run-helpers.ts');
 const multimodal = read('core/src/agent/agent-multimodal.ts');
+const contextProfile = read('core/src/agent/agent-context-profile.ts');
 
 for (const retired of [
   'core/src/agent/agent-work-mode.ts',
@@ -148,5 +149,33 @@ const imagePreserved = stripOwuiImageMarkdown(mixedImages);
 assert.doesNotMatch(imagePreserved, /api\/v1\/files/);
 assert.match(imagePreserved, /모델이 제시한 참고 이미지/);
 assert.match(imagePreserved, /!\[reference\]\(https:\/\/example\.com\/reference\.png\)/);
+
+assert.doesNotMatch(contextProfile, /PROFILE_TOOL_ALLOWLIST|agentTools\.filter/);
+const { compileAgentStepContext } = await import('../core/dist/agent/agent-context-profile.js');
+const allTools = ['read_file', 'apply_patch', 'run_diagnostics', 'run_tests'].map((name) => ({
+  type: 'function',
+  function: { name, description: `${name} contract fixture`, parameters: { type: 'object' } },
+}));
+for (const profile of ['orient', 'execute', 'repair', 'verify', 'final']) {
+  const sourceMessages = [{ role: 'user', content: '프로필 도구 계약 검사' }];
+  const compiled = compileAgentStepContext({
+    profile,
+    messages: sourceMessages,
+    agentTools: allTools,
+    userMessage: '프로필 도구 계약 검사',
+  });
+  assert.strictEqual(compiled.agentTools, allTools, `${profile} must preserve the complete tool schema`);
+  assert.deepEqual(
+    compiled.toolNames,
+    allTools.map((tool) => tool.function.name),
+    `${profile} must expose every runtime tool name`,
+  );
+  assert.deepEqual(
+    compiled.messages,
+    sourceMessages,
+    `${profile} must not inject a synthetic phase/user message`,
+  );
+}
+assert.doesNotMatch(contextProfile, /Native context profile|profileTailNote|phaseInstruction/);
 
 console.log('model-directed runtime contract: PASS');

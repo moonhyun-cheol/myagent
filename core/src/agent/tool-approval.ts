@@ -247,7 +247,11 @@ export function needsHumanApproval(
   toolName: string,
   args: Record<string, unknown>,
   env: NodeJS.ProcessEnv = process.env,
-  context?: { workspaceRoot?: string; approvedExternalReadRoots?: ReadonlySet<string> },
+  context?: {
+    workspaceRoot?: string;
+    allowedWriteRoots?: readonly string[];
+    approvedExternalReadRoots?: ReadonlySet<string>;
+  },
 ): {
   needed: boolean;
   danger: boolean;
@@ -280,10 +284,13 @@ export function needsHumanApproval(
   }
   if (context?.workspaceRoot) {
     const pathUse = toolPathTargets(toolName, args);
+    const allowedRoots = [context.workspaceRoot, ...(context.allowedWriteRoots ?? [])]
+      .map((root) => normalizeWorkspacePath(root))
+      .filter((root, index, all) => all.indexOf(root) === index);
     const externalTargets = pathUse.paths
       .map((candidate) => normalizeToolPath(candidate, context.workspaceRoot!))
       .filter((target): target is string => Boolean(target))
-      .filter((target) => !pathInsideWorkspace(target, context.workspaceRoot!));
+      .filter((target) => !allowedRoots.some((root) => pathWithinGrant(target, root)));
     if (externalTargets.length > 0 && pathUse.mode === 'write') {
       return {
         needed: true,

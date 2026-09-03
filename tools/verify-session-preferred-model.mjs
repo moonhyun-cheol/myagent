@@ -6,14 +6,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadUserOverrides, saveUserOverrides } from '../core/dist/config/user-overrides.js';
 import { SessionStore } from '../core/dist/sessions/session-store.js';
+import { ProjectStore } from '../core/dist/projects/project-store.js';
+import { resolveRequestedModelForSession } from '../core/dist/chat/session-context.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = mkdtempSync(path.join(os.tmpdir(), 'myagent-session-model-'));
 
 try {
-  const store = new SessionStore(temp, temp);
-  store.ensure('chat-a');
+  const projectsDir = path.join(temp, 'projects');
+  const sessionsDir = path.join(temp, 'sessions');
+  mkdirSync(projectsDir, { recursive: true });
+  mkdirSync(sessionsDir, { recursive: true });
+  const store = new SessionStore(sessionsDir, temp);
+  const projects = new ProjectStore(projectsDir, temp);
+  const project = projects.create({ title: 'Peer project', kind: 'project' });
+  const workspaceProject = projects.upsertWorkspaceRoot(path.join(temp, 'workspace'));
+  projects.setScopeSettings(project.id, { preferred_model: 'openai/project-default' });
+  projects.setScopeSettings(workspaceProject.id, { preferred_model: 'openai/workspace-default' });
+  store.ensure('chat-a', { project_id: project.id });
   store.ensure('chat-b');
+  store.setWorkspaceProject('chat-b', workspaceProject.id);
+
+  assert.equal(resolveRequestedModelForSession(store, projects, 'chat-a', 'auto'), 'openai/project-default');
+  assert.equal(resolveRequestedModelForSession(store, projects, 'chat-b', 'auto'), 'openai/workspace-default');
 
   assert.equal(store.setPreferredModel('chat-a', 'anthropic/claude-fable-5')?.preferred_model, 'anthropic/claude-fable-5');
   assert.equal(store.setPreferredModel('chat-b', 'openai/gpt-5.6')?.preferred_model, 'openai/gpt-5.6');
@@ -53,7 +68,7 @@ try {
   // Both workspace-tree nodes and ordinary projects expose a context-menu action.
   assert.ok((projectsTree.match(/<ChatTeardropText size=\{13\} \/>새 대화/g) ?? []).length >= 2);
   assert.match(projectsTree, /const findWorkspaceTarget = \(id: string\)/);
-  assert.match(projectsTree, /if \(target\) \{\s*\/\/ Keep project_id on the clicked node so the session renders inside that folder\/workspace\.\s*await startNewChat\(id, target\.root\.id\);/s);
+  assert.match(projectsTree, /startNewChat\(isWorkspaceRoot \? null : id, target\?\.root\.id \?\? null\)/);
 
   // The left-most action inherits the currently focused project/workspace binding.
   assert.match(sidebar, /const activeProjectId = useWorkspaceStore/);
@@ -70,7 +85,7 @@ try {
   assert.match(dispatch, /saveUserOverrides\(userConfigPath, \{ default_model: defaultModel \}, cqrRoot\)/);
 
   // New conversations resolve session-specific preference before the global fallback.
-  assert.match(workspace, /const globalDefaultModel = await fetchDefaultModelOverride\(\)\.catch\(\(\) => 'auto'\)/);
+  assert.match(workspace, /fetchDefaultModelOverride\(\)\.catch\(\(\) => 'auto'\)/);
   assert.match(workspace, /selectedModel: rec\.preferred_model \?\? globalDefaultModel/);
 
   console.log('session preferred model + focused new chat + global default model: PASS');

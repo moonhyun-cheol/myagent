@@ -9,13 +9,18 @@ import {
   type AgentRunMeta,
 } from './agent-run-meta.js';
 import { WorkspaceReadGate } from './tool-read-gate.js';
+import {
+  formatAgentProgressResumeNote,
+  type AgentProgressCheckpoint,
+} from './agent-progress-checkpoint.js';
 
 export function shouldUseSessionContinuity(opts: {
   userMessage: string;
   readPaths: string[];
   mutatedPaths: string[];
+  hasProgressCheckpoint?: boolean;
 }): boolean {
-  if (!opts.readPaths.length && !opts.mutatedPaths.length) return false;
+  if (!opts.readPaths.length && !opts.mutatedPaths.length && !opts.hasProgressCheckpoint) return false;
   return /^(?:이어서|계속(?:해서)?|계속해(?:요|줘|주세요)?|마저(?:\s*해)?)\s*[.!。]*$/i.test(
     String(opts.userMessage || '').trim(),
   );
@@ -24,6 +29,7 @@ export function shouldUseSessionContinuity(opts: {
 export function formatSessionContinuitySystemNote(opts: {
   readPaths: string[];
   mutatedPaths: string[];
+  progressCheckpoint?: AgentProgressCheckpoint;
 }): string {
   const known = [...new Set([...opts.readPaths, ...opts.mutatedPaths])].slice(0, 16);
   const lines = [
@@ -35,6 +41,9 @@ export function formatSessionContinuitySystemNote(opts: {
     lines.push(`Known paths (read_before_write already satisfied): ${known.join(', ')}`);
   }
   lines.push('Continue from the known paths. Skip query_repo_map unless the target path is unknown.');
+  if (opts.progressCheckpoint) {
+    lines.push(formatAgentProgressResumeNote(opts.progressCheckpoint));
+  }
   return lines.join('\n');
 }
 

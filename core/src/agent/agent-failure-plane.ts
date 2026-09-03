@@ -12,6 +12,17 @@ import { isOwuiOrGatewayError } from './agent-run-helpers.js';
 
 export type LlmFailureClass = 'infra' | 'abort' | 'other';
 
+/**
+ * Host safety ceiling, not a provider/tool failure. The agent runtime converts
+ * this interrupt into a durable continuation result when live state exists.
+ */
+export function isAgentExecutionLimit(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /Code agent exceeded \d+ (?:LLM orchestration rounds(?: \(not tool calls\))?|tool steps)\b/i.test(
+    msg,
+  );
+}
+
 export class AgentInfraError extends Error {
   readonly failureClass = 'infra' as const;
   readonly causeRaw: unknown;
@@ -121,10 +132,13 @@ export function formatToolPlaneFailureAssistant(opts: {
     lines.push('');
     lines.push(`지금까지 저장된 파일은 유지됩니다: ${paths.join(', ')}`);
   }
+  if (kind === 'infra') {
+    lines.push('');
+    lines.push(
+      'AI 공급자 오류에 대한 자동 재시도를 모두 수행했지만 복구되지 않았습니다. 잠시 뒤 다시 시도해 주세요.',
+    );
+  }
   lines.push('');
-  lines.push(
-    '앱이 자동으로 재시도했습니다. 계속 실패하면 잠시 뒤 다시 시도하거나 요청을 더 짧게 나눠 주세요.',
-  );
   lines.push('같은 작업 대화에서 「이어서 진행」하면 현재 작업공간과 맥락을 유지합니다.');
   return lines.join('\n').trim();
 }
@@ -137,13 +151,14 @@ export function toolPlaneInfraRetryLimit(env: NodeJS.ProcessEnv = process.env): 
 }
 
 /**
- * After infra retries exhaust, silently resume the same tool-plane turn up to N times
- * after disk breadcrumbs are flushed so the user is not forced to click 「이어서」.
+ * Optional recovery after ordinary infra retries are exhausted. Disabled by
+ * default because it starts another complete agent run and can multiply prompt
+ * tokens or repeat side effects. Operators may opt in explicitly.
  */
 export function toolPlaneAutoResumeLimit(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number.parseInt(String(env.MY_AGENT_TOOL_PLANE_AUTO_RESUME ?? '').trim(), 10);
   if (Number.isFinite(n)) return Math.min(4, Math.max(0, n));
-  return 2;
+  return 0;
 }
 
 /** Whether session meta has enough breadcrumbs to make auto-resume useful. */

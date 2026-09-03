@@ -29,6 +29,7 @@ import {
   UI_TASK_RE,
   UI_TITLEBAR_RE,
 } from './agent-ui-bootstrap.js';
+
 import {
   awaitWithWaitStatus,
   formatAgentPhaseStatus,
@@ -61,14 +62,16 @@ import {
   formatApprovalDenied,
   needsHumanApproval,
 } from './tool-approval.js';
-import { outputHasSyntaxBroken } from './agent-post-mutate-syntax.js';
+import {
+  formatSyntaxBrokenRepairPrompt,
+  toolOutputHasSyntaxBroken,
+} from './agent-post-mutate-syntax.js';
 import { isHookStop } from './agent-hooks.js';
 import {
   scrubAgentChannelLeak,
   looksLikeTruncatedAssistantReply,
 } from '../chat/chat-filters.js';
 import {
-  formatSilentVerifyRepairPrompt,
   isMutatingAgentTool,
   parseVerifyJson,
   recordVerifyWitness,
@@ -99,10 +102,21 @@ import { agentToolOutputOk, summarizeAgentToolResult } from './agent-tool-result
 import { summarizeResponsesPerfState } from './agent-perf-metrics.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentInfraError } from './agent-failure-plane.js';
+
 import {
-  compileAgentStepContext,
-  resolveAgentContextProfile,
-} from './agent-context-profile.js';
+  buildAgentProgressCheckpoint,
+  FAILURE_CHECKPOINT_THRESHOLD,
+  formatAgentProgressCheckpointPrompt,
+  MAX_PROGRESSIVE_TOTAL_ROUNDS,
+  PROGRESSIVE_STAGE_ROUNDS,
+  progressiveStageForStep,
+  type ProgressCheckpointReason,
+} from './agent-progress-checkpoint.js';
+import {
+  loadAgentRunMeta,
+  recordSessionProgressCheckpoint,
+} from './agent-run-meta.js';
+
 import {
   isParallelReadOnlyTool,
   resolveAgentReadParallelism,
@@ -124,6 +138,56 @@ export async function runAgentStepLoop(state: AgentRunStepState): Promise<CodeAg
 }
 
 async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgentResult> {
+  let toolFailuresSinceCheckpoint = 0;
+  const cumulativeSteps = (): number => Math.min(
+    MAX_PROGRESSIVE_TOTAL_ROUNDS,
+    state.priorSteps + state.steps,
+  );
+  const writeProgressCheckpoint = (
+    reason: ProgressCheckpointReason,
+    injectForNextRound: boolean,
+  ) => {
+    const activeTask = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).activeTask ?? null;
+    const recentFailures = state.toolTrace
+      .filter((entry) => !entry.ok)
+      .slice(-FAILURE_CHECKPOINT_THRESHOLD)
+      .map((entry) => `${entry.name}: ${entry.failure_type ?? `step ${entry.step}`}`);
+    const recentActivity = state.toolTrace
+      .slice(-8)
+      .map((entry) => `${entry.name}: ${entry.ok ? 'ok' : entry.failure_type ?? 'failed'} (step ${entry.step})`);
+    const checkpoint = buildAgentProgressCheckpoint({
+      reason,
+      step: cumulativeSteps(),
+      maxSteps: MAX_PROGRESSIVE_TOTAL_ROUNDS,
+      failureCount: toolFailuresSinceCheckpoint,
+      readPaths: [...state.successfulReadsThisRun],
+      mutatedPaths: [...state.mutatedPathsThisRun, ...state.sessionMutatedPaths],
+      toolsUsed: [...state.toolsUsedThisRun],
+      failureDetails: recentFailures,
+      verifyWitness: state.verifyWitness,
+      activeTask,
+      modelOutput: state.lastModelOutput || state.answerBuf.trim(),
+      model: state.lastModel,
+      elapsedMs: state.priorElapsedMs + (Date.now() - state.runStartedAt),
+      payloadChars: estimateChatPayloadChars(state.messages),
+      recentActivity,
+    });
+    recordSessionProgressCheckpoint(state.opts.cqrRoot, state.opts.sessionId, checkpoint);
+    state.persistLiveSessionMeta();
+    state.reportStatus(
+      reason === 'three_failures'
+        ? `중간 정리 · 실패 ${FAILURE_CHECKPOINT_THRESHOLD}회 누적 — 재개 지점 재설정`
+        : `중간 정리 · ${checkpoint.stage}/${checkpoint.maxStages}단계 — 진행 내역 확인`,
+    );
+    if (injectForNextRound) {
+      state.messages.push({
+        role: 'user',
+        content: formatAgentProgressCheckpointPrompt(checkpoint),
+      });
+    }
+    return checkpoint;
+  };
+
   const withApiTimeout = <T extends object>(opts: T): T & { timeoutMs?: number } => {
     if (state.toolProtocol === 'api' && state.apiToolsTimeoutMs) {
       return { ...opts, timeoutMs: state.apiToolsTimeoutMs };
@@ -234,19 +298,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       onContent: publishModelAnswer,
     };
 
-    const contextProfile = resolveAgentContextProfile({
-      step: state.steps,
-      messages: state.messages,
-      evidence: state.toolCtx.getRunEvidence?.(),
-    });
-    const profiledContext = compileAgentStepContext({
-      profile: contextProfile,
-      messages: state.messages,
-      agentTools: state.agentTools,
-      userMessage: state.opts.userMessage,
-    });
-    state.reportStatus(`${modelWaitLabel} · context ${contextProfile}`);
-
     let result: ToolCompletionResult;
 
     if (state.toolProtocol === 'client') {
@@ -255,9 +306,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.baseUrl,
           state.secret.api_key,
           state.modelId,
-          profiledContext.messages,
+          state.messages,
           state.opts,
-          profiledContext.toolNames,
+          state.toolNames,
         ),
       );
     } else {
@@ -267,10 +318,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.baseUrl,
           state.secret.api_key,
           state.modelId,
-          profiledContext.messages,
+          state.messages,
           state.opts,
-          profiledContext.agentTools,
-          profiledContext.toolNames,
+          state.agentTools,
+          state.toolNames,
           withApiTimeout({
             streamHandlers,
             stream: true,
@@ -287,6 +338,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     }
 
     state.lastModel = `${state.def.name}/${result.model}`;
+    if (result.content?.trim()) {
+      state.lastModelOutput = result.content.trim();
+    }
     if (result.usage) {
       state.llmUsage.prompt_tokens += result.usage.prompt_tokens ?? 0;
       state.llmUsage.completion_tokens += result.usage.completion_tokens ?? 0;
@@ -383,7 +437,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     });
 
     let loopHardStop: ReturnType<typeof formatLoopGuardUserMessage> | null = null;
-    let mutatedOkThisStep = false;
     let syntaxBrokenThisStep = false;
     let syntaxBrokenOutput = '';
 
@@ -408,6 +461,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         const args = parseToolArgs(compat.toolCall.function.arguments);
         return !needsHumanApproval(compat.toolCall.function.name, args, process.env, {
           workspaceRoot: state.opts.workspaceRoot,
+          allowedWriteRoots: state.opts.allowedWriteRoots,
           approvedExternalReadRoots: state.approvedExternalReadRoots,
         }).needed;
       });
@@ -500,6 +554,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       // user is still looking at an approval card.
       const hitl = needsHumanApproval(execCall.function.name, args, process.env, {
         workspaceRoot: state.opts.workspaceRoot,
+        allowedWriteRoots: state.opts.allowedWriteRoots,
         approvedExternalReadRoots: state.approvedExternalReadRoots,
       });
       if (hitl.needed) {
@@ -760,7 +815,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       if (
         isRecoverableToolFailure(output)
         && !output.includes('tool_call_failed')
-        && !outputHasSyntaxBroken(output)
+        && !toolOutputHasSyntaxBroken(execCall.function.name, output)
       ) {
         if (execCall.function.name === 'write_file' || execCall.function.name === 'apply_patch') {
           state.writeFailStreak += 1;
@@ -768,7 +823,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         output = formatToolSelfCorrection(execCall.function.name, output, state.toolNames, { writeFailStreak: state.writeFailStreak,
         });
       }
-      const syntaxBroken = outputHasSyntaxBroken(output);
+      const syntaxBroken = toolOutputHasSyntaxBroken(execCall.function.name, output);
       const toolOk = !syntaxBroken && agentToolOutputOk(output);
       const toolSummary = summarizeAgentToolResult(output);
       if (state.toolTrace.length < 120) {
@@ -821,11 +876,13 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             }
           }
         }
-      } else if (syntaxBroken) {
-        state.writeFailStreak += 1;
-        state.evidenceDiagOk = false;
-        syntaxBrokenThisStep = true;
-        syntaxBrokenOutput = output;
+      } else {
+        if (syntaxBroken) {
+          state.writeFailStreak += 1;
+          state.evidenceDiagOk = false;
+          syntaxBrokenThisStep = true;
+          syntaxBrokenOutput = output;
+        }
       }
       state.hooks.onEvent?.({
         type: 'tool_end',
@@ -839,6 +896,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ok: toolOk,
         durationMs,
       });
+      if (!toolOk) toolFailuresSinceCheckpoint += 1;
       const afterTool = await state.hooks.afterTool?.({
         tool: execCall.function.name,
         args,
@@ -893,7 +951,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
         if (isMutatingAgentTool(execCall.function.name)) {
           // Disk write landed (even if SYNTAX_BROKEN). Silent verify / syntax repair still run.
-          mutatedOkThisStep = true;
           state.mutatedOkRun = true;
           // Persist before next LLM round — infra 504 must not leave empty session meta.
           state.persistLiveSessionMeta();
@@ -991,6 +1048,13 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });
     }
 
+    let failureCheckpointInjected = false;
+    if (toolFailuresSinceCheckpoint >= FAILURE_CHECKPOINT_THRESHOLD) {
+      writeProgressCheckpoint('three_failures', true);
+      toolFailuresSinceCheckpoint = 0;
+      failureCheckpointInjected = true;
+    }
+
     if (syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
       state.reportStatus('verify · syntax gate (broken)');
       state.evidenceDiagOk = false;
@@ -1013,8 +1077,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       });
       state.messages.push({
         role: 'user',
-        content: formatSilentVerifyRepairPrompt('syntax', {
-            command: 'post-mutate-syntax',
+        content: formatSyntaxBrokenRepairPrompt({
             output: syntaxBrokenOutput,
             attempt: state.silentVerifyAttempts,
             maxAttempts: state.maxVerify,
@@ -1024,11 +1087,35 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       continue;
     }
 
+    const chainSteps = cumulativeSteps();
+    if (
+      !failureCheckpointInjected
+      && chainSteps % PROGRESSIVE_STAGE_ROUNDS === 0
+      && chainSteps < MAX_PROGRESSIVE_TOTAL_ROUNDS
+      && state.steps < state.maxSteps
+    ) {
+      writeProgressCheckpoint('stage_boundary', true);
+      toolFailuresSinceCheckpoint = 0;
+      state.reportStatus(
+        `순차 진행 · ${progressiveStageForStep(chainSteps) + 1}단계 시작 (단계당 ${PROGRESSIVE_STAGE_ROUNDS}회)`,
+      );
+    }
   }
 
-
-  throw new Error(
-    `Code agent exceeded ${state.maxSteps} LLM orchestration rounds (not tool calls). `
-    + 'Independent tool calls may be batched within one round. Try a smaller task.',
-  );
+  const checkpoint = writeProgressCheckpoint('budget_exhausted', false);
+  const modelContent = (state.lastModelOutput || state.answerBuf).trim();
+  return state.finish({
+    content: modelContent || '이번 단계에서 모델이 별도의 서술형 작업 결과를 남기지 않았습니다.',
+    model: checkpoint.runtime?.model ?? state.lastModel,
+    steps: state.steps,
+    applicationNotice: {
+      kind: 'continuation',
+      title: '실행 제한으로 중간 종료',
+      message: `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝까지 진행했습니다. 저장된 진행 내역·추가 과제·재개 지점부터 「이어서 진행」할 수 있습니다.`,
+      model: checkpoint.runtime?.model ?? state.lastModel,
+      elapsedMs: checkpoint.runtime?.elapsedMs
+        ?? state.priorElapsedMs + (Date.now() - state.runStartedAt),
+      step: checkpoint.step,
+    },
+  });
 }

@@ -1828,9 +1828,17 @@ export async function dispatchApiRequest(
           const body = JSON.parse(await readBody(req)) as {
             title?: string;
             color?: 'gray' | 'red' | 'orange' | 'yellow' | 'green' | 'teal' | 'blue' | 'pink' | null;
+            preferred_model?: string | null;
+            allowed_paths?: string[];
           };
           let rec = body.title !== undefined ? projectStore.rename(pid, body.title) : projectStore.get(pid);
           if (rec && body.color !== undefined) rec = projectStore.setColor(pid, body.color);
+          if (rec && (body.preferred_model !== undefined || body.allowed_paths !== undefined)) {
+            rec = projectStore.setScopeSettings(pid, {
+              ...(body.preferred_model !== undefined ? { preferred_model: body.preferred_model } : {}),
+              ...(body.allowed_paths !== undefined ? { allowed_paths: body.allowed_paths } : {}),
+            });
+          }
           if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
           return sendJson(res, 200, rec);
         }
@@ -1851,6 +1859,13 @@ export async function dispatchApiRequest(
             for (const id of allIds) sessionStore.deleteAllInProject(id);
           }
           const ok = projectStore.delete(pid);
+          if (ok) {
+            try {
+              getUserMemoryStore(path.dirname(path.dirname(userConfigPath))).removeByProject(allIds);
+            } catch {
+              /* memory cleanup must never block project deletion */
+            }
+          }
           if (ok && projectStore.resolveKind(rec) === 'workspace_root' && rec.folder_path) {
             const overrides = loadUserOverrides(userConfigPath);
             const active = overrides.dev_workspace_root?.trim();
@@ -2421,6 +2436,19 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, rec);
       }
 
+      const sessionSettingsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/scope-settings$/);
+      if (sessionSettingsMatch && method === 'PUT') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as {
+          preferred_model?: string | null;
+          allowed_paths?: string[];
+        };
+        const rec = sessionStore.setScopeSettings(sessionSettingsMatch[1], body);
+        if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        return sendJson(res, 200, sessionStore.getSummary(rec));
+      }
+
       const sessionPolicyMatch = url.pathname.match(/^\/sessions\/([^/]+)\/execution-policy$/);
       if (sessionPolicyMatch && method === 'PUT') {
         license.assertWritable();
@@ -2465,11 +2493,8 @@ export async function dispatchApiRequest(
             return sendJson(res, 403, { error: 'WORKSPACE_NOT_ALLOWED', message });
           }
         }
-        // Compatibility endpoint: an old workspace binding request is now a
-        // normal move to the requested tree node.
-        const rec = sessionStore.setProject(sessionWorkspaceMatch[1], workspaceProjectId);
+        const rec = sessionStore.setWorkspaceProject(sessionWorkspaceMatch[1], workspaceProjectId);
         if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
-        if (workspaceProjectId) projectStore.touch(workspaceProjectId);
         return sendJson(res, 200, sessionStore.publicRecord(rec));
       }
 

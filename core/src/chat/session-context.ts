@@ -12,75 +12,53 @@ import { getUserMemoryStore } from '../memory/user-memory-store.js';
 
 export type SessionContextScope = 'standalone' | 'general_project' | 'workspace_tree';
 
-export interface ResolvedSessionContext {
-  scope: SessionContextScope;
-  projectId: string | null;
-  project: ReturnType<ProjectStore['get']>;
-  workspaceProjectId: string | null;
-  workspaceRoot: string | null;
-}
-
-/** Resolve visual membership and filesystem context from the same project tree. */
-export function resolveSessionContext(
-  sessionStore: SessionStore,
-  projectStore: ProjectStore,
-  sessionId: string,
-): ResolvedSessionContext {
-  const projectId = sessionStore.load(sessionId)?.project_id ?? null;
-  const project = projectId ? projectStore.get(projectId) : null;
-  if (!projectId || !project) {
-    return {
-      scope: 'standalone',
-      projectId: null,
-      project: null,
-      workspaceProjectId: null,
-      workspaceRoot: null,
-    };
-  }
-
-  let cursor: ReturnType<ProjectStore['get']> = project;
-  const visited = new Set<string>();
-  while (cursor && !visited.has(cursor.id)) {
-    visited.add(cursor.id);
-    if (projectStore.resolveKind(cursor) === 'workspace_root') {
-      return {
-        scope: 'workspace_tree',
-        projectId,
-        project,
-        workspaceProjectId: cursor.id,
-        workspaceRoot: cursor.folder_path?.trim() || null,
-      };
-    }
-    cursor = cursor.parent_id ? projectStore.get(cursor.parent_id) : null;
-  }
-
-  return {
-    scope: 'general_project',
-    projectId,
-    project,
-    workspaceProjectId: null,
-    workspaceRoot: null,
-  };
-}
-
 /** data dir derived from user-overrides.json path (data/config/user-overrides.json). */
 function dataDirFromConfigPath(configPath: string): string {
   return path.dirname(path.dirname(configPath));
 }
 
+/**
+ * Resolve the one active non-conversation scope.
+ * Top-level workspace roots and projects are peers: a session belongs to one or
+ * the other. `workspace_project_id` is only the filesystem binding when a
+ * nested workspace node is selected through `project_id`.
+ */
+export function resolveSessionScopeProjectId(
+  sessionStore: SessionStore,
+  sessionId: string,
+): string | null {
+  const session = sessionStore.load(sessionId);
+  return session?.project_id ?? session?.workspace_project_id ?? null;
+}
+
 /** Project id whose memory applies to this session (workspace node or general project). */
 export function resolveMemoryProjectId(
   sessionStore: SessionStore,
-  projectStoreOrSessionId: ProjectStore | string,
-  maybeSessionId?: string,
+  sessionId: string,
 ): string | null {
-  if (typeof projectStoreOrSessionId === 'string') {
-    return sessionStore.load(projectStoreOrSessionId)?.project_id ?? null;
-  }
-  return resolveSessionContext(sessionStore, projectStoreOrSessionId, maybeSessionId ?? '').projectId;
+  return resolveSessionScopeProjectId(sessionStore, sessionId);
 }
 
-/** User memory (알잘딱) block: global context + project-scope fragments. */
+/** Explicit request wins; otherwise inherit conversation → project/workspace → global auto. */
+export function resolveRequestedModelForSession(
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string,
+  requestedModel?: string | null,
+): string {
+  const requested = requestedModel?.trim();
+  if (requested && requested !== 'auto') return requested;
+  const session = sessionStore.load(sessionId);
+  if (session?.preferred_model?.trim()) return session.preferred_model.trim();
+  const projectId = resolveSessionScopeProjectId(sessionStore, sessionId);
+  if (projectId) {
+    const inherited = projectStore.resolvePreferredModelForProject(projectId);
+    if (inherited) return inherited;
+  }
+  return requested || 'auto';
+}
+
+/** User memory (알잘딱) block: global, project, and conversation-scope fragments. */
 export function buildUserMemoryContext(
   configPath: string,
   sessionStore: SessionStore,
@@ -89,9 +67,10 @@ export function buildUserMemoryContext(
 ): string {
   try {
     const store = getUserMemoryStore(dataDirFromConfigPath(configPath));
-    const projectId = resolveMemoryProjectId(sessionStore, projectStore, sessionId);
+    const projectId = resolveMemoryProjectId(sessionStore, sessionId);
     const title = projectId ? projectStore.get(projectId)?.title ?? null : null;
-    return store.formatForPrompt(projectId, title);
+    const sessionTitle = sessionStore.load(sessionId)?.title ?? null;
+    return store.formatForPrompt(projectId, title, sessionId, sessionTitle);
   } catch {
     return ''; // memory must never break context assembly
   }
@@ -121,7 +100,32 @@ export function resolveSessionContextScope(
   projectStore: ProjectStore,
   sessionId: string,
 ): SessionContextScope {
-  return resolveSessionContext(sessionStore, projectStore, sessionId).scope;
+  const session = sessionStore.load(sessionId);
+  // project_id is the active peer scope when present. A retained
+  // workspace_project_id is only a dormant filesystem binding in that case.
+  if (session?.project_id) {
+    const project = projectStore.get(session.project_id);
+    if (!project) return 'standalone';
+    const kind = projectStore.resolveKind(project);
+    return kind === 'project' ? 'general_project' : 'workspace_tree';
+  }
+  if (session?.workspace_project_id) return 'workspace_tree';
+  return 'standalone';
+}
+
+export function resolveWorkspaceRootsForSession(
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string,
+): string[] {
+  const session = sessionStore.load(sessionId);
+  const explicitRoots = session?.allowed_paths ?? [];
+  if (explicitRoots.some((candidate) => candidate.trim())) {
+    return [...new Set(explicitRoots.map((candidate) => candidate.trim()).filter(Boolean))];
+  }
+  const projectId = resolveSessionScopeProjectId(sessionStore, sessionId);
+  if (!projectId) return [];
+  return projectStore.resolveAllowedPathsForProject(projectId);
 }
 
 export function resolveWorkspaceRootForSession(
@@ -129,7 +133,7 @@ export function resolveWorkspaceRootForSession(
   projectStore: ProjectStore,
   sessionId: string,
 ): string | null {
-  return resolveSessionContext(sessionStore, projectStore, sessionId).workspaceRoot;
+  return resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId)[0] ?? null;
 }
 
 export function shouldAttachDevWorkspaceTree(
@@ -175,10 +179,10 @@ function buildProjectContext(
   projectStore: ProjectStore,
   sessionId: string,
 ): string {
-  const context = resolveSessionContext(sessionStore, projectStore, sessionId);
-  const contextProjectId = context.projectId;
+  const session = sessionStore.load(sessionId);
+  const contextProjectId = session?.project_id ?? session?.workspace_project_id;
   if (!contextProjectId) return '';
-  const project = context.project;
+  const project = projectStore.get(contextProjectId);
   if (!project || projectStore.resolveKind(project) !== 'project') return '';
   const siblings = sessionStore
     .listByProject(contextProjectId)
@@ -203,14 +207,15 @@ function buildWorkspaceTreeContext(
   sessionId: string,
   focusMessage?: string,
 ): string {
-  const context = resolveSessionContext(sessionStore, projectStore, sessionId);
-  const contextProjectId = context.projectId;
+  const session = sessionStore.load(sessionId);
+  const contextProjectId = session?.project_id ?? session?.workspace_project_id;
   if (!contextProjectId) return '';
-  const project = context.project;
-  if (!project || context.scope !== 'workspace_tree') return '';
+  const project = projectStore.get(contextProjectId);
+  if (!project) return '';
   const kind = projectStore.resolveKind(project);
+  if (kind !== 'workspace_root' && kind !== 'folder') return '';
 
-  const root = context.workspaceRoot;
+  const root = projectStore.resolveWorkspaceRootForProject(contextProjectId);
   if (!root) return '';
 
   const siblings = sessionStore
@@ -228,9 +233,10 @@ function buildWorkspaceTreeContext(
       focusMessage,
     }),
   ];
-  const location = kind === 'workspace_root'
-    ? `작업 폴더「${project.title}」루트 아래 대화입니다.`
-    : `작업 폴더 트리의「${project.title}」노드 아래 대화입니다.`;
+  const location =
+    kind === 'workspace_root'
+      ? `작업 폴더「${project.title}」루트 아래 대화입니다.`
+      : `작업 폴더 트리의「${project.title}」폴더 아래 대화입니다.`;
   const meta = ['## 대화 위치', location, '이 작업 폴더 맥락에 맞게 답변하세요.'];
   if (siblings.length) {
     meta.push(`같은 위치의 다른 대화: ${siblings.join(', ')}`);
@@ -268,6 +274,17 @@ export function buildWorkspaceContext(
   if (scope === 'workspace_tree') {
     const wsCtx = buildWorkspaceTreeContext(sessionStore, projectStore, sessionId, focusMessage);
     if (wsCtx) parts.push(wsCtx);
+  }
+
+  if (shouldAttachDevWorkspaceTree(configPath, sessionStore, projectStore, sessionId, mode)) {
+    const root = loadUserOverrides(configPath).dev_workspace_root;
+    const base = buildDevWorkspaceContext(root, {}, {
+      tier: 'agent',
+      includeRepoMap: true,
+      repoMapMaxChars: 6_000,
+      focusMessage,
+    });
+    if (base.trim()) parts.push(base);
   }
 
   return parts.join('\n\n');

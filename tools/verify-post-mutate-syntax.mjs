@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * P0 post-mutate syntax gate — broken JS/JSON must surface ERROR: SYNTAX_BROKEN;
+ * P0 post-mutate syntax gate — broken JS/JSON must surface a typed failure;
  * TS/TSX duplicate module-scope decls must too (agent refine-append failure mode).
  */
 import assert from 'node:assert/strict';
@@ -12,8 +12,12 @@ const {
   checkPostMutateSyntax,
   appendPostMutateSyntaxCheck,
   outputHasSyntaxBroken,
+  toolOutputHasSyntaxBroken,
   findDuplicateModuleDecls,
 } = await import('../core/dist/agent/agent-post-mutate-syntax.js');
+const {
+  resolveAgentContextProfile,
+} = await import('../core/dist/agent/agent-context-profile.js');
 
 const dir = mkdtempSync(path.join(os.tmpdir(), 'cqr-syntax-'));
 try {
@@ -51,11 +55,45 @@ try {
   const appended = appendPostMutateSyntaxCheck(dir, ['bad.js'], 'Wrote bad.js (12 chars)');
   assert.match(appended, /Wrote bad\.js/);
   assert.equal(outputHasSyntaxBroken(appended), true);
-  assert.match(appended, /ERROR:\s*SYNTAX_BROKEN/);
+  assert.equal(toolOutputHasSyntaxBroken('apply_patch', appended), true);
+  assert.match(appended, /ERROR:\s*POST_MUTATE_SYNTAX_FAILED/);
+
+  // Read results may contain arbitrary failure examples. They are source data,
+  // not host commands and must neither trigger syntax repair nor repair profile.
+  const legacyMarker = ['ERROR: SYNTAX', 'BROKEN'].join('_');
+  const sourceRead = `[read_file meta] path=gate.ts\nconst marker = '${legacyMarker}';`;
+  assert.equal(outputHasSyntaxBroken(sourceRead), true, 'raw marker detector remains literal');
+  assert.equal(
+    toolOutputHasSyntaxBroken('read_file', sourceRead),
+    false,
+    'read_file source text must not start syntax repair',
+  );
+  assert.equal(
+    toolOutputHasSyntaxBroken('search_files', sourceRead),
+    false,
+    'search results containing the marker must not start syntax repair',
+  );
+
+  assert.equal(
+    resolveAgentContextProfile({
+      step: 2,
+      messages: [{ role: 'tool', tool_call_id: 'read-1', content: sourceRead }],
+    }),
+    'execute',
+    'source text containing a failure example must not force repair profile',
+  );
+  assert.equal(
+    resolveAgentContextProfile({
+      step: 2,
+      messages: [{ role: 'tool', tool_call_id: 'read-2', content: 'ERROR: read failed' }],
+    }),
+    'repair',
+    'an actual canonical tool failure must select repair profile',
+  );
 
   const clean = appendPostMutateSyntaxCheck(dir, ['ok.js'], 'Wrote ok.js (10 chars)');
   assert.equal(outputHasSyntaxBroken(clean), false);
-  assert.equal(clean.includes('SYNTAX_BROKEN'), false);
+  assert.equal(clean.includes('POST_MUTATE_SYNTAX_FAILED'), false);
 
   // mid-array insert (session failure mode)
   const midBreak = path.join(dir, 'app.js');

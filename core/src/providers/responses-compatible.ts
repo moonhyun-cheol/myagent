@@ -466,7 +466,15 @@ export async function responsesCompletionStream(
   onToken: (text: string) => void,
   opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  const result = await responsesStreamAt(responseBase(baseUrl), apiKey, model, messages, undefined, { onContent: onToken }, opts);
+  const result = await responsesStreamAt(
+    responseBase(baseUrl),
+    apiKey,
+    model,
+    messages,
+    undefined,
+    { onContent: onToken, onThought: opts?.onThought },
+    opts,
+  );
   return { content: result.content ?? '', model: result.model };
 }
 

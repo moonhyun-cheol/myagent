@@ -114,11 +114,12 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 }
 
 export function resolveSessionReasoningEffort(
-  requested: 'auto' | 'low' | 'medium' | 'high',
+  requested: 'none' | 'auto' | 'low' | 'medium' | 'high',
   env: NodeJS.ProcessEnv = process.env,
   opts?: { providerId?: string | null; modelId?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
+  if (requested === 'none') return null;
   const model = String(opts?.modelId ?? '').toLowerCase();
   if (
     (opts?.providerId === 'anthropic' || /claude/.test(model))

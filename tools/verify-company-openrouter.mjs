@@ -67,6 +67,21 @@ try {
   assert.match(ui, /고정 엔드포인트/);
   assert.match(ui, /Responses API/);
 
+  const activeConfigurationIndex = ui.indexOf('1 · 핵심 설정');
+  const connectedProvidersIndex = ui.indexOf('2 · 관리');
+  const addAndAdvancedIndex = ui.indexOf('3 · 추가 및 확장');
+  const advancedApiIndex = ui.indexOf('기타 호환 API');
+  assert.ok(activeConfigurationIndex >= 0, 'active configuration section must exist');
+  assert.ok(
+    activeConfigurationIndex < connectedProvidersIndex && connectedProvidersIndex < addAndAdvancedIndex,
+    'model management IA must stay in active → connected → add order',
+  );
+  assert.ok(advancedApiIndex > addAndAdvancedIndex, 'advanced compatible API must stay at the bottom');
+  assert.match(ui, /role="status"[\s\S]*aria-live="polite"/);
+  assert.match(ui, /absolute right-6[\s\S]*embedded \? 'bottom-6' : 'bottom-20'/);
+  assert.match(ui, /개인 연결 \{connectedPersonal\.length\}개/);
+  assert.match(ui, /grid gap-3 md:grid-cols-3/);
+
   const originalFetch = globalThis.fetch;
   let requestedUrl = '';
   globalThis.fetch = async (url) => {

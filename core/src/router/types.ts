@@ -1,4 +1,5 @@
 import type { ExecutionPolicy } from '../execution-policy.js';
+import type { ApplicationNotice } from '../sessions/types.js';
 
 export type BuiltinChatMode =
   | 'chat'
@@ -66,4 +67,6 @@ export interface ChatResponse {
   mutatedPaths?: string[];
   /** Plan mode: locked-constraints extract succeeded (weak UI signal). */
   planConstraintsLocked?: boolean;
+  /** Host-side continuation or failure notice surfaced to the workspace UI. */
+  applicationNotice?: ApplicationNotice;
 }

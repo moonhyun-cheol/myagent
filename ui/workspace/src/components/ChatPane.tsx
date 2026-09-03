@@ -4,7 +4,6 @@ import {
   CircleNotch,
   File as FileIcon,
   FilmStrip,
-  Hammer,
   Paperclip,
   PaperPlaneTilt,
   Browser,
@@ -28,15 +27,12 @@ import {
 import type { ChatTurn } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
-  fetchLicense,
-  fetchProfiles,
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
   summarizeSession,
   type ApprovalLevel,
   type ReasoningLevel,
-  type WorkspaceBehavior,
 } from '../api/myAgentClient';
 import {
   filesFromClipboard,
@@ -76,8 +72,6 @@ const reasoningLabel = (value: string | null | undefined) =>
   value === 'auto' ? '자동' : value === 'low' ? '낮음' : value === 'medium' ? '중간' : value === 'high' ? '높음' : value ? value : '모델 관리';
 const approvalLabel = (value: ApprovalLevel) =>
   value === 'autopilot' ? 'Autopilot' : value === 'delegate' ? '나 대신 승인' : '승인 요청';
-const workspaceBehaviorLabel = (value: WorkspaceBehavior | undefined) =>
-  value === 'plan' ? 'Plan' : value === 'ask' ? 'Ask' : 'Agent';
 
 function isImageAttachment(mime?: string, name?: string): boolean {
   if (mime?.startsWith('image/')) return true;
@@ -138,6 +132,17 @@ function normalizeExternalHref(rawUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+function formatElapsedRuntime(elapsedMs?: number): string | null {
+  if (typeof elapsedMs !== 'number' || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null;
+  const totalSeconds = Math.floor(elapsedMs / 1_000);
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function formatWorkDuration(startedAt?: string, completedAt?: string, now = Date.now()): string | null {
@@ -211,7 +216,6 @@ export function ChatPane() {
   const contextBudget = useWorkspaceStore((s) => s.contextBudget);
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
-  const buildFromPlan = useWorkspaceStore((s) => s.buildFromPlan);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
@@ -233,8 +237,6 @@ export function ChatPane() {
   const setExecutionPolicy = useWorkspaceStore((s) => s.setExecutionPolicy);
   const apiError = useWorkspaceStore((s) => s.apiError);
   const setApiStatus = useWorkspaceStore((s) => s.setApiStatus);
-  const setLicenseMode = useWorkspaceStore((s) => s.setLicenseMode);
-  const licenseMode = useWorkspaceStore((s) => s.licenseMode);
   const pendingAttachments = useWorkspaceStore((s) => s.pendingAttachments);
   const removePendingAttachment = useWorkspaceStore((s) => s.removePendingAttachment);
   const pendingContextPaths = useWorkspaceStore((s) => s.pendingContextPaths);
@@ -252,12 +254,15 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
+  // 세션별 입력 초안 분리: 미전송 초안이 다른 채팅으로 전환할 때 따라가지 않도록
+  // 세션 id별로 보관하고, 전환 시 해당 세션의 초안을 복원한다.
   const draftsBySessionRef = useRef<Map<string, string>>(new Map());
   const draftSessionRef = useRef<string | null>(null);
   useEffect(() => {
     const prev = draftSessionRef.current;
     const next = activeSessionId ?? null;
     if (prev === next) {
+      // 같은 세션 내 입력 변화는 계속 동기화 (전송으로 비워진 경우 포함)
       if (next) draftsBySessionRef.current.set(next, draft);
       return;
     }
@@ -279,7 +284,6 @@ export function ChatPane() {
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspacePromptText, setWorkspacePromptText] = useState<string | null>(null);
-  const [appliedWorkKitLabel, setAppliedWorkKitLabel] = useState<string | null>(null);
   const contextFiles = useMemo(
     () => flattenWorkspaceFiles(files, { includeFolders: true }),
     [files],
@@ -337,22 +341,6 @@ export function ChatPane() {
 
   useEffect(() => {
     setMessageReferences([]);
-  }, [activeSessionId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchProfiles()
-      .then((data) => {
-        if (!cancelled) {
-          setAppliedWorkKitLabel(data.applied_work_kit?.label ?? null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setAppliedWorkKitLabel(null);
-      });
-    return () => {
-      cancelled = true;
-    };
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -656,17 +644,7 @@ export function ChatPane() {
     };
 
     (async () => {
-      try {
-        const lic = await fetchLicense();
-        if (cancelled) return;
-        setLicenseMode(lic.mode ?? null);
-        setApiStatus(true, lic.mode === 'read_only' ? '읽기 전용 라이선스 — 채팅이 제한될 수 있습니다' : null);
-      } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : String(err);
-        setApiStatus(false, `${message} · API 실행 필요`);
-      }
-
+      setApiStatus(true, null);
       void applyPicker();
 
       try {
@@ -692,15 +670,11 @@ export function ChatPane() {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
     };
-  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus, setLicenseMode]);
+  }, [clearActiveChat, loadChatSession, refreshModelPicker, setApiStatus]);
 
   const ingestFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      if (licenseMode && licenseMode !== 'full') {
-        flashPasteHint('라이선스 필요');
-        return;
-      }
       setPasting(true);
       try {
         await uploadFiles(files);
@@ -710,25 +684,12 @@ export function ChatPane() {
         setPasting(false);
       }
     },
-    [flashPasteHint, licenseMode, uploadFiles],
+    [flashPasteHint, uploadFiles],
   );
 
   const handlePaste = useCallback(
     (e: ReactClipboardEvent | ClipboardEvent) => {
       const anyFiles = filesFromDataTransfer(e.clipboardData);
-      if (licenseMode && licenseMode !== 'full') {
-        const sync = filesFromClipboard(e.clipboardData);
-        const items = [...(e.clipboardData?.items ?? [])];
-        const maybeFile =
-          anyFiles.length > 0 ||
-          sync.length > 0 ||
-          items.some((i) => i.type.startsWith('image/') || (i.kind === 'file' && !i.type));
-        if (maybeFile) {
-          e.preventDefault();
-          flashPasteHint('라이선스 필요');
-        }
-        return;
-      }
 
       // Explorer / OS file paste — any format
       if (anyFiles.length) {
@@ -771,7 +732,7 @@ export function ChatPane() {
         }
       })();
     },
-    [flashPasteHint, ingestFiles, licenseMode],
+    [flashPasteHint, ingestFiles],
   );
 
   useEffect(() => {
@@ -819,12 +780,11 @@ export function ChatPane() {
     [ingestFiles],
   );
 
-  const attachDisabled =
-    pasting || Boolean(licenseMode && licenseMode !== 'full');
+  const attachDisabled = pasting;
 
   const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
 
-  const showUndo = canUndo && !busy && licenseMode === 'full';
+  const showUndo = canUndo && !busy;
 
   const submit = () => {
     if (!canSend) return;
@@ -994,15 +954,6 @@ export function ChatPane() {
         >
           {activeWorkspaceProjectId ? '작업폴더 연결됨' : '작업폴더 연결'}
         </button>
-        {appliedWorkKitLabel ? (
-          <span
-            data-testid="chat-applied-work-kit"
-            className="shrink-0 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1 text-[11px] font-medium text-accent"
-            title="전역 적용된 작업 키트"
-          >
-            업무 · {appliedWorkKitLabel}
-          </span>
-        ) : null}
         <button
           type="button"
           data-testid="chat-execution-policy"
@@ -1012,7 +963,6 @@ export function ChatPane() {
           title="현재 채팅의 추론 수준과 작업 권한"
         >
           추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
-          {' · '}{workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)}
           {' · '}{approvalLabel(activeExecutionPolicy.approval)}
         </button>
         {policyOpen ? (
@@ -1024,28 +974,6 @@ export function ChatPane() {
             <p className="text-sm font-semibold text-text">현재 채팅 실행 정책</p>
             <p className="mt-1 text-[11px] leading-5 text-muted">변경값은 이 채팅에만 저장되며 실행 중인 작업에는 영향을 주지 않습니다.</p>
             <label className="mt-4 block text-xs font-medium text-text">
-              작업 방식
-              <select
-                data-testid="chat-workspace-behavior"
-                value={activeExecutionPolicy.workspace_behavior ?? 'agent'}
-                disabled={busy}
-                onChange={(event) => {
-                  const workspace_behavior = event.target.value as WorkspaceBehavior;
-                  void setExecutionPolicy({
-                    workspace_behavior,
-                    autopilot: workspace_behavior === 'plan' || workspace_behavior === 'ask'
-                      ? 'off'
-                      : activeExecutionPolicy.autopilot,
-                  });
-                }}
-                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
-              >
-                <option value="agent">Agent — 코드 수정·검증</option>
-                <option value="plan">Plan — read-only 설계</option>
-                <option value="ask">Ask — 도구 없이 설명</option>
-              </select>
-            </label>
-            <label className="mt-3 block text-xs font-medium text-text">
               추론 수준
               <select
                 data-testid="chat-reasoning-level"
@@ -1291,31 +1219,33 @@ export function ChatPane() {
                     ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
                     : ''
                   : renderMessageText(turn.text)}
-                {turn.role === 'assistant' &&
-                turn.planBuildOffer &&
-                !turn.planBuilt &&
-                !busy &&
-                turn.completedAt &&
-                turn.text &&
-                turn.text !== '작업 중…' ? (
-                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
-                    <button
-                      type="button"
-                      data-testid="plan-build-button"
-                      onClick={() => void buildFromPlan(turn.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-accent/60 bg-accent/12 px-3 py-1.5 text-sm font-semibold text-accent-dim transition-colors hover:bg-accent/20 hover:border-accent"
-                    >
-                      <Hammer size={15} weight="bold" />
-                      Build
-                    </button>
-                    <span className="text-[11px] text-muted">
-                      {turn.planConstraintsLocked === false
-                        ? 'P0 미추출 — 그래도 Build 가능'
-                        : 'Agent 모드로 PLAN 구현'}
-                    </span>
-                  </div>
-                ) : null}
               </div>
+              {turn.role === 'assistant' && turn.applicationNotice ? (
+                <aside
+                  className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
+                    turn.applicationNotice.kind === 'continuation'
+                      ? 'border-amber-500/30 bg-amber-500/5 text-amber-100/90'
+                      : 'border-red-500/30 bg-red-500/5 text-red-100/90'
+                  }`}
+                  aria-label="애플리케이션 안내"
+                >
+                  <p className="font-medium">애플리케이션 · {turn.applicationNotice.title}</p>
+                  <p className="mt-1 text-text/80">{turn.applicationNotice.message}</p>
+                  {(turn.applicationNotice.model || formatElapsedRuntime(turn.applicationNotice.elapsedMs)) ? (
+                    <p className="mt-1.5 text-[11px] text-muted">
+                      {[
+                        turn.applicationNotice.model ? `모델 ${turn.applicationNotice.model}` : '',
+                        formatElapsedRuntime(turn.applicationNotice.elapsedMs)
+                          ? `누적 작업시간 ${formatElapsedRuntime(turn.applicationNotice.elapsedMs)}`
+                          : '',
+                        typeof turn.applicationNotice.step === 'number'
+                          ? `${turn.applicationNotice.step} 스텝`
+                          : '',
+                      ].filter(Boolean).join(' · ')}
+                    </p>
+                  ) : null}
+                </aside>
+              ) : null}
             </div>
           ))}
           {openGateText && !busy ? (
@@ -1333,20 +1263,15 @@ export function ChatPane() {
             <div className="flex items-start gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2.5 text-sm text-accent">
               <CircleNotch size={16} className="mt-0.5 shrink-0 animate-spin" />
               <div className="min-w-0">
-                <div className="space-y-1.5">
-                  {(progressSteps.length ? progressSteps : ['생각 중…']).map((step, index) => (
-                    <div key={`${index}-${step}`} className="flex items-start gap-2 leading-snug">
-                      <span
-                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                          index === progressSteps.length - 1 ? 'bg-teal-400' : 'bg-zinc-600'
-                        }`}
-                        aria-hidden="true"
-                      />
-                      <span className={index === progressSteps.length - 1 ? 'font-medium text-text' : 'text-muted'}>
-                        {step.replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
-                      </span>
-                    </div>
-                  ))}
+                {/* 전체 진행 이력은 말풍선의 접힌 작업 영역에서만 표시 — 여기는 현재 상태 1줄만 (중복 렌더링 제거) */}
+                <div className="flex items-start gap-2 leading-snug">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-400" aria-hidden="true" />
+                  <span className="font-medium text-text">
+                    {(progressSteps.length ? progressSteps[progressSteps.length - 1] : '생각 중…').replace(
+                      /\uD68C\uC0AC OpenRouter/g,
+                      'MY OpenRouter',
+                    )}
+                  </span>
                 </div>
                 {openGateText ? (
                   <p className="mt-0.5 text-[11px] text-amber-200/80">Exit Gate: {openGateText}</p>
@@ -1381,8 +1306,7 @@ export function ChatPane() {
               </span>
               {contextBudget.compressed ? <span className="text-amber-300">압축됨</span> : null}
             </div>
-          ) : null}
-          {pasteHint ? (
+          ) : null}          {pasteHint ? (
             <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>
           ) : null}
           <div
@@ -1581,7 +1505,7 @@ export function ChatPane() {
                   <>
                     <button
                       type="button"
-                      disabled={!canSend || licenseMode === 'read_only'}
+                      disabled={!canSend}
                       onClick={submit}
                       title="현재 응답 다음에 실행"
                       className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
@@ -1602,7 +1526,7 @@ export function ChatPane() {
                 ) : (
                   <button
                     type="button"
-                    disabled={!canSend || licenseMode === 'read_only'}
+                    disabled={!canSend}
                     onClick={submit}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
                   >

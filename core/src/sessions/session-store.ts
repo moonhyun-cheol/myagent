@@ -71,7 +71,7 @@ export class SessionStore {
       project_id: membershipProjectId ? sanitizeId(membershipProjectId) : null,
     };
     this.save(rec);
-    return withLegacyWorkspaceAlias(rec);
+    return rec;
   }
 
   loadAll(): SessionRecord[] {
@@ -102,16 +102,10 @@ export class SessionStore {
     if (!existsSync(fp)) return null;
     try {
       const rec = JSON.parse(readFileSync(fp, 'utf8')) as SessionRecord;
-      const persistedProjectId = rec.project_id ? sanitizeId(rec.project_id) : null;
-      const legacyWorkspaceProjectId = rec.workspace_project_id
-        ? sanitizeId(rec.workspace_project_id)
-        : null;
-      const projectId = persistedProjectId ?? legacyWorkspaceProjectId;
-      const needsMigration = rec.project_id !== projectId || rec.workspace_project_id !== undefined;
-      rec.project_id = projectId;
+      if (rec.project_id === undefined) rec.project_id = null;
+      if (rec.workspace_project_id === undefined) rec.workspace_project_id = null;
       rec.execution_policy = normalizeExecutionPolicy(rec.execution_policy);
-      if (needsMigration) this.save(rec);
-      return withLegacyWorkspaceAlias(rec);
+      return rec;
     } catch {
       return null;
     }
@@ -141,7 +135,7 @@ export class SessionStore {
       execution_policy: normalizeExecutionPolicy(opts?.execution_policy, DEFAULT_EXECUTION_POLICY),
     };
     this.save(rec);
-    return withLegacyWorkspaceAlias(rec);
+    return rec;
   }
 
   setProject(id: string, projectId: string | null): SessionRecord | null {
@@ -232,9 +226,19 @@ export class SessionStore {
     if (message.role === 'assistant') {
       const pendingThought = this.pendingAssistantThought.get(rec.id);
       this.pendingAssistantThought.delete(rec.id);
-      if (!message.thought && pendingThought?.trim()) {
-        storedMessage = { ...message, thought: pendingThought };
-      }
+      const reasoningContent = message.reasoning?.content || message.thought || pendingThought;
+      const { thought: _legacyThought, ...normalizedMessage } = message;
+      storedMessage = reasoningContent?.trim()
+        ? {
+            ...normalizedMessage,
+            reasoning: {
+              version: 1,
+              format: 'public_summary',
+              content: reasoningContent,
+              ...(message.model ? { model: message.model } : message.reasoning?.model ? { model: message.reasoning.model } : {}),
+            },
+          }
+        : normalizedMessage;
     }
     rec.messages.push(storedMessage);
     const trimmed = rec.messages.length > MAX_MESSAGES;
@@ -280,9 +284,14 @@ export class SessionStore {
     return rec.messages.slice(-limit);
   }
 
-  /** @deprecated Legacy workspace binding now moves the session to that tree node. */
+  /** Legacy workspace binding — sets dormant filesystem binding without changing active project scope. */
   setWorkspaceProject(id: string, workspaceProjectId: string | null): SessionRecord | null {
-    return this.setProject(id, workspaceProjectId);
+    const rec = this.load(id);
+    if (!rec) return null;
+    rec.workspace_project_id = workspaceProjectId ? sanitizeId(workspaceProjectId) : null;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    return rec;
   }
 
   setPreferredModel(id: string, model: string): SessionRecord | null {
@@ -291,6 +300,32 @@ export class SessionStore {
     const normalized = model.trim();
     if (!normalized || normalized.length > 240) return null;
     rec.preferred_model = normalized;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    return rec;
+  }
+
+  setScopeSettings(
+    id: string,
+    patch: { preferred_model?: string | null; allowed_paths?: string[] },
+  ): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    if (patch.preferred_model !== undefined) {
+      const model = patch.preferred_model?.trim();
+      if (model) rec.preferred_model = model.slice(0, 240);
+      else delete rec.preferred_model;
+    }
+    if (patch.allowed_paths !== undefined) {
+      const roots = [...new Set(
+        patch.allowed_paths
+          .map((entry) => String(entry ?? '').trim())
+          .filter((entry) => entry && path.isAbsolute(entry))
+          .map((entry) => path.resolve(entry)),
+      )];
+      if (roots.length) rec.allowed_paths = roots;
+      else delete rec.allowed_paths;
+    }
     rec.updated_at = new Date().toISOString();
     this.save(rec);
     return rec;
@@ -365,6 +400,20 @@ export class SessionStore {
     return publicRecord;
   }
 
+  /** Compact public projection used by workspace trees and settings responses. */
+  getSummary(rec: SessionRecord): SessionSummary {
+    return {
+      id: rec.id,
+      title: rec.title,
+      updated_at: rec.updated_at,
+      message_count: rec.messages.length,
+      project_id: rec.project_id ?? null,
+      workspace_project_id: rec.workspace_project_id ?? null,
+      preferred_model: rec.preferred_model,
+      allowed_paths: rec.allowed_paths ?? [],
+    };
+  }
+
   popLastTurn(id: string): { userText?: string; removed: number } | null {
     const rec = this.load(id);
     if (!rec?.messages.length) return null;
@@ -393,38 +442,27 @@ export class SessionStore {
   }
 
   private toSummary(rec: SessionRecord): SessionSummary {
-    const summary: SessionSummary = {
+    return {
       id: rec.id,
       title: rec.title,
       updated_at: rec.updated_at,
       message_count: rec.messages.length,
       project_id: rec.project_id ?? null,
+      workspace_project_id: rec.workspace_project_id ?? null,
       preferred_model: rec.preferred_model,
+      allowed_paths: rec.allowed_paths ?? [],
     };
-    return withLegacyWorkspaceAlias(summary);
   }
 
   private save(rec: SessionRecord): void {
     const fp = this.filePath(rec.id);
     assertWritablePath(fp, this.cqrRoot);
-    const { workspace_project_id: _legacyWorkspaceProjectId, ...persisted } = rec;
-    writeFileSync(fp, JSON.stringify(persisted, null, 2) + '\n', 'utf8');
+    writeFileSync(fp, JSON.stringify(rec, null, 2) + '\n', 'utf8');
   }
 
   private filePath(id: string): string {
     return path.join(this.sessionsDir, `${id}.json`);
   }
-}
-
-function withLegacyWorkspaceAlias<T extends { project_id?: string | null; workspace_project_id?: string | null }>(record: T): T {
-  // Keep direct in-process reads working during the compatibility window without
-  // exposing the retired field through JSON/API output or durable storage.
-  Object.defineProperty(record, 'workspace_project_id', {
-    configurable: true,
-    enumerable: false,
-    get: () => record.project_id ?? null,
-  });
-  return record;
 }
 
 function sanitizeId(id: string): string | null {

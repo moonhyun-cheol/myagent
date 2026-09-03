@@ -49,6 +49,15 @@ export interface PendingAttachment {
   previewUrl?: string;
 }
 
+export interface ApplicationNotice {
+  kind: 'continuation' | 'failure';
+  title: string;
+  message: string;
+  model?: string;
+  elapsedMs?: number;
+  step?: number;
+}
+
 export interface ChatTurn {
   id: string;
   role: 'user' | 'assistant';
@@ -62,7 +71,7 @@ export interface ChatTurn {
   completedAt?: string;
   /** Transient per-call progress shown only while this response is running. */
   progressSteps?: string[];
-  /** Agent status / model thought stream (SSE `thought`) */
+  /** Public agent/model work log. Streamed live and restored from the session record. */
   thought?: string;
   /**
    * Live model token stream while tools/agent run (not the final answer).
@@ -80,6 +89,8 @@ export interface ChatTurn {
   planBuilt?: boolean;
   /** Weak signal: P0 locked-constraints extract succeeded (Build still allowed if false). */
   planConstraintsLocked?: boolean;
+  /** Host/application notice displayed outside the model-authored bubble. */
+  applicationNotice?: ApplicationNotice;
 }
 
 export interface CanvasCardData extends Record<string, unknown> {

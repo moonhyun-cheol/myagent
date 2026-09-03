@@ -13,6 +13,7 @@ import type {
 type AnthropicContentBlock = {
   type?: string;
   text?: string;
+  thinking?: string;
   id?: string;
   name?: string;
   input?: unknown;
@@ -188,6 +189,10 @@ async function readDocument(response: Response): Promise<AnthropicDocument> {
 
 function parseDocument(doc: AnthropicDocument, fallbackModel: string): ToolCompletionResult {
   const text = (doc.content ?? []).filter((block) => block.type === 'text').map((block) => block.text ?? '').join('');
+  const reasoning = (doc.content ?? [])
+    .filter((block) => block.type === 'thinking')
+    .map((block) => block.thinking ?? block.text ?? '')
+    .join('');
   const tool_calls: AgentToolCallPayload[] = (doc.content ?? [])
     .filter((block) => block.type === 'tool_use' && block.name)
     .map((block, index) => ({
@@ -201,6 +206,7 @@ function parseDocument(doc: AnthropicDocument, fallbackModel: string): ToolCompl
     tool_calls,
     model: doc.model ?? fallbackModel,
     finish_reason: doc.stop_reason === 'tool_use' ? 'tool_calls' : doc.stop_reason,
+    reasoning: reasoning || null,
     usage: normalizeAnthropicUsage(doc.usage),
   };
 }
@@ -248,6 +254,7 @@ async function messagesStream(
   if (!response.ok) await readDocument(response);
   if (!response.body) throw new Error('NO_RESPONSE_BODY');
   let content = '';
+  let reasoning = '';
   let resolvedModel = model;
   let stopReason: string | null = null;
   let usage: CompletionUsage | undefined;
@@ -271,10 +278,13 @@ async function messagesStream(
       }
     } else if (event.type === 'content_block_delta') {
       const index = Number(event.index ?? 0);
-      const delta = event.delta as { type?: string; text?: string; partial_json?: string } | undefined;
+      const delta = event.delta as { type?: string; text?: string; thinking?: string; partial_json?: string } | undefined;
       if (delta?.type === 'text_delta' && delta.text) {
         content += delta.text;
         handlers.onContent?.(delta.text);
+      } else if (delta?.type === 'thinking_delta' && delta.thinking) {
+        reasoning += delta.thinking;
+        handlers.onThought?.(delta.thinking);
       } else if (delta?.type === 'input_json_delta' && delta.partial_json) {
         const call = calls.get(index);
         if (call) call.function.arguments += delta.partial_json;
@@ -303,7 +313,14 @@ async function messagesStream(
     function: { ...call.function, arguments: call.function.arguments || '{}' },
   }));
   if (!content && tool_calls.length === 0) throw new Error('EMPTY_COMPLETION');
-  return { content: content || null, tool_calls, model: resolvedModel, finish_reason: stopReason === 'tool_use' ? 'tool_calls' : stopReason, usage };
+  return {
+    content: content || null,
+    tool_calls,
+    model: resolvedModel,
+    finish_reason: stopReason === 'tool_use' ? 'tool_calls' : stopReason,
+    reasoning: reasoning || null,
+    usage,
+  };
 }
 
 export async function messagesCompletionStream(
@@ -314,7 +331,15 @@ export async function messagesCompletionStream(
   onToken: (text: string) => void,
   opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  const result = await messagesStream(baseUrl, apiKey, model, messages, undefined, { onContent: onToken }, opts);
+  const result = await messagesStream(
+    baseUrl,
+    apiKey,
+    model,
+    messages,
+    undefined,
+    { onContent: onToken, onThought: opts?.onThought },
+    opts,
+  );
   return { content: result.content ?? '', model: result.model, usage: result.usage };
 }
 

@@ -1,15 +1,40 @@
 import type { ExecutionPolicy } from '../execution-policy.js';
 
+export interface PublicReasoningRecord {
+  version: 1;
+  /** Only provider-exposed reasoning summaries and visible agent work logs are persisted. */
+  format: 'public_summary';
+  content: string;
+  /** Actual model reported for this assistant response. */
+  model?: string;
+}
+
+export interface ApplicationNotice {
+  kind: 'continuation' | 'failure';
+  title: string;
+  message: string;
+  /** Actual runtime model; never replace with a synthetic policy label. */
+  model?: string;
+  /** Cumulative execution time across explicit continuation runs. */
+  elapsedMs?: number;
+  /** Last completed orchestration step represented by this notice. */
+  step?: number;
+}
+
 export interface SessionMessage {
   role: 'user' | 'assistant';
   content: string;
   at: string;
   model?: string;
   mode?: string;
-  /** Public model work log streamed to the UI; excluded from future model context. */
+  /** Normalized public reasoning/work log for this exact assistant response. */
+  reasoning?: PublicReasoningRecord;
+  /** @deprecated Legacy public work-log field; read for backward compatibility only. */
   thought?: string;
   /** Local `/outputs/images/...` URLs for chat + image_gen restore */
   image_urls?: string[];
+  /** Host/application notice rendered separately from model-authored content. */
+  application_notice?: ApplicationNotice;
   /**
    * When true, UI may still show the message but it must not be fed back to the model.
    * Used for guardrail / hallucination-block notices that would pollute later turns.
@@ -61,8 +86,10 @@ export interface SessionRecord {
   workspace_project_id?: string | null;
   /** Snapshot copied from PC defaults when the session is created; independent afterwards. */
   execution_policy?: ExecutionPolicy;
-  /** Model selected for this conversation. Missing means use the PC default/auto model. */
+  /** Model selected for this conversation. Missing means inherit scope/global defaults. */
   preferred_model?: string;
+  /** Absolute roots writable by this conversation; first entry is the relative-path base and every entry is enforced. */
+  allowed_paths?: string[];
   /** The active model/provider owns one chain; switching either starts a new chain. */
   responses_state?: ResponsesContinuationState;
   /** Independent chat/agent/MAR lanes; prevents concurrent roles from sharing a chain. */
@@ -77,4 +104,5 @@ export interface SessionSummary {
   project_id?: string | null;
   workspace_project_id?: string | null;
   preferred_model?: string;
+  allowed_paths?: string[];
 }

@@ -98,6 +98,8 @@ export interface ChatCompletionOptions {
   extraBody?: Record<string, unknown>;
   /** OpenAI-style reasoning_effort when set (omit when undefined/null). */
   reasoningEffort?: string | null;
+  /** Public reasoning/thinking delta explicitly exposed by the provider. */
+  onThought?: ThoughtTokenHandler;
   /** Responses is primary when selected; Chat Completions remains the compatibility fallback. */
   wireApi?: ProviderWireApi;
   /** Mutable, session-owned Responses chain state. Ignored by other transports. */
@@ -604,13 +606,14 @@ async function chatCompletionStreamAt(
       try {
         const chunk = JSON.parse(payload) as {
           model?: string;
-          choices?: { delta?: { content?: string } }[];
+          choices?: { delta?: unknown }[];
         };
         if (chunk.model) resolvedModel = chunk.model;
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) {
-          full += delta;
-          onToken(delta);
+        const delta = extractStreamDelta(chunk.choices?.[0]?.delta);
+        if (delta.thought) opts?.onThought?.(delta.thought);
+        if (delta.content) {
+          full += delta.content;
+          onToken(delta.content);
         }
       } catch {
         /* skip malformed chunk */

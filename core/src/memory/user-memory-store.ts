@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-export type MemoryScope = 'global' | 'project';
+export type MemoryScope = 'global' | 'project' | 'session';
 export type MemorySource = 'user' | 'auto';
 
 export interface MemoryEntry {
@@ -17,6 +17,8 @@ export interface MemoryEntry {
   scope: MemoryScope;
   /** Present when scope === 'project'. */
   project_id?: string | null;
+  /** Present when scope === 'session'. */
+  session_id?: string | null;
   text: string;
   source: MemorySource;
   enabled: boolean;
@@ -61,13 +63,19 @@ export class UserMemoryStore {
     this.indexPath = path.join(memoryDir, 'user-memory.json');
   }
 
-  list(projectId?: string | null): { global: MemoryEntry[]; project: MemoryEntry[] } {
+  list(
+    projectId?: string | null,
+    sessionId?: string | null,
+  ): { global: MemoryEntry[]; project: MemoryEntry[]; session: MemoryEntry[] } {
     const index = this.loadIndex();
     const global = index.entries.filter((e) => e.scope === 'global');
     const project = projectId
       ? index.entries.filter((e) => e.scope === 'project' && e.project_id === projectId)
       : [];
-    return { global, project };
+    const session = sessionId
+      ? index.entries.filter((e) => e.scope === 'session' && e.session_id === sessionId)
+      : [];
+    return { global, project, session };
   }
 
   get(id: string): MemoryEntry | null {
@@ -77,6 +85,7 @@ export class UserMemoryStore {
   add(input: {
     scope: MemoryScope;
     project_id?: string | null;
+    session_id?: string | null;
     text: string;
     source?: MemorySource;
   }): MemoryEntry {
@@ -88,9 +97,14 @@ export class UserMemoryStore {
     if (input.scope === 'project' && !input.project_id) {
       throw new UserMemoryStoreError('PROJECT_REQUIRED', 'project_id is required for project scope');
     }
+    if (input.scope === 'session' && !input.session_id) {
+      throw new UserMemoryStoreError('SESSION_REQUIRED', 'session_id is required for session scope');
+    }
     const index = this.loadIndex();
     const scopeEntries = index.entries.filter(
-      (e) => e.scope === input.scope && (input.scope === 'global' || e.project_id === input.project_id),
+      (e) => e.scope === input.scope
+        && (input.scope !== 'project' || e.project_id === input.project_id)
+        && (input.scope !== 'session' || e.session_id === input.session_id),
     );
     // Dedupe: same normalized text in the same scope refreshes instead of duplicating.
     const normalized = normalizeForDedupe(text);
@@ -116,6 +130,7 @@ export class UserMemoryStore {
       id: randomUUID(),
       scope: input.scope,
       project_id: input.scope === 'project' ? input.project_id : null,
+      session_id: input.scope === 'session' ? input.session_id : null,
       text,
       source: input.source ?? 'user',
       enabled: true,
@@ -170,6 +185,20 @@ export class UserMemoryStore {
     return removed;
   }
 
+  /** Remove session-scope entries when their conversation is deleted. */
+  removeBySession(sessionIds: string[]): number {
+    if (!sessionIds.length) return 0;
+    const ids = new Set(sessionIds);
+    const index = this.loadIndex();
+    const before = index.entries.length;
+    index.entries = index.entries.filter(
+      (e) => !(e.scope === 'session' && e.session_id && ids.has(e.session_id)),
+    );
+    const removed = before - index.entries.length;
+    if (removed > 0) this.saveIndex(index);
+    return removed;
+  }
+
   /**
    * Auto-capture: store an explicit "remember this" style user message.
    * Conservative on purpose — only cue-phrase messages are captured.
@@ -193,8 +222,13 @@ export class UserMemoryStore {
   }
 
   /** Prompt block for context injection. Empty string when nothing to inject. */
-  formatForPrompt(projectId?: string | null, projectTitle?: string | null): string {
-    const { global, project } = this.list(projectId);
+  formatForPrompt(
+    projectId?: string | null,
+    projectTitle?: string | null,
+    sessionId?: string | null,
+    sessionTitle?: string | null,
+  ): string {
+    const { global, project, session } = this.list(projectId, sessionId);
     const pick = (entries: MemoryEntry[]) =>
       entries
         .filter((e) => e.enabled)
@@ -202,7 +236,8 @@ export class UserMemoryStore {
         .slice(0, PROMPT_MAX_ENTRIES);
     const g = pick(global);
     const p = pick(project);
-    if (!g.length && !p.length) return '';
+    const s = pick(session);
+    if (!g.length && !p.length && !s.length) return '';
     const lines: string[] = [
       '## 사용자 메모리 (알잘딱)',
       '아래는 사용자가 저장한 맥락이다. 답변과 판단에 반영하라.',
@@ -214,6 +249,10 @@ export class UserMemoryStore {
     if (p.length) {
       lines.push(projectTitle ? `### 프로젝트 메모리: ${projectTitle}` : '### 프로젝트 메모리');
       for (const e of p) lines.push(`- ${e.text}`);
+    }
+    if (s.length) {
+      lines.push(sessionTitle ? `### 대화 메모리: ${sessionTitle}` : '### 대화 메모리');
+      for (const e of s) lines.push(`- ${e.text}`);
     }
     let block = lines.join('\n');
     if (block.length > PROMPT_MAX_CHARS) block = `${block.slice(0, PROMPT_MAX_CHARS)}…`;

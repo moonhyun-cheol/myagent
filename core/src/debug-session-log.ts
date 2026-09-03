@@ -63,7 +63,7 @@ export function formatChatErrorMessage(err: unknown): string {
     raw.includes('exceeded')
     && (raw.includes('tool steps') || raw.includes('LLM orchestration rounds'))
   ) {
-    return `${raw} 이 상한은 개별 툴 수가 아니라 모델 왕복 횟수입니다. 작업을 더 작은 단위로 나눠 다시 요청하세요.`;
+    return raw.trim();
   }
   if (isUpstreamConnectionDrop(raw)) {
     return [

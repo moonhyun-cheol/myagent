@@ -12,6 +12,10 @@ export interface ProjectRecord {
   parent_id?: string | null;
   /** Absolute path — only for workspace_root */
   folder_path?: string | null;
+  /** Scope default used when a conversation has no explicit model override. */
+  preferred_model?: string;
+  /** Optional write roots. The first entry is the relative-path workspace root; every entry is enforced. */
+  allowed_paths?: string[];
   /** Accessible palette id used by workspace/project labels. */
   color?: ProjectColor | null;
 }
@@ -26,6 +30,8 @@ export interface WorkspaceNode {
   kind: ProjectKind;
   parent_id?: string | null;
   folder_path?: string | null;
+  preferred_model?: string;
+  allowed_paths?: string[];
   /** Accessible palette id used by workspace/project labels. */
   color?: ProjectColor | null;
   created_at: string;

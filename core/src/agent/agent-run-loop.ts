@@ -51,7 +51,6 @@ import {
   formatAgentPhaseStatus,
   awaitWithWaitStatus,
 } from './agent-status-report.js';
-import { withActiveWork } from '../system/active-work-registry.js';
 import {
   completeAgentStepClientProtocol,
   completeAgentAnswerStep,
@@ -61,12 +60,10 @@ import {
 import { packIncludesBrowser } from './agent-tool-pack.js';
 import { loadUiFacts } from './agent-grounding.js';
 import {
-  autopilotMaxSteps,
   formatAutopilotSystemNote,
   resolveAutopilotEnabled,
   shouldOrInContinuityAutopilot,
 } from './agent-autopilot.js';
-import { behaviorAllowsAutopilot, resolveBehaviorToolPack } from './agent-runtime-facts.js';
 import {
   diagnosticsEvidenceStatus,
   type DiagnosticsEvidenceStatus,
@@ -77,6 +74,7 @@ import {
   formatActiveTaskSystemNote,
   loadAgentRunMeta,
   recordSessionPerf,
+  recordSessionProgressCheckpoint,
 } from './agent-run-meta.js';
 import {
   flushLiveSessionProgress,
@@ -98,13 +96,16 @@ import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import {
+  buildAgentProgressCheckpoint,
+  MAX_PROGRESSIVE_TOTAL_ROUNDS,
+  progressiveRunBudget,
+} from './agent-progress-checkpoint.js';
+import { isAgentExecutionLimit } from './agent-failure-plane.js';
+import {
   formatLockedConstraintsSystemNote,
   resolveLockedConstraintsForTurn,
 } from './agent-locked-constraints.js';
 import { resolveScopedProductMemory } from './agent-product-memory.js';
-import {
-  formatPatchFormatConstraints,
-} from './agent-planner.js';
 import { formatMultimodalSystemNote } from './agent-multimodal.js';
 import {
   formatToolSelfCorrection,
@@ -138,10 +139,7 @@ import {
   looksLikeTruncatedAssistantReply,
 } from '../chat/chat-filters.js';
 import {
-  formatSilentVerifyRepairPrompt,
-  isMutatingAgentTool,
   maxSilentVerifyRetries,
-  parseVerifyJson,
 } from './verify-loop.js';
 import {
   clearOldCheckpoints,
@@ -153,8 +151,6 @@ import {
   loadAuditShipPolicy,
   shipAgentAuditQueue,
 } from './agent-audit-ledger.js';
-import { runWorkspaceDiagnostics } from './run-diagnostics.js';
-import { runWorkspaceTests, detectTestRunner } from './run-tests.js';
 import type { CodeAgentOptions, CodeAgentResult } from './agent-run-types.js';
 import { MAX_AGENT_STEPS } from './agent-run-types.js';
 import {
@@ -172,30 +168,27 @@ import {
 } from './agent-run-helpers.js';
 
 export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentResult> {
-  const workKey = `agent:${opts.sessionId ?? 'default'}`;
-  return withActiveWork(workKey, 'code_agent', async () => {
-    try {
-      return await runCodeAgentInner(opts);
-    } catch (e: unknown) {
-      // Ollama emergency fallback is opt-in only (MY_AGENT_OLLAMA_FALLBACK=1).
-      if (
-        ollamaEmergencyFallbackEnabled()
-        && opts.providerId !== 'ollama'
-        && isOwuiOrGatewayError(e)
-      ) {
-        const ollama = opts.providerStore.resolveProvider('ollama');
-        if (ollama) {
-          opts.onStatus?.('MY OpenRouter unavailable — retrying with Ollama (TOOL_CALL)…');
-          return runCodeAgentInner({
-            ...opts,
-            providerId: 'ollama',
-            modelId: ollama.modelId,
-          });
-        }
+  try {
+    return await runCodeAgentInner(opts);
+  } catch (e: unknown) {
+    // Ollama emergency fallback is opt-in only (MY_AGENT_OLLAMA_FALLBACK=1).
+    if (
+      ollamaEmergencyFallbackEnabled()
+      && opts.providerId !== 'ollama'
+      && isOwuiOrGatewayError(e)
+    ) {
+      const ollama = opts.providerStore.resolveProvider('ollama');
+      if (ollama) {
+        opts.onStatus?.('MY OpenRouter unavailable — retrying with Ollama (TOOL_CALL)…');
+        return runCodeAgentInner({
+          ...opts,
+          providerId: 'ollama',
+          modelId: ollama.modelId,
+        });
       }
-      throw e;
     }
-  });
+    throw e;
+  }
 }
 
 async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResult> {
@@ -210,17 +203,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     opts.userMessage,
     { codeSession: true },
   );
-  const workspaceBehavior = opts.workspaceBehavior ?? 'agent';
-  if (!behaviorAllowsAutopilot(workspaceBehavior, opts.cqrRoot)) {
-    autopilot = false;
-  }
   const toolPack =
     opts.forceToolPack
-    ?? resolveBehaviorToolPack(
-      workspaceBehavior,
-      opts.cqrRoot,
-      playwrightAvailable ? 'files+browser' : 'files',
-    );
+    ?? (playwrightAvailable ? 'files+browser' : 'files');
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
@@ -518,7 +503,11 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     userMessage: opts.userMessage,
     readPaths: sessionReadPaths,
     mutatedPaths: sessionMetaForGate.mutatedPaths,
+    hasProgressCheckpoint: Boolean(sessionMetaForGate.lastProgressCheckpoint),
   });
+  const continuationCheckpoint = sessionContinuity
+    ? sessionMetaForGate.lastProgressCheckpoint
+    : undefined;
   // Bare 「이어서」 keeps a continuous run. Persisted reviewer gates never steer a new request.
   if (
     shouldOrInContinuityAutopilot({
@@ -563,6 +552,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       content: formatSessionContinuitySystemNote({
         readPaths: sessionReadPaths,
         mutatedPaths: sessionMetaForGate.mutatedPaths,
+        progressCheckpoint: continuationCheckpoint,
       }),
     });
     sysInsertAt += 1;
@@ -615,7 +605,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     sessionId: opts.sessionId,
     allowLocalhost: opts.playwrightAllowLocalhost,
     signal: opts.signal,
-    workspaceBehavior: opts.workspaceBehavior ?? 'agent',
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,
@@ -633,7 +622,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let autoCheckpointTaken = false;
   let lastAutoCheckpointId: string | null = null;
   let silentVerifyAttempts = 0;
-  let verifyExhaustedNotified = false;
   const maxVerify = maxSilentVerifyRetries();
   let selfCorrectionStreak = 0;
   let writeFailStreak = 0;
@@ -652,6 +640,11 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let verifyWitness: import('./agent-claim-gates.js').VerifyWitness | null = null;
   let explicitAcceptanceOk = false;
   const sessionMutatedPaths = sessionMetaForGate.mutatedPaths;
+  const priorSteps = Math.max(0, continuationCheckpoint?.step ?? 0);
+  const maxSteps = progressiveRunBudget(
+    opts.maxSteps ?? MAX_AGENT_STEPS,
+    priorSteps,
+  );
   const state: AgentRunStepState = {
     opts,
     guard,
@@ -673,10 +666,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     agentTools,
     toolPack,
     autopilot,
-    maxSteps: Math.max(
-      1,
-      Math.min(60, autopilotMaxSteps(opts.maxSteps ?? MAX_AGENT_STEPS, autopilot)),
-    ),
+    maxSteps,
+    priorSteps,
     selfWorkspace,
     uiFacts,
     reportStatus,
@@ -685,10 +676,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     finish,
     persistLiveSessionMeta,
     hooks,
-    lastModel,
+    lastModel: continuationCheckpoint?.runtime?.model ?? lastModel,
+    lastModelOutput: continuationCheckpoint?.modelOutput ?? '',
     lockedConstraints,
     mutatedPathsThisRun,
     runStartedAt,
+    priorElapsedMs: Math.max(0, continuationCheckpoint?.runtime?.elapsedMs ?? 0),
     firstToolMs: undefined,
     llmRoundTrips,
     toolCallCount,
@@ -705,7 +698,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     autoCheckpointTaken,
     lastAutoCheckpointId,
     silentVerifyAttempts,
-    verifyExhaustedNotified,
     maxVerify,
     selfCorrectionStreak,
     writeFailStreak,
@@ -736,6 +728,55 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   try {
     return await runAgentStepLoop(state);
   } catch (e: unknown) {
+    // The host's physical-request ceiling is a safety limit, not a failed model
+    // answer. Convert it while live state is still available so the orchestrator
+    // never overwrites real model/runtime metadata with a policy pseudo-model.
+    if (!finished && stepState && isAgentExecutionLimit(e)) {
+      const live = stepState;
+      const meta = loadAgentRunMeta(opts.cqrRoot, opts.sessionId);
+      const recentFailures = live.toolTrace
+        .filter((entry) => !entry.ok)
+        .slice(-3)
+        .map((entry) => `${entry.name}: ${entry.failure_type ?? `step ${entry.step}`}`);
+      const recentActivity = live.toolTrace
+        .slice(-8)
+        .map((entry) => `${entry.name}: ${entry.ok ? 'ok' : entry.failure_type ?? 'failed'} (step ${entry.step})`);
+      const checkpoint = buildAgentProgressCheckpoint({
+        reason: 'budget_exhausted',
+        step: live.priorSteps + live.steps,
+        maxSteps: MAX_PROGRESSIVE_TOTAL_ROUNDS,
+        failureCount: recentFailures.length,
+        readPaths: [...live.successfulReadsThisRun],
+        mutatedPaths: [...live.mutatedPathsThisRun, ...live.sessionMutatedPaths],
+        toolsUsed: [...live.toolsUsedThisRun],
+        failureDetails: recentFailures,
+        verifyWitness: live.verifyWitness,
+        activeTask: meta.activeTask ?? null,
+        modelOutput: live.lastModelOutput || live.answerBuf.trim()
+          || meta.lastProgressCheckpoint?.modelOutput,
+        model: live.lastModel || meta.lastProgressCheckpoint?.runtime?.model,
+        elapsedMs: live.priorElapsedMs + (Date.now() - live.runStartedAt),
+        payloadChars: estimateChatPayloadChars(live.messages),
+        recentActivity,
+      });
+      recordSessionProgressCheckpoint(opts.cqrRoot, opts.sessionId, checkpoint);
+      persistLiveSessionMeta();
+      reportStatus('호스트 실행 제한 · 현재 모델 출력과 재개 체크포인트 보존');
+      const modelContent = (checkpoint.modelOutput || '').trim();
+      return await finish({
+        content: modelContent || '이번 구간에서 모델이 별도의 서술형 출력을 남기지 않았습니다.',
+        model: checkpoint.runtime?.model ?? live.lastModel,
+        steps: live.steps,
+        applicationNotice: {
+          kind: 'continuation',
+          title: '실행 제한으로 중간 종료',
+          message: `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝까지 진행했습니다. 모델 출력과 작업 체크포인트를 보존했으며 같은 대화에서 이어서 진행할 수 있습니다.`,
+          model: checkpoint.runtime?.model ?? live.lastModel,
+          elapsedMs: checkpoint.runtime?.elapsedMs,
+          step: checkpoint.step,
+        },
+      });
+    }
     // 504 / abort / throw often skip finish() — flush live paths + resume Exit Gate
     // so 「이어서」 has accurate continuity for any task, not just the last feature.
     if (!finished) {
