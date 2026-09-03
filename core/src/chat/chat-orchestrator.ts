@@ -12,7 +12,7 @@ import type { ChatRequest, ChatResponse, ChatMode, RouteDecision } from '../rout
 import { DeepResearchPipeline } from '../research/deep-research.js';
 import { AutoImageBackend } from '../image/image-backend.js';
 import { ingestOwuiChatImages } from '../image/owui-media.js';
-import { resolveChatModelAsync, effectiveAutoModelMode } from '../models/model-picker.js';
+import { resolveChatModelAsync } from '../models/model-picker.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
 import { isAbortError, throwIfAborted } from './abort.js';
 import { LocalChatService } from '../inference/local-chat.js';
@@ -63,7 +63,7 @@ import { handleImageGenMode } from './modes/image-gen.js';
 import {
   shouldRunWorkspaceAgent,
   runWorkspaceCodeAgent,
-  promoteWorkspaceAgentRouting,
+  preserveWorkspaceAgentRouting,
 } from './modes/workspace-agent.js';
 import { appendAssistantReply } from './assistant-reply.js';
 import {
@@ -316,7 +316,7 @@ export class ChatOrchestrator {
       loadUserOverrides(this.configPath),
       this.providerStore,
       {
-        mode: effectiveAutoModelMode(routing.mode, message, this.configPath),
+        mode: routing.mode,
         hasAttachments,
       },
     );
@@ -615,7 +615,7 @@ export class ChatOrchestrator {
         explicitMode,
       )
     ) {
-      const agentRouting = promoteWorkspaceAgentRouting(routing);
+      const agentRouting = preserveWorkspaceAgentRouting(routing);
       let userAppended = false;
       try {
         const resolved = await resolveChatModelAsync(
@@ -624,7 +624,7 @@ export class ChatOrchestrator {
           loadUserOverrides(this.configPath),
           this.providerStore,
           {
-            mode: effectiveAutoModelMode(agentRouting.mode, message, this.configPath),
+            mode: routing.mode,
             hasAttachments: (req.attachments?.length ?? 0) > 0,
           },
         );
@@ -632,10 +632,10 @@ export class ChatOrchestrator {
           role: 'user',
           content: message,
           at: new Date().toISOString(),
-          mode: agentRouting.mode,
+          mode: routing.mode,
         });
         userAppended = true;
-        sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
+        sseEvent(res, { type: 'status', text: statusLabelForMode(routing.mode) });
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
         const runAgentOnce = async (attempt = 1) =>
@@ -949,7 +949,7 @@ export class ChatOrchestrator {
       loadUserOverrides(this.configPath),
       this.providerStore,
       {
-        mode: effectiveAutoModelMode(routing.mode, message, this.configPath),
+        mode: routing.mode,
         hasAttachments: (req.attachments?.length ?? 0) > 0,
       },
     );

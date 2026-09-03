@@ -13,11 +13,12 @@ import {
   syncMinimizeToTrayOnClose,
 } from '../lib/appPreferences';
 import { ChatPane } from './ChatPane';
+import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { GeminiNavSidebar, type AppSurface } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
+import { MarkdownDocument } from './MarkdownDocument';
 import { MediaPane } from './MediaPane';
-import { MultiModalCanvas } from './MultiModalCanvas';
 import { ResizableSplit } from './ResizableSplit';
 import {
   isAvailableWorkspacePreviewMode,
@@ -118,7 +119,7 @@ function PreviewBody() {
     // To-do는 도구 호출 기록이 아니라 모델이 답변에서 구분한 과제·목표를 보여준다.
     const sourceTurn = [...chat]
       .reverse()
-      .find((turn) => turn.role === 'assistant' && turn.text.trim());
+      .find((turn) => turn.role === 'assistant' && !isChatTurnUiHidden(turn, chat) && turn.text.trim());
     const checklistItems = extractTodoItems(sourceTurn?.text ?? '');
     return checklistItems.map((item, index) => ({
       id: `${sourceTurn?.id ?? 'todo'}-${index}-${item.label}`,
@@ -310,7 +311,7 @@ function PreviewBody() {
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} /> : null}
-        {mode === 'canvas' ? <MultiModalCanvas /> : null}
+        {mode === 'document' || mode === 'canvas' ? <MarkdownDocument /> : null}
         {mode === 'media' ? <MediaPane /> : null}
         {mode === 'browser' ? <BrowserPane /> : null}
       </div>

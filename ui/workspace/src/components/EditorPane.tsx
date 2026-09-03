@@ -2,6 +2,7 @@ import Editor from '@monaco-editor/react';
 import { useEffect, useState } from 'react';
 import type { FileNode } from '../types';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
+import { readWorkspaceFsFile } from '../api/myAgentClient';
 
 const FILES_PANEL_OPEN_KEY = 'my-agent-workspace-files-panel-open';
 const LEGACY_FILES_PANEL_OPEN_KEY = 'cqr-workspace-files-panel-open';
@@ -100,6 +101,7 @@ export function EditorPane() {
   const setActiveTab = useWorkspaceStore((s) => s.setActiveTab);
   const closeEditorTab = useWorkspaceStore((s) => s.closeEditorTab);
   const openAssetInEditor = useWorkspaceStore((s) => s.openAssetInEditor);
+  const appendToDocument = useWorkspaceStore((s) => s.appendToDocument);
   const editorSaveStatus = useWorkspaceStore((s) => s.editorSaveStatus);
   const editorSaving = useWorkspaceStore((s) => s.editorSaving);
   const [filesPanelOpen, setFilesPanelOpen] = useState(readFilesPanelOpenPref);
@@ -356,6 +358,28 @@ export function EditorPane() {
                 role="menuitem"
               >
                 이름 수정
+              </button>
+              <button
+                type="button"
+                className="block w-full rounded px-2 py-1.5 text-left text-text hover:bg-line"
+                onClick={() => {
+                  const path = contextMenu.path;
+                  if (!path) return;
+                  void (async () => {
+                    try {
+                      const { content } = await readWorkspaceFsFile(path);
+                      appendToDocument(`## ${path}\n\n\`\`\`\n${content}\n\`\`\`\n`);
+                      useWorkspaceStore.getState().addContextPath(path);
+                    } catch {
+                      appendToDocument(`## ${path}\n\n`);
+                      useWorkspaceStore.getState().addContextPath(path);
+                    }
+                    setContextMenu(null);
+                  })();
+                }}
+                role="menuitem"
+              >
+                문서에 추가
               </button>
               {contextMenu.renameValue !== undefined ? (
                 <form className="mt-1 border-t border-line pt-1" onSubmit={(event) => void submitRename(event)}>

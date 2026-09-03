@@ -76,3 +76,25 @@ body {
 .animate-terminal-attention {
   animation: terminal-attention-pulse 0.85s ease-in-out 3;
 }
+
+/* Document AI memo — Excel-style red corner on collapsed selection ranges */
+.ai-memo-range {
+  background: rgba(225, 29, 72, 0.08);
+}
+.ai-memo-range-open {
+  background: rgba(15, 143, 131, 0.1);
+}
+.ai-memo-corner,
+.ai-memo-corner-open {
+  color: #e11d48 !important;
+  font-size: 9px !important;
+  line-height: 1 !important;
+  vertical-align: top !important;
+  cursor: pointer !important;
+  margin-left: 1px !important;
+  font-weight: 700 !important;
+}
+.ai-memo-corner-open {
+  color: #0f8f83 !important;
+  opacity: 0.7;
+}

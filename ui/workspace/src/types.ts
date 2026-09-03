@@ -1,4 +1,4 @@
-export type WorkspaceMode = 'editor' | 'objects' | 'canvas' | 'media' | 'browser';
+export type WorkspaceMode = 'editor' | 'objects' | 'document' | 'media' | 'browser' | 'canvas';
 
 export type AiWorkMode = 'text' | 'code' | 'image';
 
@@ -63,6 +63,11 @@ export interface ChatTurn {
   role: 'user' | 'assistant';
   mode: AiWorkMode;
   text: string;
+  /**
+   * When true, omit from ChatPane (document AI 메모 side-channel).
+   * Still tracked in session chat state for reply binding.
+   */
+  uiHidden?: boolean;
   /** Model id/name used for this specific assistant response. */
   model?: string;
   /** ISO timestamp when this assistant execution started. */

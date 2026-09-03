@@ -51,7 +51,7 @@ try {
       custom: {
         api_key_enc: encryptSecret(legacySecret, computePortableVaultMachineId()),
         base_url: 'https://openrouter.ai/api/v1',
-        model_id: 'anthropic/claude-opus-4.8',
+        model_id: 'anthropic/claude-opus-5',
         wire_api: 'responses',
         updated_at: new Date().toISOString(),
       },

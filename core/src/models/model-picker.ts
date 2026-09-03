@@ -5,7 +5,6 @@ import type { ProviderStore } from '../providers/provider-store.js';
 import type { ResolvedModelRoute } from '../providers/types.js';
 import { listRemoteModelsDetailed, type RemoteModelInfo } from '../providers/openai-compatible.js';
 import type { ChatMode } from '../router/types.js';
-import { hasDevWorkspace } from '../chat/session-context.js';
 import {
   buildModeHints,
   curateRemoteModels,
@@ -58,19 +57,6 @@ export interface ModelPickerPayload {
 export interface ResolveChatModelOptions {
   mode?: ChatMode;
   hasAttachments?: boolean;
-}
-
-/** 자동 모델 선택용 — 라우팅 모드보다 작업 성격(코딩 등)을 우선 반영 */
-export function effectiveAutoModelMode(
-  mode: ChatMode,
-  message: string,
-  configPath: string,
-): ChatMode {
-  // Workspace set → built-in code-agent model tier with automatic tools, not plain chat.
-  if (mode === 'chat' && hasDevWorkspace(configPath)) {
-    return 'web_dev';
-  }
-  return mode;
 }
 
 const REMOTE_MODEL_CACHE_MS = 60_000;

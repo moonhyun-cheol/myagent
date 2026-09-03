@@ -13,7 +13,20 @@ export function buildEditorContextSnippet(editor?: EditorContext | null): string
     .filter((p) => p && !isSyntheticBuffer(p));
   // Synthetic buffer name from UI — not a real workspace file; omit to avoid invented edit tasks.
   const primaryOk = path && !isSyntheticBuffer(path);
-  if (!primaryOk && !extraPaths.length) return '';
+  const selection = editor.selection?.trim();
+  if (!primaryOk && !extraPaths.length) {
+    if (!selection) return '';
+    const clipped =
+      selection.length > 2_000 ? `${selection.slice(0, 2_000)}\n… (selection truncated)` : selection;
+    return [
+      '[에디터 참고 — 선택 사항]',
+      '작업 폴더 파일 path 없이 선택 텍스트만 전달됨. 설명·질문에 답하고, 파일 수정을 발명하지 않는다.',
+      `[선택 구간]:`,
+      '```',
+      clipped,
+      '```',
+    ].join('\n');
+  }
 
   const lines = [
     '[에디터 참고 — 선택 사항]',
@@ -31,8 +44,7 @@ export function buildEditorContextSnippet(editor?: EditorContext | null): string
     '수정 요청이 명시된 경우에만 열어 둔/@ 파일을 편집 대상으로 삼는다.',
   );
 
-  const selection = editor.selection?.trim();
-  if (selection && primaryOk) {
+  if (selection && (primaryOk || extraPaths.length)) {
     const clipped =
       selection.length > 2_000 ? `${selection.slice(0, 2_000)}\n… (selection truncated)` : selection;
     lines.push(`[선택/미리보기 영역]:`, '```', clipped, '```');

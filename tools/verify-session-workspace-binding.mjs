@@ -122,11 +122,13 @@ try {
   const orchestrator = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
   const dispatch = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
 
-  assert.match(ui, /data-testid="chat-workspace-binding"/);
+  // Binding lives on tree / workspace-access dialog — not the chat policy popover.
+  assert.doesNotMatch(ui, /data-testid="chat-workspace-binding"/);
+  assert.doesNotMatch(ui, /이 채팅의 임시 작업폴더/);
   assert.match(ui, /data-testid="chat-workspace-button"/);
   assert.match(ui, /data-testid="workspace-access-dialog"/);
   assert.match(ui, /작업폴더 없이 대화/);
-  assert.match(ui, /이 채팅에만 적용됩니다/);
+  assert.match(ui, /이 채팅에 작업폴더를 연결할까요/);
   assert.match(client, /X-CQR-Session/);
   assert.ok(dispatch.includes("url.pathname.match(/^\\/sessions\\/([^/]+)\\/workspace$/)"));
   assert.match(dispatch, /workspaceRootForRequest/);

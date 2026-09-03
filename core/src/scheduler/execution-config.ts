@@ -11,7 +11,7 @@ export function resolveSchedulerExecutionConfig(overrides: UserOverrides): Sched
   return {
     model: overrides.scheduler_default_model?.trim() || DEFAULT_SCHEDULER_MODEL,
     executionPolicy: {
-      reasoning: 'none',
+      reasoning: 'auto',
       autopilot: 'off',
       approval: 'ask',
     },

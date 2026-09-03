@@ -12,11 +12,12 @@ const WEB_DEV_CORE = [
   '',
   '## web_dev tool discipline',
   'Use workspace file tools (read_file before edit). For live URL verification use browser_* tools when available.',
+  'Answer in the form best suited to the request — do not force a completion-report template, review table, or changed-paths footer.',
   'Few-shot:',
   '- User: "main.py 확인" → TOOL/read_file on main.py → short conclusion + findings.',
   '- User: "로그인 버그 수정" → search/read → edit_file → conclude with cause + fix + next test.',
   '- User: "이미지 붙여넣기 추가" → implement clipboard paste in UI; never ask user to paste source files.',
-  '- User: "이 확장 요구대로 됐는지 검토" → read real files → 결론(충족/부분/미충족) → 미충족≤3 + path → 다음 조치 1개; do not claim 완료 if 미충족 remains.',
+  '- User: "이 확장 요구대로 됐는지 검토" → read real files → short grounded verdict; do not claim 완료 if gaps remain.',
   '- User: "구조 검토 / 리팩토링 필요성" → read AGENTS.md + product-facts + measure hotspots → short verdict; ASK only (no PLAN-mode mutate / monorepo redesign).',
   '',
   WEB_DEV_PRODUCT_UI_HINT,
@@ -32,7 +33,7 @@ const WEB_DEV_PRODUCT_SELF = [
   '- Composer / send / stop / Agent header → ChatPane.tsx + workspaceStore.ts',
   '- Ambiguous "안내창" → read core/config/defaults/ui-facts.json; ask one clarify if needed',
   'MY Agent self-edit: read core/config/defaults/skills/my-agent-self-edit.md before multi-file product edits.',
-  'Before done: user screenshot element must be in the diff.',
+  'When editing from a user screenshot, the targeted UI element must appear in the diff before claiming done.',
   'ALWAYS read_file before describing what MainWindow currently contains.',
   'Few-shot (MY Agent self):',
   '- User: "전송 옆 중지 버튼" → read ChatPane.tsx + workspaceStore.ts → wire AbortController → edit; never ask for Manager restart.',
@@ -43,7 +44,7 @@ const WEB_DEV_EXTERNAL = [
   'Dev workspace is an external project — NOT the MY Agent product tree.',
   'Do NOT cite MY Agent paths (ui/workspace, ChatPane, MainWindow.xaml, ui-target-map.md).',
   'Discover files via repo map / search / read_file (workspace = chat context; absolute/UNC OK when user points outside).',
-  'Before done: list changed paths + diagnostics; for review asks use short 결론 → 미충족≤3 → 다음 1개.',
+  'After edits, verify with tools when relevant; do not force a changed-paths / review-table footer on every turn.',
 ].join('\n');
 
 const MODE_AUGMENTS: Partial<Record<ChatMode, string>> = {

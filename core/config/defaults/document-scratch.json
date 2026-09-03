@@ -1,0 +1,9 @@
+{
+  "scratchDir": ".my-agent/docs",
+  "dumpsSubdir": "dumps",
+  "projectDocsDir": "docs",
+  "allowedExtensions": [".md", ".txt"],
+  "maxDumpsPerSession": 20,
+  "gitignoreLine": ".my-agent/docs/",
+  "gitignoreComment": "# MY Agent document scratch (session temp)"
+}

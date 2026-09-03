@@ -35,20 +35,32 @@ try {
     workspace_behavior: 'agent',
   });
   assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'gpt-5.6' }), 'high');
+  assert.equal(resolveSessionReasoningEffort('max', {}, { modelId: 'gpt-5.6-sol' }), 'max');
+  assert.equal(resolveSessionReasoningEffort('minimal', {}, { modelId: 'openai/gpt-5.6-luna' }), 'minimal');
+  assert.equal(resolveSessionReasoningEffort('max', {}, { modelId: 'x-ai/grok-4.6' }), 'xhigh');
+  assert.equal(resolveSessionReasoningEffort('medium', {}, { modelId: 'deepseek/deepseek-v4-pro' }), 'high');
   assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'llama3' }), null);
   assert.equal(resolveSessionReasoningEffort('medium', {}, { providerId: 'anthropic', modelId: 'claude-opus-4-8' }), 'medium');
+  assert.equal(resolveSessionReasoningEffort('max', {}, { modelId: 'anthropic/claude-fable-5.1' }), 'max');
   assert.equal(resolveSessionReasoningEffort('high', {}, { providerId: 'anthropic', modelId: 'claude-3-haiku' }), null);
+  assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'google/gemini-3-pro-image' }), null);
 
   const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
   const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
   const workspace = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
   const orchestrator = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
   const anthropic = readFileSync(path.join(root, 'core/src/providers/anthropic-messages.ts'), 'utf8');
+  const reasoningUi = readFileSync(path.join(root, 'ui/workspace/src/lib/reasoning-levels.ts'), 'utf8');
   for (const marker of ['chat-execution-policy', 'chat-reasoning-level', 'chat-approval-level', 'chat-workspace-behavior']) {
     assert.ok(ui.includes(marker), `chat policy UI marker missing: ${marker}`);
   }
+  assert.match(reasoningUi, /최소/);
+  assert.match(reasoningUi, /매우 높음/);
+  assert.match(reasoningUi, /최고/);
+  assert.match(client, /'minimal' \| 'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'/);
   assert.match(client, /body\.execution_policy = opts\.execution_policy/);
-  assert.match(workspace, /executionPolicy: \{ \.\.\.get\(\)\.activeExecutionPolicy \}/);
+  assert.match(workspace, /basePolicy = \{ \.\.\.get\(\)\.activeExecutionPolicy \}/);
+  assert.match(workspace, /execution_policy: job\.executionPolicy/);
   assert.match(orchestrator, /type: 'execution_policy'/);
   assert.match(orchestrator, /approvalPolicy === 'autopilot'/);
   assert.match(orchestrator, /approvalPolicy === 'delegate'/);

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-03T01:13:14.782Z",
+  "generated_at": "2026-09-03T06:51:13.047Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
@@ -38,6 +38,14 @@
     "composer": [
       "ui/workspace/src/components/ChatPane.tsx",
       "ui/workspace/src/store/workspaceStore.ts"
+    ],
+    "document": [
+      "ui/workspace/src/components/MarkdownDocument.tsx",
+      "ui/workspace/src/lib/documentFile.ts",
+      "ui/workspace/src/lib/documentMemo.ts",
+      "ui/workspace/src/components/workspacePreviewModes.ts",
+      "ui/workspace/src/store/workspaceStore.ts",
+      "core/config/defaults/document-scratch.json"
     ]
   },
   "work_kit_launcher": {

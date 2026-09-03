@@ -1,4 +1,4 @@
-import type { ChatMode } from '../router/types.js';
+import type { ChatMode, RouteDecision } from '../router/types.js';
 import { SKILL_CHAT_MODES } from '../router/types.js';
 import { getSkillSystemPromptByMode } from './skill-registry.js';
 import { isUserSkillMode } from './user-skill-store.js';
@@ -20,6 +20,16 @@ export function resolveLlmSkillMode(mode: ChatMode): ChatMode | null {
   if (isSkillChatMode(mode)) return mode;
   if (isUserSkillMode(mode)) return mode;
   return null;
+}
+
+/**
+ * Skill profile for the workspace agent plane (R-301, RC-013).
+ * Use the actual route. Workspace binding must not rewrite `chat` → `web_dev`.
+ * Default chat + workspace gate → null (thin agent prompt only).
+ * Explicit skill/mode → full skill system prompt.
+ */
+export function resolveAgentSkillMode(rawRouting: RouteDecision): ChatMode | null {
+  return resolveLlmSkillMode(rawRouting.mode);
 }
 
 export function isStreamableLlmSkillMode(mode: string): boolean {

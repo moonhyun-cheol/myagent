@@ -52,6 +52,7 @@ data/_realuse_lab/
 /CQR_PA.exe
 /MYAgent.exe
 /MYAgent.Updater.exe
+/WorkKitLauncher.exe
 bin/
 deploy/output/
 runtime/node/

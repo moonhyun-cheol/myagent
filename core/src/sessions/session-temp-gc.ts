@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
-import { removePlaywrightSessionDir } from './workspace-scratch-gitignore.js';
+import { removeDocumentSessionScratch, removePlaywrightSessionDir } from './workspace-scratch-gitignore.js';
 import type { SessionMessage, SessionRecord } from './types.js';
 
 export const OUTPUT_KINDS = ['images', 'research', 'browser', 'crawl', 'web'] as const;
@@ -225,6 +225,7 @@ export function pruneSessionTemp(
   }
   if (!self) {
     removePlaywrightSessionDir(opts?.workspaceRoot, safe);
+    removeDocumentSessionScratch(opts?.workspaceRoot, safe);
   }
   return result;
 }

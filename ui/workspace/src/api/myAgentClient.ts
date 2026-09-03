@@ -127,7 +127,7 @@ export interface SessionRecord {
   execution_policy?: ExecutionPolicy;
 }
 
-export type ReasoningLevel = 'none' | 'auto' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type AgentAutopilotMode = 'auto' | 'on' | 'off';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
 export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';

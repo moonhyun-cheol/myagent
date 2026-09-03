@@ -23,7 +23,7 @@ try {
   assert.ok(company, 'company provider must exist');
   assert.equal(company.name, 'MY OpenRouter');
   assert.equal(company.base_url, 'https://openrouter.ai/api/v1');
-  assert.equal(company.default_model, 'anthropic/claude-opus-4.8');
+  assert.equal(company.default_model, 'anthropic/claude-opus-5');
   assert.equal(company.wire_api, 'responses');
 
   store.saveKey('custom', 'sk-or-test-current', {
@@ -36,7 +36,7 @@ try {
 
   const raw = JSON.parse(readFileSync(vaultPath, 'utf8'));
   raw.entries.custom.base_url = 'https://provider.example/api';
-  raw.entries.custom.model_id = 'open_webui_openrouter_integration.anthropic.claude-opus-4.8';
+  raw.entries.custom.model_id = 'open_webui_openrouter_integration.anthropic.claude-opus-5';
   writeFileSync(vaultPath, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
 
   const migrated = new ProviderStore(vaultPath, tempRoot, masterKeys);
@@ -47,7 +47,7 @@ try {
   migrated.saveKey('custom', 'sk-or-test-reentered');
   resolved = migrated.resolveProvider('custom');
   assert.equal(resolved?.baseUrl, 'https://openrouter.ai/api/v1');
-  assert.equal(resolved?.modelId, 'anthropic/claude-opus-4.8');
+  assert.equal(resolved?.modelId, 'anthropic/claude-opus-5');
 
   const cfg = loadCurateConfig(true);
   const defaults = defaultCompanyModelIds(cfg);
@@ -58,8 +58,8 @@ try {
     'openai/gpt-5.6-terra-pro',
   );
   assert.equal(
-    resolveDefaultOwuiModel(['openai/gpt-5.6-terra-pro', 'anthropic/claude-opus-4.8'], cfg),
-    'anthropic/claude-opus-4.8',
+    resolveDefaultOwuiModel(['openai/gpt-5.6-terra-pro', 'anthropic/claude-opus-5'], cfg),
+    'anthropic/claude-opus-5',
   );
 
   const ui = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'ModelManagementModal.tsx'), 'utf8');
@@ -88,7 +88,7 @@ try {
     requestedUrl = String(url);
     return new Response(JSON.stringify({
       id: 'resp_openrouter_route',
-      model: 'anthropic/claude-opus-4.8',
+      model: 'anthropic/claude-opus-5',
       output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
@@ -96,7 +96,7 @@ try {
     await responsesCompletion(
       'https://openrouter.ai/api/v1',
       'sk-or-test-route',
-      'anthropic/claude-opus-4.8',
+      'anthropic/claude-opus-5',
       [{ role: 'user', content: 'ping' }],
     );
   } finally {

@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "max_models": 8,
   "matrix_only": true,
   "openrouter_prefix": "",
@@ -25,6 +25,9 @@
     "deepseek-v4-flash",
     "solar-pro",
     "claude-mythos",
+    "claude-fable-5$",
+    "claude-opus-4.8",
+    "grok-4.20-multi-agent",
     ":batch$",
     "flux",
     "recraft",
@@ -43,40 +46,40 @@
   "pinned_suffixes": [
     "openai.gpt-5.6-sol",
     "openai.gpt-5.6-luna",
-    "anthropic.claude-fable-5",
-    "anthropic.claude-opus-4.8",
+    "anthropic.claude-fable-5.1",
+    "anthropic.claude-opus-5",
     "deepseek.deepseek-v4-pro",
     "perplexity.sonar-deep-research",
-    "x-ai.grok-4.20-multi-agent",
+    "x-ai.grok-4.6",
     "google.gemini-3-pro-image"
   ],
   "mode_models": {
     "web_dev": {
-      "primary": "anthropic.claude-fable-5",
+      "primary": "anthropic.claude-fable-5.1",
       "fallbacks": [
-        "anthropic.claude-opus-4.8",
+        "anthropic.claude-opus-5",
         "deepseek.deepseek-v4-pro",
         "openai.gpt-5.6-sol"
       ]
     },
     "web_landing": {
-      "primary": "anthropic.claude-fable-5",
+      "primary": "anthropic.claude-fable-5.1",
       "fallbacks": [
-        "anthropic.claude-opus-4.8",
+        "anthropic.claude-opus-5",
         "openai.gpt-5.6-sol"
       ]
     },
     "prompt_master": {
       "primary": "openai.gpt-5.6-luna",
       "fallbacks": [
-        "anthropic.claude-fable-5",
-        "anthropic.claude-opus-4.8"
+        "anthropic.claude-fable-5.1",
+        "anthropic.claude-opus-5"
       ]
     },
     "deep_research": {
       "primary": "perplexity.sonar-deep-research",
       "fallbacks": [
-        "x-ai.grok-4.20-multi-agent",
+        "x-ai.grok-4.6",
         "openai.gpt-5.6-sol"
       ]
     },
@@ -87,21 +90,21 @@
     "chat": {
       "primary": "openai.gpt-5.6-luna",
       "fallbacks": [
-        "anthropic.claude-fable-5",
-        "anthropic.claude-opus-4.8"
+        "anthropic.claude-fable-5.1",
+        "anthropic.claude-opus-5"
       ]
     },
     "browser_automation": {
-      "primary": "anthropic.claude-fable-5",
+      "primary": "anthropic.claude-fable-5.1",
       "fallbacks": [
-        "anthropic.claude-opus-4.8",
+        "anthropic.claude-opus-5",
         "openai.gpt-5.6-sol"
       ]
     },
     "browser_agent": {
-      "primary": "anthropic.claude-fable-5",
+      "primary": "anthropic.claude-fable-5.1",
       "fallbacks": [
-        "anthropic.claude-opus-4.8",
+        "anthropic.claude-opus-5",
         "openai.gpt-5.6-sol"
       ]
     },
@@ -126,13 +129,13 @@
     },
     {
       "match": [
-        "claude-fable-5"
+        "claude-fable-5.1"
       ],
       "max_keep": 1
     },
     {
       "match": [
-        "claude-opus-4.8"
+        "claude-opus-5"
       ],
       "max_keep": 1,
       "prefer_drop": [
@@ -154,7 +157,7 @@
     },
     {
       "match": [
-        "grok-4.20-multi-agent"
+        "grok-4.6"
       ],
       "max_keep": 1
     },
@@ -173,7 +176,7 @@
     },
     "coding": {
       "patterns": [
-        "claude-fable-5",
+        "claude-fable-5.1",
         "deepseek-v4-pro",
         "gpt-5.6-sol"
       ]
@@ -191,7 +194,7 @@
     "longctx": {
       "patterns": [
         "opus-4",
-        "claude-fable-5",
+        "claude-fable-5.1",
         "gpt-5.6-luna"
       ]
     },
@@ -225,24 +228,24 @@
     "general": {
       "S": [
         "gpt-5.6-luna",
-        "claude-fable-5",
-        "claude-opus-4.8"
+        "claude-fable-5.1",
+        "claude-opus-5"
       ]
     },
     "coding": {
       "S": [
-        "claude-fable-5",
+        "claude-fable-5.1",
         "deepseek-v4-pro",
-        "claude-opus-4.8",
+        "claude-opus-5",
         "gpt-5.6-sol"
       ]
     },
     "reasoning": {
       "S": [
         "sonar-deep-research",
-        "grok-4.20-multi-agent",
+        "grok-4.6",
         "gpt-5.6-sol",
-        "claude-opus-4.8"
+        "claude-opus-5"
       ]
     },
     "image": {
@@ -253,8 +256,8 @@
     "longctx": {
       "S": [
         "gpt-5.6-luna",
-        "claude-fable-5",
-        "claude-opus-4.8"
+        "claude-fable-5.1",
+        "claude-opus-5"
       ]
     }
   },
@@ -268,9 +271,9 @@
     "deep_research": "reasoning",
     "image_gen": "image"
   },
-  "default_model_suffix": "anthropic.claude-fable-5",
+  "default_model_suffix": "anthropic.claude-fable-5.1",
   "default_model_suffix_fallbacks": [
-    "anthropic.claude-opus-4.8",
+    "anthropic.claude-opus-5",
     "openai.gpt-5.6-sol",
     "openai.gpt-5.6-luna",
     "deepseek.deepseek-v4-pro"

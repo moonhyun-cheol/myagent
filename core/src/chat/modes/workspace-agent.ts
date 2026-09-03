@@ -9,7 +9,7 @@ import {
   resolveSessionReasoningEffort,
 } from '../../providers/harness-policy.js';
 import { normalizeExecutionPolicy } from '../../execution-policy.js';
-import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
+import { resolveAgentSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
 import { appendAgentAuditEvent } from '../../agent/agent-audit-ledger.js';
 import { resolveAutopilotEnabled } from '../../agent/agent-autopilot.js';
@@ -40,11 +40,10 @@ import {
 } from '../../agent/agent-workspace-lock.js';
 
 /**
- * Run Code Agent when the session is bound to a work folder, or the user
- * Workspace association is the only local condition for entering the agent plane.
- *
- * Top-level「새 채팅」(standalone, no project_id) must NOT inherit the connected
- * notebook folder — only chats under that folder/project do (or explicit 코드 chip).
+ * Run Code Agent when the session is bound to a work folder, or standalone
+ * with a configured global `dev_workspace_root` (R-301, RC-002).
+ * Workspace association selects the tool plane only — it must not rewrite
+ * `routing.mode` to `web_dev` (RC-013) or inject the web_dev skill (RC-014/015).
  */
 export function shouldRunWorkspaceAgent(
   configPath: string,
@@ -63,14 +62,14 @@ export function shouldRunWorkspaceAgent(
   return Boolean(sessionRoot || (scope === 'standalone' && hasDevWorkspace(configPath)));
 }
 
-/** So the UI shows「코드 에이전트」instead of「일반 채팅」when tools actually run. */
+/** Workspace tools must not rewrite the user's route intent (RC-013). */
+export function preserveWorkspaceAgentRouting(routing: RouteDecision): RouteDecision {
+  return routing;
+}
+
+/** @deprecated Identity alias — chat must stay chat (RC-013). */
 export function promoteWorkspaceAgentRouting(routing: RouteDecision): RouteDecision {
-  if (routing.mode !== 'chat') return routing;
-  return {
-    ...routing,
-    mode: 'web_dev',
-    matched_tool: routing.matched_tool === 'greeting' ? 'web_dev' : (routing.matched_tool || 'web_dev'),
-  };
+  return preserveWorkspaceAgentRouting(routing);
 }
 
 export function resolveCodeAgentProvider(
@@ -189,7 +188,7 @@ export async function runWorkspaceCodeAgent(opts: {
     extraSystemNotes,
   } = opts;
 
-  const routing = promoteWorkspaceAgentRouting(rawRouting);
+  const routing = preserveWorkspaceAgentRouting(rawRouting);
   const sessionRoots = resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId);
   const sessionRoot = sessionRoots[0] ?? null;
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
@@ -235,10 +234,7 @@ export async function runWorkspaceCodeAgent(opts: {
       `Ollama skipped for coding — using ${provider.display} (set MY_AGENT_ALLOW_OLLAMA_CODE=1 to force Ollama)`,
     );
   }
-  let skillMode = resolveLlmSkillMode(routing.mode);
-  if (!skillMode && routing.mode === 'web_dev') {
-    skillMode = 'web_dev';
-  }
+  const skillMode = resolveAgentSkillMode(rawRouting);
   const systemPrompt = skillMode
     ? resolveSkillSystemPrompt(skillMode, cqrRoot, message, { workspaceRoot }) ?? undefined
     : undefined;
@@ -335,6 +331,7 @@ export async function runWorkspaceCodeAgent(opts: {
     autopilot,
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
+    agentPromptProfile: rawRouting.mode === 'web_dev' ? 'coding' : 'general',
     onThought: callbacks?.onThought,
     onCode: callbacks?.onCode,
     onWorkspaceMutate: callbacks?.onWorkspaceMutate,
@@ -352,7 +349,7 @@ export async function runWorkspaceCodeAgent(opts: {
     application_notice: agent.applicationNotice,
     userMessage: message,
     emptyFallback:
-      '코드 에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
+      '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
   });
 
   return {

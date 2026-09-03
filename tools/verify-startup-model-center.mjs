@@ -12,10 +12,10 @@ import { configurationWireCandidates } from '../core/dist/providers/provider-wir
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
 
-const explicitFable = describeRemoteModels(['anthropic/claude-fable-5']);
+const explicitFable = describeRemoteModels(['anthropic/claude-fable-5.1']);
 assert.deepEqual(
   explicitFable.map((model) => model.id),
-  ['anthropic/claude-fable-5'],
+  ['anthropic/claude-fable-5.1'],
   'an explicit user model selection must survive automatic family pruning',
 );
 assert.deepEqual(
@@ -102,11 +102,11 @@ assert.deepEqual(
   [
     'openai.gpt-5.6-sol',
     'openai.gpt-5.6-luna',
-    'anthropic.claude-fable-5',
-    'anthropic.claude-opus-4.8',
+    'anthropic.claude-fable-5.1',
+    'anthropic.claude-opus-5',
     'deepseek.deepseek-v4-pro',
     'perplexity.sonar-deep-research',
-    'x-ai.grok-4.20-multi-agent',
+    'x-ai.grok-4.6',
     'google.gemini-3-pro-image',
   ],
 );

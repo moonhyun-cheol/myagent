@@ -30,14 +30,14 @@ try {
   assert.equal(resolveRequestedModelForSession(store, projects, 'chat-a', 'auto'), 'openai/project-default');
   assert.equal(resolveRequestedModelForSession(store, projects, 'chat-b', 'auto'), 'openai/workspace-default');
 
-  assert.equal(store.setPreferredModel('chat-a', 'anthropic/claude-fable-5')?.preferred_model, 'anthropic/claude-fable-5');
+  assert.equal(store.setPreferredModel('chat-a', 'anthropic/claude-fable-5.1')?.preferred_model, 'anthropic/claude-fable-5.1');
   assert.equal(store.setPreferredModel('chat-b', 'openai/gpt-5.6')?.preferred_model, 'openai/gpt-5.6');
-  assert.equal(store.load('chat-a')?.preferred_model, 'anthropic/claude-fable-5');
+  assert.equal(store.load('chat-a')?.preferred_model, 'anthropic/claude-fable-5.1');
   assert.equal(store.load('chat-b')?.preferred_model, 'openai/gpt-5.6');
-  assert.equal(store.publicRecord(store.load('chat-a')).preferred_model, 'anthropic/claude-fable-5');
+  assert.equal(store.publicRecord(store.load('chat-a')).preferred_model, 'anthropic/claude-fable-5.1');
   assert.equal(store.publicRecord(store.load('chat-b')).preferred_model, 'openai/gpt-5.6');
   assert.equal(store.setPreferredModel('chat-a', '   '), null);
-  assert.equal(store.load('chat-a')?.preferred_model, 'anthropic/claude-fable-5');
+  assert.equal(store.load('chat-a')?.preferred_model, 'anthropic/claude-fable-5.1');
 
   const workspace = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
   const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');

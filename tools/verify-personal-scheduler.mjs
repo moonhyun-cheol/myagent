@@ -42,7 +42,7 @@ try {
   mkdirSync(path.dirname(schedulerConfigPath), { recursive: true });
   const schedulerDefaults = resolveSchedulerExecutionConfig(loadUserOverrides(schedulerConfigPath));
   assert.equal(schedulerDefaults.model, 'provider:custom@openai%2Fgpt-5.6-luna');
-  assert.equal(schedulerDefaults.executionPolicy.reasoning, 'none');
+  assert.equal(schedulerDefaults.executionPolicy.reasoning, 'auto');
   saveUserOverrides(schedulerConfigPath, { scheduler_default_model: 'provider:openai@gpt-test' }, root);
   assert.equal(resolveSchedulerExecutionConfig(loadUserOverrides(schedulerConfigPath)).model, 'provider:openai@gpt-test');
 

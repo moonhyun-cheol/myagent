@@ -13,7 +13,7 @@ import {
   SlidersHorizontal,
   Trash,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createProject,
   deleteProject,
@@ -41,6 +41,7 @@ import { openScopeSettings, ScopeSettingsModalHost } from './ScopeSettingsModal'
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
 const PINNED_NODES_KEY = 'my-agent-workspace-pinned-nodes';
+const SESSION_PREVIEW_LIMIT = 5;
 const PROJECT_COLORS: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
 const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
   gray: '#94a3b8', red: '#f87171', orange: '#fb923c', yellow: '#facc15',
@@ -472,21 +473,18 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
               <span className="font-medium">개인 작업</span>
             </div>
             <div className="ml-[11px] border-l border-line/70 pl-1">
-              {[...(tree?.standalone_sessions ?? [])]
-                .filter(matchSession)
-                .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))
-                .map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeSessionId}
-                  indent={20}
-                  pinned={pinned.includes(session.id)}
-                  onTogglePin={() => togglePin(session.id)}
-                  onSelect={() => void onSelectSession(session.id)}
-                  onDelete={() => void onDeleteSession(session.id)}
-                />
-              ))}
+              <SessionPreviewList
+                sessions={[...(tree?.standalone_sessions ?? [])]
+                  .filter(matchSession)
+                  .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))}
+                activeSessionId={activeSessionId}
+                indent={20}
+                pinnedSessionIds={pinned}
+                revealAll={Boolean(q)}
+                onSelect={(session) => void onSelectSession(session.id)}
+                onDelete={(id) => void onDeleteSession(id)}
+                onTogglePin={togglePin}
+              />
             </div>
           </div>
         ) : null}
@@ -506,6 +504,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                 activeWorkspaceId={tree?.active_workspace_project_id ?? null}
                 matchSession={matchSession}
                 matchNode={matchNode}
+                revealAll={Boolean(q)}
                 onToggle={toggle}
                 onActivateWorkspace={(n) => void onActivateWorkspace(n)}
                 onOpenNodeChat={(n) => void openNodeChat(n)}
@@ -538,6 +537,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   collapsed={collapsed.has(p.id)}
                   activeSessionId={activeSessionId}
                   matchSession={matchSession}
+                  revealAll={Boolean(q)}
                   onToggle={() => toggle(p.id)}
                   onOpenChat={() =>
                     void openNodeChat({
@@ -602,6 +602,7 @@ function TreeNode({
   activeWorkspaceId,
   matchSession,
   matchNode,
+  revealAll,
   onToggle,
   onActivateWorkspace,
   onOpenNodeChat,
@@ -626,6 +627,7 @@ function TreeNode({
   activeWorkspaceId: string | null;
   matchSession: (s: SessionSummary) => boolean;
   matchNode: (n: WorkspaceNode) => boolean;
+  revealAll?: boolean;
   onToggle: (id: string) => void;
   onActivateWorkspace: (node: WorkspaceNode) => void;
   onOpenNodeChat: (node: WorkspaceNode) => void;
@@ -756,18 +758,16 @@ function TreeNode({
 
       {isOpen ? (
         <div className="ml-[11px] border-l border-line/70 pl-1">
-          {pinnedFirst((node.sessions ?? []).filter(matchSession), pinnedSessionIds).map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              active={s.id === activeSessionId}
-              indent={pad + 18}
-              pinned={pinnedSessionIds.includes(s.id)}
-              onTogglePin={() => onToggleSessionPin(s.id)}
-              onSelect={() => onSelectSession(s, workspaceRoot)}
-              onDelete={() => onDeleteSession(s.id)}
-            />
-          ))}
+          <SessionPreviewList
+            sessions={pinnedFirst((node.sessions ?? []).filter(matchSession), pinnedSessionIds)}
+            activeSessionId={activeSessionId}
+            indent={pad + 18}
+            pinnedSessionIds={pinnedSessionIds}
+            revealAll={revealAll}
+            onSelect={(session) => onSelectSession(session, workspaceRoot)}
+            onDelete={onDeleteSession}
+            onTogglePin={onToggleSessionPin}
+          />
           {pinnedFirst((node.children ?? []).filter(matchNode), pinnedNodes).map((child) => (
             <TreeNode
               key={child.id}
@@ -781,6 +781,7 @@ function TreeNode({
               activeWorkspaceId={activeWorkspaceId}
               matchSession={matchSession}
               matchNode={matchNode}
+              revealAll={revealAll}
               onToggle={onToggle}
               onActivateWorkspace={onActivateWorkspace}
               onOpenNodeChat={onOpenNodeChat}
@@ -814,6 +815,7 @@ function ProjectBlock({
   collapsed,
   activeSessionId,
   matchSession,
+  revealAll,
   onToggle,
   onOpenChat,
   onSelectSession,
@@ -836,6 +838,7 @@ function ProjectBlock({
   collapsed: boolean;
   activeSessionId: string | null;
   matchSession: (s: SessionSummary) => boolean;
+  revealAll?: boolean;
   onToggle: () => void;
   onOpenChat: () => void;
   onSelectSession: (id: string) => void;
@@ -902,23 +905,91 @@ function ProjectBlock({
           ) : null}
         </div>
       </div>
-      {!collapsed
-        ? pinnedFirst(sessions.filter(matchSession), pinnedSessionIds).map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              active={s.id === activeSessionId}
-              indent={28}
-              pinned={pinnedSessionIds.includes(s.id)}
-              onTogglePin={() => onToggleSessionPin(s.id)}
-              onSelect={() => onSelectSession(s.id)}
-              onDelete={() => onDeleteSession(s.id)}
-            />
-          ))
-        : null}
+      {!collapsed ? (
+        <SessionPreviewList
+          sessions={pinnedFirst(sessions.filter(matchSession), pinnedSessionIds)}
+          activeSessionId={activeSessionId}
+          indent={28}
+          pinnedSessionIds={pinnedSessionIds}
+          revealAll={revealAll}
+          onSelect={(session) => onSelectSession(session.id)}
+          onDelete={onDeleteSession}
+          onTogglePin={onToggleSessionPin}
+        />
+      ) : null}
       {/* silence unused id when collapsed-only */}
       <span className="hidden">{id}</span>
     </div>
+  );
+}
+
+function SessionPreviewList({
+  sessions,
+  activeSessionId,
+  indent,
+  pinnedSessionIds,
+  revealAll = false,
+  onSelect,
+  onDelete,
+  onTogglePin,
+}: {
+  sessions: SessionSummary[];
+  activeSessionId: string | null;
+  indent: number;
+  pinnedSessionIds: string[];
+  revealAll?: boolean;
+  onSelect: (session: SessionSummary) => void;
+  onDelete: (id: string) => void;
+  onTogglePin: (id: string) => void;
+}) {
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const [expanded, setExpanded] = useState(() =>
+    Boolean(activeSessionId && sessions.slice(SESSION_PREVIEW_LIMIT).some((session) => session.id === activeSessionId)),
+  );
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (sessionsRef.current.slice(SESSION_PREVIEW_LIMIT).some((session) => session.id === activeSessionId)) {
+      setExpanded(true);
+    }
+  }, [activeSessionId]);
+
+  if (sessions.length === 0) return null;
+
+  const showAll = revealAll || expanded || sessions.length <= SESSION_PREVIEW_LIMIT;
+  const visible = showAll ? sessions : sessions.slice(0, SESSION_PREVIEW_LIMIT);
+  const hiddenCount = sessions.length - SESSION_PREVIEW_LIMIT;
+
+  return (
+    <>
+      {visible.map((session) => (
+        <SessionRow
+          key={session.id}
+          session={session}
+          active={session.id === activeSessionId}
+          indent={indent}
+          pinned={pinnedSessionIds.includes(session.id)}
+          onTogglePin={() => onTogglePin(session.id)}
+          onSelect={() => onSelect(session)}
+          onDelete={() => onDelete(session.id)}
+        />
+      ))}
+      {hiddenCount > 0 && !revealAll ? (
+        <button
+          type="button"
+          className="mb-0.5 flex h-7 w-full items-center gap-1 rounded-md pr-1 text-[11px] text-muted transition hover:bg-ink hover:text-text"
+          style={{ paddingLeft: indent }}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={showAll}
+          aria-label={showAll ? '숨겨진 대화 접기' : '숨겨진 대화 펼치기'}
+          title={showAll ? '숨겨진 대화 접기' : '숨겨진 대화 펼치기'}
+        >
+          {showAll ? <CaretDown size={12} /> : <CaretRight size={12} />}
+          <span className="truncate">{showAll ? '접기' : '숨겨진 대화'}</span>
+        </button>
+      ) : null}
+    </>
   );
 }
 

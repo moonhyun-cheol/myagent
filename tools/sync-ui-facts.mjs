@@ -69,6 +69,14 @@ const facts = {
     title_bar: [mainWinRel, 'shell/CqrPa.Shell/DarkTitleBar.cs', 'shell/CqrPa.Shell/MainWindow.xaml.cs'],
     delete_confirm: [confirmModalRel, confirmLibRel, navRel, treeRel],
     composer: [chatPaneRel, 'ui/workspace/src/store/workspaceStore.ts'],
+    document: [
+      'ui/workspace/src/components/MarkdownDocument.tsx',
+      'ui/workspace/src/lib/documentFile.ts',
+      'ui/workspace/src/lib/documentMemo.ts',
+      'ui/workspace/src/components/workspacePreviewModes.ts',
+      'ui/workspace/src/store/workspaceStore.ts',
+      'core/config/defaults/document-scratch.json',
+    ],
   },
   work_kit_launcher: {
     shell: existsSync(path.join(root, 'shell/WorkKitLauncher/MainWindow.xaml'))

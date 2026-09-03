@@ -1,3 +1,10 @@
+import type { ReasoningLevelWire } from './reasoning-levels.js';
+import {
+  clampReasoningEffortToSupported,
+  modelOmitsReasoningEffort,
+  modelSupportedReasoningLevels,
+} from './reasoning-levels.js';
+
 /**
  * Shared harness knobs for chat + code-agent (OWUI IQ redesign).
  * Env-only; no secrets. Defaults: reasoning high, history 40, code OWUI native tools.
@@ -114,24 +121,35 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 }
 
 export function resolveSessionReasoningEffort(
-  requested: 'none' | 'auto' | 'low' | 'medium' | 'high',
+  requested: ReasoningLevelWire | 'none',
   env: NodeJS.ProcessEnv = process.env,
   opts?: { providerId?: string | null; modelId?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
+  if (modelOmitsReasoningEffort(opts?.modelId)) return null;
+  // Legacy product value: omit effort field (not API "none").
   if (requested === 'none') return null;
-  const model = String(opts?.modelId ?? '').toLowerCase();
-  if (
-    (opts?.providerId === 'anthropic' || /claude/.test(model))
-    && !/(?:opus-(?:4[-_.](?:5|6|7|8)|5)|sonnet-(?:4[-_.]6|5)|fable-5|mythos)/.test(model)
-  ) {
-    return null;
-  }
+
+  const supported = modelSupportedReasoningLevels(opts?.modelId);
+  // Empty supported with a model id means this family rejects effort (e.g. old Claude).
+  if (opts?.modelId && supported.length === 0) return null;
+
   if ((env.MY_AGENT_REASONING_EFFORT ?? '').trim()) {
-    return resolveReasoningEffort(env);
+    const fromEnv = resolveReasoningEffort(env);
+    if (!fromEnv) return null;
+    return clampReasoningEffortToSupported(fromEnv, supported.length ? supported : ['low', 'medium', 'high']);
   }
-  if (requested !== 'auto') return requested;
-  return resolveReasoningEffort(env);
+
+  if (requested === 'auto') {
+    const fromEnv = resolveReasoningEffort(env);
+    if (!fromEnv) return null;
+    return clampReasoningEffortToSupported(fromEnv, supported.length ? supported : ['low', 'medium', 'high']);
+  }
+
+  return clampReasoningEffortToSupported(
+    requested,
+    supported.length ? supported : ['low', 'medium', 'high'],
+  );
 }
 
 /** Fields to merge into ChatCompletionOptions for every LLM call. */

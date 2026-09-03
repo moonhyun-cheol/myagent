@@ -105,6 +105,33 @@ assert.match(orchestrator, /routing\.mode === 'web_dev' && !workspaceAgentAvaila
 assert.doesNotMatch(workspaceAgent, /looksLikeToolTask|messagePrefersBrandSkillOverCode|looksLikeAcceptanceReviewTask|requiresLiveFsCapability|requiresShellNetCapability/);
 assert.match(workspaceAgent, /return Boolean\(sessionRoot \|\| \(scope === 'standalone' && hasDevWorkspace\(configPath\)\)\)/);
 assert.doesNotMatch(workspaceAgent, /previousLockedRoot|editorContext: req\.editor_context|setSessionLockedTarget/);
+// Agent plane (R-301/RC-013) ≠ route rewrite: workspace tools keep routing.mode.
+const skillFlow = read('core/src/skills/chat-skill-flow.ts');
+assert.match(skillFlow, /export function resolveAgentSkillMode/);
+assert.match(workspaceAgent, /resolveAgentSkillMode\(rawRouting\)/);
+assert.match(workspaceAgent, /preserveWorkspaceAgentRouting/);
+assert.doesNotMatch(workspaceAgent, /mode:\s*'web_dev'/);
+assert.doesNotMatch(workspaceAgent, /matched_tool === 'greeting' \? 'web_dev'/);
+assert.match(workspaceAgent, /agentPromptProfile:\s*rawRouting\.mode === 'web_dev' \? 'coding' : 'general'/);
+assert.doesNotMatch(workspaceAgent, /resolveLlmSkillMode\(routing\.mode\)/);
+assert.doesNotMatch(
+  workspaceAgent,
+  /if \(!skillMode && routing\.mode === 'web_dev'\)/,
+);
+assert.match(runHelpers, /agentPromptProfile !== 'general'/);
+assert.match(runHelpers, /Do not force a completion-report, review table, or paths footer/);
+const modelPicker = read('core/src/models/model-picker.ts');
+assert.doesNotMatch(modelPicker, /effectiveAutoModelMode|hasDevWorkspace/);
+assert.doesNotMatch(orchestrator, /effectiveAutoModelMode/);
+assert.doesNotMatch(orchestrator, /promoteWorkspaceAgentRouting/);
+assert.match(orchestrator, /preserveWorkspaceAgentRouting\(routing\)/);
+assert.match(orchestrator, /mode: routing\.mode/);
+assert.match(orchestrator, /statusLabelForMode\(routing\.mode\)/);
+assert.doesNotMatch(orchestrator, /코드 에이전트 · 도구 실행 중/);
+const webDevSkill = read('core/config/defaults/skills/web-dev.md');
+assert.doesNotMatch(webDevSkill, /Exit Gate/);
+assert.doesNotMatch(webDevSkill, /실행계획:/);
+assert.match(webDevSkill, /Do not force a completion-report template/);
 assert.match(workspaceLock, /Only an explicit structured path may narrow/);
 assert.doesNotMatch(workspaceLock, /opts\.message|opts\.editorContext|opts\.previousLockedRoot/);
 assert.doesNotMatch(lockedConstraints, /inferArtifactContract\(opts\.userMessage\)|looksLikeDirectionReversal\(opts\.userMessage\)/);
@@ -123,6 +150,10 @@ assert.doesNotMatch(browserAgentMode, /looksLikeProductBuildTask|route-task-gate
 assert.doesNotMatch(orchestrator, /appendChatResponseStyle|messageNeedsChatCapabilityBoundary|appendChatCapabilityBoundary|route-heuristics/);
 assert.doesNotMatch(failurePlane, /코드 칩/);
 assert.throws(() => read('core/src/router/router-service.ts'), /ENOENT/);
+
+const { resolveAgentSkillMode } = await import('../core/dist/skills/chat-skill-flow.js');
+assert.equal(resolveAgentSkillMode({ mode: 'chat', confidence: 1, layer: 'default' }), null);
+assert.equal(resolveAgentSkillMode({ mode: 'web_dev', confidence: 1, layer: 'explicit' }), 'web_dev');
 
 const { scrubAgentChannelLeak } = await import('../core/dist/chat/chat-filters.js');
 const { stripOwuiImageMarkdown } = await import('../core/dist/image/owui-media.js');

@@ -1,6 +1,7 @@
 import { codingPlanLockEnabled } from './providers/harness-policy.js';
+import { isReasoningLevel, type ReasoningLevelWire } from './providers/reasoning-levels.js';
 
-export type ReasoningLevel = 'none' | 'auto' | 'low' | 'medium' | 'high';
+export type ReasoningLevel = ReasoningLevelWire;
 export type AutopilotLevel = 'off' | 'auto' | 'on';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
 export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';
@@ -37,9 +38,7 @@ export function normalizeExecutionPolicy(
   const approval = value?.approval;
   const workspaceBehavior = value?.workspace_behavior;
   return {
-    reasoning: reasoning === 'low' || reasoning === 'medium' || reasoning === 'high' || reasoning === 'auto'
-      ? reasoning
-      : fallback.reasoning,
+    reasoning: isReasoningLevel(reasoning) ? reasoning : fallback.reasoning,
     autopilot: autopilot === 'off' || autopilot === 'on' || autopilot === 'auto'
       ? autopilot
       : fallback.autopilot,

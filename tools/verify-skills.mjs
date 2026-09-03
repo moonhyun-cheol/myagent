@@ -37,10 +37,12 @@ assert.equal(shouldIncludeDesignFirst('그냥 HTML 만들어줘'), false);
 assert.equal(shouldIncludeDesignFirst('디자인 스펙 먼저'), true);
 assert.match(WEB_DEV_PRODUCT_UI_HINT, /Product UI look/);
 
-// --- web_dev Done / Exit Gate ---
+// --- web_dev thin prompt (RC-015): no mandatory report / Exit Gate template ---
 const webDev = readFileSync(path.join(root, 'core/config/defaults/skills/web-dev.md'), 'utf8');
-assert.match(webDev, /Exit Gate/);
-assert.match(webDev, /실행계획:/);
+assert.doesNotMatch(webDev, /Exit Gate/);
+assert.doesNotMatch(webDev, /실행계획:/);
+assert.doesNotMatch(webDev, /결론\s*→\s*미충족|Before done: list changed paths/i);
+assert.match(webDev, /Do not force a completion-report template/);
 assert.match(webDev, /Product UI look/);
 assert.doesNotMatch(webDev, /emit a short `PLAN:`/);
 const webDevPrompt = getSkillSystemPrompt('web_dev', root);

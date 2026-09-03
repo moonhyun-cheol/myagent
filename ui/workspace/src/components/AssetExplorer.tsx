@@ -5,20 +5,21 @@ import {
   FileCode,
   FileText,
   Folder,
-  SquaresFour,
 } from '@phosphor-icons/react';
 import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { openWorkspacePathInExplorer } from '../api/myAgentClient';
+import { openWorkspacePathInExplorer, readWorkspaceFsFile } from '../api/myAgentClient';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
+import { isAllowedDocumentPath } from '../lib/documentFile';
 import type { FileNode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 
 function TreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
   const openFile = useWorkspaceStore((s) => s.openFile);
-  const openFileOnCanvas = useWorkspaceStore((s) => s.openFileOnCanvas);
   const activeFileId = useWorkspaceStore((s) => s.activeFileId);
   const addContextPath = useWorkspaceStore((s) => s.addContextPath);
+  const appendToDocument = useWorkspaceStore((s) => s.appendToDocument);
+  const openDocumentPath = useWorkspaceStore((s) => s.openDocumentPath);
   const { menu, openAt, close } = useContextMenu();
   const [open, setOpen] = useState(depth < 2);
   const [openState, setOpenState] = useState<'idle' | 'opening' | 'failed'>('idle');
@@ -59,11 +60,27 @@ function TreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
       },
     ];
     if (node.kind !== 'folder') {
-      if (/\.(mmd|mermaid)$/i.test(node.name)) {
+      if (isAllowedDocumentPath(node.id)) {
         items.unshift({
-          id: 'open-canvas',
-          label: '워크플로 캔버스에서 열기',
-          onSelect: () => void openFileOnCanvas(node.id),
+          id: 'open-document',
+          label: '문서에서 열기',
+          onSelect: () => void openDocumentPath(node.id),
+        });
+        items.unshift({
+          id: 'append-to-document',
+          label: '문서에 추가',
+          onSelect: () => {
+            void (async () => {
+              try {
+                const { content } = await readWorkspaceFsFile(node.id);
+                appendToDocument(`## ${node.id}\n\n\`\`\`\n${content}\n\`\`\`\n`);
+                addContextPath(node.id);
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                useWorkspaceStore.setState({ documentStatus: message, mode: 'document' });
+              }
+            })();
+          },
         });
       }
       items.unshift({
@@ -108,7 +125,7 @@ function TreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
 
   const Icon = node.language === 'markdown' ? FileText : FileCode;
   const active = activeFileId === node.id || activeFileId === `file:${node.id}`;
-  const canvasAvailable = /\.(mmd|mermaid)$/i.test(node.name);
+  const docAvailable = isAllowedDocumentPath(node.id);
 
   return (
     <>
@@ -142,18 +159,17 @@ function TreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
             <ArrowSquareOut size={12} />
             {openState === 'opening' ? '여는 중' : openState === 'failed' ? '실패' : '열기'}
           </button>
-          <button
-            type="button"
-            disabled={!canvasAvailable}
-            title={canvasAvailable ? '캔버스에서 열기' : '이 파일 형식은 캔버스에서 열 수 없습니다'}
-            className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent/60 hover:text-text disabled:cursor-not-allowed disabled:border-line/60 disabled:text-muted/40 disabled:hover:border-line/60 disabled:hover:text-muted/40"
-            onClick={() => {
-              if (canvasAvailable) void openFileOnCanvas(node.id);
-            }}
-          >
-            <SquaresFour size={12} />
-            캔버스
-          </button>
+          {docAvailable ? (
+            <button
+              type="button"
+              title="문서에서 열기"
+              className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] text-muted hover:border-accent/60 hover:text-text"
+              onClick={() => void openDocumentPath(node.id)}
+            >
+              <FileText size={12} />
+              문서
+            </button>
+          ) : null}
         </div>
       </div>
       {menu ? <ContextMenuPortal menu={menu} onClose={close} /> : null}

@@ -10,6 +10,7 @@ import {
   type AgentAutopilotMode,
   type ReasoningLevel,
 } from '../api/myAgentClient';
+import { ALL_REASONING_SELECT_OPTIONS } from '../lib/reasoning-levels';
 
 interface SettingsAgentPageProps {
   readOnly: boolean;
@@ -140,18 +141,19 @@ export function SettingsAgentPage({ readOnly, onManageWorkspaces }: SettingsAgen
           <div className="grid gap-5 lg:grid-cols-2">
             <div className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
               <h4 className="font-semibold">추론 수준</h4>
-              <p className="mb-4 mt-1 text-xs text-muted">모델이 지원하는 범위 안에서 적용합니다.</p>
+              <p className="mb-4 mt-1 text-xs text-muted">기본값입니다. 채팅에서는 선택한 모델이 지원하는 수준만 보입니다.</p>
               <select
                 data-testid="settings-reasoning-level"
-                value={reasoning}
+                value={
+                  ALL_REASONING_SELECT_OPTIONS.some((o) => o.value === reasoning) ? reasoning : 'auto'
+                }
                 disabled={busy || readOnly}
                 onChange={(event) => void saveReasoning(event.target.value as ReasoningLevel)}
                 className="w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2.5 text-sm outline-none focus:border-accent"
               >
-                <option value="auto">자동</option>
-                <option value="low">낮음</option>
-                <option value="medium">중간</option>
-                <option value="high">높음</option>
+                {ALL_REASONING_SELECT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
             <div className="rounded-2xl border border-line bg-panel p-5 shadow-sm">

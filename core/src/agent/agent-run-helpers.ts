@@ -160,6 +160,7 @@ export function buildAgentMessages(
         /### AGENTS\.md[\s\S]*$/,
         'SECRETARY: do not dump ui-target-map / MainWindow / ChatPane unless the user asked to edit UI.\n',
       );
+  const codingSpine = opts.agentPromptProfile !== 'general';
   const messages: ChatMessage[] = [
     {
       role: 'system',
@@ -168,7 +169,9 @@ export function buildAgentMessages(
         '',
         'You are one workspace agent. Decide from the conversation whether to explain, inspect, plan, mutate, or call tools.',
         'The local runtime does not classify the request or choose tools for you. Use any available safe tool when it improves the result; do not call tools merely to satisfy a local workflow.',
-        'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and an explicit outcome-relevant Acceptance tool, call active_task complete. Automatic diagnostics alone never complete it. User correction may replace/cancel it.',
+        codingSpine
+          ? 'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and an explicit outcome-relevant Acceptance tool, call active_task complete. Automatic diagnostics alone never complete it. User correction may replace/cancel it.'
+          : 'Answer in the form best suited to the request. Do not force a completion-report, review table, or paths footer. Call tools only when they improve the answer.',
         'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
         'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
         `Dev workspace root (not an FS cage): ${root}`,
@@ -177,7 +180,9 @@ export function buildAgentMessages(
         ...protocolLines,
         ...selfUiLines,
         'Preserve useful findings and answer in the form best suited to the user request.',
-        formatPatchFormatConstraints(),
+        codingSpine
+          ? formatPatchFormatConstraints()
+          : 'If you edit files, mutate via tools only (read before write). Prefer apply_patch / edit_file. Do not paste full files in chat.',
         injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
         injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace) : '',

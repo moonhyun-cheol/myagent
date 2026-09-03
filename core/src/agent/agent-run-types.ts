@@ -72,6 +72,11 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   maxSteps?: number;
   /** Extra system notes prepended after skill prompt. */
   extraSystemNotes?: string[];
+  /**
+   * Workspace-bound `chat` uses `general` (tools available, no coding-report spine).
+   * Explicit `web_dev` uses `coding`. Default `coding` for callers that omit it.
+   */
+  agentPromptProfile?: 'general' | 'coding';
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */
   autopilot?: boolean;
 }

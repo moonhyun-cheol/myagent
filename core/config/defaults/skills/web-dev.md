@@ -31,18 +31,13 @@ Landing-page copy, conversion structure, and Tailwind marketing layouts are hand
 - **PLAN** — enterprise redesign (`전체`/`전면`/`plan 먼저`); unlock with `진행`/`승인`.
 - **AGENT** — mutate now (`재설계`/`전환`/`실행해`/`구현`). Do not wait for 「진행」.
 
-Short in-run checklist before multi-file edits: emit `실행계획:` (목표·대상 파일·검증) then keep executing. This is **not** PLAN work-mode.
-
 ## Agent behavior
 
 - Touch **only files relevant to the request**.
-- Agentic loop: read/index → mutate → `run_diagnostics` / `run_tests` → on failure repair until pass.
-- **Done = evidence** — disk mutate + diagnostics. Strong verify (`verifyWitness.ok` / exit 0) required to claim 완료. Skipped ≠ pass. Null/weak alone cannot unlock 완료.
-- **Exit Gate** — close one open gate per turn (`openGate` / Critic `다음 수정`). Do not claim 완료 while a gate is open.
-- Post-mutate: `.js`/`.json` auto syntax check; `ERROR: SYNTAX_BROKEN` → repair, not 완료.
+- When editing: read/index → mutate → `run_diagnostics` / `run_tests` → repair failures. Do not claim the work is done without disk evidence.
+- Post-mutate: `.js`/`.json` auto syntax check; `ERROR: SYNTAX_BROKEN` → repair, not done.
 - Do not delete files, add dependencies, or edit `.env` / credentials unless the user explicitly asked.
 - Never suggest writing to `\\nas` or `\\nas3`.
-- After edits, **run** verification (`run_diagnostics`, then `run_tests` when present) — do not only suggest commands.
 - Prefer atomic `apply_patch` for multi-hunk/multi-file; `edit_file` for one unique SEARCH/REPLACE; `write_file` only for new files or full rewrites.
 - Patch format: unique `old_text` with ≥2 context lines; V4A `*** Begin Patch` or structured `files[{path,edits}]`. No markdown fences inside tool args.
 - Use Repository map / Query search hits / Adjacent code (symbol windows) before inventing paths.
@@ -61,27 +56,12 @@ Filesystem and browser tools are injected by the code-agent layer (workspace roo
 
 ## Output format
 
-- Short diagnosis (1–2 lines) if debugging
-- Steps or code blocks
-- Optional: risks / follow-up checks
+- Answer in the form best suited to the request (short prose, bullets, or code). Do not force a completion-report template, review table, or changed-paths footer.
+- Short diagnosis (1–2 lines) if debugging; steps or code blocks when editing.
+- Optional: risks / follow-up checks.
 
-When the user asks to **explain / report / summarize** the project (설명·보고·개요·현황), answer that question with grounded facts (read README / AGENTS.md; for MY Agent self-edit also RULEBOOK `00_PROJECT_BRIEF.md` via `.rulebook-link.yml`). Do **not** invent UI redesign tasks or unrelated file edits.
+When the user asks to **explain / report / summarize** the project (설명·보고·개요·현황), answer with grounded facts (read README / AGENTS.md; for MY Agent self-edit also RULEBOOK `00_PROJECT_BRIEF.md` via `.rulebook-link.yml`). Do **not** invent UI redesign tasks or unrelated file edits.
 
 For edit/debug requests: do not output generic essay answers without concrete next actions.
 
-## Acceptance review (검토 / 피드백 / 완성도 / 구조·아키텍처 평가)
-
-When the user asks to review, give feedback, check completeness, compare requirements vs built, or assess structure / refactoring need:
-
-1. **Ground first** — `read_file` / facts (`product-facts.json`, `ui-facts.json`, AGENTS.md, RULEBOOK via link, `.gitignore`) before judging. No invented file or policy state.
-2. **결론** — 1–2 sentences with `충족` / `부분` / `미충족`.
-3. **미충족 ≤3** — each with one evidence path (or Rule ID). Optional short table ≤6 rows.
-4. **다음 조치** — exactly **one** concrete next action (Acceptance unit).
-5. **하지 말 것** (optional) — up to 2 over-scoped moves (e.g. monorepo split, re-deciding R-023).
-
-Do **not** claim "완료" / "완성" if any 미충족 remains. Do **not** call already-decided policy "미결정". P0 only with deploy/security evidence.
-
-Keep normal edit answers short. Use this short template for review/assessment asks (no long requirement essays).
-
-Few-shot: "이 확장 요구대로 됐는지 검토" → read `manifest.json` + entry scripts → 결론 → 미충족≤3 → 다음 1개.
-Few-shot: "구조 검토, 리팩토링 필요성" → read AGENTS.md + facts + measure large modules → 결론 → 미충족≤3 → 다음 1개 (ASK; do not PLAN-mutate).
+When the user explicitly asks to review, give feedback, or assess completeness: ground with `read_file` / facts first, then a short verdict. Do not invent file or policy state. Do not use a fixed review layout for ordinary edit, explain, or chat turns.

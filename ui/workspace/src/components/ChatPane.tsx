@@ -24,6 +24,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
+import { isChatTurnUiHidden } from '../lib/documentMemo';
 import type { ChatTurn } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
@@ -33,12 +34,18 @@ import {
   summarizeSession,
   type ApprovalLevel,
   type ReasoningLevel,
+  type WorkspaceBehavior,
 } from '../api/myAgentClient';
 import {
   filesFromClipboard,
   filesFromClipboardApi,
   filesFromDataTransfer,
 } from '../lib/clipboardImages';
+import {
+  reasoningLevelLabel,
+  reasoningSelectOptionsForModel,
+  modelOmitsReasoningEffort,
+} from '../lib/reasoning-levels';
 import {
   copyImageToClipboard,
   copyImageUrl,
@@ -68,10 +75,11 @@ function writeChatScrollPosition(sessionId: string, scrollTop: number): void {
   }
 }
 
-const reasoningLabel = (value: string | null | undefined) =>
-  value === 'auto' ? '자동' : value === 'low' ? '낮음' : value === 'medium' ? '중간' : value === 'high' ? '높음' : value ? value : '모델 관리';
+const reasoningLabel = reasoningLevelLabel;
 const approvalLabel = (value: ApprovalLevel) =>
   value === 'autopilot' ? 'Autopilot' : value === 'delegate' ? '나 대신 승인' : '승인 요청';
+const workspaceBehaviorLabel = (value: WorkspaceBehavior | null | undefined) =>
+  value === 'plan' ? 'Plan' : value === 'ask' ? 'Ask' : 'Agent';
 
 function isImageAttachment(mime?: string, name?: string): boolean {
   if (mime?.startsWith('image/')) return true;
@@ -270,6 +278,16 @@ export function ChatPane() {
     draftSessionRef.current = next;
     setDraft(next ? draftsBySessionRef.current.get(next) ?? '' : '');
   }, [activeSessionId, draft]);
+  const composerPrefill = useWorkspaceStore((s) => s.composerPrefill);
+  const composerFocusNonce = useWorkspaceStore((s) => s.composerFocusNonce);
+  const clearComposerPrefill = useWorkspaceStore((s) => s.clearComposerPrefill);
+  const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (!composerFocusNonce || composerPrefill == null) return;
+    setDraft((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${composerPrefill}` : composerPrefill));
+    clearComposerPrefill();
+    window.setTimeout(() => draftInputRef.current?.focus(), 0);
+  }, [composerFocusNonce, composerPrefill, clearComposerPrefill]);
   const [messageReferences, setMessageReferences] = useState<MessageReference[]>([]);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [pasteHint, setPasteHint] = useState<string | null>(null);
@@ -360,10 +378,11 @@ export function ChatPane() {
   const workspacePromptBypassRef = useRef<string | null>(null);
   const { menu, openAt, close } = useContextMenu();
 
-  const hasChatTurns = chat.length > 0;
-  const latestUserTurnId = [...chat].reverse().find((t) => t.role === 'user')?.id ?? null;
+  const visibleChat = chat.filter((turn) => !isChatTurnUiHidden(turn, chat));
+  const hasChatTurns = visibleChat.length > 0;
+  const latestUserTurnId = [...visibleChat].reverse().find((t) => t.role === 'user')?.id ?? null;
   const latestAssistantTurnId =
-    [...chat].reverse().find((t) => t.role === 'assistant')?.id ?? null;
+    [...visibleChat].reverse().find((t) => t.role === 'assistant')?.id ?? null;
 
   const pinTurnNearTop = useCallback((turnId: string | null) => {
     if (!turnId) return;
@@ -552,6 +571,15 @@ export function ChatPane() {
                 : [...current, { id: turn.id, role: turn.role, text }],
             );
             flashPasteHint('메시지를 챗 참조에 추가했습니다.');
+          },
+        },
+        {
+          id: 'append-to-document',
+          label: '문서에 추가',
+          disabled: !turn.text?.trim(),
+          onSelect: () => {
+            useWorkspaceStore.getState().appendToDocument(turn.text.trim());
+            flashPasteHint('문서에 추가했습니다.');
           },
         },
       ];
@@ -960,9 +988,10 @@ export function ChatPane() {
           aria-expanded={policyOpen}
           onClick={() => setPolicyOpen((open) => !open)}
           className="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-text"
-          title="현재 채팅의 추론 수준과 작업 권한"
+          title="현재 채팅의 추론·작업 방식·승인 권한"
         >
-          추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
+          {workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)}
+          {' · '}추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
           {' · '}{approvalLabel(activeExecutionPolicy.approval)}
         </button>
         {policyOpen ? (
@@ -977,19 +1006,47 @@ export function ChatPane() {
               추론 수준
               <select
                 data-testid="chat-reasoning-level"
-                value={activeExecutionPolicy.reasoning}
-                disabled={busy}
+                value={
+                  reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' })
+                    .some((o) => o.value === activeExecutionPolicy.reasoning)
+                    ? activeExecutionPolicy.reasoning
+                    : 'auto'
+                }
+                disabled={busy || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel)}
                 onChange={(event) => void setExecutionPolicy({
                   reasoning: event.target.value as ReasoningLevel,
                 })}
                 className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
               >
-                <option value="auto">자동</option>
-                <option value="low">낮음</option>
-                <option value="medium">중간</option>
-                <option value="high">높음</option>
+                {reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' }).map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {skillMode === 'image' || modelOmitsReasoningEffort(selectedModel) ? (
+                <span className="mt-1 block text-[11px] text-muted">이미지 모델에서는 추론 수준을 쓰지 않습니다.</span>
+              ) : null}
+            </label>
+            <label className="mt-3 block text-xs font-medium text-text">
+              작업 방식
+              <select
+                data-testid="chat-workspace-behavior"
+                value={activeExecutionPolicy.workspace_behavior ?? 'agent'}
+                disabled={busy}
+                onChange={(event) =>
+                  void setExecutionPolicy({
+                    workspace_behavior: event.target.value as WorkspaceBehavior,
+                  })
+                }
+                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+              >
+                <option value="agent">Agent — 도구로 바로 실행</option>
+                <option value="plan">Plan — 계획만 (수정 전 확인)</option>
+                <option value="ask">Ask — 설명·질문 (도구 최소)</option>
               </select>
             </label>
+            <p className="mt-1 text-[11px] leading-5 text-muted">
+              Plan은 「작업 시 승인 요청」과 다릅니다. 위 항목은 에이전트 행동 방식, 아래는 위험 작업 승인입니다.
+            </p>
             <label className="mt-3 block text-xs font-medium text-text">
               작업 권한
               <select
@@ -1010,33 +1067,6 @@ export function ChatPane() {
                 <option value="ask">작업 시 승인 요청</option>
               </select>
             </label>
-            <label className="mt-3 block text-xs font-medium text-text">
-              이 채팅의 임시 작업폴더
-              <select
-                data-testid="chat-workspace-binding"
-                value={activeWorkspaceProjectId ?? ''}
-                disabled={busy || workspaceSaving}
-                onChange={(event) => {
-                  const workspaceProjectId = event.target.value || null;
-                  setWorkspaceSaving(true);
-                  void setSessionWorkspaceProject(workspaceProjectId)
-                    .then(() => flashPasteHint(workspaceProjectId ? '이 채팅에 작업폴더를 연결했습니다.' : '임시 작업폴더 연결을 해제했습니다.'))
-                    .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
-                    .finally(() => setWorkspaceSaving(false));
-                }}
-                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
-              >
-                <option value="">프로젝트 기준 / 연결 안 함</option>
-                {workspaceOptions.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.title} · {workspace.path}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="mt-1 text-[11px] leading-5 text-muted">
-              등록된 작업폴더만 선택할 수 있으며 이 채팅에만 적용됩니다.
-            </p>
             <p className="mt-2 text-[11px] leading-5 text-muted">
               외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 Luna에 위임하지 않고 사용자에게 확인합니다.
             </p>
@@ -1099,12 +1129,12 @@ export function ChatPane() {
         onContextMenu={openSessionMenu}
       >
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
-          {chat.length === 0 && !busy ? (
+          {visibleChat.length === 0 && !busy ? (
             <div className="py-16 text-center">
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
             </div>
           ) : null}
-          {chat.map((turn) => (
+          {visibleChat.map((turn) => (
             <div
               key={turn.id}
               ref={(el) => {
@@ -1400,6 +1430,7 @@ export function ChatPane() {
               </div>
             ) : null}
             <textarea
+              ref={draftInputRef}
               value={draft}
               onChange={(e) => {
                 const next = e.target.value;

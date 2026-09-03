@@ -15,6 +15,14 @@ import type {
   WorkspaceMode,
 } from '../types';
 import { isCanvasAsset } from '../types';
+import { isDocumentMemoMessage } from '../lib/documentMemo';
+import { normalizeWorkspaceMode } from '../components/workspacePreviewModes';
+import {
+  dumpRelPath,
+  isAllowedDocumentPath,
+  normalizeRelPath,
+  sessionScratchRelPath,
+} from '../lib/documentFile';
 import type { Edge, Node } from '@xyflow/react';
 import {
   clearStoredSessionId,
@@ -202,6 +210,9 @@ function assetToCanvasNode(asset: WorkspaceAsset, position: { x: number; y: numb
   };
 }
 
+/** Prefix for document sticky-note asks — restored sessions stay out of ChatPane. */
+export { DOCUMENT_MEMO_MARKER, isDocumentMemoMessage } from '../lib/documentMemo';
+
 function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
   return messages.map((m, i) => {
     const urls = Array.isArray(m.image_urls)
@@ -211,11 +222,18 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
     const isPlaceholder =
       urls.length > 0
       && (/이미지를?\s*\d*\s*장?\s*생성했습니다/.test(text) || text.trim() === '');
+    const prevUser = m.role === 'assistant' ? messages[i - 1] : undefined;
+    const uiHidden =
+      isDocumentMemoMessage(text) ||
+      (m.role === 'assistant' &&
+        typeof prevUser?.content === 'string' &&
+        isDocumentMemoMessage(prevUser.content));
     return {
       id: `restored-${i}-${m.at}`,
       role: m.role,
       mode: (m.mode === 'image_gen' ? 'image' : m.mode === 'web_dev' ? 'code' : 'text') as AiWorkMode,
       text: isPlaceholder ? '' : text,
+      uiHidden: uiHidden || undefined,
       model: m.role === 'assistant' ? m.reasoning?.model ?? m.model : undefined,
       thought: m.role === 'assistant'
         ? (typeof m.reasoning?.content === 'string' && m.reasoning.content.trim()
@@ -311,6 +329,8 @@ interface LiveJob {
   /** @ context paths for this turn. */
   contextPaths: string[];
   terminalUsed: boolean;
+  /** document-memo asks stay out of ChatPane and run as ask-only. */
+  uiSurface?: 'chat' | 'document-memo';
 }
 
 export type PendingMutateReview = {
@@ -328,6 +348,7 @@ export interface QueuedMessage {
   contextPaths: string[];
   model?: string;
   createdAt: string;
+  uiSurface?: 'chat' | 'document-memo';
 }
 
 interface WorkspaceState {
@@ -350,6 +371,17 @@ interface WorkspaceState {
   editorContent: string;
   editorSaveStatus: string | null;
   editorSaving: boolean;
+  /** Preview「문서」 tab — markdown/txt cowork surface. */
+  documentRelPath: string | null;
+  documentContent: string;
+  documentDirty: boolean;
+  documentSelection: string;
+  documentStatus: string | null;
+  lastDumpPath: string | null;
+  lastDumpContent: string | null;
+  /** ChatPane watches this to seed the composer (Ask AI). */
+  composerPrefill: string | null;
+  composerFocusNonce: number;
   canvasNodes: Node[];
   canvasEdges: Edge[];
   /** Viewed session is currently running. */
@@ -441,6 +473,17 @@ interface WorkspaceState {
   openEditorTab: (tab: EditorTab) => void;
   setActiveTab: (tabId: string) => void;
   closeEditorTab: (tabId: string) => Promise<void>;
+  setDocumentContent: (value: string) => void;
+  setDocumentSelection: (value: string) => void;
+  appendToDocument: (text: string) => void;
+  openDocumentPath: (relPath: string, initialContent?: string) => Promise<void>;
+  saveDocument: () => Promise<void>;
+  newDocument: () => Promise<void>;
+  saveDocumentToProject: (relPath: string) => Promise<void>;
+  openLastDump: () => Promise<void>;
+  askAiFromDocumentSelection: () => void;
+  flushDocumentAfterWorkspaceConnect: () => Promise<void>;
+  clearComposerPrefill: () => void;
   setCanvasNodes: (nodes: Node[]) => void;
   setCanvasEdges: (edges: Edge[]) => void;
   updateCanvasNodeSize: (nodeId: string, width: number, height: number) => void;
@@ -468,7 +511,11 @@ interface WorkspaceState {
   /** Clear current chat without creating a replacement session (allows zero chats). */
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
-  sendAiMessage: (text: string, modelOverride?: string) => Promise<void>;
+  sendAiMessage: (
+    text: string,
+    modelOverride?: string,
+    opts?: { uiSurface?: 'chat' | 'document-memo' },
+  ) => Promise<void>;
   /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
   buildFromPlan: (assistantTurnId: string) => Promise<void>;
   stopAiMessage: () => void;
@@ -637,7 +684,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       })),
       pendingContextPaths: next.contextPaths,
     });
-    void get().sendAiMessage(next.text, next.model);
+    void get().sendAiMessage(next.text, next.model, {
+      uiSurface: next.uiSurface === 'document-memo' ? 'document-memo' : 'chat',
+    });
   };
 
   const finishJob = (sid: string) => {
@@ -650,6 +699,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const next: ChatTurn = { ...turn, completedAt };
         if (isPlanRun && turn.text?.trim() && turn.text !== '(빈 응답)' && turn.text !== '(중지됨)') {
           next.planBuildOffer = true;
+        }
+        // Keep uiHidden sticky for document-memo replies.
+        if (finishedJob.uiSurface === 'document-memo') {
+          next.uiHidden = true;
         }
         return next;
       });
@@ -696,11 +749,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const contextPaths = (job.contextPaths ?? [])
         .map((p) => String(p || '').replace(/\\/g, '/').trim())
         .filter((p) => p && !/^buffer\.(tsx|ts|jsx|js)$/i.test(p));
+      const selection = job.editorSelection?.trim() || '';
       const editor_context =
-        hasRealEditorFile || contextPaths.length
+        hasRealEditorFile || contextPaths.length || selection
           ? {
               path: hasRealEditorFile ? editorPath : contextPaths[0] || '',
-              selection: hasRealEditorFile ? job.editorSelection || undefined : undefined,
+              selection: selection || undefined,
               paths: contextPaths.length ? contextPaths : undefined,
             }
           : undefined;
@@ -982,6 +1036,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
       if (get().activeSessionId === sid && mutatedWorkspacePaths.size) {
         await get().refreshExplorer();
+        const docPath = normalizeRelPath(get().documentRelPath || '');
+        const mutatedList = [...mutatedWorkspacePaths].map((p) => normalizeRelPath(p));
+        if (docPath && mutatedList.some((p) => p.toLowerCase() === docPath.toLowerCase())) {
+          try {
+            const before = get().documentContent;
+            const sidDump = get().activeSessionId || 'session';
+            const dumpPath = dumpRelPath(sidDump);
+            if (get().filesRoot) {
+              await writeWorkspaceFsFile(dumpPath, before);
+              set({
+                lastDumpPath: dumpPath,
+                lastDumpContent: before,
+                documentStatus: `덤프 저장: ${dumpPath}`,
+              });
+            } else {
+              set({
+                lastDumpPath: null,
+                lastDumpContent: before,
+                documentStatus: '메모리 덤프(폴더 없음 — 디스크 덤프 생략)',
+              });
+            }
+            const { content } = await readWorkspaceFsFile(docPath);
+            set({
+              documentContent: content,
+              documentDirty: false,
+              mode: 'document',
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            set({ documentStatus: `문서 갱신 실패: ${message}`, mode: 'document' });
+          }
+        }
         const now = new Date().toISOString();
         let nextAssets = [...get().assets];
         for (const sourcePath of mutatedWorkspacePaths) {
@@ -1064,6 +1150,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     editorContent: '',
     editorSaveStatus: null,
     editorSaving: false,
+    documentRelPath: null,
+    documentContent: '',
+    documentDirty: false,
+    documentSelection: '',
+    documentStatus: null,
+    lastDumpPath: null,
+    lastDumpContent: null,
+    composerPrefill: null,
+    composerFocusNonce: 0,
     canvasNodes: [],
     canvasEdges: [],
     busy: false,
@@ -1102,7 +1197,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({ messageQueue: queue });
     },
 
-    setMode: (mode) => set({ mode }),
+    setMode: (mode) => set({ mode: normalizeWorkspaceMode(mode) }),
     setBrowserInputUrl: (browserInputUrl) => set({ browserInputUrl }),
     navigateBrowser: (rawUrl) =>
       set((state) => {
@@ -1853,6 +1948,195 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         editorContent: nextTab?.content ?? '',
       });
     },
+    setDocumentContent: (documentContent) =>
+      set({ documentContent, documentDirty: true, documentStatus: null }),
+    setDocumentSelection: (documentSelection) => set({ documentSelection }),
+    clearComposerPrefill: () => set({ composerPrefill: null }),
+    appendToDocument: (text) => {
+      const chunk = String(text || '');
+      if (!chunk.trim()) return;
+      const prev = get().documentContent;
+      const next = prev ? `${prev.replace(/\s+$/, '')}\n\n${chunk}` : chunk;
+      set({
+        documentContent: next,
+        documentDirty: true,
+        mode: 'document',
+        documentStatus: '문서에 추가됨',
+      });
+    },
+    openDocumentPath: async (relPath, initialContent) => {
+      const path = normalizeRelPath(relPath);
+      if (!isAllowedDocumentPath(path) && initialContent === undefined) {
+        set({ documentStatus: 'md/txt만 열 수 있습니다.' });
+        return;
+      }
+      if (initialContent !== undefined) {
+        if (get().filesRoot) {
+          try {
+            await writeWorkspaceFsFile(path, initialContent);
+          } catch {
+            /* still open in memory */
+          }
+        }
+        set({
+          documentRelPath: path,
+          documentContent: initialContent,
+          documentDirty: !get().filesRoot,
+          mode: 'document',
+          documentStatus: get().filesRoot ? null : '메모리 (폴더 연결 후 저장)',
+        });
+        return;
+      }
+      if (!get().filesRoot) {
+        set({ documentStatus: '작업 폴더를 먼저 연결하세요.', mode: 'document' });
+        return;
+      }
+      try {
+        const { content } = await readWorkspaceFsFile(path);
+        set({
+          documentRelPath: path,
+          documentContent: content,
+          documentDirty: false,
+          mode: 'document',
+          documentStatus: null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentStatus: message, mode: 'document' });
+      }
+    },
+    saveDocument: async () => {
+      if (!get().filesRoot) {
+        set({ documentStatus: '저장하려면 작업 폴더가 필요합니다.' });
+        return;
+      }
+      let path = normalizeRelPath(get().documentRelPath || '');
+      if (!path) {
+        const sid = get().activeSessionId || 'scratch';
+        path = sessionScratchRelPath(sid);
+      }
+      try {
+        await writeWorkspaceFsFile(path, get().documentContent);
+        set({
+          documentRelPath: path,
+          documentDirty: false,
+          documentStatus: `저장됨: ${path}`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentStatus: message });
+      }
+    },
+    newDocument: async () => {
+      if (get().documentDirty) {
+        const ok = await confirmDialog({
+          title: '새 문서',
+          message: '저장되지 않은 변경이 있습니다. 버리고 새 문서를 열까요?',
+          confirmLabel: '새 문서',
+          cancelLabel: '취소',
+        });
+        if (!ok) return;
+      }
+      const sid = get().activeSessionId || 'scratch';
+      const path = get().filesRoot ? sessionScratchRelPath(sid) : null;
+      set({
+        documentRelPath: path,
+        documentContent: '',
+        documentDirty: false,
+        documentSelection: '',
+        documentStatus: path ? `새 문서: ${path}` : '메모리 초안',
+        mode: 'document',
+      });
+    },
+    saveDocumentToProject: async (relPath) => {
+      if (!get().filesRoot) {
+        set({ documentStatus: '프로젝트 저장에는 작업 폴더가 필요합니다.' });
+        return;
+      }
+      const path = normalizeRelPath(relPath);
+      try {
+        await writeWorkspaceFsFile(path, get().documentContent);
+        set({
+          documentRelPath: path,
+          documentDirty: false,
+          documentStatus: `프로젝트 저장: ${path}`,
+          mode: 'document',
+        });
+        await get().refreshExplorer();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentStatus: message });
+      }
+    },
+    openLastDump: async () => {
+      const dumpPath = get().lastDumpPath;
+      const mem = get().lastDumpContent;
+      if (mem != null && !dumpPath) {
+        set({
+          documentContent: mem,
+          documentDirty: true,
+          documentStatus: '메모리 덤프를 열었습니다',
+          mode: 'document',
+        });
+        return;
+      }
+      if (!dumpPath) {
+        set({ documentStatus: '열 덤프가 없습니다.' });
+        return;
+      }
+      if (!get().filesRoot) {
+        set({ documentStatus: '덤프를 열려면 작업 폴더가 필요합니다.' });
+        return;
+      }
+      try {
+        const { content } = await readWorkspaceFsFile(dumpPath);
+        set({
+          documentRelPath: dumpPath,
+          documentContent: content,
+          documentDirty: false,
+          documentStatus: `덤프 열림: ${dumpPath}`,
+          mode: 'document',
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentStatus: message });
+      }
+    },
+    askAiFromDocumentSelection: () => {
+      const sel = get().documentSelection.trim();
+      if (!sel) {
+        set({ documentStatus: 'Ask AI: 문서에서 텍스트를 선택하세요.' });
+        return;
+      }
+      const path = get().documentRelPath;
+      const prefill = path
+        ? `문서 \`${path}\` 선택 구간에 대해:\n\n"""\n${sel}\n"""\n\n`
+        : `다음 선택 구간에 대해:\n\n"""\n${sel}\n"""\n\n`;
+      set({
+        composerPrefill: prefill,
+        composerFocusNonce: get().composerFocusNonce + 1,
+        mode: 'document',
+        documentStatus: 'Ask AI: 채팅 입력에 선택 내용을 넣었습니다. 질문을 이어서 보내세요.',
+      });
+    },
+    flushDocumentAfterWorkspaceConnect: async () => {
+      if (!get().filesRoot) return;
+      const sid = get().activeSessionId || 'scratch';
+      const path = get().documentRelPath || sessionScratchRelPath(sid);
+      try {
+        await writeWorkspaceFsFile(path, get().documentContent);
+        set({
+          documentRelPath: path,
+          documentDirty: false,
+          documentStatus: `폴더 연결 후 저장: ${path}`,
+          mode: 'document',
+        });
+        await get().refreshExplorer();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentStatus: `flush 실패: ${message}` });
+      }
+    },
     setCanvasNodes: (canvasNodes) => set({ canvasNodes }),
     setCanvasEdges: (canvasEdges) => set({ canvasEdges }),
 
@@ -1947,7 +2231,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
       const assets = [asset, ...get().assets.filter((item) => item.id !== asset.id)];
       const node = assetToCanvasNode(asset, { x: 180, y: 160 });
-      set({ mode: 'canvas', assets, canvasNodes: [...get().canvasNodes, node] });
+      set({ mode: 'document', assets, canvasNodes: [...get().canvasNodes, node] });
     },
 
     placeAssetOnCanvas: (assetId, position) => {
@@ -1961,7 +2245,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         asset,
         position ?? { x: 120 + Math.random() * 200, y: 100 + Math.random() * 160 },
       );
-      set({ mode: 'canvas', canvasNodes: [...get().canvasNodes, node] });
+      set({ mode: 'document', canvasNodes: [...get().canvasNodes, node] });
     },
 
     openAssetInEditor: (assetId) => {
@@ -1982,12 +2266,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
     },
 
-    sendAiMessage: async (text, modelOverride) => {
+    sendAiMessage: async (text, modelOverride, opts) => {
       const trimmed = text.trim();
       const pending = get().pendingAttachments;
       const attachmentIds = pending.map((a) => a.id);
       const attachmentNames = pending.map((a) => a.name);
       if ((!trimmed && !attachmentIds.length)) return;
+      const uiSurface = opts?.uiSurface === 'document-memo' ? 'document-memo' : 'chat';
+      const uiHidden = uiSurface === 'document-memo';
 
       let sid = get().activeSessionId;
       let createdFreshSession = false;
@@ -2035,6 +2321,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           contextPaths: [...get().pendingContextPaths],
           model: get().selectedModel || 'auto',
           createdAt: new Date().toISOString(),
+          uiSurface,
         };
         const queue = [...get().messageQueue, queued];
         saveMessageQueue(queue);
@@ -2058,6 +2345,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         role: 'user',
         mode: 'text',
         text: displayText,
+        uiHidden: uiHidden || undefined,
         attachmentNames: attachmentNames.length ? attachmentNames : undefined,
       };
       const assistantTurn: ChatTurn = {
@@ -2065,6 +2353,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       role: 'assistant',
       mode: 'text',
       text: '',
+      uiHidden: uiHidden || undefined,
       model,
       startedAt: new Date().toISOString(),
     };
@@ -2074,6 +2363,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       for (const a of pending) {
         if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
       }
+
+      const basePolicy = { ...get().activeExecutionPolicy };
+      // Document sticky memos are short Q&A — never open the tool plane.
+      const executionPolicy =
+        uiSurface === 'document-memo'
+          ? { ...basePolicy, workspace_behavior: 'ask' as const }
+          : basePolicy;
 
       const job: LiveJob = {
         sessionId: sid,
@@ -2085,13 +2381,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         displayText,
         skillMode,
         model,
-        executionPolicy: { ...get().activeExecutionPolicy },
+        executionPolicy,
         effectiveExecutionPolicy: null,
         attachmentIds,
-        editorPath: get().activeFileId ?? '',
-        editorSelection: get().activeFileId ? get().editorContent.slice(0, 4000) : '',
+        editorPath:
+          get().mode === 'document'
+            ? get().documentRelPath || ''
+            : get().activeFileId ?? '',
+        editorSelection:
+          get().mode === 'document'
+            ? get().documentSelection || ''
+            : get().activeFileId
+              ? get().editorContent.slice(0, 4000)
+              : '',
         contextPaths: [...get().pendingContextPaths],
         terminalUsed: false,
+        uiSurface,
       };
       liveJobs.set(sid, job);
       setStoredSessionId(sid);
