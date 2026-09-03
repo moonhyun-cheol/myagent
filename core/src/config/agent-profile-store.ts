@@ -1,6 +1,10 @@
 /**
  * Work profiles: local overlay presets (data/profile/*.json) + brand work kits
  * (locker / bundled shelves). Layer: config-store + route + UI only.
+ *
+ * Install-only scope: a profile/kit copies its plugin + skill packages and toggles
+ * `plugins.enable`. It carries no runtime hints (no pinned skills / default mode) —
+ * the agent uses the installed skill registry and plugin list natively.
  */
 import {
   existsSync,
@@ -26,26 +30,14 @@ import {
   type WorkKitShelf,
 } from './profile-locker.js';
 
-export interface AgentProfileUi {
-  /** Preferred skill/mode chip hint (no automatic session mutation on apply). */
-  default_skill_mode?: string;
-  /** Kit→N skill pins. Persisted on apply; Settings skills list sorts + shows pin badges from this. */
-  pinned_skill_ids: string[];
-}
-
 export interface AgentProfile {
   id: string;
   label: string;
   description?: string;
   version: 2;
-  ui: AgentProfileUi;
   plugins: {
     /** Only listed plugin ids are toggled on apply; others stay untouched. */
     enable: Record<string, boolean>;
-  };
-  tools?: {
-    /** Display/sort preference metadata only — never forced into tool packs. */
-    preferred_plugin_ids: string[];
   };
   created_at: string;
   updated_at: string;
@@ -56,7 +48,6 @@ export interface AgentProfileAppliedState {
   group?: string;
   kit_id?: string;
   origin?: 'locker' | 'bundled' | 'overlay';
-  ui: AgentProfileUi;
   applied_at: string;
 }
 
@@ -124,6 +115,10 @@ function writeJson(cqrRoot: string, file: string, doc: unknown): void {
   writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
 }
 
+/**
+ * Normalize a stored/incoming profile. Legacy hint blocks (`ui`, `tools`) from older
+ * profile JSON are ignored rather than rejected, so existing files keep loading.
+ */
 function normalizeProfile(raw: Partial<AgentProfile>, id: string): AgentProfile {
   const now = new Date().toISOString();
   const enable: Record<string, boolean> = {};
@@ -132,25 +127,12 @@ function normalizeProfile(raw: Partial<AgentProfile>, id: string): AgentProfile 
     const pid = String(key).trim();
     if (pid) enable[pid] = value === true;
   }
-  const pinned = Array.isArray(raw.ui?.pinned_skill_ids)
-    ? raw.ui.pinned_skill_ids.map((s) => String(s).trim()).filter(Boolean).slice(0, 32)
-    : [];
-  const preferred = Array.isArray(raw.tools?.preferred_plugin_ids)
-    ? raw.tools.preferred_plugin_ids.map((s) => String(s).trim()).filter(Boolean).slice(0, 32)
-    : [];
   return {
     id,
     label: String(raw.label ?? id).trim().slice(0, 80) || id,
     description: raw.description ? String(raw.description).trim().slice(0, 400) : undefined,
     version: 2,
-    ui: {
-      default_skill_mode: raw.ui?.default_skill_mode
-        ? String(raw.ui.default_skill_mode).trim().slice(0, 80)
-        : undefined,
-      pinned_skill_ids: pinned,
-    },
     plugins: { enable },
-    tools: preferred.length ? { preferred_plugin_ids: preferred } : undefined,
     created_at: raw.created_at ?? now,
     updated_at: now,
   };
@@ -229,49 +211,51 @@ export function getAppliedProfileStates(cqrRoot: string): AgentProfileAppliedSta
   return readAppliedDocument(cqrRoot).entries;
 }
 
+/**
+ * Keep only install-state fields. Older `.applied.json` / `.last-state.json` entries
+ * carried a `ui` hint block; it is dropped here so it disappears on the next write.
+ */
+function normalizeAppliedEntry(raw: unknown): AgentProfileAppliedState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Partial<AgentProfileAppliedState>;
+  if (typeof rec.profile_id !== 'string' || !rec.profile_id) return null;
+  const origin = rec.origin === 'locker' || rec.origin === 'bundled' || rec.origin === 'overlay'
+    ? rec.origin
+    : undefined;
+  const entry: AgentProfileAppliedState = {
+    profile_id: rec.profile_id,
+    applied_at: typeof rec.applied_at === 'string' && rec.applied_at
+      ? rec.applied_at
+      : new Date().toISOString(),
+  };
+  if (typeof rec.group === 'string' && rec.group) entry.group = rec.group;
+  if (typeof rec.kit_id === 'string' && rec.kit_id) entry.kit_id = rec.kit_id;
+  if (origin) entry.origin = origin;
+  return entry;
+}
+
+function normalizeAppliedEntries(raw: unknown[]): AgentProfileAppliedState[] {
+  return raw
+    .map(normalizeAppliedEntry)
+    .filter((entry): entry is AgentProfileAppliedState => entry !== null);
+}
+
 function readAppliedDocument(cqrRoot: string): AgentProfileAppliedDocument {
   const file = path.join(profilesRoot(cqrRoot), APPLIED_FILE);
-  const raw = readJson<AgentProfileAppliedDocument | AgentProfileAppliedState>(file);
+  const raw = readJson<{ entries?: unknown } | Record<string, unknown>>(file);
   if (!raw) return { schema_version: 2, entries: [] };
-  if (Array.isArray((raw as AgentProfileAppliedDocument).entries)) {
-    const doc = raw as AgentProfileAppliedDocument;
-    return {
-      schema_version: 2,
-      entries: doc.entries.filter((entry) => entry && typeof entry.profile_id === 'string'),
-    };
+  const entries = (raw as { entries?: unknown }).entries;
+  if (Array.isArray(entries)) {
+    return { schema_version: 2, entries: normalizeAppliedEntries(entries) };
   }
-  const legacy = raw as AgentProfileAppliedState;
-  if (typeof legacy.profile_id === 'string') {
-    return { schema_version: 2, entries: [legacy] };
-  }
-  return { schema_version: 2, entries: [] };
+  const legacy = normalizeAppliedEntry(raw);
+  return { schema_version: 2, entries: legacy ? [legacy] : [] };
 }
 
 function writeAppliedDocument(cqrRoot: string, entries: AgentProfileAppliedState[]): void {
   ensureDir(cqrRoot);
   const doc: AgentProfileAppliedDocument = { schema_version: 2, entries };
   writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), APPLIED_FILE), doc);
-}
-
-function mergeAppliedUi(entries: AgentProfileAppliedState[]): AgentProfileUi {
-  const pinned: string[] = [];
-  const seen = new Set<string>();
-  let defaultSkillMode: string | undefined;
-  for (const entry of entries) {
-    for (const sid of entry.ui.pinned_skill_ids ?? []) {
-      if (!seen.has(sid)) {
-        seen.add(sid);
-        pinned.push(sid);
-      }
-    }
-    if (entry.ui.default_skill_mode) {
-      defaultSkillMode = entry.ui.default_skill_mode;
-    }
-  }
-  return {
-    pinned_skill_ids: pinned.slice(0, 32),
-    default_skill_mode: defaultSkillMode,
-  };
 }
 
 export function isWorkKitApplied(
@@ -296,7 +280,6 @@ export function getAppliedProfileState(cqrRoot: string): AgentProfileAppliedStat
     group: last.group,
     kit_id: last.kit_id,
     origin: last.origin,
-    ui: mergeAppliedUi(entries),
     applied_at: last.applied_at,
   };
 }
@@ -349,8 +332,6 @@ export function applyAgentProfile(
   input: {
     id: string;
     confirm?: boolean;
-    knownSkillIds?: string[];
-    knownSkillModes?: string[];
   },
 ): ProfileApplyResult {
   if (input.confirm !== true) {
@@ -365,24 +346,9 @@ export function applyAgentProfile(
   snapshotBeforeApply(cqrRoot);
   const { toggled, warnings } = toggleEnables(cqrRoot, normalized.plugins.enable);
 
-  if (input.knownSkillIds) {
-    const known = new Set(input.knownSkillIds);
-    for (const sid of normalized.ui.pinned_skill_ids) {
-      if (!known.has(sid)) warnings.push(`핀 스킬 없음: ${sid}`);
-    }
-  }
-  if (
-    normalized.ui.default_skill_mode
-    && input.knownSkillModes
-    && !input.knownSkillModes.includes(normalized.ui.default_skill_mode)
-  ) {
-    warnings.push(`기본 스킬 모드 없음: ${normalized.ui.default_skill_mode}`);
-  }
-
   const applied: AgentProfileAppliedState = {
     profile_id: id,
     origin: 'overlay',
-    ui: normalized.ui,
     applied_at: new Date().toISOString(),
   };
   writeAppliedDocument(cqrRoot, [applied]);
@@ -396,8 +362,6 @@ export function applyWorkKit(
     group: string;
     id: string;
     confirm?: boolean;
-    knownSkillIds?: string[];
-    knownSkillModes?: string[];
     lockerRoot?: string;
   },
 ): ProfileApplyResult {
@@ -463,29 +427,12 @@ export function applyWorkKit(
   const { toggled, warnings: toggleWarn } = toggleEnables(cqrRoot, shelf.plugins.enable);
   warnings.push(...toggleWarn);
 
-  if (input.knownSkillIds) {
-    const known = new Set(input.knownSkillIds);
-    for (const sid of shelf.ui.pinned_skill_ids) {
-      if (!known.has(sid) && !sid.startsWith('org:')) {
-        warnings.push(`핀 스킬 없음: ${sid}`);
-      }
-    }
-  }
-  if (
-    shelf.ui.default_skill_mode
-    && input.knownSkillModes
-    && !input.knownSkillModes.includes(shelf.ui.default_skill_mode)
-  ) {
-    warnings.push(`기본 스킬 모드 없음: ${shelf.ui.default_skill_mode}`);
-  }
-
   const profileKey = `${group}/${id}`;
   const applied: AgentProfileAppliedState = {
     profile_id: profileKey,
     group,
     kit_id: id,
     origin,
-    ui: shelf.ui,
     applied_at: new Date().toISOString(),
   };
   const nextEntries = getAppliedProfileStates(cqrRoot).filter(
@@ -530,11 +477,13 @@ export function restoreAgentProfileLastState(
     else warnings.push(`플러그인 복원 실패: ${rec.id} (${doc.error ?? 'unknown'})`);
   }
   const appliedFile = path.join(profilesRoot(cqrRoot), APPLIED_FILE);
-  const restoredEntries = Array.isArray(snapshot.applied_entries)
-    ? snapshot.applied_entries
-    : snapshot.applied
-      ? [snapshot.applied]
-      : [];
+  const restoredEntries = normalizeAppliedEntries(
+    Array.isArray(snapshot.applied_entries)
+      ? snapshot.applied_entries
+      : snapshot.applied
+        ? [snapshot.applied]
+        : [],
+  );
   if (restoredEntries.length > 0) {
     writeAppliedDocument(cqrRoot, restoredEntries);
   } else if (existsSync(appliedFile)) {
@@ -542,4 +491,55 @@ export function restoreAgentProfileLastState(
     rmSync(appliedFile);
   }
   return { ok: true, profile_id: snapshot.applied?.profile_id ?? '', toggled, warnings };
+}
+
+export interface AppliedWorkKitSummary {
+  label: string | null;
+  group: string | null;
+  kit_id: string | null;
+  install_status: string | null;
+  kits: Array<{
+    label: string;
+    group: string;
+    kit_id: string;
+    install_status: string | null;
+  }>;
+}
+
+/** For API (`GET /profiles` → `applied_work_kit`): applied kits + catalog install status. */
+export function summarizeAppliedWorkKit(
+  cqrRoot: string,
+  opts?: { lockerRoot?: string },
+): AppliedWorkKitSummary {
+  const all = getAppliedProfileStates(cqrRoot);
+  const entries = all.filter((entry) => entry.group && entry.kit_id);
+  if (entries.length === 0) {
+    const fallback = all[0];
+    return {
+      label: fallback?.profile_id ?? null,
+      group: fallback?.group ?? null,
+      kit_id: fallback?.kit_id ?? null,
+      install_status: null,
+      kits: [],
+    };
+  }
+  const { groups } = listWorkKitCatalog(cqrRoot, opts);
+  const kits = entries.map((entry) => {
+    const g = groups.find((x) => x.id === entry.group);
+    const shelf = g?.shelves.find((s) => s.id === entry.kit_id);
+    return {
+      label: shelf?.label ?? `${entry.group}/${entry.kit_id}`,
+      group: entry.group!,
+      kit_id: entry.kit_id!,
+      install_status: shelf?.install_status ?? null,
+    };
+  });
+  const last = kits[kits.length - 1];
+  return {
+    label: kits.map((kit) => kit.label).join(', '),
+    group: last.group,
+    kit_id: last.kit_id,
+    install_status: last.install_status,
+    kits,
+  };
 }

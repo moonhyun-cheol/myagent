@@ -425,7 +425,6 @@ function writeShelfFromFeedMeta(
     description: shelf.description,
     pull: shelf.pull ?? [],
     plugins: shelf.plugins ?? { enable: {} },
-    ui: shelf.ui ?? { pinned_skill_ids: [] },
     hints: shelf.hints,
     min_core_sequence: shelf.min_core_sequence,
   };

@@ -1,11 +1,11 @@
 import { apiFetch } from './http';
 
+/** Install-only profile: package copy + plugin toggles. No runtime skill hints. */
 export interface AgentProfile {
   id: string;
   label: string;
   description?: string;
   version: 2;
-  ui: { default_skill_mode?: string; pinned_skill_ids: string[] };
   plugins: { enable: Record<string, boolean> };
   created_at: string;
   updated_at: string;
@@ -25,7 +25,6 @@ export interface WorkKitShelf {
   description?: string;
   pull: Array<'agent-plugins' | 'skills'>;
   plugins: { enable: Record<string, boolean> };
-  ui: { default_skill_mode?: string; pinned_skill_ids: string[] };
   hints?: { needs_organization_module?: boolean };
   origin: 'locker' | 'bundled' | 'catalog';
   install_status?: ShelfInstallStatus;
@@ -44,7 +43,6 @@ export interface AgentProfileApplied {
   group?: string;
   kit_id?: string;
   origin?: 'locker' | 'bundled' | 'overlay';
-  ui: AgentProfile['ui'];
   applied_at: string;
 }
 

@@ -5,8 +5,5 @@
   "label": "Example work kit",
   "description": "Short user-facing description.",
   "pull": ["skills"],
-  "plugins": { "enable": {} },
-  "ui": {
-    "pinned_skill_ids": []
-  }
+  "plugins": { "enable": {} }
 }

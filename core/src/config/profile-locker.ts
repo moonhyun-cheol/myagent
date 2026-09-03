@@ -44,10 +44,6 @@ export interface WorkKitFeedShelf {
   description?: string;
   pull?: ShelfPullSlot[];
   plugins?: { enable?: Record<string, boolean> };
-  ui?: {
-    default_skill_mode?: string;
-    pinned_skill_ids?: string[];
-  };
   hints?: {
     needs_organization_module?: boolean;
   };
@@ -84,10 +80,6 @@ export interface WorkKitShelf {
   description?: string;
   pull: ShelfPullSlot[];
   plugins: { enable: Record<string, boolean> };
-  ui: {
-    default_skill_mode?: string;
-    pinned_skill_ids: string[];
-  };
   hints?: {
     needs_organization_module?: boolean;
   };
@@ -244,10 +236,8 @@ function normalizeShelf(
     const pid = String(k).trim();
     if (pid) enable[pid] = v === true;
   }
-  const pinned = Array.isArray(raw.ui?.pinned_skill_ids)
-    ? raw.ui!.pinned_skill_ids.map((s) => String(s).trim()).filter(Boolean).slice(0, 32)
-    : [];
   const minSeq = raw.min_core_sequence != null ? Number(raw.min_core_sequence) : undefined;
+  // Legacy shelf.json may still carry a `ui` hint block; it is ignored (install-only scope).
   return {
     schema_version: 1,
     id,
@@ -256,12 +246,6 @@ function normalizeShelf(
     description: raw.description ? String(raw.description).trim().slice(0, 400) : undefined,
     pull: normalizePull(raw.pull),
     plugins: { enable },
-    ui: {
-      default_skill_mode: raw.ui?.default_skill_mode
-        ? String(raw.ui.default_skill_mode).trim().slice(0, 80)
-        : undefined,
-      pinned_skill_ids: pinned,
-    },
     hints: raw.hints?.needs_organization_module
       ? { needs_organization_module: true }
       : undefined,
@@ -323,9 +307,6 @@ function feedShelfToCatalogShelf(
     const pid = String(k).trim();
     if (pid) enable[pid] = v === true;
   }
-  const pinned = Array.isArray(feed.ui?.pinned_skill_ids)
-    ? feed.ui.pinned_skill_ids.map((s) => String(s).trim()).filter(Boolean).slice(0, 32)
-    : lockerShelf?.ui.pinned_skill_ids ?? [];
   const pull = normalizePull(feed.pull ?? lockerShelf?.pull);
   const origin: ShelfOrigin = lockerShelf ? 'locker' : 'catalog';
   return {
@@ -338,10 +319,6 @@ function feedShelfToCatalogShelf(
       : lockerShelf?.description,
     pull,
     plugins: { enable },
-    ui: {
-      default_skill_mode: feed.ui?.default_skill_mode ?? lockerShelf?.ui.default_skill_mode,
-      pinned_skill_ids: pinned,
-    },
     hints: feed.hints?.needs_organization_module || lockerShelf?.hints?.needs_organization_module
       ? { needs_organization_module: true }
       : undefined,

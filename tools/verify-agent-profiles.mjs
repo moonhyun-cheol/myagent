@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
  * Work kits (locker shelves) + local overlay profiles + feed catalog.
+ * Install-only contract: apply = package pull + plugin toggles + applied state.
+ * Legacy `ui` hint blocks in feed/shelf/profile/applied JSON must load but be dropped.
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
@@ -12,11 +14,13 @@ import {
   applyWorkKit,
   deleteAgentProfile,
   getAppliedProfileState,
+  getAppliedProfileStates,
   hasProfileLastState,
   listAgentProfiles,
   listWorkKitProfileCatalog,
   restoreAgentProfileLastState,
   saveAgentProfile,
+  summarizeAppliedWorkKit,
   AgentProfileError,
 } from '../core/dist/config/agent-profile-store.js';
 import {
@@ -61,14 +65,15 @@ try {
     id: 'overlay-dev',
     label: '오버레이',
     plugins: { enable: { demo_a: false, demo_b: true } },
+    // legacy hint block from older profile JSON — ignored, not rejected
     ui: { pinned_skill_ids: [], default_skill_mode: 'web_dev' },
   });
   assert.equal(saved.id, 'overlay-dev');
+  assert.equal('ui' in saved, false, 'legacy ui hint dropped from saved profile');
 
   const appliedOverlay = applyAgentProfile(root, {
     id: 'overlay-dev',
     confirm: true,
-    knownSkillModes: ['web_dev', 'chat'],
   });
   assert.equal(appliedOverlay.ok, true);
   assert.equal(getAppliedProfileState(root)?.origin, 'overlay');
@@ -121,6 +126,7 @@ try {
   const opsBefore = cqrBefore.shelves.find((s) => s.id === 'ops');
   assert.equal(devBefore?.install_status, 'available');
   assert.equal(opsBefore?.install_status, 'available');
+  assert.equal('ui' in devBefore, false, 'catalog shelf drops legacy ui hint from feed');
   assert.equal(
     existsSync(path.join(locker, 'profiles', 'cqr', 'product-dev', 'shelf.json')),
     false,
@@ -201,10 +207,7 @@ try {
   const appliedKit = getAppliedProfileState(root);
   assert.equal(appliedKit?.group, 'cqr');
   assert.equal(appliedKit?.kit_id, 'product-dev');
-  assert.ok(
-    (appliedKit?.ui.pinned_skill_ids ?? []).includes('org:brand_concept'),
-    'apply persists pinned_skill_ids',
-  );
+  assert.equal(appliedKit?.ui, undefined, 'applied state is install-only (no ui hints)');
   assert.ok(kit.warnings.some((w) => w.includes('조직 모듈')));
   assert.equal(hasProfileLastState(root), true);
 
@@ -215,7 +218,6 @@ try {
     lockerRoot: locker,
   });
   assert.equal(opsKit.ok, true);
-  const { getAppliedProfileStates } = await import('../core/dist/config/agent-profile-store.js');
   const appliedKits = getAppliedProfileStates(root);
   assert.equal(appliedKits.length, 2, 'additive apply keeps both kits');
   assert.ok(
@@ -227,12 +229,39 @@ try {
     'ops also applied',
   );
 
-  const { loadWorkKitContextNote } = await import('../core/dist/config/work-kit-context.js');
-  const note = loadWorkKitContextNote(root);
-  assert.ok(note && note.includes('Work context'), 'context note after apply');
-  assert.ok(note.includes('org:brand_concept') || note.includes('brand_concept'), 'pins in note');
+  // Install-only contract: no work-kit context note module; API summary reflects both kits.
+  assert.equal(
+    existsSync(path.join(repoRoot, 'core/src/config/work-kit-context.ts')),
+    false,
+    'work-kit-context.ts removed (install-only profiles)',
+  );
+  const summary = summarizeAppliedWorkKit(root, { lockerRoot: locker });
+  assert.equal(summary.kits.length, 2, 'summary lists both applied kits');
+  assert.equal(summary.kit_id, 'ops', 'summary points at last applied kit');
+  assert.ok(summary.label?.includes('CQR 제품개발'), `summary label: ${summary.label}`);
+  assert.equal(summary.install_status, 'installed', 'meta-only installed kit reports installed');
 
   restoreAgentProfileLastState(root, { confirm: true });
+
+  // Legacy .applied.json with a ui hint block still loads; hints are dropped.
+  writeFileSync(
+    path.join(root, 'data', 'profile', '.applied.json'),
+    JSON.stringify({
+      schema_version: 2,
+      entries: [{
+        profile_id: 'cqr/product-dev',
+        group: 'cqr',
+        kit_id: 'product-dev',
+        origin: 'locker',
+        ui: { pinned_skill_ids: ['org:brand_concept'], default_skill_mode: 'chat' },
+        applied_at: new Date().toISOString(),
+      }],
+    }, null, 2),
+  );
+  const legacyEntries = getAppliedProfileStates(root);
+  assert.equal(legacyEntries.length, 1, 'legacy applied doc loads');
+  assert.equal(legacyEntries[0].kit_id, 'product-dev');
+  assert.equal('ui' in legacyEntries[0], false, 'legacy ui hint dropped on load');
 
   try {
     applyWorkKit(root, { group: 'cqr', id: 'missing', confirm: true, lockerRoot: locker });

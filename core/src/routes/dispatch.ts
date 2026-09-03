@@ -34,6 +34,7 @@ import {
   listWorkKitProfileCatalog,
   restoreAgentProfileLastState,
   saveAgentProfile,
+  summarizeAppliedWorkKit,
   type AgentProfile,
 } from '../config/agent-profile-store.js';
 import { testOllamaReachable } from '../inference/local-llama-runtime.js';
@@ -98,7 +99,6 @@ import {
   uninstallWorkKitShelf,
   WorkKitCatalogError,
 } from '../updates/work-kit-catalog-feed.js';
-import { summarizeAppliedWorkKit } from '../config/work-kit-context.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
 import type { ApiContext } from '../http/api-context.js';
@@ -2232,13 +2232,10 @@ export async function dispatchApiRequest(
             id?: string;
             confirm?: boolean;
           };
-          const skills = listAllSkills(cqrRoot);
           const result = applyWorkKit(cqrRoot, {
             group: String(body.group ?? ''),
             id: String(body.id ?? ''),
             confirm: body.confirm,
-            knownSkillIds: skills.map((s) => s.id),
-            knownSkillModes: skills.map((s) => s.mode),
           });
           return sendJson(res, 200, result);
         } catch (e: unknown) {
@@ -2274,12 +2271,9 @@ export async function dispatchApiRequest(
           license.assertFeature('chat');
           try {
             const body = JSON.parse(await readBody(req)) as { confirm?: boolean };
-            const skills = listAllSkills(cqrRoot);
             const result = applyAgentProfile(cqrRoot, {
               id: applyMatch[1],
               confirm: body.confirm,
-              knownSkillIds: skills.map((s) => s.id),
-              knownSkillModes: skills.map((s) => s.mode),
             });
             return sendJson(res, 200, result);
           } catch (e: unknown) {

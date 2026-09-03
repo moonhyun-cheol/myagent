@@ -5,7 +5,6 @@ import {
   checkOrganizationModule,
   deleteSkill,
   fetchOrganizationModule,
-  fetchProfiles,
   importSkillPackage,
   listSkills,
   type SkillListItem,
@@ -16,10 +15,6 @@ function existingSkillIdFromError(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
   const rec = error as { existingId?: unknown };
   return typeof rec.existingId === 'string' && rec.existingId ? rec.existingId : null;
-}
-
-function isSkillPinned(skill: SkillListItem, pinned: ReadonlySet<string>): boolean {
-  return pinned.has(skill.id) || pinned.has(skill.mode) || pinned.has(`org:${skill.id}`);
 }
 
 interface SettingsSkillsPageProps {
@@ -47,7 +42,6 @@ function getShellWebView(): ShellWebViewHost | null {
 
 export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const [skills, setSkills] = useState<SkillListItem[]>([]);
-  const [pinnedSkillIds, setPinnedSkillIds] = useState<string[]>([]);
   const [zipPath, setZipPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -73,12 +67,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       setSkills(await listSkills());
       const status = await fetchOrganizationModule();
       canCheckRemoteRef.current = status.can_check_remote === true;
-      try {
-        const profiles = await fetchProfiles();
-        setPinnedSkillIds(profiles.applied?.ui?.pinned_skill_ids ?? []);
-      } catch {
-        setPinnedSkillIds([]);
-      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 목록을 불러오지 못했습니다.');
     } finally {
@@ -125,40 +113,19 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     return () => webview.removeEventListener('message', onMessage);
   }, []);
 
-  const pinRank = useCallback(
-    (skill: SkillListItem) => {
-      const pin = new Set(pinnedSkillIds);
-      return isSkillPinned(skill, pin) ? 0 : 1;
-    },
-    [pinnedSkillIds],
-  );
-
-  const pinnedSet = useMemo(() => new Set(pinnedSkillIds), [pinnedSkillIds]);
+  const byLabel = (a: SkillListItem, b: SkillListItem) => a.label.localeCompare(b.label, 'ko');
 
   const installed = useMemo(
-    () =>
-      skills
-        .filter((skill) => skill.source === 'user')
-        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
-    [skills, pinRank],
+    () => skills.filter((skill) => skill.source === 'user').sort(byLabel),
+    [skills],
   );
   const bundled = useMemo(
-    () =>
-      skills
-        .filter((skill) => skill.source === 'bundled')
-        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
-    [skills, pinRank],
+    () => skills.filter((skill) => skill.source === 'bundled').sort(byLabel),
+    [skills],
   );
   const organization = useMemo(
-    () =>
-      skills
-        .filter((skill) => skill.source === 'organization')
-        .sort((a, b) => pinRank(a) - pinRank(b) || a.label.localeCompare(b.label, 'ko')),
-    [skills, pinRank],
-  );
-  const pinnedOrgSkills = useMemo(
-    () => organization.filter((skill) => isSkillPinned(skill, pinnedSet)),
-    [organization, pinnedSet],
+    () => skills.filter((skill) => skill.source === 'organization').sort(byLabel),
+    [skills],
   );
 
   useEffect(() => {
@@ -257,13 +224,11 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
         ) : (
           <div className="space-y-3">
             {installed.map((skill) => {
-              const pinned = isSkillPinned(skill, pinnedSet);
               const highlighted = highlightId === skill.id;
               return (
               <div
                 key={skill.id}
                 data-testid={`installed-skill-${skill.id}`}
-                data-pinned={pinned ? 'true' : 'false'}
                 data-highlighted={highlighted ? 'true' : 'false'}
                 className={`flex items-start justify-between gap-4 rounded-xl border p-4 ${
                   highlighted ? 'border-accent bg-accent/10' : 'border-line bg-ink/40'
@@ -272,9 +237,6 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
-                    {pinned ? (
-                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">핀</span>
-                    ) : null}
                     <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
                       {skill.install_kind === 'package' ? '압축 해제 설치' : '사용자 스킬'}
                     </span>
@@ -306,29 +268,19 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
             data-testid="organization-skill-chips"
             className="mt-4 rounded-xl border border-line bg-panel/60 px-4 py-3"
           >
-            {pinnedOrgSkills.length > 0 ? (
-              <p data-testid="organization-pinned-summary" className="mb-2 text-xs text-muted">
-                적용된 작업 키트에 맞춰 켜진 스킬 {pinnedOrgSkills.length}개
-              </p>
-            ) : null}
+            <p className="mb-2 text-xs text-muted">
+              조직 모듈 스킬 {organization.length}개
+            </p>
             <div className="flex flex-wrap gap-2">
-              {organization.map((skill) => {
-                const pinned = isSkillPinned(skill, pinnedSet);
-                return (
-                  <span
-                    key={skill.id}
-                    data-testid={`organization-skill-${skill.id}`}
-                    data-pinned={pinned ? 'true' : 'false'}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-                      pinned
-                        ? 'border-accent/40 bg-accent/10 font-semibold text-accent'
-                        : 'border-line bg-ink/40 text-muted'
-                    }`}
-                  >
-                    {skill.label}
-                  </span>
-                );
-              })}
+              {organization.map((skill) => (
+                <span
+                  key={skill.id}
+                  data-testid={`organization-skill-${skill.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted"
+                >
+                  {skill.label}
+                </span>
+              ))}
             </div>
           </div>
         ) : null}
