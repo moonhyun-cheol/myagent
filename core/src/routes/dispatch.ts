@@ -260,12 +260,10 @@ export async function dispatchApiRequest(
   const workspaceRootForRequest = (): string | null => {
     const sessionId = sessionFromReq(req);
     if (sessionId) {
-      const session = sessionStore.load(sessionId);
-      const sessionRoot = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
-      if (sessionRoot) return sessionRoot;
-      // A project-bound chat must opt in to a registered work folder. Do not
-      // silently inherit the PC-wide active folder.
-      if (session?.project_id) return null;
+      // A request tied to a conversation receives filesystem access only from
+      // that conversation's project-tree membership. Standalone conversations
+      // must never inherit the PC-wide default workspace.
+      return resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
     }
     return loadUserOverrides(userConfigPath).dev_workspace_root?.trim() || null;
   };
@@ -2467,8 +2465,11 @@ export async function dispatchApiRequest(
             return sendJson(res, 403, { error: 'WORKSPACE_NOT_ALLOWED', message });
           }
         }
-        const rec = sessionStore.setWorkspaceProject(sessionWorkspaceMatch[1], workspaceProjectId);
+        // Compatibility endpoint: an old workspace binding request is now a
+        // normal move to the requested tree node.
+        const rec = sessionStore.setProject(sessionWorkspaceMatch[1], workspaceProjectId);
         if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        if (workspaceProjectId) projectStore.touch(workspaceProjectId);
         return sendJson(res, 200, sessionStore.publicRecord(rec));
       }
 
@@ -2491,9 +2492,6 @@ export async function dispatchApiRequest(
           project_id: body.create_session ? (source.project_id ?? null) : null,
           execution_policy: source.execution_policy,
         });
-        if (body.create_session && source.workspace_project_id) {
-          sessionStore.setWorkspaceProject(targetId, source.workspace_project_id);
-        }
         try {
           const result = await orchestrator.handle({
             mode: 'chat',
@@ -2573,27 +2571,20 @@ export async function dispatchApiRequest(
         const body = JSON.parse(await readBody(req)) as { id?: string; project_id?: string | null; workspace_project_id?: string | null };
         const id = body.id?.trim() || randomUUID();
         const hasProjectField = Object.prototype.hasOwnProperty.call(body, 'project_id');
-        let ensureOpts: Parameters<typeof sessionStore.ensure>[1];
-        if (hasProjectField) {
-          const projectId =
-            body.project_id === undefined || body.project_id === null || body.project_id === ''
+        const membershipProjectId = hasProjectField
+          ? (body.project_id === undefined || body.project_id === null || body.project_id === '' ? null : body.project_id)
+          : (body.workspace_project_id === undefined || body.workspace_project_id === null || body.workspace_project_id === ''
               ? null
-              : body.project_id;
-          if (projectId && !projectStore.get(projectId)) {
-            return sendJson(res, 400, { error: 'PROJECT_NOT_FOUND' });
-          }
-          ensureOpts = {
-            project_id: projectId,
-            execution_policy: defaultExecutionPolicyFromConfig(loadUserOverrides(userConfigPath)),
-          };
+              : body.workspace_project_id);
+        if (membershipProjectId && !projectStore.get(membershipProjectId)) {
+          return sendJson(res, 400, { error: 'PROJECT_NOT_FOUND' });
         }
-        ensureOpts = {
-          ...ensureOpts,
+        const ensureOpts: Parameters<typeof sessionStore.ensure>[1] = {
+          project_id: membershipProjectId,
           execution_policy: defaultExecutionPolicyFromConfig(loadUserOverrides(userConfigPath)),
         };
         const rec = sessionStore.ensure(id, ensureOpts);
-        if (body.workspace_project_id !== undefined) sessionStore.setWorkspaceProject(id, body.workspace_project_id ?? null);
-        if (ensureOpts?.project_id) projectStore.touch(ensureOpts.project_id);
+        if (membershipProjectId) projectStore.touch(membershipProjectId);
         return sendJson(res, 201, sessionStore.publicRecord(rec));
       }
 
@@ -2601,9 +2592,10 @@ export async function dispatchApiRequest(
         license.assertWritable();
         license.assertFeature('chat');
         const body = JSON.parse(await readBody(req)) as { session?: unknown; project_id?: string | null; workspace_project_id?: string | null };
-        const projectId = body.project_id ?? null;
+        const hasProjectField = Object.prototype.hasOwnProperty.call(body, 'project_id');
+        const projectId = hasProjectField ? (body.project_id ?? null) : (body.workspace_project_id ?? null);
         if (projectId && !projectStore.get(projectId)) return sendJson(res, 404, { error: 'PROJECT_NOT_FOUND' });
-        const rec = sessionStore.importPortable(body.session, projectId, body.workspace_project_id ?? null);
+        const rec = sessionStore.importPortable(body.session, projectId);
         if (projectId) projectStore.touch(projectId);
         return sendJson(res, 201, sessionStore.publicRecord(rec));
       }

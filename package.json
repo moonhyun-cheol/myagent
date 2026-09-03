@@ -184,7 +184,7 @@
     "admin:update-keygen": "node tools/update-admin.mjs keygen",
     "admin:update-key-status": "node tools/update-admin.mjs status",
     "publish:update:bridge": "node tools/publish-update-bridge.mjs",
-    "rulebook:build": "node tools/build-rulebook.mjs",
+    "rulebook:build": "node tools/assemble-external-rulebook.mjs",
     "report:pdf": "python tools/generate-project-report.py",
     "embed:node": "node tools/embed-portable-node.mjs",
     "start:shell": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/launch-shell.ps1 -Hidden",

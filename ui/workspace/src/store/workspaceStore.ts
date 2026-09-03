@@ -26,6 +26,7 @@ import {
   fetchWorkspaceFsTree,
   readWorkspaceFsFile,
   renameWorkspaceFsFile,
+  resolveWorkspaceRootProjectId,
   runWorkspaceTerminal,
   setStoredSessionId,
   streamChat,
@@ -379,7 +380,7 @@ interface WorkspaceState {
   imagePreview: { src: string; title: string; prompt: string } | null;
   activeSessionId: string | null;
   activeProjectId: string | null;
-  /** Explicit per-chat binding to a registered workspace_root. */
+  /** Workspace root derived from activeProjectId's ancestors, never stored on the session. */
   activeWorkspaceProjectId: string | null;
   skillMode: string | null;
   skillLabel: string | null;
@@ -1170,14 +1171,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     setSessionWorkspaceProject: async (workspaceProjectId) => {
       let sessionId = get().activeSessionId;
       if (!sessionId) {
-        sessionId = await createSession(get().activeProjectId);
+        sessionId = await createSession(workspaceProjectId);
         set({ activeSessionId: sessionId });
         setStoredSessionId(sessionId);
       }
       const rec = await saveSessionWorkspaceProject(sessionId, workspaceProjectId);
+      const projectId = rec.project_id ?? null;
+      const derivedWorkspaceProjectId = await resolveWorkspaceRootProjectId(projectId);
       const remainingTabs = get().openTabs.filter((tab) => !tab.id.startsWith('file:'));
       set({
-        activeWorkspaceProjectId: rec.workspace_project_id ?? null,
+        activeProjectId: projectId,
+        activeWorkspaceProjectId: derivedWorkspaceProjectId,
         files: [],
         filesRoot: null,
         filesMessage: '작업 폴더를 불러오는 중…',
@@ -1192,7 +1196,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const sessionId = get().activeSessionId;
       if (!sessionId) throw new Error('이동할 대화 세션이 없습니다.');
       const rec = await saveSessionProject(sessionId, projectId);
-      set({ activeProjectId: rec.project_id ?? null });
+      const membershipProjectId = rec.project_id ?? null;
+      const workspaceRootProjectId = await resolveWorkspaceRootProjectId(membershipProjectId);
+      set({
+        activeProjectId: membershipProjectId,
+        activeWorkspaceProjectId: workspaceRootProjectId,
+      });
       cacheActiveSessionView();
     },
     setModelOptions: (modelOptions) => set({ modelOptions }),
@@ -1413,12 +1422,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     uploadClipboardImages: async (files) => get().uploadFiles(files),
 
-    startNewChat: async (projectId = null, workspaceProjectId = null) => {
+    startNewChat: async (projectId = null, legacyWorkspaceProjectId = null) => {
       get().clearPendingAttachments();
       cacheActiveSessionView();
-      const id = await createSession(projectId, workspaceProjectId);
-      const rec = await fetchSession(id);
-      const globalDefaultModel = await fetchDefaultModelOverride().catch(() => 'auto');
+      const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
+      const id = await createSession(membershipProjectId);
+      const [rec, globalDefaultModel, workspaceRootProjectId] = await Promise.all([
+        fetchSession(id),
+        fetchDefaultModelOverride().catch(() => 'auto'),
+        resolveWorkspaceRootProjectId(membershipProjectId),
+      ]);
       const policy = rec.execution_policy ?? {
         reasoning: 'auto' as const,
         autopilot: 'auto' as const,
@@ -1427,8 +1440,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       };
       set({
         activeSessionId: id,
-        activeProjectId: projectId,
-        activeWorkspaceProjectId: rec.workspace_project_id ?? workspaceProjectId,
+        activeProjectId: rec.project_id ?? membershipProjectId,
+        activeWorkspaceProjectId: workspaceRootProjectId,
         chat: [],
         selectedModel: rec.preferred_model ?? globalDefaultModel,
         activeExecutionPolicy: {
@@ -1513,14 +1526,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       queueMicrotask(() => dispatchNextQueuedMessage(sessionId));
 
       // Refresh from the server without blocking the visible session switch.
-      void fetchSession(sessionId).then((rec) => {
+      void fetchSession(sessionId).then(async (rec) => {
         const messages = rec.messages ?? [];
+        const membershipProjectId = rec.project_id ?? null;
+        const workspaceRootProjectId = await resolveWorkspaceRootProjectId(membershipProjectId);
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
         const refreshed: SessionViewSnapshot = {
-          activeProjectId: rec.project_id ?? null,
+          activeProjectId: membershipProjectId,
           selectedModel: rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
-          activeWorkspaceProjectId: rec.workspace_project_id ?? null,
+          activeWorkspaceProjectId: workspaceRootProjectId,
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
           activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,

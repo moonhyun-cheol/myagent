@@ -1,17 +1,28 @@
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { readWorkspaceFile } from './dev-workspace-fs.js';
 
-export const EXPLAIN_DOC_PATHS = [
-  'rulebook/docs/00_PROJECT_BRIEF.md',
-  'rulebook/docs/01_CURRENT_STATUS.md',
-] as const;
+export const EXPLAIN_DOC_PATHS = ['AGENTS.md'] as const;
+
+function resolveRulebookDocAbs(workspaceRoot: string, relUnderDocs: string): string | null {
+  const linkPath = path.join(workspaceRoot, '.rulebook-link.yml');
+  if (!existsSync(linkPath)) return null;
+  const raw = readFileSync(linkPath, 'utf8');
+  const dirMatch = raw.match(/^rulebook_dir:\s*(.+)$/m);
+  if (!dirMatch) return null;
+  let dir = dirMatch[1].trim();
+  if (!path.isAbsolute(dir)) dir = path.resolve(workspaceRoot, dir);
+  const abs = path.join(dir, 'docs', relUnderDocs);
+  return existsSync(abs) ? abs : null;
+}
 
 export function tryReadWorkspaceText(
   workspaceRoot: string,
-  rel: string,
+  relPath: string,
   maxChars = 12_000,
 ): string | null {
   try {
-    const raw = readWorkspaceFile(workspaceRoot, rel);
+    const raw = readWorkspaceFile(workspaceRoot, relPath);
     return raw.length > maxChars ? `${raw.slice(0, maxChars)}\n\n… (truncated)` : raw;
   } catch {
     return null;
@@ -25,12 +36,18 @@ export function loadExplainGrounding(workspaceRoot: string): string {
     const body = tryReadWorkspaceText(workspaceRoot, rel);
     if (body) parts.push(`## ${rel}\n\n${body}`);
   }
+  for (const rel of ['00_PROJECT_BRIEF.md', '01_CURRENT_STATUS.md'] as const) {
+    const abs = resolveRulebookDocAbs(workspaceRoot, rel);
+    if (!abs) continue;
+    const body = tryReadWorkspaceText(workspaceRoot, abs);
+    if (body) parts.push(`## RULEBOOK/docs/${rel}\n\n${body}`);
+  }
   return parts.join('\n\n') || '문서 파일을 읽지 못했습니다. 알려진 구조: Core API :10200, 제품 UI ui/workspace.';
 }
 
 export function buildFallbackProjectReport(grounding: string): string {
-  const brief = grounding.match(/## rulebook\/docs\/00_PROJECT_BRIEF\.md\n\n([\s\S]*?)(?=\n## rulebook\/|$)/)?.[1]?.trim();
-  const status = grounding.match(/## rulebook\/docs\/01_CURRENT_STATUS\.md\n\n([\s\S]*?)$/)?.[1]?.trim();
+  const brief = grounding.match(/## (?:RULEBOOK\/docs\/)?00_PROJECT_BRIEF\.md\n\n([\s\S]*?)(?=\n## |$)/)?.[1]?.trim();
+  const status = grounding.match(/## (?:RULEBOOK\/docs\/)?01_CURRENT_STATUS\.md\n\n([\s\S]*?)$/)?.[1]?.trim();
   const lines = [
     '## MY Agent 프로젝트 보고',
     '',

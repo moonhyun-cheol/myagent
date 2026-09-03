@@ -1,4 +1,4 @@
-export const UI_TARGET_MAP_PATH = 'rulebook/docs/specs/technical/ui-target-map.md';
+export const UI_TARGET_MAP_PATH = 'core/config/defaults/ui-facts.json';
 export const CHAT_PANE_PATH = 'ui/workspace/src/components/ChatPane.tsx';
 export const NAV_SIDEBAR_PATH = 'ui/workspace/src/components/GeminiNavSidebar.tsx';
 export const SHELL_WINDOW_PATH = 'shell/CqrPa.Shell/MainWindow.xaml';

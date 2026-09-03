@@ -75,7 +75,6 @@ export interface SessionSummary {
   updated_at: string;
   message_count: number;
   project_id?: string | null;
-  workspace_project_id?: string | null;
 }
 
 export interface SessionMessage {
@@ -98,6 +97,7 @@ export interface SessionRecord {
   updated_at: string;
   messages: SessionMessage[];
   project_id?: string | null;
+  /** @deprecated Read-only compatibility for legacy export UI; new APIs do not send or store it. */
   workspace_project_id?: string | null;
   preferred_model?: string;
   execution_policy?: ExecutionPolicy;
@@ -505,11 +505,12 @@ export async function ensureSession(): Promise<string> {
   return createSession();
 }
 
-export async function createSession(projectId: string | null = null, workspaceProjectId: string | null = null): Promise<string> {
+export async function createSession(projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): Promise<string> {
+  const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
   const res = await fetch('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: projectId, workspace_project_id: workspaceProjectId }),
+    body: JSON.stringify({ project_id: membershipProjectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) {
@@ -519,11 +520,12 @@ export async function createSession(projectId: string | null = null, workspacePr
   return data.id as string;
 }
 
-export async function importSession(session: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): Promise<SessionSummary> {
+export async function importSession(session: unknown, projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): Promise<SessionSummary> {
+  const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
   const res = await fetch('/sessions/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, project_id: projectId, workspace_project_id: workspaceProjectId }),
+    body: JSON.stringify({ session, project_id: membershipProjectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) throw new Error(data.message || data.error || '세션 가져오기 실패');
@@ -559,6 +561,14 @@ export interface WorkspaceTreePayload {
     session_count: number;
   }>;
   standalone_sessions: SessionSummary[];
+}
+
+export async function resolveWorkspaceRootProjectId(projectId: string | null): Promise<string | null> {
+  if (!projectId) return null;
+  const workspace = await fetchWorkspaceTree();
+  const contains = (node: WorkspaceNode): boolean =>
+    node.id === projectId || node.children.some(contains);
+  return workspace.workspace_trees.find(contains)?.id ?? null;
 }
 
 export interface FsBrowseResult {
@@ -1010,14 +1020,9 @@ export async function setSessionWorkspaceProject(
   sessionId: string,
   workspaceProjectId: string | null,
 ): Promise<SessionRecord> {
-  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/workspace`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_project_id: workspaceProjectId }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || data.error || `채팅 작업 폴더 저장 실패 (${res.status})`);
-  return data as SessionRecord;
+  // Compatibility UI action: connecting/disconnecting a work folder now moves
+  // the conversation in the single project tree.
+  return setSessionProject(sessionId, workspaceProjectId);
 }
 
 export async function setLocalOnly(localOnly: boolean): Promise<unknown> {

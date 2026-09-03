@@ -40,7 +40,7 @@ export class SessionStore {
   }
 
   /** Import the portable cqr-pa conversation export as a new local session. */
-  importPortable(raw: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): SessionRecord {
+  importPortable(raw: unknown, projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): SessionRecord {
     const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     const conversation = source.conversation && typeof source.conversation === 'object'
       ? source.conversation as Record<string, unknown>
@@ -65,12 +65,13 @@ export class SessionStore {
         : messages.find((message) => message.role === 'user')?.content ?? '가져온 세션',
     ) || '가져온 세션';
     const now = new Date().toISOString();
+    const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
     const rec: SessionRecord = {
       id: randomUUID(), title, created_at: now, updated_at: now, messages,
-      project_id: projectId, workspace_project_id: workspaceProjectId,
+      project_id: membershipProjectId ? sanitizeId(membershipProjectId) : null,
     };
     this.save(rec);
-    return rec;
+    return withLegacyWorkspaceAlias(rec);
   }
 
   loadAll(): SessionRecord[] {
@@ -101,10 +102,16 @@ export class SessionStore {
     if (!existsSync(fp)) return null;
     try {
       const rec = JSON.parse(readFileSync(fp, 'utf8')) as SessionRecord;
-      if (rec.project_id === undefined) rec.project_id = null;
-      if (rec.workspace_project_id === undefined) rec.workspace_project_id = null;
+      const persistedProjectId = rec.project_id ? sanitizeId(rec.project_id) : null;
+      const legacyWorkspaceProjectId = rec.workspace_project_id
+        ? sanitizeId(rec.workspace_project_id)
+        : null;
+      const projectId = persistedProjectId ?? legacyWorkspaceProjectId;
+      const needsMigration = rec.project_id !== projectId || rec.workspace_project_id !== undefined;
+      rec.project_id = projectId;
       rec.execution_policy = normalizeExecutionPolicy(rec.execution_policy);
-      return rec;
+      if (needsMigration) this.save(rec);
+      return withLegacyWorkspaceAlias(rec);
     } catch {
       return null;
     }
@@ -134,7 +141,7 @@ export class SessionStore {
       execution_policy: normalizeExecutionPolicy(opts?.execution_policy, DEFAULT_EXECUTION_POLICY),
     };
     this.save(rec);
-    return rec;
+    return withLegacyWorkspaceAlias(rec);
   }
 
   setProject(id: string, projectId: string | null): SessionRecord | null {
@@ -273,13 +280,9 @@ export class SessionStore {
     return rec.messages.slice(-limit);
   }
 
+  /** @deprecated Legacy workspace binding now moves the session to that tree node. */
   setWorkspaceProject(id: string, workspaceProjectId: string | null): SessionRecord | null {
-    const rec = this.load(id);
-    if (!rec) return null;
-    rec.workspace_project_id = workspaceProjectId ? sanitizeId(workspaceProjectId) : null;
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
-    return rec;
+    return this.setProject(id, workspaceProjectId);
   }
 
   setPreferredModel(id: string, model: string): SessionRecord | null {
@@ -390,26 +393,38 @@ export class SessionStore {
   }
 
   private toSummary(rec: SessionRecord): SessionSummary {
-    return {
+    const summary: SessionSummary = {
       id: rec.id,
       title: rec.title,
       updated_at: rec.updated_at,
       message_count: rec.messages.length,
       project_id: rec.project_id ?? null,
-      workspace_project_id: rec.workspace_project_id ?? null,
       preferred_model: rec.preferred_model,
     };
+    return withLegacyWorkspaceAlias(summary);
   }
 
   private save(rec: SessionRecord): void {
     const fp = this.filePath(rec.id);
     assertWritablePath(fp, this.cqrRoot);
-    writeFileSync(fp, JSON.stringify(rec, null, 2) + '\n', 'utf8');
+    const { workspace_project_id: _legacyWorkspaceProjectId, ...persisted } = rec;
+    writeFileSync(fp, JSON.stringify(persisted, null, 2) + '\n', 'utf8');
   }
 
   private filePath(id: string): string {
     return path.join(this.sessionsDir, `${id}.json`);
   }
+}
+
+function withLegacyWorkspaceAlias<T extends { project_id?: string | null; workspace_project_id?: string | null }>(record: T): T {
+  // Keep direct in-process reads working during the compatibility window without
+  // exposing the retired field through JSON/API output or durable storage.
+  Object.defineProperty(record, 'workspace_project_id', {
+    configurable: true,
+    enumerable: false,
+    get: () => record.project_id ?? null,
+  });
+  return record;
 }
 
 function sanitizeId(id: string): string | null {

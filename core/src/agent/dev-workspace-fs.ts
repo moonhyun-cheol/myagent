@@ -59,7 +59,6 @@ const TREE_ROOT_PRIORITY = [
   'ui',
   'core',
   'docs',
-  'rulebook',
   'tools',
   'shell',
   'deploy',

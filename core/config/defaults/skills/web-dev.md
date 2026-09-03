@@ -19,7 +19,8 @@ Landing-page copy, conversion structure, and Tailwind marketing layouts are hand
 - Playwright browser tools may be available when installed (`tools/bootstrap-playwright.ps1`); use them to verify local servers (`playwright_allow_localhost`) or staging URLs after `browser_navigate`. Screenshots default to session temp `data/outputs/browser/` (deleted with the chat). Download reference images/text with `save_web_asset` (session temp `data/outputs/web/`). Write into the workspace only when the user asked to keep the file. `.playwright/` is workspace scratch — keep it gitignored.
 <!-- MY_AGENT_SELF_BEGIN -->
 - MY Agent: API default `http://127.0.0.1:10200`; **the only product UI is `ui/workspace/`** (React at `/`; WebView2 desktop shell).
-- Product layout facts: follow runtime self-product augment + `product-facts.json` / `ui-facts.json` / `ui-target-map.md`. Always `read_file` before describing shell or workspace UI state.
+- Product layout facts: follow runtime self-product augment + `product-facts.json` / `ui-facts.json`. Always `read_file` before describing shell or workspace UI state.
+- MY Agent self-edit: read `core/config/defaults/skills/my-agent-self-edit.md` first; deep specs live in RULEBOOK (`.rulebook-link.yml`), not in this repo.
 - Shell title-bar edits require the configured shell publish lane and an application restart (Vite refresh will not change the caption).
 - If the UI target is ambiguous and no screenshot clarifies it, ask **one** clarifying question before editing.
 <!-- MY_AGENT_SELF_END -->
@@ -64,7 +65,7 @@ Filesystem and browser tools are injected by the code-agent layer (workspace roo
 - Steps or code blocks
 - Optional: risks / follow-up checks
 
-When the user asks to **explain / report / summarize** the project (설명·보고·개요·현황), answer that question with grounded facts (read README / docs under the workspace; for MY Agent self-edit also `rulebook/docs/00_PROJECT_BRIEF.md`, `01_CURRENT_STATUS.md`). Do **not** invent UI redesign tasks or unrelated file edits.
+When the user asks to **explain / report / summarize** the project (설명·보고·개요·현황), answer that question with grounded facts (read README / AGENTS.md; for MY Agent self-edit also RULEBOOK `00_PROJECT_BRIEF.md` via `.rulebook-link.yml`). Do **not** invent UI redesign tasks or unrelated file edits.
 
 For edit/debug requests: do not output generic essay answers without concrete next actions.
 
@@ -72,7 +73,7 @@ For edit/debug requests: do not output generic essay answers without concrete ne
 
 When the user asks to review, give feedback, check completeness, compare requirements vs built, or assess structure / refactoring need:
 
-1. **Ground first** — `read_file` / facts (`product-facts.json`, `ui-facts.json`, AGENTS.md, rulebook, `.gitignore`) before judging. No invented file or policy state.
+1. **Ground first** — `read_file` / facts (`product-facts.json`, `ui-facts.json`, AGENTS.md, RULEBOOK via link, `.gitignore`) before judging. No invented file or policy state.
 2. **결론** — 1–2 sentences with `충족` / `부분` / `미충족`.
 3. **미충족 ≤3** — each with one evidence path (or Rule ID). Optional short table ≤6 rows.
 4. **다음 조치** — exactly **one** concrete next action (Acceptance unit).

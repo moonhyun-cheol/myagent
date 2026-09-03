@@ -137,7 +137,7 @@ export function formatExternalWorkspaceMemory(agentsMd: string): string {
     '## Target workspace memory (external project)',
     'Dev workspace is NOT the MY Agent product tree.',
     'Do NOT cite MY Agent paths (ui/workspace, shell/CqrPa.Shell, ChatPane.tsx, MainWindow.xaml,',
-    'rulebook/docs/specs/technical/ui-target-map.md, product-facts.json).',
+    'core/config/defaults/ui-facts.json, product-facts.json).',
     'Discover files via Repository map / search / read_file (workspace = chat context; absolute/UNC paths OK when the user points outside).',
   ];
   if (agentsMd.trim()) {
