@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 31,
+    "update_sequence": 32,
     "minimum_supported_sequence": 1,
     "version": "1.1.0",
     "channel": "stable",
-    "published_at": "2026-09-03T01:24:08.709Z",
+    "published_at": "2026-09-03T06:55:23.306Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-31",
+      "release_tag": "update-32",
       "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267160457,
-      "sha256": "328fd7df78452feb770201e95befbdf554dffe35e1f133c899a70c659c34f280"
+      "size": 267127840,
+      "sha256": "b1906c84c2ec471a968f4b53b2fab5c8eb204e790c0e25f00e6844679a2c8998"
     },
-    "payload_manifest_sha256": "0403707422bb647c5d07da044265da7ddd9f529e973dd4f11ffa5443aec71d38",
-    "release_notes": "## Scope settings + progress checkpoints (update 31)\n\n### Agent runtime\n- Progressive stage checkpoints (10-round stages, continuation on host limit)\n- Host execution limit converts to durable checkpoint + continuation notice\n- Parallel independent tool calls within one orchestration round\n- Orchestration limit error copy cleanup\n\n### Workspace\n- Scope settings modal + automation feed\n- Session scope-settings route and project scope via PUT /projects/:id\n- Continuation notices in ChatPane (applicationNotice)\n\n### Scheduler\n- SQLite to JSON store migration + migrate tool"
+    "payload_manifest_sha256": "96c7a168fc703f5ed86fddbc8e9b2df3fb5c1d7d53a2b68da665bd1e432e15cc",
+    "release_notes": "## Soft agent + document memo + reasoning (update 32)\n\n### Agent runtime\n- Workspace folder bind no longer rewrites chat to web_dev (RC-013)\n- Default project chat is a soft agent plane (RC-014)\n- web-dev skill no longer forces a completion-report or Exit Gate (RC-015)\n\n### Workspace\n- Preview Document AI memo: answers stay in a floating sticky note, not ChatPane\n- Document scratch under .my-agent/docs/ with gitignore and session GC\n- Reasoning UI: Korean ladder; ChatPane filters to the selected model's supported efforts\n\n### Models\n- Company curate matrix v9 (claude-fable-5.1 / opus-5 / grok-4.6 pins)"
   },
-  "signature": "UNRcd5LkV3amfQxtT5DL7Xq43177vDcVfwo/dG4n8FB07OA2F6LpnzqdgKsbP4L4slMlIh/6Aw7kQbek6WZO+DRzDAoTNt6PFVK/VvRHPh9w/unVMvok14sF6K/N6J4Z0GdKITbRsa3A+MJSHkjQglxz6m34jJWDyEc2wSnlmBziC6/6ltJV0WerbSIoZA+ozj90uXX3/sQYOrmIm4lNEWme4xavpQnZLC5CYGdTlD204TW0C4z9s6z0f+rGhhKegWvigcgzErcCSidhBWgK3uP0v+IwV0uvAvfbN5xBFYyAAxuZZZRIkShOlh5qxUEpZOETJVq3RaVw+8nPgf8RKqCC6kjHa/rw9/IW4bAS0G4IgXyfiK+F63IiHsqbC97FK6WBh0Kel3Bco0OhJffb3pSC6L+g2Z51O7Gdu/o2oKBK6NKFjc5YqttvCFlAYosbZPzfeftVB92NG+b9FRLKm/kw2+Rrjx15HT2htA0FKdq8Txm3TgOo7249JdEMXSf8"
+  "signature": "pJTiJbKLmksG7lj7sKxbnQYcYLHwge07c7KPvqP9P0L21Rd8iKgTDbWfhsRrapE28MGR8JVl+Z91eSYX3eG9kUdrgFpEMQEHD/u3jvRsEioigRPcZLwMNAenqWprJ5rU1MwTgv2km51q6LWmvme48IA43V77SesIa/UDdav94DISrS2kOcvl0FfC6GpBts2wm74Wy9KTii4SeiGxgPuDvG02TbVZKfYFdDfNpDo+PBSpoT0lvaqOqS0UwOn0/6RZHu29wWsuz0MesQNcRlTQOzCqiOUSX9V7E/jnF1hxUonkwg7UUioC+3uqSo898Ax6Pq652dql7YiFfA/n+aOva5UQuOR9rFoBGDSbC7/aQEsIBb9IukWp03rBOvusVFqknuDlgYSHPIQxKWopftJgSsajly1o8+X+LpqV+c8FzpcKGptPiRw5PTwQnlvqY/H8UbMtWAMIzG/MDFEil//vyj5EmA1TpjjQXfyd9eYZJoI0Kr5sxVKEGpMiT7AOJxuq"
 }
