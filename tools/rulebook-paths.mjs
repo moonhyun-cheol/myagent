@@ -16,25 +16,19 @@ export function resolveRulebookRoot(productRoot) {
   return existsSync(dir) ? dir : null;
 }
 
-/** @returns {string | null} absolute docs dir — canonical RULEBOOK first, else product stub */
+/** @returns {string | null} absolute docs dir under canonical RULEBOOK (no product stub). */
 export function resolveRulebookDocsDir(productRoot) {
   const canonical = resolveRulebookRoot(productRoot);
-  if (canonical) {
-    const docs = path.join(canonical, 'docs');
-    if (existsSync(docs)) return docs;
-  }
-  const stub = path.join(productRoot, 'rulebook', 'docs');
-  return existsSync(stub) ? stub : null;
+  if (!canonical) return null;
+  const docs = path.join(canonical, 'docs');
+  return existsSync(docs) ? docs : null;
 }
 
 /** Paths under product root for agent memory (relative strings). */
 export function rulebookMemoryFileRels(productRoot) {
   const docs = resolveRulebookDocsDir(productRoot);
-  const root = resolveRulebookRoot(productRoot);
-  const prefix =
-    root && docs?.startsWith(root)
-      ? path.relative(productRoot, docs).replace(/\\/g, '/')
-      : 'rulebook/docs';
+  if (!docs) return [];
+  const prefix = path.relative(productRoot, docs).replace(/\\/g, '/');
   const candidates = [
     '00_PROJECT_BRIEF.md',
     '01_CURRENT_STATUS.md',

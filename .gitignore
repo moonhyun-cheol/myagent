@@ -74,11 +74,8 @@ logs/
 명령모음-*.txt
 .rulebook-link.yml
 
-# ===== Rulebook (canonical source: ../RULEBOOK — never commit generated) =====
-rulebook/docs/generated/
-rulebook/docs/*.md
-!rulebook/docs/plans/
-rulebook/reports/
+# ===== Rulebook — product tree forbidden (ADR-RE-008; authority: ../RULEBOOK) =====
+rulebook/
 
 # ===== 로그 =====
 *.log
@@ -86,22 +83,6 @@ rulebook/reports/
 # ===== 로컬 검증 증거 / 공개 export 제외 =====
 .update-staging/
 .build/
-rulebook/docs/plans/**/*.zip
-rulebook/docs/plans/**/*-logs/
-rulebook/docs/plans/**/*-handoff/
-rulebook/docs/plans/**/agent-checkpoints/
-rulebook/docs/plans/**/agent-ledger*.jsonl
-rulebook/docs/plans/**/agent-perf*.jsonl
-rulebook/docs/plans/**/agent-run-meta*.json
-rulebook/docs/plans/**/session-*.json
-rulebook/docs/plans/**/git-app-root.txt
-rulebook/docs/plans/_pack-*.mjs
-rulebook/docs/plans/2026-08-18_워크스페이스테스트.md
-rulebook/docs/plans/2026-08-19-workspace-target-isolation-rca.md
-rulebook/docs/plans/2026-08-19-재테스트.md
-rulebook/docs/plans/2026-08-19_workspace_test_log.md
-rulebook/docs/opencodex git repo.txt
-rulebook/reports/verification-*.json
 tools/install/install-ui-copy.json
 
 # ===== Node / 기타 =====

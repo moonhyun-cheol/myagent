@@ -14,7 +14,7 @@ import path from 'node:path';
 import { publishShell } from './shell-publish.mjs';
 import { publishUpdater } from './updater-publish.mjs';
 
-export const PRODUCT_BUILD_LANES = ['defaults', 'core', 'rulebook', 'ui'];
+export const PRODUCT_BUILD_LANES = ['defaults', 'core', 'ui'];
 export const RELEASE_BUILD_LANES = [...PRODUCT_BUILD_LANES, 'shell', 'updater'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'bin', 'obj', '.git', '.build']);
 
@@ -82,11 +82,6 @@ function laneDefinitions(root) {
       ],
       outputs: ['core/dist'],
     },
-    rulebook: {
-      inputs: ['rulebook/docs', 'manifest.json', 'tools/build-rulebook.mjs'],
-      exclusions: ['rulebook/docs/generated'],
-      outputs: ['rulebook/docs/generated'],
-    },
     ui: {
       inputs: [
         'ui/workspace/src',
@@ -147,10 +142,6 @@ function buildLane(root, lane) {
       path.join(root, 'core', 'config', 'defaults'),
       path.join(output, 'config', 'defaults'),
     );
-    return;
-  }
-  if (lane === 'rulebook') {
-    run(process.execPath, [path.join(root, 'tools', 'build-rulebook.mjs')], root, 'rulebook');
     return;
   }
   if (lane === 'ui') {

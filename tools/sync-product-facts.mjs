@@ -73,9 +73,7 @@ const layout = {
   api_dispatch: existsSync(path.join(root, dispatchRel)) ? dispatchRel : null,
   rulebook: rulebookDocs
     ? path.relative(root, rulebookDocs).replace(/\\/g, '/')
-    : existsSync(path.join(root, 'rulebook/docs'))
-      ? 'rulebook/docs'
-      : null,
+    : null,
   rulebook_canonical: rulebookRoot
     ? path.relative(root, rulebookRoot).replace(/\\/g, '/')
     : null,

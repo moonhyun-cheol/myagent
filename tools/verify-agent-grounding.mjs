@@ -108,11 +108,11 @@ const externalMem = resolveScopedProductMemory(root, 'C:\\app\\vari6');
 assert.equal(externalMem.selfWorkspace, false);
 assert.ok(externalMem.promptBlock.includes('external project'));
 assert.ok(!externalMem.promptBlock.includes('api_roots'));
-assert.ok(formatExternalWorkspaceMemory('').includes('ui-target-map'));
+assert.ok(formatExternalWorkspaceMemory('').includes('ui-facts'));
 assert.ok(
   !stripCqrSelfSkillSections(
-    'before\n<!-- MY_AGENT_SELF_BEGIN -->\nui-target-map.md\n<!-- MY_AGENT_SELF_END -->\nafter',
-  ).includes('ui-target-map'),
+    'before\n<!-- MY_AGENT_SELF_BEGIN -->\nui-facts.json\n<!-- MY_AGENT_SELF_END -->\nafter',
+  ).includes('ui-facts.json'),
 );
 
 // --- G audit summary ---

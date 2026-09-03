@@ -98,17 +98,6 @@ if (!existsSync(distDefaults)) {
   console.error('verify-phase10: core/dist/config/defaults missing after delta');
   process.exit(1);
 }
-const manifestVer = manifest.version;
-const rulebookGen = path.join(tmpInstall, 'rulebook', 'docs', 'generated');
-if (!existsSync(rulebookGen)) {
-  console.error('verify-phase10: rulebook/docs/generated missing after delta');
-  process.exit(1);
-}
-const genFiles = readdirSync(rulebookGen).filter((f) => f.startsWith('RULEBOOK_MY_AGENT_MAIN_v'));
-if (genFiles.length === 0 || !genFiles.some((f) => f.includes(manifestVer))) {
-  console.error('verify-phase10: generated rulebook not synced to manifest version');
-  process.exit(1);
-}
 if (!existsSync(path.join(root, 'deploy', 'output', 'delta-stage', 'update-payload.json'))) {
   console.error('verify-phase10: signed update-payload.json missing after secure delta');
   process.exit(1);

@@ -2,8 +2,8 @@
 /**
  * Build delta (간략) update zip.
  * Includes: core/dist, core/config/defaults, UI, shell (MYAgent.exe + bin/my-agent),
- * manifest, and rulebook. Legacy local-only brand sources are never put in a
- * public secure-update package.
+ * manifest. Rulebook stays outside the product tree (ADR-RE-008). Legacy local-only
+ * brand sources are never put in a public secure-update package.
  * Preserves data/ + runtime/ on apply. Large binaries (ffmpeg/node/playwright) stay runtime-bootstrap.
  */
 import { readFileSync, mkdirSync, cpSync, existsSync, rmSync, writeFileSync, statSync } from 'node:fs';
@@ -50,27 +50,6 @@ function copyRel(rel) {
   cpSync(src, dst, { recursive: true });
 }
 
-function copyTrackedTree(rel) {
-  const listed = spawnSync('git', ['ls-files', '-z', '--', rel], {
-    cwd: root,
-  });
-  if (listed.status !== 0) {
-    console.error(`publish-delta: failed to enumerate tracked ${rel} files`);
-    process.exit(listed.status ?? 1);
-  }
-  const files = listed.stdout
-    .toString('utf8')
-    .split('\0')
-    .filter(Boolean);
-  if (files.length === 0) {
-    console.error(`publish-delta: no tracked files found under ${rel}`);
-    process.exit(1);
-  }
-  for (const file of files) {
-    if (existsSync(path.join(root, file))) copyRel(file);
-  }
-}
-
 copyRel('core/dist');
 if (!existsSync(path.join(root, 'core', 'config', 'defaults', 'deploy-defaults.json'))) {
   console.error('missing: core/config/defaults (run npm run build)');
@@ -83,15 +62,6 @@ if (!existsSync(path.join(root, 'ui', 'workspace', 'dist', 'index.html'))) {
 }
 copyRel('ui/workspace/dist');
 copyRel('manifest.json');
-if (secureUpdate) {
-  copyTrackedTree('rulebook');
-  copyRel(`rulebook/docs/generated/RULEBOOK_MY_AGENT_MAIN_v${ver}.md`);
-} else {
-  copyRel('rulebook');
-}
-if (existsSync(path.join(root, '.rulebook-link.yml'))) {
-  copyRel('.rulebook-link.yml');
-}
 copyRel('UPDATE.bat');
 copyRel('tools/update/apply-delta.ps1');
 copyRel('tools/bootstrap-ffmpeg.ps1');
@@ -169,7 +139,7 @@ writeFileSync(
   path.join(stageDir, 'VERSION.txt'),
   [
     `MY Agent delta v${ver}`,
-    'components: desktop shell, updater, core/dist, core/config/defaults, ui/workspace/dist, manifest.json, rulebook/, update/bootstrap tools',
+    'components: desktop shell, updater, core/dist, core/config/defaults, ui/workspace/dist, manifest.json, update/bootstrap tools',
     'data/ NOT included — local skills/plugins/MCP/vault stay on disk after apply-delta',
     'runtime/ NOT included — oss-sidecars/ffmpeg/playwright/node stay local; START/apply-delta re-bootstraps if missing',
     'same-experience: no token-gated MCP in shipped defaults; secrets never required for parity features',

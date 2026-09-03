@@ -26,20 +26,9 @@ const TEXT_EXT = /\.(?:bat|cjs|cs|csproj|css|html|js|json|jsx|md|mjs|ps1|ts|tsx|
 
 const LOCAL_ONLY_PATHS = [
   /^\.update-staging(?:\/|$)/i,
-  /^rulebook\/reports(?:\/|$)/i,
-  /^rulebook\/docs\/plans\/.*\.zip$/i,
-  /^rulebook\/docs\/plans\/.*\/agent-checkpoints(?:\/|$)/i,
-  /^rulebook\/docs\/plans\/.*\/(?:agent-ledger|agent-perf).*\.jsonl$/i,
-  /^rulebook\/docs\/plans\/.*\/agent-run-meta.*\.json$/i,
-  /^rulebook\/docs\/plans\/.*\/session-.*\.json$/i,
-  /^rulebook\/docs\/plans\/.*\/git-app-root\.txt$/i,
-  /^rulebook\/docs\/plans\/_pack-.*\.mjs$/i,
 ];
+const FORBIDDEN_PRODUCT_PATHS = [/^rulebook(?:\/|$)/i];
 const UNTRACKED_SOURCE_CANDIDATES = [
-  /^rulebook\/checks\/.*\.(?:mjs|js|json)$/i,
-  /^rulebook\/docs\/generated\/.*\.md$/i,
-  /^rulebook\/implementation(?:\/|$)/i,
-  /^rulebook\/docs\/REFERENCED_PROJECTS\.md$/i,
   /^tools\/(?:build-lanes|build-smart|release-preflight|version-policy)\.mjs$/i,
   /^tools\/fixtures\/task-ledger\/.*\.json$/i,
   /^tools\/verify-[^/]+\.mjs$/i,
@@ -92,6 +81,8 @@ function markerIds(text, markers) {
 }
 
 const tracked = gitList(['ls-files', '-z']);
+const forbiddenProductPaths = tracked.filter((relative) =>
+  FORBIDDEN_PRODUCT_PATHS.some((pattern) => pattern.test(relative)));
 const untracked = gitList(['ls-files', '--others', '--exclude-standard', '-z']);
 const untrackedSourceCandidates = untracked.filter((relative) =>
   UNTRACKED_SOURCE_CANDIDATES.some((pattern) => pattern.test(relative)));
@@ -139,7 +130,8 @@ const report = {
   revision,
   classified: untrackedUnclassified.length === 0,
   ready: (
-    localOnlyEvidence.length === 0
+    forbiddenProductPaths.length === 0
+    && localOnlyEvidence.length === 0
     && companyOrBrandCandidates.length === 0
     && secretCandidates.length === 0
     && untrackedSourceCandidates.length === 0
@@ -147,6 +139,7 @@ const report = {
   ),
   counts: {
     tracked: tracked.length,
+    forbidden_product_tree: forbiddenProductPaths.length,
     public_core_candidates: publicCoreCandidates.length,
     company_or_brand_candidates: companyOrBrandCandidates.length,
     local_only_evidence_tracked: localOnlyEvidence.length,
@@ -155,6 +148,7 @@ const report = {
     untracked_unclassified: untrackedUnclassified.length,
   },
   public_core_candidates: publicCoreCandidates.sort(),
+  forbidden_product_tree: forbiddenProductPaths.sort(),
   company_or_brand_candidates: companyOrBrandCandidates.sort((a, b) => a.path.localeCompare(b.path)),
   local_only_evidence_tracked: localOnlyEvidence.sort(),
   secret_candidates: secretCandidates.sort((a, b) => a.path.localeCompare(b.path)),
@@ -172,6 +166,10 @@ if (writeReport) {
 console.log(JSON.stringify({ ready: report.ready, ...report.counts }, null, 2));
 
 if (strict && !report.ready) {
+  if (forbiddenProductPaths.length) {
+    console.error('verify-public-boundary FAILED: product rulebook/ tree is forbidden (ADR-RE-008):');
+    for (const rel of forbiddenProductPaths) console.error(`  - ${rel}`);
+  }
   console.error('verify-public-boundary FAILED: public export still has classified blockers.');
   process.exit(1);
 }

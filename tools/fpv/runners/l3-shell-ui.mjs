@@ -35,7 +35,7 @@ export async function runL3(opts = {}) {
     },
     {
       id: 'ui.target_map',
-      rel: 'rulebook/docs/specs/technical/ui-target-map.md',
+      rel: 'core/config/defaults/ui-facts.json',
       acceptance: 'titlebar ≠ ChatPane map',
     },
   ];
