@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 32,
+    "update_sequence": 33,
     "minimum_supported_sequence": 1,
-    "version": "1.1.0",
+    "version": "1.1.1",
     "channel": "stable",
-    "published_at": "2026-09-03T06:55:23.306Z",
+    "published_at": "2026-09-03T23:51:21.908Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-32",
-      "name": "MYAgent-v1.1.0-delta.zip",
-      "size": 267127840,
-      "sha256": "b1906c84c2ec471a968f4b53b2fab5c8eb204e790c0e25f00e6844679a2c8998"
+      "release_tag": "update-33",
+      "name": "MYAgent-v1.1.1-delta.zip",
+      "size": 267123866,
+      "sha256": "63682d41840897f1d7863f5a321303d04693c183f73bd322a286f1da06774c53"
     },
-    "payload_manifest_sha256": "96c7a168fc703f5ed86fddbc8e9b2df3fb5c1d7d53a2b68da665bd1e432e15cc",
-    "release_notes": "## Soft agent + document memo + reasoning (update 32)\n\n### Agent runtime\n- Workspace folder bind no longer rewrites chat to web_dev (RC-013)\n- Default project chat is a soft agent plane (RC-014)\n- web-dev skill no longer forces a completion-report or Exit Gate (RC-015)\n\n### Workspace\n- Preview Document AI memo: answers stay in a floating sticky note, not ChatPane\n- Document scratch under .my-agent/docs/ with gitignore and session GC\n- Reasoning UI: Korean ladder; ChatPane filters to the selected model's supported efforts\n\n### Models\n- Company curate matrix v9 (claude-fable-5.1 / opus-5 / grok-4.6 pins)"
+    "payload_manifest_sha256": "bc95dad79a4b9f9fe8f4319cb671950925666e8ecd2fcb16daa603729c0d4a34",
+    "release_notes": ""
   },
-  "signature": "pJTiJbKLmksG7lj7sKxbnQYcYLHwge07c7KPvqP9P0L21Rd8iKgTDbWfhsRrapE28MGR8JVl+Z91eSYX3eG9kUdrgFpEMQEHD/u3jvRsEioigRPcZLwMNAenqWprJ5rU1MwTgv2km51q6LWmvme48IA43V77SesIa/UDdav94DISrS2kOcvl0FfC6GpBts2wm74Wy9KTii4SeiGxgPuDvG02TbVZKfYFdDfNpDo+PBSpoT0lvaqOqS0UwOn0/6RZHu29wWsuz0MesQNcRlTQOzCqiOUSX9V7E/jnF1hxUonkwg7UUioC+3uqSo898Ax6Pq652dql7YiFfA/n+aOva5UQuOR9rFoBGDSbC7/aQEsIBb9IukWp03rBOvusVFqknuDlgYSHPIQxKWopftJgSsajly1o8+X+LpqV+c8FzpcKGptPiRw5PTwQnlvqY/H8UbMtWAMIzG/MDFEil//vyj5EmA1TpjjQXfyd9eYZJoI0Kr5sxVKEGpMiT7AOJxuq"
+  "signature": "HMhMAcYzh3hkSrXy2DiJN1/ewr+ZLVdmqWh5z2tBrveQIJOduSedxEbIWEY3V9xIkAf+Gbf63QQuc0mSpMOJaVWczBveacCYomVR1aj+DQiOiAAVZCkyQ2hS45BfkAfiIembqiMSLixxRP7X4xYbNKk1mtBRRz8uhlak+6q/IR9CqnrLJwvw5N7EhV/joPexcD+IUsKH7AiUK+sOcqMWvsJQxy8zMJBGgRRsNMVHRveQOhMBHfuFr8XSTUccTySlVLE7BdGBmqps8/X5aEoTgtgRFZ9LCm9syLwPkowtGYSoA09+Rh2tlaurQA+LWoUWQICYgDrFpN/xCnidYEgA+Tu71PwSR+WEXqa+/nHlbNelRaAxvpdN7E0wJ3uGQUA/j4mystMnanhv7eoL2++fd/lBhX2CyMdZ7482+6hBImBKHPT47yYiXShqJQv7h+xwzFY7sjKCGS92Qz8aeZrgkScOjSDFvfHiIReUgU/Nuby+RxL0aBXzMUhnzY9vnkZM"
 }
