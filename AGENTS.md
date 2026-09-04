@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-04 / 제품 캡처 1.1.4, update 39):** 외부
+**RULEBOOK 지식 기준 (2026-09-04 / 제품 캡처 1.1.4, update 40):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, WorkKitLauncher 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
@@ -14,7 +14,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — version `1.1.4`, `update_sequence` **39**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
+- `manifest.json` — version `1.1.4`, `update_sequence` **40**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
 
 ## Product layout
 
@@ -28,7 +28,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 ## Critical product facts
 
-- **Work kits:** `WorkKitLauncher.exe` — catalog feed, per-shelf install, apply. No work-kit UI in Settings.
+- **Work kits:** `WorkKitLauncher.exe` — catalog feed, per-shelf install, apply = pull + enable only (no runtime pin). No work-kit UI in Settings. Org skills via composer `+` / `/skills/selectable`.
 - **Updates (4 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; launcher `launcher-stable.json` + `--apply-update`; org module folder swap; work-kit catalog refresh. See R-605/R-617/R-618, ADR-RE-007.
 - **Org module:** overlay loader in core; content in company repo. Settings → 스킬 for manual check/apply.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
