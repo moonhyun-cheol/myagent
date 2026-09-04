@@ -23,6 +23,7 @@ import {
   resolveSkillSystemPrompt,
   isStreamableLlmSkillMode,
 } from '../skills/chat-skill-flow.js';
+import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
 import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-session-log.js';
 import { waitForToolApproval } from '../agent/tool-approval.js';
@@ -458,10 +459,14 @@ export class ChatOrchestrator {
     );
     const hasWorkspaceContext = Boolean(workspaceCtx);
     const mergedCtx = [attachmentCtx, workspaceCtx].filter(Boolean).join('\n\n');
+    const recentForHistory = this.sessionStore
+      .recentMessages(sessionId, getHistoryTurns(process.env, histBudget))
+      .slice(0, -1);
+    const historySource = isOrgSkillMode(routing.mode)
+      ? recentForHistory.filter((m) => m.mode === routing.mode)
+      : recentForHistory;
     const history = applyHistoryContentBudget(
-      sanitizeHistoryForModel(
-        this.sessionStore.recentMessages(sessionId, getHistoryTurns(process.env, histBudget)).slice(0, -1),
-      ),
+      sanitizeHistoryForModel(historySource),
       process.env,
       histBudget,
     );
@@ -994,10 +999,14 @@ export class ChatOrchestrator {
     );
     const hasWorkspaceContext = Boolean(workspaceCtx);
     const mergedCtx = [attachmentCtx, workspaceCtx].filter(Boolean).join('\n\n');
+    const recentForHistory = this.sessionStore
+      .recentMessages(sessionId, getHistoryTurns(process.env, histBudget))
+      .slice(0, -1);
+    const historySource = isOrgSkillMode(routing.mode)
+      ? recentForHistory.filter((m) => m.mode === routing.mode)
+      : recentForHistory;
     const history = applyHistoryContentBudget(
-      sanitizeHistoryForModel(
-        this.sessionStore.recentMessages(sessionId, getHistoryTurns(process.env, histBudget)).slice(0, -1),
-      ),
+      sanitizeHistoryForModel(historySource),
       process.env,
       histBudget,
     );

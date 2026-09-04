@@ -89,5 +89,16 @@ export function resolveSkillSystemPrompt(
   if (mode === 'web_dev' && msg) {
     base = appendDesignFirstIfNeeded(base, msg);
   }
-  return augmentSkillSystemPrompt(mode, base, { selfProductMemory });
+  base = augmentSkillSystemPrompt(mode, base, { selfProductMemory }) ?? base;
+  if (isOrgSkillMode(mode)) {
+    base = `${base.trim()}
+
+---
+
+## Organization skill turn lock
+Ignore prior chat turns that were not produced under this same org skill mode.
+Do not continue casual fashion-list / blog-concept formats from earlier messages.
+Follow this skill's OUTPUT CONTRACT / CONCEPT_CORE (or equivalent) exactly for this turn.`;
+  }
+  return base;
 }
