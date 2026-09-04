@@ -3,20 +3,20 @@
   "document": {
     "schema": "my-agent-launcher-feed/v1",
     "kind": "work-kit-launcher",
-    "update_sequence": 2,
+    "update_sequence": 3,
     "minimum_supported_sequence": 1,
-    "version": "1.0.0",
+    "version": "1.0.8",
     "channel": "stable",
-    "published_at": "2026-09-02T02:44:51.287Z",
+    "published_at": "2026-09-04T06:28:29.945Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "launcher-update-2",
-      "name": "WorkKitLauncher-v1.0.0-update-2.zip",
-      "size": 66673764,
-      "sha256": "0404a9be9ee1c3da646d59429c724154715b0a2e800aed4086d988a4ba2d389c"
+      "release_tag": "launcher-update-3",
+      "name": "WorkKitLauncher-v1.0.8-update-3.zip",
+      "size": 66673809,
+      "sha256": "da9bd7779bcfcab570e6bdd3cc64f9817eccba999127b4d7f7bb17979a8a603c"
     },
-    "payload_manifest_sha256": "665199525b16d49fb691b74d475989d048bacdcbb6b01f084ef68d90068a5752",
-    "release_notes": "First signed WorkKitLauncher release: standalone work-kit manager UI, auto-update stream, companion headless apply mode."
+    "payload_manifest_sha256": "e7da048d73ed4e42a5f15792550223e6230f0b67302f883264c21e2d718bb7ba",
+    "release_notes": ""
   },
-  "signature": "CyHTPSrD+9DFVXjHwFGdMKibN1UHhUr/kxnraFm7G884344nUAuCA/s1BIY+hzhCeq0clwIInfVf4Mxe8uekFQ5k6eJ/et7HF9pbkym7j1nf89pfTThKBkGctNoFhNiZ77B22M+Foh5CwHEA4HsNnXEP5TWovS5/7leJPWQ5WLwoPvUkI8Q8oL1dFhmWJv2uXb3oMVMBC0zw+uy3HDwf6HK+xReQdPLrI70ppaMqgJdp5pVRbJe3qzFJNzweLuOxgekDpFYmN29BtafhBIfotlUi9KImNeRqJJ3U7ypYK3pafMZFPHXVD/P8ygPcKDyq4WsQ04+FFESHqzeMsOD80+hvPIZwQ81uLkFBhSQlid+Lq9r3X2n0kGWtmnei2sSYyNlNFe/uZ9wINSDSi0dUkYAXR4ezq6L9uCEt3Riwvy2zTi9Bvm1/fcNIjqHpwLDxqQCdqQWGzTTco10l4yjOHTHimokPlSawvQRcHDBYEZo9evkSF6EuXTYBgWPwZTbD"
+  "signature": "kiIs5hP83NY2Y/NHgSoVW1024gJ6ywjq4ESEp88BEEU6g83pXWFPgFxnvGZA4DD0eZZ1ChKLU978ByZDqLnh8ZUHM7qH1Nc43Qb+phyttrvYgHqy1+Zu2T3/z9YrVEgL8xleABuGtqLfuEAcvWExrGG4sVWUteYVHKiisKqcUbxkGIkzHRRJk9QLeBy4y8tF1zVGxY9hx+/W1+i1AhGavwoO4YbAQTzbOzlZ+gXnfjq+64xJH3FmwEy3b5qLlcIF5OE61q2WmAPfwXNH2jAVNT7j2LXdU08PwWfmWcrt4EpyPLQQkrNxEXYN1T4Ua9uX7a8uSrrkSXyWrPyT7QM21N7GGSgGtahk7Uo+RNeeh6mYuQTdfMOL2TNAUinGPkL9lEPtIW+uXe3PyIxckr3DBpTmkwVpDpjCR3NbNVqUgT11sz/YpuYlUKLnB7D6rAwiEadTAYhQspNkbiNj3ZjkuqwMLo2bNQIM8Ka0hnsu9qREsPSu7r93bQkvNgamc8Bc"
 }

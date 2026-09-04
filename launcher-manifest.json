@@ -1,9 +1,9 @@
 {
   "name": "MY Agent 관리자",
   "kind": "work-kit-launcher",
-  "version": "1.0.6",
+  "version": "1.0.8",
   "update_channel": "stable",
-  "update_sequence": 2,
+  "update_sequence": 3,
   "minimum_supported_sequence": 1,
   "required_core_api": "1.0.0-beta.1",
   "update_repository": "moonhyun-cheol/myagent",
