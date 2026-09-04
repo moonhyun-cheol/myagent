@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 36,
+    "update_sequence": 37,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-04T02:32:26.495Z",
+    "published_at": "2026-09-04T02:58:23.934Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-36",
+      "release_tag": "update-37",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267138263,
-      "sha256": "e85a42fb73a26df19e6c177784bdf7cc7a23f925e270ad76adb4f116edbf010e"
+      "size": 267138930,
+      "sha256": "19ec9c6c8ec42586019656fe35f231562486f438fda33efb3fc24196f58d2e63"
     },
-    "payload_manifest_sha256": "6531a37325647ed08992b4f87812ba469ca253c9795f1de63eec2ec8ec1600b3",
-    "release_notes": "Update 36: CQR TODO/Evidence context lifecycle — Evidence Store, todo_update/evidence_read, Context Assembler, Continuation Snapshot; MAX_AGENT_STEPS=100 sole logical cap (progressive auto-chain removed); Responses reasoning.summary concise."
+    "payload_manifest_sha256": "8a0ec137edb46a286d8724f75f1799407421dcb9d1b30b84e6e5ae2428b227f0",
+    "release_notes": ""
   },
-  "signature": "NHDBoT2Kuyx26r3KtCa1TerjLUVtublapyrBDKgmu79lt/XjkwV7Tg+xpjJd84rD5HWjePl8vWZaWtG56CjKhD9rrYSvGqlsFkz7GhuJRTcVzqUmeNgWXs+b8JwEDz8k5wqUf+3qP51ydT5NdZeYHHo9Yi2TqnHO8HjByhekAE+V60HAiX454tc5dB8nHR8pB21UpMZrUyyri56qIxihrzIi0+RKtH/bcFHvdBM6T6TzpD9BKLmW/ii+QDbceol+9YKpAxaUSl78H3ATfjL3drnbI7xBebNO1pduFvNTpaK4cc8OHbMPZ7lkngP252BF4UIWz7kp8TYD8K/TOXw1MmDpe7RjDPAFZxTs5Ogz2T7lkmLQBlzt9Hk9OU88wrIV65QMjqRBdH575pI1aXbMAUg7J123a6GIzxBN3wMQSNFeQru6z3NZkPIf1vfgcwFfEo3xEf2ro3T9gZqCuQ0+Kavb/RtwdGorhe/huoK2/0A25fY6WueqQOvUYbazLVnQ"
+  "signature": "vdE8Z/6NRvPpbjZEvVWYNfo5arI/57WPpkEEi/deqv9exS63m1GlRHQUwmjQAKcEDun5uOjk23z/6tmLYbmYyKyV+veRdAs7gExBaVAQf4lE0ASItfLQrBiSLsffmsDPzO5LWd7kw6xUqNfkxkGfZJybD1+PiUXFLsY+euxrYgCgAQYOzQoftXRFpag0mnpyzOieXFNwKuz3x+TshC67Cjo0qqIUDY9nt40nd9m7c7flI230iKszuyjm+YyPEN4RJkHStpzmcfFkGKPFc1HfgAVa+1m4OMokzWboiSZFaOh+U7MgmxHimo9rva6EPb7cRjyMSJhmjhRh7uznh6HLlqEK+WI4m7QG4RyXEhGrSdyib+nDA50VlJAKecrj000vKCrw1iwncBct2Gs+tptmFI/M3ILKatCuGuhAbU0bQoxxIvA5ZdIDgMM+IQROxUvUu+Yop8jQtvHfZYe0IgpQMq8rWF6g+YgUB2IuNFy87jS2oegYvYiU48gPc/fl8l3x"
 }
