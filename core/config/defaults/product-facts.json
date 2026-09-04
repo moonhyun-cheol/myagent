@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-04T02:42:41.947Z",
+  "generated_at": "2026-09-04T06:02:46.035Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -55,7 +55,7 @@
       "/organization-module",
       "/assets/"
     ],
-    "route_count": 97,
+    "route_count": 98,
     "routes": [
       {
         "method": "GET",
@@ -509,7 +509,12 @@
       },
       {
         "method": "POST",
-        "path": "/skills/import",
+        "path": "/skills/package",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/skills/selectable",
         "match": "exact"
       },
       {
