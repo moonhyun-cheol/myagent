@@ -6,13 +6,16 @@ import {
   ChatTeardropText,
   DotsThree,
   FolderPlus,
+  FolderSimple,
+  HardDrives,
   PencilSimple,
   Plus,
   PushPin,
   SlidersHorizontal,
   Trash,
+  TreeStructure,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import {
   createProject,
   deleteProject,
@@ -49,13 +52,20 @@ const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
 };
 const SIDEBAR_MENU_OPEN_EVENT = 'cqr:sidebar-menu-open';
 
-/** Material Icons ligature names — https://fonts.google.com/icons */
-const WORK_FOLDER_ICON = 'folder'; // 작업폴더 (disk-bound workspace_root)
-const PROJECT_ICON = 'account_tree'; // 프로젝트 / 하위 폴더 (project, folder)
-
-function treeKindIconName(kind: ProjectKind | 'standalone'): string {
-  if (kind === 'workspace_root' || kind === 'standalone') return WORK_FOLDER_ICON;
-  return PROJECT_ICON;
+/** Three top-level kinds must use different shapes (not color alone). */
+type TreeIconProps = { size?: number; weight?: 'fill' | 'regular' | 'bold'; className?: string; style?: { color?: string } };
+function treeKindIcon(kind: ProjectKind | 'standalone'): ComponentType<TreeIconProps> {
+  switch (kind) {
+    case 'standalone':
+      return ChatTeardropText; // 개인 작업
+    case 'workspace_root':
+      return HardDrives; // 워크스페이스(작업폴더)
+    case 'folder':
+      return FolderSimple; // 하위 폴더
+    case 'project':
+    default:
+      return TreeStructure; // 프로젝트
+  }
 }
 
 function TreeKindIcon({
@@ -69,15 +79,10 @@ function TreeKindIcon({
   className?: string;
   title?: string;
 }) {
-  const style: CSSProperties | undefined = color ? { color } : undefined;
+  const Icon = treeKindIcon(kind);
   return (
-    <span
-      className={`material-icons tree-kind-icon ${className ?? ''}`.trim()}
-      style={style}
-      title={title}
-      aria-hidden
-    >
-      {treeKindIconName(kind)}
+    <span className={className} title={title} aria-hidden>
+      <Icon size={16} weight="fill" style={color ? { color } : undefined} />
     </span>
   );
 }
@@ -715,7 +720,13 @@ function TreeNode({
             kind={node.kind}
             className="shrink-0"
             color={PROJECT_COLOR_HEX[labelColor]}
-            title={node.kind === 'workspace_root' ? '작업폴더' : node.kind === 'folder' ? '폴더' : '프로젝트'}
+            title={
+              node.kind === 'workspace_root'
+                ? '워크스페이스'
+                : node.kind === 'folder'
+                  ? '폴더'
+                  : '프로젝트'
+            }
           />
         </span>
         <button
