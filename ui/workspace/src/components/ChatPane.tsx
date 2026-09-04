@@ -1352,7 +1352,9 @@ export function ChatPane() {
           ) : null}
           <div
             ref={composerRef}
-            className={`overflow-hidden rounded-2xl border bg-ink/90 shadow-[0_8px_28px_rgba(0,0,0,0.16)] transition-colors focus-within:border-accent/70 focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_8px_28px_rgba(0,0,0,0.2)] ${
+            className={`rounded-2xl border bg-ink/90 shadow-[0_8px_28px_rgba(0,0,0,0.16)] transition-colors focus-within:border-accent/70 focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_8px_28px_rgba(0,0,0,0.2)] ${
+              skillPickerOpen ? 'overflow-visible' : 'overflow-hidden'
+            } ${
               dragActive
                 ? 'border-accent bg-accent/5 shadow-[0_0_0_1px_rgba(45,212,191,0.35)]'
                 : 'border-line'
@@ -1543,7 +1545,7 @@ export function ChatPane() {
                 ) : null}
                 {skillPickerOpen ? (
                   <div
-                    className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-xl border border-line bg-panel p-2 shadow-xl"
+                    className="absolute bottom-full left-0 z-50 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-line bg-panel p-2 shadow-xl"
                     data-testid="organization-skill-menu"
                   >
                     <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
