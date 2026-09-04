@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 35,
+    "update_sequence": 36,
     "minimum_supported_sequence": 1,
-    "version": "1.1.3",
+    "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-04T02:10:09.925Z",
+    "published_at": "2026-09-04T02:32:26.495Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-35",
-      "name": "MYAgent-v1.1.3-delta.zip",
-      "size": 267129900,
-      "sha256": "bf65d445927fc2fb0182b8d30dc4eeb0ab54de4cfa5cd0efceaf4432544fedfe"
+      "release_tag": "update-36",
+      "name": "MYAgent-v1.1.4-delta.zip",
+      "size": 267138263,
+      "sha256": "e85a42fb73a26df19e6c177784bdf7cc7a23f925e270ad76adb4f116edbf010e"
     },
-    "payload_manifest_sha256": "d6101658c156c2af33854c0d5d247269094bc4c747e3d2c23f119145af89d6c3",
-    "release_notes": "Update 35: document multi-tab completion — QuickOpen document open, project save modal, tab context menus, and safe AI docs/ mutate sync with per-tab recovery scratch only."
+    "payload_manifest_sha256": "6531a37325647ed08992b4f87812ba469ca253c9795f1de63eec2ec8ec1600b3",
+    "release_notes": "Update 36: CQR TODO/Evidence context lifecycle — Evidence Store, todo_update/evidence_read, Context Assembler, Continuation Snapshot; MAX_AGENT_STEPS=100 sole logical cap (progressive auto-chain removed); Responses reasoning.summary concise."
   },
-  "signature": "nsIAgoNsUkYiwn8+9yG1vg3gR/EZEwrmuCsLTZapdFCBmY/41+/3RJVaqku0mzD8hBwYx8Gds6uZMhfNAJLpbtsCtvGFJE25MAS7Nbh4gY1XENBiF+sup7g8/yUJI+R7PKKvQSfSpib4qfN2RA9kL7PBcZyaiS3xYzKXu9DLrznQS/d+vagSuD8u/nwTiR3LpAlZNJCo9w8MIVyuYI+KlYlfm74rXyoAQsbwaMQaLArAq9BzNs+py0XhA95R5NeDN0h69T/Jhp3p1sfA4v0UiXhxYKfo+CHFr2MVMzSxZjI+1MEEXD4sXAjnzufuzwXobXpHQBcbhChjcHWA2hy+jV/hDM4493qSg48Awbe0JOBcL5S/rCnuU+P+Xnuiwei1IgZVQ8f4k2bu6HMfO49/g7W7kwsgqAhl5+vuJINen0Gx4GuvMGcQ/kCXv7fYOhgVkpih7MN/RAiFdfBSuzbiqMtMdAhrutGsRQn5XGoLSiG6VP6fu/DTjKng2zDaUy+t"
+  "signature": "NHDBoT2Kuyx26r3KtCa1TerjLUVtublapyrBDKgmu79lt/XjkwV7Tg+xpjJd84rD5HWjePl8vWZaWtG56CjKhD9rrYSvGqlsFkz7GhuJRTcVzqUmeNgWXs+b8JwEDz8k5wqUf+3qP51ydT5NdZeYHHo9Yi2TqnHO8HjByhekAE+V60HAiX454tc5dB8nHR8pB21UpMZrUyyri56qIxihrzIi0+RKtH/bcFHvdBM6T6TzpD9BKLmW/ii+QDbceol+9YKpAxaUSl78H3ATfjL3drnbI7xBebNO1pduFvNTpaK4cc8OHbMPZ7lkngP252BF4UIWz7kp8TYD8K/TOXw1MmDpe7RjDPAFZxTs5Ogz2T7lkmLQBlzt9Hk9OU88wrIV65QMjqRBdH575pI1aXbMAUg7J123a6GIzxBN3wMQSNFeQru6z3NZkPIf1vfgcwFfEo3xEf2ro3T9gZqCuQ0+Kavb/RtwdGorhe/huoK2/0A25fY6WueqQOvUYbazLVnQ"
 }
