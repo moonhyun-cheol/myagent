@@ -205,7 +205,7 @@ function newDraftDocumentTab(existing: DocumentTab[]): DocumentTab {
     content: '',
     dirty: false,
     selection: '',
-    view: 'source',
+    view: 'preview',
     status: '임시 초안',
     lastDumpPath: null,
     lastDumpContent: null,
@@ -519,6 +519,8 @@ interface WorkspaceState {
   newDocument: () => Promise<void>;
   saveDocumentToProject: (relPath: string) => Promise<void>;
   saveDocumentAs: (relPath: string) => Promise<void>;
+  /** Explicit write to per-tab recovery under .my-agent/docs (not a project file). */
+  saveDocumentScratch: () => Promise<void>;
   renameDocument: (relPath: string) => Promise<void>;
   reloadDocumentFromDisk: (tabId: string) => Promise<void>;
   keepDocumentLocalEdits: (tabId: string) => void;
@@ -2124,7 +2126,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           content: initialContent,
           dirty: true,
           selection: '',
-          view: 'source',
+          view: 'preview',
           status: '외부 파일 · 프로젝트에 저장하기 전까지 원본은 변경되지 않습니다.',
           lastDumpPath: null,
           lastDumpContent: null,
@@ -2160,7 +2162,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           content,
           dirty: false,
           selection: '',
-          view: 'source',
+          view: 'preview',
           status: `프로젝트 파일 · ${path}`,
           lastDumpPath: null,
           lastDumpContent: null,
@@ -2209,25 +2211,47 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     saveDocumentToProject: async (relPath) => {
       const active = activeDocumentTab(get());
-      if (!active) return;
+      if (!active) throw new Error('열린 문서가 없습니다.');
       if (!get().filesRoot) {
-        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '프로젝트 저장에는 작업 폴더가 필요합니다.' } : tab) });
-        return;
+        const message = '프로젝트 저장에는 작업 폴더가 필요합니다.';
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
+        throw new Error(message);
       }
       const path = normalizeRelPath(relPath);
       if (isDocumentScratchPath(path)) {
+        const message = '세션 임시 경로(.my-agent/docs)에는 프로젝트 저장할 수 없습니다. 더보기 → 세션 임시본으로 저장을 쓰세요.';
         set({
           documentTabs: get().documentTabs.map((tab) =>
-            tab.id === active.id ? { ...tab, status: '복구 임시 경로에는 프로젝트 저장할 수 없습니다.' } : tab,
+            tab.id === active.id ? { ...tab, status: message } : tab,
           ),
         });
-        return;
+        throw new Error(message);
+      }
+      const conflict = get().documentTabs.find(
+        (tab) =>
+          tab.id !== active.id &&
+          tab.source === 'workspace' &&
+          tab.path?.toLowerCase() === path.toLowerCase(),
+      );
+      if (conflict) {
+        if (conflict.dirty) {
+          const message = `이미 다른 탭에서 수정 중인 파일입니다: ${path}`;
+          set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
+          throw new Error(message);
+        }
+        set({
+          documentTabs: get().documentTabs.filter((tab) => tab.id !== conflict.id),
+        });
       }
       try {
         await writeWorkspaceFsFile(path, active.content);
         const title = documentTitleFromPath(path);
         set({
-          documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, title, path, source: 'workspace', dirty: false, status: `프로젝트 파일 · ${path}` } : tab),
+          documentTabs: get().documentTabs.map((tab) =>
+            tab.id === active.id
+              ? { ...tab, title, path, source: 'workspace', dirty: false, status: `프로젝트 파일 · ${path}`, recoveryPath: null }
+              : tab,
+          ),
           mode: 'document',
         });
         await get().refreshExplorer();
@@ -2239,6 +2263,34 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     saveDocumentAs: async (relPath) => {
       await get().saveDocumentToProject(relPath);
+    },
+    saveDocumentScratch: async () => {
+      const active = activeDocumentTab(get());
+      const sessionId = get().activeSessionId;
+      if (!active) throw new Error('열린 문서가 없습니다.');
+      if (!get().filesRoot) throw new Error('세션 임시본 저장에는 작업 폴더가 필요합니다.');
+      if (!sessionId) throw new Error('세션이 없습니다. 대화를 시작한 뒤 다시 시도하세요.');
+      const recoveryPath = active.recoveryPath || documentRecoveryRelPath(sessionId, active.id);
+      try {
+        await writeWorkspaceFsFile(recoveryPath, active.content);
+        set({
+          documentTabs: get().documentTabs.map((tab) =>
+            tab.id === active.id
+              ? {
+                  ...tab,
+                  recoveryPath,
+                  // Keep draft/import — scratch is not a project file.
+                  status: `세션 임시본 · ${recoveryPath}`,
+                }
+              : tab,
+          ),
+          mode: 'document',
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
+        throw err;
+      }
     },
     renameDocument: async (relPath) => {
       const active = activeDocumentTab(get());

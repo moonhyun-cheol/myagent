@@ -13,6 +13,7 @@ import {
 } from '../lib/documentFile';
 import { DOCUMENT_MEMO_MARKER } from '../lib/documentMemo';
 import type { DocumentMemo } from '../lib/documentFile';
+import { confirmDialog } from '../lib/confirmDialog';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 import { DocumentSaveModal, type DocumentSaveMode } from './DocumentSaveModal';
@@ -109,6 +110,7 @@ export function MarkdownDocument() {
   const newDocument = useWorkspaceStore((s) => s.newDocument);
   const saveDocumentToProject = useWorkspaceStore((s) => s.saveDocumentToProject);
   const saveDocumentAs = useWorkspaceStore((s) => s.saveDocumentAs);
+  const saveDocumentScratch = useWorkspaceStore((s) => s.saveDocumentScratch);
   const renameDocument = useWorkspaceStore((s) => s.renameDocument);
   const reloadDocumentFromDisk = useWorkspaceStore((s) => s.reloadDocumentFromDisk);
   const keepDocumentLocalEdits = useWorkspaceStore((s) => s.keepDocumentLocalEdits);
@@ -509,14 +511,39 @@ export function MarkdownDocument() {
     });
   };
 
-  const pathLabel =
-    activeDocument?.source === 'workspace' && documentRelPath
-      ? `프로젝트 파일 · ${documentRelPath}`
-      : activeDocument?.source === 'import'
-        ? '외부 파일 · 아직 프로젝트에 저장되지 않음'
-        : hasWorkspace
-          ? '임시 초안'
-          : '메모리 초안';
+  const pathLabel = documentRelPath || activeDocument?.title || '문서';
+  const pathLabelTitle = documentRelPath || activeDocument?.recoveryPath || activeDocument?.title || '문서';
+  const sourceLabel = activeDocument?.source === 'workspace'
+    ? '프로젝트'
+    : activeDocument?.source === 'import'
+      ? '외부 가져옴'
+      : '임시 초안';
+  const editLabel = activeDocument?.source === 'workspace' ? '수정 가능' : '저장 전 초안';
+  const saveLabel = documentDirty ? '저장 안 됨' : '저장됨';
+  const hasDump = Boolean(lastDumpPath || lastDumpContent != null);
+
+  const handleOpenLastDump = async () => {
+    if (!hasDump) return;
+    const ok = await confirmDialog({
+      title: '최근 덤프로 바꾸기',
+      message:
+        '에이전트가 덮어쓰기 직전 내용으로 현재 문서를 교체합니다. 저장하지 않은 편집은 사라질 수 있습니다. 비교만 하려면 「변경 비교」를 사용하세요.',
+      confirmLabel: '덤프 열기',
+      cancelLabel: '취소',
+    });
+    if (!ok) return;
+    await openLastDump();
+  };
+
+  const handleSaveScratch = async () => {
+    setMoreOpen(false);
+    if (!(await ensureWorkspace())) return;
+    try {
+      await saveDocumentScratch();
+    } catch {
+      /* status already set */
+    }
+  };
 
   const tabContextItems = (tabId: string): ContextMenuItem[] => [
     {
@@ -701,9 +728,11 @@ export function MarkdownDocument() {
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-2 py-1.5">
-        <span className="mr-1 max-w-[42%] truncate text-[10px] text-muted" title={pathLabel}>
-          {pathLabel}
-        </span>
+        <span className="mr-1 max-w-[28%] truncate text-[10px] font-medium text-text" title={pathLabelTitle}>{pathLabel}</span>
+        <span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent">{sourceLabel}</span>
+        <span className="rounded border border-line px-1.5 py-0.5 text-[10px] text-muted">{editLabel}</span>
+        <span className={`rounded border px-1.5 py-0.5 text-[10px] ${documentDirty ? 'border-amber-500/40 text-amber-200' : 'border-line text-muted'}`}>{saveLabel}</span>
+        {hasDump ? <span className="rounded border border-rose-400/40 px-1.5 py-0.5 text-[10px] text-rose-300">에이전트 덮어쓰기 덤프 있음</span> : null}
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
@@ -766,6 +795,13 @@ export function MarkdownDocument() {
               </button>
               <button
                 type="button"
+                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                onClick={() => void handleSaveScratch()}
+              >
+                세션 임시본으로 저장
+              </button>
+              <button
+                type="button"
                 className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
                 disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
                 onClick={() => {
@@ -791,9 +827,9 @@ export function MarkdownDocument() {
         </div>
         <button
           type="button"
-          disabled={!lastDumpPath && lastDumpContent == null}
+          disabled={!hasDump}
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text disabled:opacity-40"
-          onClick={() => void openLastDump()}
+          onClick={() => void handleOpenLastDump()}
         >
           최근 덤프
         </button>
@@ -852,12 +888,17 @@ export function MarkdownDocument() {
               onClick={() => setDocumentView(id)}
               title={id === 'diff' ? '덤프 ↔ 현재' : undefined}
             >
-              {id === 'source' ? '원문' : id === 'preview' ? '미리보기' : '변경 보기'}
+              {id === 'source' ? '원문 편집' : id === 'preview' ? '읽기' : '변경 비교'}
             </button>
           ))}
         </div>
       </div>
 
+      {hasDump ? (
+        <p className="shrink-0 border-b border-line px-3 py-1 text-[10px] text-rose-300">
+          에이전트 덮어쓰기 덤프가 있습니다. 「변경 비교」에서 확인하세요.
+        </p>
+      ) : null}
       {documentStatus ? (
         <p className="shrink-0 border-b border-line px-3 py-1 text-[10px] text-muted">{documentStatus}</p>
       ) : null}

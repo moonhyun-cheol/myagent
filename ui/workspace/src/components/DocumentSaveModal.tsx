@@ -151,6 +151,15 @@ export function DocumentSaveModal({
           <p className="mt-1 truncate text-[11px] text-muted" title={filesRoot || undefined}>
             작업 폴더: {filesRoot || '(연결 안 됨)'}
           </p>
+          {mode !== 'rename' ? (
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+              연결된 <span className="font-medium text-text/80">작업 폴더</span>에 실제 파일로
+              저장합니다. 대화 기록이나 세션 임시본(
+              <span className="font-mono text-[10px]">{DOCUMENT_SCRATCH.scratchDir}</span>
+              )이 아닙니다. 기본 위치는 <span className="font-mono text-[10px]">{docsDir}/</span>
+              입니다.
+            </p>
+          ) : null}
         </header>
         <div className="space-y-3 px-4 py-3">
           {mode !== 'rename' ? (
