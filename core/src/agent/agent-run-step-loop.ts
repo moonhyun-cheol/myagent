@@ -107,6 +107,7 @@ import {
   buildAgentProgressCheckpoint,
   FAILURE_CHECKPOINT_THRESHOLD,
   formatAgentProgressCheckpointPrompt,
+  formatProgressiveBudgetNotice,
   MAX_PROGRESSIVE_TOTAL_ROUNDS,
   PROGRESSIVE_STAGE_ROUNDS,
   progressiveStageForStep,
@@ -1104,14 +1105,15 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
 
   const checkpoint = writeProgressCheckpoint('budget_exhausted', false);
   const modelContent = (state.lastModelOutput || state.answerBuf).trim();
+  const notice = formatProgressiveBudgetNotice(checkpoint);
   return state.finish({
     content: modelContent || '이번 단계에서 모델이 별도의 서술형 작업 결과를 남기지 않았습니다.',
     model: checkpoint.runtime?.model ?? state.lastModel,
     steps: state.steps,
     applicationNotice: {
       kind: 'continuation',
-      title: '실행 제한으로 중간 종료',
-      message: `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝까지 진행했습니다. 저장된 진행 내역·추가 과제·재개 지점부터 「이어서 진행」할 수 있습니다.`,
+      title: notice.title,
+      message: notice.message,
       model: checkpoint.runtime?.model ?? state.lastModel,
       elapsedMs: checkpoint.runtime?.elapsedMs
         ?? state.priorElapsedMs + (Date.now() - state.runStartedAt),

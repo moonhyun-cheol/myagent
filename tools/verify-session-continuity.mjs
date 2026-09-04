@@ -44,6 +44,17 @@ assert.equal(
   false,
   'stored metadata must not hijack a fresh request',
 );
+assert.equal(
+  shouldUseSessionContinuity({
+    userMessage: '새 기능을 만들어줘',
+    readPaths: [],
+    mutatedPaths: [],
+    hasProgressCheckpoint: true,
+    force: true,
+  }),
+  true,
+  'progressive auto-chain may force continuity without a bare continue phrase',
+);
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'cqr-continuity-'));
 try {

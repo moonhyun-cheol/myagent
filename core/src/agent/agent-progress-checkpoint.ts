@@ -9,6 +9,10 @@ export const MAX_PROGRESSIVE_STAGES = 10;
 export const MAX_PROGRESSIVE_RUN_ROUNDS = 30;
 export const MAX_PROGRESSIVE_TOTAL_ROUNDS =
   PROGRESSIVE_STAGE_ROUNDS * MAX_PROGRESSIVE_STAGES;
+/** Max agent runs in one user turn: first segment + silent auto-chains. */
+export const MAX_PROGRESSIVE_AUTO_CHAINS = Math.ceil(
+  MAX_PROGRESSIVE_TOTAL_ROUNDS / MAX_PROGRESSIVE_RUN_ROUNDS,
+);
 export const FAILURE_CHECKPOINT_THRESHOLD = 3;
 
 /**
@@ -87,6 +91,42 @@ export function progressiveRunBudget(requested: number, priorSteps: number): num
 
 export function progressiveStageForStep(step: number): number {
   return Math.max(1, Math.ceil(Math.max(1, step) / PROGRESSIVE_STAGE_ROUNDS));
+}
+
+/**
+ * Whether the host should silently start another 30-step segment in the same
+ * user turn (no manual 「이어서」). Stops at the 100-step chain ceiling.
+ */
+export function shouldAutoChainProgressiveBudget(input: {
+  kind?: string | null;
+  step?: number | null;
+}): boolean {
+  if (input.kind !== 'continuation') return false;
+  const step = Math.max(0, Math.floor(Number(input.step) || 0));
+  return step > 0 && step < MAX_PROGRESSIVE_TOTAL_ROUNDS;
+}
+
+/** User-facing notice for a progressive budget stop (mid-chain vs hard cap). */
+export function formatProgressiveBudgetNotice(checkpoint: {
+  stage: number;
+  maxStages: number;
+  step: number;
+}): { title: string; message: string } {
+  const atCap = checkpoint.step >= MAX_PROGRESSIVE_TOTAL_ROUNDS;
+  if (atCap) {
+    return {
+      title: '전체 진행 한도 도달',
+      message:
+        `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝까지 진행했습니다. `
+        + '이 대화의 순차 진행 한도에 도달했습니다.',
+    };
+  }
+  return {
+    title: '단계 예산 소진 · 자동 이어가기',
+    message:
+      `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝 — `
+      + '같은 요청에서 다음 단계를 자동으로 이어갑니다.',
+  };
 }
 
 /** Build a deterministic, compact hand-off instead of asking the model to remember its loop. */

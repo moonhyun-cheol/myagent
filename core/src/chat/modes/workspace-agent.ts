@@ -15,7 +15,7 @@ import { appendAgentAuditEvent } from '../../agent/agent-audit-ledger.js';
 import { resolveAutopilotEnabled } from '../../agent/agent-autopilot.js';
 import { TOOL_PLANE_NO_WORKSPACE_REFUSAL } from '../../agent/agent-failure-plane.js';
 import { hasNasWriteConsent } from '../../security/nas-write-consent.js';
-import { appendAssistantReply } from '../assistant-reply.js';
+import { appendAssistantReply, scrubAssistantContent } from '../assistant-reply.js';
 import { sanitizeHistoryForModel } from '../chat-filters.js';
 import { applyHistoryContentBudget, getHistoryTurns } from '../history-budget.js';
 import {
@@ -171,6 +171,13 @@ export async function runWorkspaceCodeAgent(opts: {
   signal?: AbortSignal;
   /** Injected on infra retry — disk may already include partial edits. */
   extraSystemNotes?: string[];
+  /** Force checkpoint continuity for progressive auto-chain segments. */
+  forceSessionContinuity?: boolean;
+  /**
+   * When false, skip session append so the orchestrator can persist once after
+   * progressive auto-chain segments finish. Default true.
+   */
+  persistAssistantReply?: boolean;
 }): Promise<ChatResponse> {
   const {
     cqrRoot,
@@ -186,6 +193,8 @@ export async function runWorkspaceCodeAgent(opts: {
     callbacks,
     signal,
     extraSystemNotes,
+    forceSessionContinuity,
+    persistAssistantReply = true,
   } = opts;
 
   const routing = preserveWorkspaceAgentRouting(rawRouting);
@@ -332,6 +341,7 @@ export async function runWorkspaceCodeAgent(opts: {
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
     agentPromptProfile: rawRouting.mode === 'web_dev' ? 'coding' : 'general',
+    forceSessionContinuity: forceSessionContinuity === true,
     onThought: callbacks?.onThought,
     onCode: callbacks?.onCode,
     onWorkspaceMutate: callbacks?.onWorkspaceMutate,
@@ -342,15 +352,18 @@ export async function runWorkspaceCodeAgent(opts: {
     signal,
   });
 
-  const scrubbed = appendAssistantReply(sessionStore, sessionId, {
-    content: agent.content,
-    model: agent.model,
-    mode: routing.mode,
-    application_notice: agent.applicationNotice,
-    userMessage: message,
-    emptyFallback:
-      '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
-  });
+  const scrubbed = persistAssistantReply
+    ? appendAssistantReply(sessionStore, sessionId, {
+        content: agent.content,
+        model: agent.model,
+        mode: routing.mode,
+        application_notice: agent.applicationNotice,
+        userMessage: message,
+        emptyFallback:
+          '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
+      })
+    : scrubAssistantContent(agent.content, sessionId, message)
+      || '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)';
 
   return {
     role: 'assistant',
@@ -359,6 +372,7 @@ export async function runWorkspaceCodeAgent(opts: {
     routing,
     model: agent.model,
     mutatedPaths: agent.mutatedPaths ?? [],
+    ...(agent.checkpointId ? { checkpointId: agent.checkpointId } : {}),
     ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
   };
 }

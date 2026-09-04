@@ -99,6 +99,7 @@ import {
   buildAgentProgressCheckpoint,
   MAX_PROGRESSIVE_TOTAL_ROUNDS,
   progressiveRunBudget,
+  formatProgressiveBudgetNotice,
 } from './agent-progress-checkpoint.js';
 import { isAgentExecutionLimit } from './agent-failure-plane.js';
 import {
@@ -504,6 +505,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     readPaths: sessionReadPaths,
     mutatedPaths: sessionMetaForGate.mutatedPaths,
     hasProgressCheckpoint: Boolean(sessionMetaForGate.lastProgressCheckpoint),
+    force: opts.forceSessionContinuity === true,
   });
   const continuationCheckpoint = sessionContinuity
     ? sessionMetaForGate.lastProgressCheckpoint
@@ -763,14 +765,15 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       persistLiveSessionMeta();
       reportStatus('호스트 실행 제한 · 현재 모델 출력과 재개 체크포인트 보존');
       const modelContent = (checkpoint.modelOutput || '').trim();
+      const notice = formatProgressiveBudgetNotice(checkpoint);
       return await finish({
         content: modelContent || '이번 구간에서 모델이 별도의 서술형 출력을 남기지 않았습니다.',
         model: checkpoint.runtime?.model ?? live.lastModel,
         steps: live.steps,
         applicationNotice: {
           kind: 'continuation',
-          title: '실행 제한으로 중간 종료',
-          message: `${checkpoint.stage}/${checkpoint.maxStages}단계, 누적 ${checkpoint.step} 오케스트레이션 스텝까지 진행했습니다. 모델 출력과 작업 체크포인트를 보존했으며 같은 대화에서 이어서 진행할 수 있습니다.`,
+          title: notice.title,
+          message: notice.message,
           model: checkpoint.runtime?.model ?? live.lastModel,
           elapsedMs: checkpoint.runtime?.elapsedMs,
           step: checkpoint.step,

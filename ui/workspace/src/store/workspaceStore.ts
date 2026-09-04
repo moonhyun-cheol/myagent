@@ -18,11 +18,12 @@ import { isCanvasAsset } from '../types';
 import { isDocumentMemoMessage } from '../lib/documentMemo';
 import { normalizeWorkspaceMode } from '../components/workspacePreviewModes';
 import {
+  documentRecoveryRelPath,
   dumpRelPath,
   isAllowedDocumentPath,
   normalizeRelPath,
-  sessionScratchRelPath,
 } from '../lib/documentFile';
+import type { DocumentTab, DocumentMemo } from '../lib/documentFile';
 import type { Edge, Node } from '@xyflow/react';
 import {
   clearStoredSessionId,
@@ -189,6 +190,40 @@ function uid(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function documentTitleFromPath(relPath: string): string {
+  return relPath.split(/[\\/]/).pop()?.trim() || relPath.trim() || '문서';
+}
+
+function newDraftDocumentTab(existing: DocumentTab[]): DocumentTab {
+  const used = new Set(existing.filter((tab) => tab.source === 'draft').map((tab) => tab.title));
+  let index = 1;
+  while (used.has(`제목 없음 ${index}`)) index += 1;
+  return {
+    id: uid('doc'),
+    title: `제목 없음 ${index}`,
+    path: null,
+    source: 'draft',
+    content: '',
+    dirty: false,
+    selection: '',
+    view: 'source',
+    status: '메모리 초안',
+    lastDumpPath: null,
+    lastDumpContent: null,
+    memos: [],
+    recoveryPath: null,
+  };
+}
+
+function activeDocumentTab(state: Pick<WorkspaceState, 'documentTabs' | 'activeDocumentTabId'>): DocumentTab | null {
+  return state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId) ?? null;
+}
+
+function emptyDocumentState(): Pick<WorkspaceState, 'documentTabs' | 'activeDocumentTabId'> {
+  const tab = newDraftDocumentTab([]);
+  return { documentTabs: [tab], activeDocumentTabId: tab.id };
+}
+
 function assetToCanvasNode(asset: WorkspaceAsset, position: { x: number; y: number }): Node {
   const width = 280;
   const height = asset.kind === 'image' ? 320 : 280;
@@ -309,6 +344,8 @@ interface SessionViewSnapshot {
   assets: WorkspaceAsset[];
   canvasNodes: Node[];
   canvasEdges: Edge[];
+  documentTabs: DocumentTab[];
+  activeDocumentTabId: string | null;
 }
 
 interface LiveJob {
@@ -372,13 +409,8 @@ interface WorkspaceState {
   editorSaveStatus: string | null;
   editorSaving: boolean;
   /** Preview「문서」 tab — markdown/txt cowork surface. */
-  documentRelPath: string | null;
-  documentContent: string;
-  documentDirty: boolean;
-  documentSelection: string;
-  documentStatus: string | null;
-  lastDumpPath: string | null;
-  lastDumpContent: string | null;
+  documentTabs: DocumentTab[];
+  activeDocumentTabId: string | null;
   /** ChatPane watches this to seed the composer (Ask AI). */
   composerPrefill: string | null;
   composerFocusNonce: number;
@@ -475,12 +507,17 @@ interface WorkspaceState {
   closeEditorTab: (tabId: string) => Promise<void>;
   setDocumentContent: (value: string) => void;
   setDocumentSelection: (value: string) => void;
+  setDocumentView: (view: DocumentTab['view']) => void;
+  setDocumentMemos: (memos: DocumentMemo[]) => void;
+  setActiveDocumentTab: (tabId: string) => void;
+  closeDocumentTab: (tabId: string) => Promise<void>;
   appendToDocument: (text: string) => void;
   openDocumentPath: (relPath: string, initialContent?: string) => Promise<void>;
   saveDocument: () => Promise<void>;
   newDocument: () => Promise<void>;
   saveDocumentToProject: (relPath: string) => Promise<void>;
   openLastDump: () => Promise<void>;
+  saveDocumentRecovery: () => Promise<void>;
   askAiFromDocumentSelection: () => void;
   flushDocumentAfterWorkspaceConnect: () => Promise<void>;
   clearComposerPrefill: () => void;
@@ -639,6 +676,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       assets: state.assets,
       canvasNodes: state.canvasNodes,
       canvasEdges: state.canvasEdges,
+      documentTabs: state.documentTabs,
+      activeDocumentTabId: state.activeDocumentTabId,
     });
   };
 
@@ -997,13 +1036,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               }
               if (info.model !== '중지됨') {
                 const isContinuation = info.applicationNotice?.kind === 'continuation';
+                const atChainCap = /한도|자동 진행했습니다/.test(
+                  `${info.applicationNotice?.title ?? ''} ${info.applicationNotice?.message ?? ''}`,
+                );
                 showUserNotification({
                   kind: 'complete',
                   title: isContinuation
-                    ? '실행 제한으로 중간 종료되었습니다'
+                    ? (atChainCap ? '순차 진행 한도에 도달했습니다' : '실행이 중간 종료되었습니다')
                     : finalOnly ? '작업이 완료되었습니다' : '답변이 완료되었습니다',
                   message: isContinuation
-                    ? '현재 결과는 보존됐습니다. 같은 대화에서 이어서 진행할 수 있습니다.'
+                    ? (atChainCap
+                      ? '이 대화의 순차 진행 한도까지 자동으로 이어갔습니다.'
+                      : '현재 결과는 보존됐습니다. 같은 대화에서 이어서 진행할 수 있습니다.')
                     : finalOnly ? '요청한 작업 결과를 확인할 수 있습니다.' : '새 답변을 확인할 수 있습니다.',
                   persistent: false,
                   system: 'when-hidden',
@@ -1036,36 +1080,61 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
       if (get().activeSessionId === sid && mutatedWorkspacePaths.size) {
         await get().refreshExplorer();
-        const docPath = normalizeRelPath(get().documentRelPath || '');
+        const activeDoc = activeDocumentTab(get());
+        const docPath = normalizeRelPath(activeDoc?.path || '');
         const mutatedList = [...mutatedWorkspacePaths].map((p) => normalizeRelPath(p));
         if (docPath && mutatedList.some((p) => p.toLowerCase() === docPath.toLowerCase())) {
           try {
-            const before = get().documentContent;
+            const before = activeDoc?.content ?? '';
             const sidDump = get().activeSessionId || 'session';
             const dumpPath = dumpRelPath(sidDump);
             if (get().filesRoot) {
               await writeWorkspaceFsFile(dumpPath, before);
-              set({
-                lastDumpPath: dumpPath,
-                lastDumpContent: before,
-                documentStatus: `덤프 저장: ${dumpPath}`,
-              });
+              const current = activeDocumentTab(get());
+              if (current) {
+                set({
+                  documentTabs: get().documentTabs.map((tab) =>
+                    tab.id === current.id
+                      ? { ...tab, lastDumpPath: dumpPath, lastDumpContent: before, status: `덤프 저장: ${dumpPath}` }
+                      : tab,
+                  ),
+                });
+              }
             } else {
-              set({
-                lastDumpPath: null,
-                lastDumpContent: before,
-                documentStatus: '메모리 덤프(폴더 없음 — 디스크 덤프 생략)',
-              });
+              const current = activeDocumentTab(get());
+              if (current) {
+                set({
+                  documentTabs: get().documentTabs.map((tab) =>
+                    tab.id === current.id
+                      ? { ...tab, lastDumpPath: null, lastDumpContent: before, status: '메모리 덤프(폴더 없음 — 디스크 덤프 생략)' }
+                      : tab,
+                  ),
+                });
+              }
             }
             const { content } = await readWorkspaceFsFile(docPath);
-            set({
-              documentContent: content,
-              documentDirty: false,
-              mode: 'document',
-            });
+            const current = activeDocumentTab(get());
+            if (current) {
+              set({
+                documentTabs: get().documentTabs.map((tab) =>
+                  tab.id === current.id
+                    ? { ...tab, content, dirty: false, source: 'workspace' }
+                    : tab,
+                ),
+                mode: 'document',
+              });
+            }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            set({ documentStatus: `문서 갱신 실패: ${message}`, mode: 'document' });
+            const current = activeDocumentTab(get());
+            if (current) {
+              set({
+                documentTabs: get().documentTabs.map((tab) =>
+                  tab.id === current.id ? { ...tab, status: `문서 갱신 실패: ${message}` } : tab,
+                ),
+                mode: 'document',
+              });
+            }
           }
         }
         const now = new Date().toISOString();
@@ -1150,13 +1219,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     editorContent: '',
     editorSaveStatus: null,
     editorSaving: false,
-    documentRelPath: null,
-    documentContent: '',
-    documentDirty: false,
-    documentSelection: '',
-    documentStatus: null,
-    lastDumpPath: null,
-    lastDumpContent: null,
+    ...emptyDocumentState(),
     composerPrefill: null,
     composerFocusNonce: 0,
     canvasNodes: [],
@@ -1561,6 +1624,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         assets: [],
         canvasNodes: [],
         canvasEdges: [],
+        ...emptyDocumentState(),
         skillMode: null,
         skillLabel: null,
       });
@@ -1589,6 +1653,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         assets: [],
         canvasNodes: [],
         canvasEdges: [],
+        ...emptyDocumentState(),
       });
       syncViewBusy();
     },
@@ -1614,6 +1679,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           assets: snapshot?.assets ?? [],
           canvasNodes: snapshot?.canvasNodes ?? [],
           canvasEdges: snapshot?.canvasEdges ?? [],
+          documentTabs: snapshot?.documentTabs ?? [newDraftDocumentTab([])],
+          activeDocumentTabId: snapshot?.activeDocumentTabId ?? null,
         });
       } else {
         // Do not leave the previous conversation visible while the first fetch is pending.
@@ -1628,6 +1695,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           assets: [],
           canvasNodes: [],
           canvasEdges: [],
+          documentTabs: [newDraftDocumentTab([])],
+          activeDocumentTabId: null,
         });
       }
       syncViewBusy();
@@ -1653,6 +1722,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             : [...loadSessionAssets(sessionId), ...assetsFromMessages(messages)],
           canvasNodes: previous?.canvasNodes ?? [],
           canvasEdges: previous?.canvasEdges ?? [],
+          documentTabs: previous?.documentTabs ?? [newDraftDocumentTab([])],
+          activeDocumentTabId: previous?.activeDocumentTabId ?? null,
         };
         sessionViewCache.set(sessionId, refreshed);
         if (get().activeSessionId !== sessionId) return;
@@ -1666,6 +1737,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           assets: refreshed.assets,
           canvasNodes: refreshed.canvasNodes,
           canvasEdges: refreshed.canvasEdges,
+          documentTabs: refreshed.documentTabs,
+          activeDocumentTabId: refreshed.activeDocumentTabId,
         });
         syncViewBusy();
       }).catch(() => {
@@ -1948,167 +2021,280 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         editorContent: nextTab?.content ?? '',
       });
     },
-    setDocumentContent: (documentContent) =>
-      set({ documentContent, documentDirty: true, documentStatus: null }),
-    setDocumentSelection: (documentSelection) => set({ documentSelection }),
+    setDocumentContent: (content) => {
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      set({
+        documentTabs: get().documentTabs.map((tab) =>
+          tab.id === active.id ? { ...tab, content, dirty: true, status: null } : tab,
+        ),
+      });
+    },
+    setDocumentSelection: (selection) => {
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      set({
+        documentTabs: get().documentTabs.map((tab) =>
+          tab.id === active.id ? { ...tab, selection } : tab,
+        ),
+      });
+    },
+    setDocumentView: (view) => {
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      set({
+        documentTabs: get().documentTabs.map((tab) =>
+          tab.id === active.id ? { ...tab, view } : tab,
+        ),
+      });
+    },
+    setDocumentMemos: (memos) => {
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      set({
+        documentTabs: get().documentTabs.map((tab) =>
+          tab.id === active.id ? { ...tab, memos } : tab,
+        ),
+      });
+    },
+    setActiveDocumentTab: (tabId) => {
+      if (!get().documentTabs.some((tab) => tab.id === tabId)) return;
+      set({ activeDocumentTabId: tabId, mode: 'document' });
+    },
+    closeDocumentTab: async (tabId) => {
+      const tabs = get().documentTabs;
+      const index = tabs.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return;
+      const tab = tabs[index];
+      if (tab.dirty) {
+        const choice = await choiceDialog({
+          title: '문서 닫기',
+          message: `"${tab.title}"에 저장되지 않은 변경이 있습니다.`,
+          options: [
+            { id: 'save', label: '저장 후 닫기' },
+            { id: 'discard', label: '저장하지 않고 닫기', danger: true },
+            { id: 'cancel', label: '취소' },
+          ],
+          allowBackdropDismiss: false,
+        });
+        if (choice === 'cancel' || choice === null) return;
+        if (choice === 'save') {
+          if (tab.source !== 'workspace' || !tab.path) {
+            set({
+              documentTabs: tabs.map((item) => item.id === tabId ? { ...item, status: '임시 문서는 프로젝트에 저장한 뒤 닫을 수 있습니다.' } : item),
+              activeDocumentTabId: tabId,
+              mode: 'document',
+            });
+            return;
+          }
+          await get().saveDocument();
+          if (get().documentTabs.find((item) => item.id === tabId)?.dirty) return;
+        }
+      }
+      const nextTabs = get().documentTabs.filter((item) => item.id !== tabId);
+      const next = get().activeDocumentTabId === tabId
+        ? nextTabs[Math.min(index, nextTabs.length - 1)] ?? null
+        : nextTabs.find((item) => item.id === get().activeDocumentTabId) ?? nextTabs[0] ?? null;
+      const fallback = nextTabs.length ? nextTabs : [newDraftDocumentTab([])];
+      set({
+        documentTabs: fallback,
+        activeDocumentTabId: next?.id ?? fallback[0].id,
+        mode: 'document',
+      });
+    },
     clearComposerPrefill: () => set({ composerPrefill: null }),
     appendToDocument: (text) => {
       const chunk = String(text || '');
       if (!chunk.trim()) return;
-      const prev = get().documentContent;
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      const prev = active.content;
       const next = prev ? `${prev.replace(/\s+$/, '')}\n\n${chunk}` : chunk;
       set({
-        documentContent: next,
-        documentDirty: true,
+        documentTabs: get().documentTabs.map((tab) =>
+          tab.id === active.id ? { ...tab, content: next, dirty: true, status: '문서에 추가됨' } : tab,
+        ),
         mode: 'document',
-        documentStatus: '문서에 추가됨',
       });
     },
     openDocumentPath: async (relPath, initialContent) => {
       const path = normalizeRelPath(relPath);
       if (!isAllowedDocumentPath(path) && initialContent === undefined) {
-        set({ documentStatus: 'md/txt만 열 수 있습니다.' });
+        const active = activeDocumentTab(get());
+        if (active) set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: 'md/txt만 열 수 있습니다.' } : tab) });
         return;
       }
       if (initialContent !== undefined) {
-        if (get().filesRoot) {
-          try {
-            await writeWorkspaceFsFile(path, initialContent);
-          } catch {
-            /* still open in memory */
-          }
+        const title = documentTitleFromPath(path);
+        const existing = get().documentTabs.find(
+          (tab) => tab.source === 'import' && tab.title === title && tab.content === initialContent,
+        );
+        if (existing) {
+          set({ activeDocumentTabId: existing.id, mode: 'document' });
+          return;
         }
+        const tab: DocumentTab = {
+          id: uid('doc'),
+          title,
+          path: null,
+          source: 'import',
+          content: initialContent,
+          dirty: true,
+          selection: '',
+          view: 'source',
+          status: '외부 파일 · 프로젝트에 저장하기 전까지 원본은 변경되지 않습니다.',
+          lastDumpPath: null,
+          lastDumpContent: null,
+          memos: [],
+          recoveryPath: null,
+        };
         set({
-          documentRelPath: path,
-          documentContent: initialContent,
-          documentDirty: !get().filesRoot,
+          documentTabs: [...get().documentTabs, tab],
+          activeDocumentTabId: tab.id,
           mode: 'document',
-          documentStatus: get().filesRoot ? null : '메모리 (폴더 연결 후 저장)',
         });
         return;
       }
       if (!get().filesRoot) {
-        set({ documentStatus: '작업 폴더를 먼저 연결하세요.', mode: 'document' });
+        const active = activeDocumentTab(get());
+        if (active) set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '작업 폴더를 먼저 연결하세요.' } : tab), mode: 'document' });
+        return;
+      }
+      const existing = get().documentTabs.find(
+        (tab) => tab.source === 'workspace' && tab.path?.toLowerCase() === path.toLowerCase(),
+      );
+      if (existing) {
+        set({ activeDocumentTabId: existing.id, mode: 'document' });
         return;
       }
       try {
         const { content } = await readWorkspaceFsFile(path);
+        const tab: DocumentTab = {
+          id: uid('doc'),
+          title: documentTitleFromPath(path),
+          path,
+          source: 'workspace',
+          content,
+          dirty: false,
+          selection: '',
+          view: 'source',
+          status: null,
+          lastDumpPath: null,
+          lastDumpContent: null,
+          memos: [],
+          recoveryPath: null,
+        };
         set({
-          documentRelPath: path,
-          documentContent: content,
-          documentDirty: false,
+          documentTabs: [...get().documentTabs, tab],
+          activeDocumentTabId: tab.id,
           mode: 'document',
-          documentStatus: null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ documentStatus: message, mode: 'document' });
+        const active = activeDocumentTab(get());
+        if (active) set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab), mode: 'document' });
       }
     },
     saveDocument: async () => {
-      if (!get().filesRoot) {
-        set({ documentStatus: '저장하려면 작업 폴더가 필요합니다.' });
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      if (active.source !== 'workspace' || !active.path) {
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '이 문서는 프로젝트에 저장…을 사용하세요.' } : tab), mode: 'document' });
         return;
       }
-      let path = normalizeRelPath(get().documentRelPath || '');
-      if (!path) {
-        const sid = get().activeSessionId || 'scratch';
-        path = sessionScratchRelPath(sid);
+      if (!get().filesRoot) {
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '저장하려면 작업 폴더가 필요합니다.' } : tab) });
+        return;
       }
       try {
-        await writeWorkspaceFsFile(path, get().documentContent);
+        await writeWorkspaceFsFile(active.path, active.content);
         set({
-          documentRelPath: path,
-          documentDirty: false,
-          documentStatus: `저장됨: ${path}`,
+          documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, dirty: false, status: `저장됨: ${active.path}` } : tab),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ documentStatus: message });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
       }
     },
     newDocument: async () => {
-      if (get().documentDirty) {
-        const ok = await confirmDialog({
-          title: '새 문서',
-          message: '저장되지 않은 변경이 있습니다. 버리고 새 문서를 열까요?',
-          confirmLabel: '새 문서',
-          cancelLabel: '취소',
-        });
-        if (!ok) return;
-      }
-      const sid = get().activeSessionId || 'scratch';
-      const path = get().filesRoot ? sessionScratchRelPath(sid) : null;
+      const tab = newDraftDocumentTab(get().documentTabs);
       set({
-        documentRelPath: path,
-        documentContent: '',
-        documentDirty: false,
-        documentSelection: '',
-        documentStatus: path ? `새 문서: ${path}` : '메모리 초안',
+        documentTabs: [...get().documentTabs, tab],
+        activeDocumentTabId: tab.id,
         mode: 'document',
       });
     },
     saveDocumentToProject: async (relPath) => {
+      const active = activeDocumentTab(get());
+      if (!active) return;
       if (!get().filesRoot) {
-        set({ documentStatus: '프로젝트 저장에는 작업 폴더가 필요합니다.' });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '프로젝트 저장에는 작업 폴더가 필요합니다.' } : tab) });
         return;
       }
       const path = normalizeRelPath(relPath);
       try {
-        await writeWorkspaceFsFile(path, get().documentContent);
+        await writeWorkspaceFsFile(path, active.content);
+        const title = documentTitleFromPath(path);
         set({
-          documentRelPath: path,
-          documentDirty: false,
-          documentStatus: `프로젝트 저장: ${path}`,
+          documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, title, path, source: 'workspace', dirty: false, status: `프로젝트 저장: ${path}` } : tab),
           mode: 'document',
         });
         await get().refreshExplorer();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ documentStatus: message });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
       }
     },
     openLastDump: async () => {
-      const dumpPath = get().lastDumpPath;
-      const mem = get().lastDumpContent;
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      const dumpPath = active.lastDumpPath;
+      const mem = active.lastDumpContent;
       if (mem != null && !dumpPath) {
         set({
-          documentContent: mem,
-          documentDirty: true,
-          documentStatus: '메모리 덤프를 열었습니다',
-          mode: 'document',
+          documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, content: mem, dirty: true, status: '메모리 덤프를 열었습니다' } : tab),
         });
         return;
       }
       if (!dumpPath) {
-        set({ documentStatus: '열 덤프가 없습니다.' });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '열 덤프가 없습니다.' } : tab) });
         return;
       }
       if (!get().filesRoot) {
-        set({ documentStatus: '덤프를 열려면 작업 폴더가 필요합니다.' });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: '덤프를 열려면 작업 폴더가 필요합니다.' } : tab) });
         return;
       }
       try {
         const { content } = await readWorkspaceFsFile(dumpPath);
         set({
-          documentRelPath: dumpPath,
-          documentContent: content,
-          documentDirty: false,
-          documentStatus: `덤프 열림: ${dumpPath}`,
-          mode: 'document',
+          documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, content, dirty: false, status: `덤프 열림: ${dumpPath}` } : tab),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ documentStatus: message });
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab) });
+      }
+    },
+    saveDocumentRecovery: async () => {
+      const active = activeDocumentTab(get());
+      const sessionId = get().activeSessionId;
+      if (!active || !get().filesRoot || !sessionId) return;
+      const recoveryPath = active.recoveryPath || documentRecoveryRelPath(sessionId, active.id);
+      try {
+        await writeWorkspaceFsFile(recoveryPath, active.content);
+        set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, recoveryPath } : tab) });
+      } catch {
+        // Recovery is best effort and must never turn into a project-file save.
       }
     },
     askAiFromDocumentSelection: () => {
-      const sel = get().documentSelection.trim();
+      const active = activeDocumentTab(get());
+      if (!active) return;
+      const sel = active.selection.trim();
       if (!sel) {
-        set({ documentStatus: 'Ask AI: 문서에서 텍스트를 선택하세요.' });
+        if (active) set({ documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: 'Ask AI: 문서에서 텍스트를 선택하세요.' } : tab) });
         return;
       }
-      const path = get().documentRelPath;
+      const path = active.path;
       const prefill = path
         ? `문서 \`${path}\` 선택 구간에 대해:\n\n"""\n${sel}\n"""\n\n`
         : `다음 선택 구간에 대해:\n\n"""\n${sel}\n"""\n\n`;
@@ -2116,25 +2302,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         composerPrefill: prefill,
         composerFocusNonce: get().composerFocusNonce + 1,
         mode: 'document',
-        documentStatus: 'Ask AI: 채팅 입력에 선택 내용을 넣었습니다. 질문을 이어서 보내세요.',
+        documentTabs: get().documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: 'Ask AI: 채팅 입력에 선택 내용을 넣었습니다. 질문을 이어서 보내세요.' } : tab),
       });
     },
     flushDocumentAfterWorkspaceConnect: async () => {
-      if (!get().filesRoot) return;
-      const sid = get().activeSessionId || 'scratch';
-      const path = get().documentRelPath || sessionScratchRelPath(sid);
-      try {
-        await writeWorkspaceFsFile(path, get().documentContent);
-        set({
-          documentRelPath: path,
-          documentDirty: false,
-          documentStatus: `폴더 연결 후 저장: ${path}`,
-          mode: 'document',
-        });
-        await get().refreshExplorer();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        set({ documentStatus: `flush 실패: ${message}` });
+      const sessionId = get().activeSessionId;
+      if (!get().filesRoot || !sessionId) return;
+      const tabs = get().documentTabs;
+      for (const tab of tabs) {
+        if (tab.source !== 'workspace') {
+          const recoveryPath = tab.recoveryPath || documentRecoveryRelPath(sessionId, tab.id);
+          try {
+            await writeWorkspaceFsFile(recoveryPath, tab.content);
+            set({ documentTabs: get().documentTabs.map((item) => item.id === tab.id ? { ...item, recoveryPath } : item) });
+          } catch {
+            // Best effort recovery only.
+          }
+        }
       }
     },
     setCanvasNodes: (canvasNodes) => set({ canvasNodes }),
@@ -2386,11 +2570,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         attachmentIds,
         editorPath:
           get().mode === 'document'
-            ? get().documentRelPath || ''
+            ? activeDocumentTab(get())?.path || ''
             : get().activeFileId ?? '',
         editorSelection:
           get().mode === 'document'
-            ? get().documentSelection || ''
+            ? activeDocumentTab(get())?.selection || ''
             : get().activeFileId
               ? get().editorContent.slice(0, 4000)
               : '',

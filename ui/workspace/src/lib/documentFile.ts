@@ -12,9 +12,59 @@ export type DocumentScratchConfig = {
   maxDumpsPerSession: number;
   gitignoreLine: string;
   gitignoreComment: string;
+}
+
+export function documentRecoveryRelPath(sessionId: string, tabId: string): string {
+  const sid = String(sessionId || 'scratch')
+    .trim()
+    .replace(/[\\/]/g, '_');
+  const tid = String(tabId || 'tab')
+    .trim()
+    .replace(/[\\/]/g, '_');
+  return `${DOCUMENT_SCRATCH.scratchDir}/${sid}-${tid}.md`;
 };
 
 export const DOCUMENT_SCRATCH = scratchConfig as DocumentScratchConfig;
+
+export type DocumentView = 'source' | 'preview' | 'diff';
+
+export type DocumentMemoRange = {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+};
+
+export type DocumentMemo = {
+  id: string;
+  x: number;
+  y: number;
+  selection: string;
+  range: DocumentMemoRange | null;
+  question: string;
+  answer: string;
+  pending: boolean;
+  turnId: string | null;
+  /** false = collapsed to an Excel-style red-corner anchor. */
+  open: boolean;
+};
+
+export type DocumentTab = {
+  id: string;
+  title: string;
+  path: string | null;
+  source: 'draft' | 'workspace' | 'import';
+  content: string;
+  dirty: boolean;
+  selection: string;
+  view: DocumentView;
+  status: string | null;
+  lastDumpPath: string | null;
+  lastDumpContent: string | null;
+  memos: DocumentMemo[];
+  /** Workspace-relative recovery copy; never the user-visible project path. */
+  recoveryPath?: string | null;
+};
 
 export function normalizeRelPath(value: string): string {
   return String(value || '')

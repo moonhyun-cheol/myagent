@@ -65,7 +65,7 @@ import {
   runWorkspaceCodeAgent,
   preserveWorkspaceAgentRouting,
 } from './modes/workspace-agent.js';
-import { appendAssistantReply } from './assistant-reply.js';
+import { appendAssistantReply, scrubAssistantContent } from './assistant-reply.js';
 import {
   TOOL_PLANE_NO_WORKSPACE_REFUSAL,
   classifyLlmFailure,
@@ -78,6 +78,11 @@ import {
 } from '../agent/agent-failure-plane.js';
 import { loadAgentRunMeta } from '../agent/agent-run-meta.js';
 import { persistInterruptedAgentProgress } from '../agent/agent-session-continuity.js';
+import {
+  MAX_PROGRESSIVE_AUTO_CHAINS,
+  progressiveStageForStep,
+  shouldAutoChainProgressiveBudget,
+} from '../agent/agent-progress-checkpoint.js';
 
 export class ChatOrchestrator {
   private research: DeepResearchPipeline;
@@ -401,7 +406,7 @@ export class ChatOrchestrator {
         explicitMode,
       )
     ) {
-      return runWorkspaceCodeAgent({
+      let full = await runWorkspaceCodeAgent({
         cqrRoot: this.cqrRoot,
         configPath: this.configPath,
         sessionStore: this.sessionStore,
@@ -425,7 +430,83 @@ export class ChatOrchestrator {
           sessionId,
           { cqrRoot: this.cqrRoot },
         ),
+        persistAssistantReply: false,
       });
+      let progressiveRuns = 1;
+      while (
+        shouldAutoChainProgressiveBudget({
+          kind: full.applicationNotice?.kind,
+          step: full.applicationNotice?.step,
+        })
+        && progressiveRuns < MAX_PROGRESSIVE_AUTO_CHAINS
+      ) {
+        progressiveRuns += 1;
+        full = await runWorkspaceCodeAgent({
+          cqrRoot: this.cqrRoot,
+          configPath: this.configPath,
+          sessionStore: this.sessionStore,
+          projectStore: this.projectStore,
+          providerStore: this.providerStore,
+          req,
+          sessionId,
+          routing,
+          resolved,
+          message,
+          attachmentContext: await buildAttachmentContext(
+            req.attachments ?? [],
+            this.attachments,
+            sessionId,
+            12_000,
+            { cqrRoot: this.cqrRoot },
+          ),
+          imageDataUrls: collectAttachmentImageDataUrls(
+            req.attachments ?? [],
+            this.attachments,
+            sessionId,
+            { cqrRoot: this.cqrRoot },
+          ),
+          persistAssistantReply: false,
+          forceSessionContinuity: true,
+          extraSystemNotes: [
+            [
+              '## Progressive auto-chain — prior segment checkpoint is authoritative',
+              'Continue from the persisted resume point. Do not cold-start Understanding or full repo diagnosis.',
+            ].join('\n'),
+          ],
+        });
+      }
+      const rawNotice = full.applicationNotice;
+      const stillChainable = shouldAutoChainProgressiveBudget({
+        kind: rawNotice?.kind,
+        step: rawNotice?.step,
+      });
+      const applicationNotice = !rawNotice
+        ? undefined
+        : stillChainable
+          ? {
+              ...rawNotice,
+              title: '실행 제한으로 중간 종료',
+              message:
+                `${rawNotice.step ?? 0} 오케스트레이션 스텝까지 자동 진행했습니다. `
+                + '저장된 재개 지점부터 「이어서 진행」할 수 있습니다.',
+            }
+          : rawNotice;
+      const content = appendAssistantReply(this.sessionStore, sessionId, {
+        content: full.content,
+        model: full.model || 'agent/workspace',
+        mode: full.mode,
+        application_notice: applicationNotice,
+        userMessage: message,
+      });
+      return {
+        role: full.role,
+        content,
+        mode: full.mode,
+        routing: full.routing,
+        model: full.model || 'agent/workspace',
+        mutatedPaths: full.mutatedPaths ?? [],
+        ...(applicationNotice ? { applicationNotice } : {}),
+      };
     }
 
     const skillMode = resolveLlmSkillMode(routing.mode);
@@ -638,7 +719,10 @@ export class ChatOrchestrator {
         sseEvent(res, { type: 'status', text: statusLabelForMode(routing.mode) });
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
-        const runAgentOnce = async (attempt = 1) =>
+        const runAgentOnce = async (
+          attempt = 1,
+          chainOpts?: { forceContinuity?: boolean },
+        ) =>
           runWorkspaceCodeAgent({
             cqrRoot: this.cqrRoot,
             configPath: this.configPath,
@@ -663,14 +747,22 @@ export class ChatOrchestrator {
               sessionId,
               { cqrRoot: this.cqrRoot },
             ),
+            persistAssistantReply: false,
+            forceSessionContinuity: chainOpts?.forceContinuity === true,
             extraSystemNotes:
-              attempt > 1
+              attempt > 1 || chainOpts?.forceContinuity
                 ? [
-                    [
-                      '## Infra retry — prior attempt may have already written disk',
-                      'Session meta / Exit Gate may list partial paths. Re-read those paths before re-applying the same patch.',
-                      'Close the open Exit Gate; do not cold-start Understanding or full repo diagnosis.',
-                    ].join('\n'),
+                    chainOpts?.forceContinuity
+                      ? [
+                          '## Progressive auto-chain — prior segment checkpoint is authoritative',
+                          'Continue from the persisted resume point. Do not cold-start Understanding or full repo diagnosis.',
+                          'Session meta / Exit Gate may list partial paths. Re-read those paths before re-applying the same patch.',
+                        ].join('\n')
+                      : [
+                          '## Infra retry — prior attempt may have already written disk',
+                          'Session meta / Exit Gate may list partial paths. Re-read those paths before re-applying the same patch.',
+                          'Close the open Exit Gate; do not cold-start Understanding or full repo diagnosis.',
+                        ].join('\n'),
                   ]
                 : undefined,
             callbacks: {
@@ -772,6 +864,40 @@ export class ChatOrchestrator {
           });
         }
 
+        // Progressive budget: keep chaining 30-step segments in this turn up to 100.
+        let progressiveRuns = 1;
+        while (
+          full
+          && !lastErr
+          && shouldAutoChainProgressiveBudget({
+            kind: full.applicationNotice?.kind,
+            step: full.applicationNotice?.step,
+          })
+          && progressiveRuns < MAX_PROGRESSIVE_AUTO_CHAINS
+          && !signal?.aborted
+        ) {
+          const priorStep = full.applicationNotice?.step ?? 0;
+          const nextStage = progressiveStageForStep(priorStep + 1);
+          sseEvent(res, {
+            type: 'status',
+            text:
+              `순차 자동 진행 · ${nextStage}/10단계 이어가기 `
+              + `(${progressiveRuns + 1}/${MAX_PROGRESSIVE_AUTO_CHAINS})…`,
+          });
+          const midContent = scrubAssistantContent(full.content, sessionId, message);
+          if (midContent) {
+            sseEvent(res, { type: 'content_replace', text: midContent });
+          }
+          progressiveRuns += 1;
+          try {
+            full = await runAgentOnce(1, { forceContinuity: true });
+            lastErr = null;
+          } catch (e: unknown) {
+            lastErr = e;
+            break;
+          }
+        }
+
         if (isAbortError(lastErr) || signal?.aborted) {
           if (userAppended) {
             this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
@@ -829,7 +955,31 @@ export class ChatOrchestrator {
           resolved.route.type === 'provider' ? resolved.route.providerId : null,
           { userMessage: message },
         );
-        sseEvent(res, { type: 'content_replace', text: finalized.content });
+        const rawNotice = (full as { applicationNotice?: import('../sessions/types.js').ApplicationNotice }).applicationNotice;
+        const stillChainable = shouldAutoChainProgressiveBudget({
+          kind: rawNotice?.kind,
+          step: rawNotice?.step,
+        });
+        const applicationNotice = !rawNotice
+          ? undefined
+          : stillChainable
+            ? {
+                ...rawNotice,
+                title: '실행 제한으로 중간 종료',
+                message:
+                  `${rawNotice.step ?? 0} 오케스트레이션 스텝까지 자동 진행했습니다. `
+                  + '저장된 재개 지점부터 「이어서 진행」할 수 있습니다.',
+              }
+            : rawNotice;
+        const persisted = appendAssistantReply(this.sessionStore, sessionId, {
+          content: finalized.content,
+          model: full.model || 'agent/workspace',
+          mode: agentRouting.mode,
+          image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
+          application_notice: applicationNotice,
+          userMessage: message,
+        });
+        sseEvent(res, { type: 'content_replace', text: persisted });
         const donePaths = Array.isArray((full as { mutatedPaths?: string[] }).mutatedPaths)
           ? ((full as { mutatedPaths?: string[] }).mutatedPaths ?? [])
               .map((p) => String(p || '').replace(/\\/g, '/').trim())
@@ -847,7 +997,6 @@ export class ChatOrchestrator {
         const lastProcessedTokens = lastUsage
           ? Math.max(0, (lastUsage.prompt_tokens ?? 0) + (lastUsage.completion_tokens ?? 0))
           : undefined;
-        const applicationNotice = (full as { applicationNotice?: import('../sessions/types.js').ApplicationNotice }).applicationNotice;
         sseEvent(res, {
           type: 'done',
           model: full.model,

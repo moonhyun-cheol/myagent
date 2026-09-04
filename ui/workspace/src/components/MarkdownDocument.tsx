@@ -13,11 +13,10 @@ import {
   sanitizePreviewHref,
 } from '../lib/documentFile';
 import { DOCUMENT_MEMO_MARKER } from '../lib/documentMemo';
+import type { DocumentMemo } from '../lib/documentFile';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 import { FolderBrowserModal } from './FolderBrowserModal';
-
-type DocView = 'source' | 'preview' | 'diff';
 
 type MemoRange = {
   startLineNumber: number;
@@ -26,22 +25,9 @@ type MemoRange = {
   endColumn: number;
 };
 
-type DocumentMemo = {
-  id: string;
-  x: number;
-  y: number;
-  selection: string;
-  range: MemoRange | null;
-  question: string;
-  answer: string;
-  pending: boolean;
-  turnId: string | null;
-  /** false = collapsed to Excel-style red-corner anchor */
-  open: boolean;
-};
-
 const NOTE_W = 320;
 const NOTE_H = 300;
+const EMPTY_MEMOS: DocumentMemo[] = [];
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -93,35 +79,47 @@ function uidMemo(): string {
 
 export function MarkdownDocument() {
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
-  const documentRelPath = useWorkspaceStore((s) => s.documentRelPath);
-  const documentContent = useWorkspaceStore((s) => s.documentContent);
-  const documentDirty = useWorkspaceStore((s) => s.documentDirty);
-  const documentStatus = useWorkspaceStore((s) => s.documentStatus);
-  const lastDumpPath = useWorkspaceStore((s) => s.lastDumpPath);
-  const lastDumpContent = useWorkspaceStore((s) => s.lastDumpContent);
-  const documentSelection = useWorkspaceStore((s) => s.documentSelection);
+  const documentTabs = useWorkspaceStore((s) => s.documentTabs);
+  const activeDocumentTabId = useWorkspaceStore((s) => s.activeDocumentTabId);
+  const activeDocument = documentTabs.find((tab) => tab.id === activeDocumentTabId) ?? documentTabs[0] ?? null;
+  const documentRelPath = activeDocument?.path ?? null;
+  const documentContent = activeDocument?.content ?? '';
+  const documentDirty = activeDocument?.dirty ?? false;
+  const documentStatus = activeDocument?.status ?? null;
+  const lastDumpPath = activeDocument?.lastDumpPath ?? null;
+  const lastDumpContent = activeDocument?.lastDumpContent ?? null;
+  const documentSelection = activeDocument?.selection ?? '';
+  const view = activeDocument?.view ?? 'source';
+  const memos = activeDocument?.memos ?? EMPTY_MEMOS;
   const setDocumentContent = useWorkspaceStore((s) => s.setDocumentContent);
   const setDocumentSelection = useWorkspaceStore((s) => s.setDocumentSelection);
+  const setDocumentView = useWorkspaceStore((s) => s.setDocumentView);
+  const setDocumentMemos = useWorkspaceStore((s) => s.setDocumentMemos);
+  const setActiveDocumentTab = useWorkspaceStore((s) => s.setActiveDocumentTab);
+  const closeDocumentTab = useWorkspaceStore((s) => s.closeDocumentTab);
   const openDocumentPath = useWorkspaceStore((s) => s.openDocumentPath);
   const saveDocument = useWorkspaceStore((s) => s.saveDocument);
+  const saveDocumentRecovery = useWorkspaceStore((s) => s.saveDocumentRecovery);
   const newDocument = useWorkspaceStore((s) => s.newDocument);
   const saveDocumentToProject = useWorkspaceStore((s) => s.saveDocumentToProject);
   const openLastDump = useWorkspaceStore((s) => s.openLastDump);
-  const flushDocumentAfterWorkspaceConnect = useWorkspaceStore((s) => s.flushDocumentAfterWorkspaceConnect);
   const refreshExplorer = useWorkspaceStore((s) => s.refreshExplorer);
+  const flushDocumentAfterWorkspaceConnect = useWorkspaceStore((s) => s.flushDocumentAfterWorkspaceConnect);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
+
   const busy = useWorkspaceStore((s) => s.busy);
   const chat = useWorkspaceStore((s) => s.chat);
 
-  const [view, setView] = useState<DocView>('source');
   const [browseOpen, setBrowseOpen] = useState(false);
   const [dumpPreview, setDumpPreview] = useState<string | null>(null);
-  const [memos, setMemos] = useState<DocumentMemo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
-  const memosRef = useRef(memos);
+  const memosRef = useRef<DocumentMemo[]>([]);
   memosRef.current = memos;
+  const setMemos = useCallback((updater: (previous: DocumentMemo[]) => DocumentMemo[]) => {
+    setDocumentMemos(updater(memosRef.current));
+  }, [setDocumentMemos]);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const decoIdsRef = useRef<string[]>([]);
   const { menu, openAt, close } = useContextMenu();
@@ -132,15 +130,15 @@ export function MarkdownDocument() {
   const closedMemoCount = memos.filter((m) => !m.open).length;
 
   useEffect(() => {
-    if (!hasWorkspace || !documentDirty || !documentRelPath) return;
+    if (!hasWorkspace || !documentDirty) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void saveDocument();
+      void saveDocumentRecovery();
     }, 800);
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
-  }, [documentContent, documentDirty, documentRelPath, hasWorkspace, saveDocument]);
+  }, [documentContent, documentDirty, hasWorkspace, saveDocumentRecovery, activeDocument?.id]);
 
   useEffect(() => {
     if (view !== 'diff') return;
@@ -192,7 +190,7 @@ export function MarkdownDocument() {
         ),
       );
     }
-  }, [memos, busy, chat]);
+  }, [memos, busy, chat, setMemos]);
 
   // Excel-style red-corner decorations for collapsed (and open) memos.
   useEffect(() => {
@@ -257,9 +255,8 @@ export function MarkdownDocument() {
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, []);
-
-  const ensureWorkspace = useCallback(async (): Promise<boolean> => {
+  }, [setMemos]);
+ = useCallback(async (): Promise<boolean> => {
     if (hasWorkspace) return true;
     setBrowseOpen(true);
     return false;
@@ -306,7 +303,17 @@ export function MarkdownDocument() {
         onSelect: () => {
           const text = selection.trim() || readLiveSelection();
           if (!text) {
-            useWorkspaceStore.setState({ documentStatus: '텍스트를 선택한 뒤 AI에게 물어보세요.' });
+            const state = useWorkspaceStore.getState();
+            const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
+            if (active) {
+              useWorkspaceStore.setState({
+                documentTabs: state.documentTabs.map((tab) =>
+                  tab.id === active.id
+                    ? { ...tab, status: '텍스트를 선택한 뒤 AI에게 물어보세요.' }
+                    : tab,
+                ),
+              });
+            }
             return;
           }
           const pos = clampNotePos(e.clientX + 8, e.clientY + 8);
@@ -389,7 +396,6 @@ export function MarkdownDocument() {
     if (!DOCUMENT_SCRATCH.allowedExtensions.some((ext) => name.endsWith(ext))) {
       return;
     }
-    if (!(await ensureWorkspace())) return;
     const text = await file.text();
     const rel = normalizeRelPath(file.name);
     await openDocumentPath(rel, text);
@@ -580,17 +586,50 @@ export function MarkdownDocument() {
         </div>
       ) : null}
 
+      <div
+        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5"
+        data-testid="document-tabs"
+      >
+        <button
+          type="button"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-sm text-muted hover:bg-panel-2 hover:text-text"
+          aria-label="새 문서"
+          data-testid="new-document-tab"
+          onClick={() => void newDocument()}
+        >
+          +
+        </button>
+        {documentTabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`flex shrink-0 items-center rounded border ${
+              tab.id === activeDocumentTabId ? 'border-accent bg-accent/10' : 'border-line'
+            }`}
+          >
+            <button
+              type="button"
+              className="max-w-40 truncate px-2 py-1 text-[10px] text-text hover:bg-panel-2"
+              title={tab.path ?? tab.title}
+              onClick={() => setActiveDocumentTab(tab.id)}
+            >
+              {tab.title}{tab.dirty ? ' ●' : ''}
+            </button>
+            <button
+              type="button"
+              className="px-1.5 py-1 text-[11px] text-muted hover:text-text"
+              aria-label={`${tab.title} 닫기`}
+              onClick={() => void closeDocumentTab(tab.id)}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-2 py-1.5">
         <span className="mr-1 max-w-[40%] truncate text-[10px] text-muted" title={pathLabel}>
           {pathLabel}
         </span>
-        <button
-          type="button"
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-          onClick={() => void newDocument()}
-        >
-          새 문서
-        </button>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
@@ -616,18 +655,14 @@ export function MarkdownDocument() {
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
           onClick={() => void (async () => {
-            if (!(await ensureWorkspace())) return;
-            await saveDocument();
+            if (activeDocument?.source === 'workspace' && activeDocument.path) {
+              await saveDocument();
+            } else {
+              await onSaveProject();
+            }
           })()}
         >
-          저장
-        </button>
-        <button
-          type="button"
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-          onClick={() => void onSaveProject()}
-        >
-          프로젝트에 저장
+          {activeDocument?.source === 'workspace' && activeDocument.path ? '저장' : '프로젝트에 저장…'}
         </button>
         <button
           type="button"
@@ -664,7 +699,7 @@ export function MarkdownDocument() {
               className={`rounded px-2 py-0.5 text-[10px] ${
                 view === id ? 'bg-accent text-ink' : 'text-muted hover:text-text'
               } disabled:opacity-40`}
-              onClick={() => setView(id)}
+              onClick={() => setDocumentView(id)}
               title={id === 'diff' ? '덤프 ↔ 현재' : undefined}
             >
               {id === 'source' ? '원문' : id === 'preview' ? '미리보기' : '변경 보기'}

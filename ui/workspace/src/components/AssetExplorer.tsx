@@ -77,7 +77,14 @@ function TreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
                 addContextPath(node.id);
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                useWorkspaceStore.setState({ documentStatus: message, mode: 'document' });
+                const state = useWorkspaceStore.getState();
+                const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
+                useWorkspaceStore.setState({
+                  documentTabs: active
+                    ? state.documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab)
+                    : state.documentTabs,
+                  mode: 'document',
+                });
               }
             })();
           },

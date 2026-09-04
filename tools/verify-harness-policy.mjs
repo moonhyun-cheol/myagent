@@ -370,21 +370,45 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
     MAX_PROGRESSIVE_RUN_ROUNDS,
     MAX_PROGRESSIVE_STAGES,
     MAX_PROGRESSIVE_TOTAL_ROUNDS,
+    MAX_PROGRESSIVE_AUTO_CHAINS,
     ORCHESTRATION_STEP_DEFINITION,
     buildAgentProgressCheckpoint,
+    formatProgressiveBudgetNotice,
     normalizeProgressiveMaxSteps,
     progressiveRunBudget,
+    shouldAutoChainProgressiveBudget,
   } = await import('../core/dist/agent/agent-progress-checkpoint.js');
   assert.equal(FAILURE_CHECKPOINT_THRESHOLD, 3);
   assert.equal(MAX_PROGRESSIVE_STAGES, 10);
   assert.equal(MAX_PROGRESSIVE_RUN_ROUNDS, 30);
   assert.equal(MAX_PROGRESSIVE_TOTAL_ROUNDS, 100);
+  assert.equal(MAX_PROGRESSIVE_AUTO_CHAINS, 4);
   assert.match(ORCHESTRATION_STEP_DEFINITION, /0\.\.N tool calls/);
   assert.equal(normalizeProgressiveMaxSteps(45), 30);
   assert.equal(normalizeProgressiveMaxSteps(500), 30);
   assert.equal(progressiveRunBudget(45, 0), 30);
   assert.equal(progressiveRunBudget(45, 80), 20);
   assert.equal(progressiveRunBudget(45, 100), 0);
+  assert.equal(
+    shouldAutoChainProgressiveBudget({ kind: 'continuation', step: 30 }),
+    true,
+  );
+  assert.equal(
+    shouldAutoChainProgressiveBudget({ kind: 'continuation', step: 100 }),
+    false,
+  );
+  assert.equal(
+    shouldAutoChainProgressiveBudget({ kind: 'failure', step: 30 }),
+    false,
+  );
+  assert.match(
+    formatProgressiveBudgetNotice({ stage: 3, maxStages: 10, step: 30 }).message,
+    /자동으로 이어갑니다/,
+  );
+  assert.match(
+    formatProgressiveBudgetNotice({ stage: 10, maxStages: 10, step: 100 }).title,
+    /전체 진행 한도/,
+  );
   const checkpoint = buildAgentProgressCheckpoint({
     reason: 'three_failures',
     step: 13,

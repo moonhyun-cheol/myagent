@@ -19,8 +19,11 @@ export function shouldUseSessionContinuity(opts: {
   readPaths: string[];
   mutatedPaths: string[];
   hasProgressCheckpoint?: boolean;
+  /** Orchestrator progressive auto-chain — same turn, no bare 「이어서」 required. */
+  force?: boolean;
 }): boolean {
   if (!opts.readPaths.length && !opts.mutatedPaths.length && !opts.hasProgressCheckpoint) return false;
+  if (opts.force) return true;
   return /^(?:이어서|계속(?:해서)?|계속해(?:요|줘|주세요)?|마저(?:\s*해)?)\s*[.!。]*$/i.test(
     String(opts.userMessage || '').trim(),
   );

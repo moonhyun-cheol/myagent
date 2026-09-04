@@ -79,6 +79,11 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   agentPromptProfile?: 'general' | 'coding';
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */
   autopilot?: boolean;
+  /**
+   * Force session continuity (checkpoint + readGate seed) even when the user
+   * message is not a bare 「이어서」 — used by progressive auto-chain.
+   */
+  forceSessionContinuity?: boolean;
 }
 
 export interface CodeAgentResult {
