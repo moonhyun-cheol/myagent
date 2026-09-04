@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 37,
+    "update_sequence": 38,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-04T02:58:23.934Z",
+    "published_at": "2026-09-04T06:02:58.722Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-37",
+      "release_tag": "update-38",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267138930,
-      "sha256": "19ec9c6c8ec42586019656fe35f231562486f438fda33efb3fc24196f58d2e63"
+      "size": 267139646,
+      "sha256": "8f960a16847932f24d8382a4ae700575809f6ba7efd67b6dae0330ba911b3b60"
     },
-    "payload_manifest_sha256": "8a0ec137edb46a286d8724f75f1799407421dcb9d1b30b84e6e5ae2428b227f0",
+    "payload_manifest_sha256": "f18577c00e62f4627e2fb33e859069c59050d9a20712d7884530ee5898229c6b",
     "release_notes": ""
   },
-  "signature": "vdE8Z/6NRvPpbjZEvVWYNfo5arI/57WPpkEEi/deqv9exS63m1GlRHQUwmjQAKcEDun5uOjk23z/6tmLYbmYyKyV+veRdAs7gExBaVAQf4lE0ASItfLQrBiSLsffmsDPzO5LWd7kw6xUqNfkxkGfZJybD1+PiUXFLsY+euxrYgCgAQYOzQoftXRFpag0mnpyzOieXFNwKuz3x+TshC67Cjo0qqIUDY9nt40nd9m7c7flI230iKszuyjm+YyPEN4RJkHStpzmcfFkGKPFc1HfgAVa+1m4OMokzWboiSZFaOh+U7MgmxHimo9rva6EPb7cRjyMSJhmjhRh7uznh6HLlqEK+WI4m7QG4RyXEhGrSdyib+nDA50VlJAKecrj000vKCrw1iwncBct2Gs+tptmFI/M3ILKatCuGuhAbU0bQoxxIvA5ZdIDgMM+IQROxUvUu+Yop8jQtvHfZYe0IgpQMq8rWF6g+YgUB2IuNFy87jS2oegYvYiU48gPc/fl8l3x"
+  "signature": "U6Kk4aUkiHiMKfh6rlTT17lc/g1ubxHkGcNZluNgo7y6UT62B2tYz6pK4a/fTHv79o6qeSQ54q73GWQO3hn5TtPItypr7c6Cgq16+FwUAtkoHGxY4ZcSb35UxgDTBw/gAOm8i2mu0ENTTBV82IpDiyeSxEk4bx6cl9kSEvoYRwfKOaUXjTXEgCCKmVVdCVvkwcbWT9LxDTHfef0r+jt2STl5coBw+daf6MGPzZyVcllicXuDsPDDq224tDA2XTnkSbza32su4sLrUqGNx+RHu/85njnceuWyCf2B5wzGy8wEYhI0PQffGIoye4vOeiulrrrWfre1IVJ8Dt/qqlO8Yfr1Mko81xch0g7EL4YprQWm7BhqlRE2OOhWQHHZBsVbHKMuxxjoSV1hUqQL7Kg2Mg8sVpKq21+XwA+Pqo8U/z5WL1o4WhDppYhSm0nw2vZ0eshz9xjb+k0ckG5w/uhZM/7idtcV1fUUUQ8qC/E2Kz+zqrYOPWlINgkAtmYnSmqa"
 }
