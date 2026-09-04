@@ -9,6 +9,48 @@ const stepLoopSource = readFileSync(
   new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url),
   'utf8',
 );
+const runTypesSource = readFileSync(
+  new URL('../core/src/agent/agent-run-types.ts', import.meta.url),
+  'utf8',
+);
+const contextAssemblerSource = readFileSync(
+  new URL('../core/src/agent/agent-context-assembler.ts', import.meta.url),
+  'utf8',
+);
+const todoToolSource = readFileSync(
+  new URL('../core/src/agent/agent-tool-definitions.ts', import.meta.url),
+  'utf8',
+);
+const readThroughSource = readFileSync(
+  new URL('../core/src/agent/agent-read-through-cache.ts', import.meta.url),
+  'utf8',
+);
+const runLoopSource = readFileSync(
+  new URL('../core/src/agent/agent-run-loop.ts', import.meta.url),
+  'utf8',
+);
+
+assert.match(
+  runTypesSource,
+  /export const MAX_AGENT_STEPS = 100;/,
+  'MAX_AGENT_STEPS must be the declared orchestration-step ceiling',
+);
+for (const source of [runTypesSource, runLoopSource, stepLoopSource]) {
+  assert.doesNotMatch(
+    source,
+    /MAX_PROGRESSIVE_TOTAL_ROUNDS|MAX_PROGRESSIVE_STAGES|PROGRESSIVE_STAGE_ROUNDS|normalizeProgressiveMaxSteps|progressiveRunBudget/,
+    'retired progressive budget authorities must not return',
+  );
+}
+assert.match(contextAssemblerSource, /prepareAgentContextForRequest/);
+assert.match(stepLoopSource, /forceRebuild: state\.steps === 1 && state\.priorSteps > 0/);
+assert.doesNotMatch(stepLoopSource, /formatAgentProgressCheckpoint|recordSessionProgressCheckpoint/);
+assert.doesNotMatch(stepLoopSource, /shrinkMessagesForInfraRetry/);
+assert.match(readThroughSource, /selection_required/);
+assert.match(readThroughSource, /text:\s*status === 'exact' \? sliced\.text : ''/);
+assert.match(todoToolSource, /name: 'todo_update'/);
+assert.match(todoToolSource, /retainEvidence/);
+assert.doesNotMatch(todoToolSource, /dropEvidence|discardEvidence/);
 
 assert.doesNotMatch(
   stepLoopSource,
@@ -28,6 +70,7 @@ const {
   resolveReasoningEffort,
   resolveCodeReasoningEffort,
   resolveCodeReasoningEffortForModel,
+  resolveSessionReasoningEffort,
   resolveOwuiProtocolMode,
   resolveCodeOwuiProtocolMode,
   owuiPrefersClientToolProtocol,
@@ -82,16 +125,16 @@ function withEnv(patch, fn) {
       MY_AGENT_OWUI_TEXT_TOOLS: undefined,
     },
     () => {
-      assert.equal(resolveReasoningEffort(), 'high');
+      assert.equal(resolveReasoningEffort(), null);
       assert.equal(
         resolveCodeReasoningEffort({}),
-        'high',
-        'code reasoning follows the configured default without task heuristics',
+        null,
+        'unset effort leaves the provider/model in control',
       );
       assert.equal(
         resolveCodeReasoningEffortForModel({}, { modelId: 'gpt-5.6-sol-pro' }),
-        'high',
-        'model labels do not silently remove the configured effort',
+        null,
+        'model labels do not silently force an effort',
       );
       assert.equal(
         resolveCodeReasoningEffortForModel(
@@ -177,6 +220,38 @@ function withEnv(patch, fn) {
     () => {
       assert.equal(resolveCodeOwuiProtocolMode(), 'text', 'explicit PROTOCOL=text');
     },
+  );
+}
+
+// session reasoning is independent from Responses summary requests
+{
+  assert.equal(
+    resolveSessionReasoningEffort('auto', {}, { providerId: 'openai', modelId: 'gpt-5.6-sol' }),
+    null,
+    'auto omits effort so the provider/model owns its reasoning budget',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort('low', {}, { providerId: 'openai', modelId: 'gpt-5.6-sol' }),
+    'low',
+    'an explicit session effort is preserved',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort(
+      'low',
+      { MY_AGENT_REASONING_EFFORT: 'high' },
+      { providerId: 'openai', modelId: 'gpt-5.6-sol' },
+    ),
+    'high',
+    'an explicit operator override still wins',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort(
+      'high',
+      {},
+      { providerId: 'custom', modelId: 'qwen2.5:7b' },
+    ),
+    null,
+    'unsupported models still omit effort',
   );
 }
 
@@ -285,7 +360,7 @@ function withEnv(patch, fn) {
 }
 
 {
-  const raw = 'Code agent exceeded 45 LLM orchestration rounds (not tool calls).';
+  const raw = 'Code agent exceeded 100 LLM orchestration rounds (not tool calls).';
   const message = formatChatErrorMessage(raw);
   assert.equal(message, raw);
   assert.doesNotMatch(message, /Independent tool calls/);
@@ -365,78 +440,37 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, true), true, 'user override wins');
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, false), false);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, null), true);
-  const {
-    FAILURE_CHECKPOINT_THRESHOLD,
-    MAX_PROGRESSIVE_RUN_ROUNDS,
-    MAX_PROGRESSIVE_STAGES,
-    MAX_PROGRESSIVE_TOTAL_ROUNDS,
-    MAX_PROGRESSIVE_AUTO_CHAINS,
-    ORCHESTRATION_STEP_DEFINITION,
-    buildAgentProgressCheckpoint,
-    formatProgressiveBudgetNotice,
-    normalizeProgressiveMaxSteps,
-    progressiveRunBudget,
-    shouldAutoChainProgressiveBudget,
-  } = await import('../core/dist/agent/agent-progress-checkpoint.js');
-  assert.equal(FAILURE_CHECKPOINT_THRESHOLD, 3);
-  assert.equal(MAX_PROGRESSIVE_STAGES, 10);
-  assert.equal(MAX_PROGRESSIVE_RUN_ROUNDS, 30);
-  assert.equal(MAX_PROGRESSIVE_TOTAL_ROUNDS, 100);
-  assert.equal(MAX_PROGRESSIVE_AUTO_CHAINS, 4);
-  assert.match(ORCHESTRATION_STEP_DEFINITION, /0\.\.N tool calls/);
-  assert.equal(normalizeProgressiveMaxSteps(45), 30);
-  assert.equal(normalizeProgressiveMaxSteps(500), 30);
-  assert.equal(progressiveRunBudget(45, 0), 30);
-  assert.equal(progressiveRunBudget(45, 80), 20);
-  assert.equal(progressiveRunBudget(45, 100), 0);
-  assert.equal(
-    shouldAutoChainProgressiveBudget({ kind: 'continuation', step: 30 }),
-    true,
+  const { buildAgentContinuationSnapshot } = await import(
+    '../core/dist/agent/agent-continuation-snapshot.js'
   );
-  assert.equal(
-    shouldAutoChainProgressiveBudget({ kind: 'continuation', step: 100 }),
-    false,
-  );
-  assert.equal(
-    shouldAutoChainProgressiveBudget({ kind: 'failure', step: 30 }),
-    false,
-  );
-  assert.match(
-    formatProgressiveBudgetNotice({ stage: 3, maxStages: 10, step: 30 }).message,
-    /자동으로 이어갑니다/,
-  );
-  assert.match(
-    formatProgressiveBudgetNotice({ stage: 10, maxStages: 10, step: 100 }).title,
-    /전체 진행 한도/,
-  );
-  const checkpoint = buildAgentProgressCheckpoint({
-    reason: 'three_failures',
+  const { MAX_AGENT_STEPS } = await import('../core/dist/agent/agent-run-types.js');
+  assert.equal(MAX_AGENT_STEPS, 100);
+  const snapshot = buildAgentContinuationSnapshot({
     step: 13,
-    maxSteps: 100,
-    failureCount: 3,
-    readPaths: ['src/a.ts'],
-    mutatedPaths: ['src/a.ts'],
-    toolsUsed: ['read_file', 'edit_file'],
-    failureDetails: ['edit_file: atomic_abort'],
-    verifyWitness: null,
-    activeTask: { objective: '루프 복구', acceptance: '테스트 통과' },
-    modelOutput: '모델이 작성한 실제 작업 내용',
-    model: 'OpenAI/gpt-test',
     elapsedMs: 125_000,
     payloadChars: 32_768,
-    recentActivity: ['read_file: ok (step 12)', 'edit_file: failed (step 13)'],
+    model: 'OpenAI/gpt-test',
+    todoLedger: {
+      version: 1,
+      todos: [{ id: 'T1', text: '루프 복구', status: 'doing', evidenceRefs: ['ev-1'], nextAction: '테스트 통과' }],
+      retainEvidence: [{ evidenceId: 'ev-1', form: 'exact', todoId: 'T1' }],
+      workingNotes: [],
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    evidenceRefs: ['ev-1'],
+    readPaths: ['src/a.ts'],
+    mutatedPaths: ['src/a.ts'],
+    unresolvedFailures: ['edit_file: atomic_abort'],
+    lastModelOutput: '모델이 작성한 실제 작업 내용',
     now: '2026-01-01T00:00:00.000Z',
   });
-  assert.equal(checkpoint.stage, 2);
-  assert.match(checkpoint.remaining.join('\n'), /실패 복구/);
-  assert.match(checkpoint.remaining.join('\n'), /테스트 통과/);
-  assert.match(checkpoint.resumeFrom, /루프 복구/);
-  assert.equal(checkpoint.maxStages, 10);
-  assert.equal(checkpoint.modelOutput, '모델이 작성한 실제 작업 내용');
-  assert.equal(checkpoint.runtime?.model, 'OpenAI/gpt-test');
-  assert.equal(checkpoint.runtime?.elapsedMs, 125_000);
-  assert.equal(checkpoint.runtime?.payloadChars, 32_768);
-  assert.equal(checkpoint.recentActivity?.length, 2);
+  assert.equal(snapshot.step, 13);
+  assert.equal(snapshot.todoLedger?.todos[0]?.nextAction, '테스트 통과');
+  assert.deepEqual(snapshot.evidenceRefs, ['ev-1']);
+  assert.equal(snapshot.model, 'OpenAI/gpt-test');
+  assert.equal(snapshot.elapsedMs, 125_000);
+  assert.equal(snapshot.payloadChars, 32_768);
+  assert.equal(snapshot.lastModelOutput, '모델이 작성한 실제 작업 내용');
   assert.equal(
     resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, null, '인앱 브라우저 ChatPane 링크 연결 구현'),
     false,
@@ -524,7 +558,7 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
     clearRemoteModelContextCache,
   } = await import('../core/dist/providers/model-context-limits.js');
   const { parseRemoteModels } = await import('../core/dist/providers/openai-compatible.js');
-  const { truncateToolResultForLlm } = await import('../core/dist/agent/agent-run-helpers.js');
+  const { projectEvidenceForModel } = await import('../core/dist/agent/agent-run-helpers.js');
   const { softRpmLimit, softStepLatencyWarnMs } = await import(
     '../core/dist/providers/harness-policy.js'
   );
@@ -612,8 +646,23 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
 
   const inspectDump =
     '[read_file meta] path=styles.css lines=168\n' + ':root { color: red; }\n'.repeat(400);
-  const truncated = truncateToolResultForLlm(inspectDump, 'read_file');
-  assert.equal(truncated, inspectDump, 'read_file content under the context budget stays intact');
+  const evidence = {
+    version: 1,
+    evidenceId: 'ev_harness_1',
+    runId: 'harness',
+    tool: 'read_file',
+    args: { path: 'styles.css' },
+    complete: true,
+    fingerprint: 'a'.repeat(64),
+    ok: true,
+    at: new Date(0).toISOString(),
+    bytes: Buffer.byteLength(inspectDump),
+    bodyFile: 'data/evidence-runs/harness/ev_harness_1.txt',
+    observedByModel: false,
+  };
+  const projected = projectEvidenceForModel(evidence, inspectDump);
+  assert.match(projected, /:root \{ color: red; \}/, 'evidence under the context budget stays exact');
+  assert.match(projected, /ev_harness_1/);
 }
 
 console.log('verify-harness-policy: ok');

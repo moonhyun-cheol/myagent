@@ -3,6 +3,9 @@
  * ADR-008 failure plane — infra ≠ answer; no tool-plane demotion.
  */
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const {
   classifyLlmFailure,
@@ -26,11 +29,11 @@ assert.equal(classifyLlmFailure(new Error('AbortError')), 'abort');
 assert.equal(classifyLlmFailure(new Error('syntax oops')), 'other');
 assert.equal(
   isAgentExecutionLimit(
-    new Error('Code agent exceeded 45 LLM orchestration rounds (not tool calls).'),
+    new Error('Code agent exceeded 100 LLM orchestration rounds (not tool calls).'),
   ),
   true,
 );
-assert.equal(isAgentExecutionLimit(new Error('Code agent exceeded 45 tool steps')), true);
+assert.equal(isAgentExecutionLimit(new Error('Code agent exceeded 100 tool steps')), true);
 assert.equal(isAgentExecutionLimit(new Error('OWUI_GATEWAY_TIMEOUT (504)')), false);
 
 assert.equal(mustNotDemoteToolPlaneToChat(true), true);
@@ -78,7 +81,7 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
 
 {
   const body = formatToolPlaneFailureAssistant({
-    formattedError: 'Code agent exceeded 45 LLM orchestration rounds (not tool calls).',
+    formattedError: 'Code agent exceeded 100 LLM orchestration rounds (not tool calls).',
     kind: 'other',
   });
   assert.doesNotMatch(body, /자동 재시도/);
@@ -87,83 +90,94 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
 }
 
 {
-  const { shrinkMessagesForInfraRetry, estimateChatPayloadChars } = await import(
-    '../core/dist/agent/agent-run-helpers.js'
+  const helpersSource = readFileSync(
+    new URL('../core/src/agent/agent-run-helpers.ts', import.meta.url),
+    'utf8',
   );
-  const msgs = [
-    { role: 'system', content: 'sys' },
-    { role: 'user', content: 'do it' },
-    {
-      role: 'tool',
-      tool_call_id: '1',
-      content: `path=old.js\n${'x'.repeat(20_000)}`,
-    },
-    {
-      role: 'tool',
-      tool_call_id: '2',
-      content: `path=new.js\n${'y'.repeat(8_000)}`,
-    },
-  ];
-  const before = estimateChatPayloadChars(msgs);
-  const dropped = shrinkMessagesForInfraRetry(msgs, { keepRecentToolTurns: 1, maxToolChars: 2_000 });
-  assert.ok(dropped > 0);
-  assert.ok(estimateChatPayloadChars(msgs) < before);
-  assert.match(String(msgs[2].content), /tool stub/);
-  assert.ok(String(msgs[3].content).length <= 2_200);
+  const llmStepSource = readFileSync(
+    new URL('../core/src/agent/agent-llm-step.ts', import.meta.url),
+    'utf8',
+  );
+  assert.doesNotMatch(helpersSource, /shrinkMessagesForInfraRetry|infra-retry truncate/);
+  assert.doesNotMatch(llmStepSource, /synthesizeAnswerFromToolResults|compressToolBlockForAnswer/);
+  assert.match(llmStepSource, /caller supplies a phase=final Context View/);
 }
 
 {
-  const {
-    synthesizeAnswerFromToolResults,
-    looksLikeInspectToolDump,
-    contentIsInspectAnswerSynthFailure,
-    compressToolBlockForAnswer,
-    INSPECT_ANSWER_SYNTH_FAIL_MARKER,
-  } = await import('../core/dist/agent/agent-llm-step.js');
-  assert.equal(
-    looksLikeInspectToolDump('[read_file meta] path=styles.css lines=168 bytes=6263\n:root {'),
-    true,
-  );
-  const dump = synthesizeAnswerFromToolResults([
-    {
-      role: 'tool',
-      content:
-        '[read_file meta] path=styles.css lines=168 bytes=6263\n' + ':root {\n  color: red;\n}\n'.repeat(80),
-    },
-  ]);
-  assert.equal(dump.includes(':root {'), false, 'must not dump CSS body');
-  assert.match(dump, /모델의 최종 답변을 받지 못했습니다/);
-  assert.match(dump, /로컬 런타임이 이를 작업 보고서로 재작성하지 않았습니다/);
-  assert.ok(dump.includes(INSPECT_ANSWER_SYNTH_FAIL_MARKER));
-  assert.equal(contentIsInspectAnswerSynthFailure(dump), true);
-  const mutateFallback = synthesizeAnswerFromToolResults([
-    { role: 'tool', content: 'Wrote app.js (100 bytes)' },
-  ]);
-  assert.match(mutateFallback, /모델의 최종 답변을 받지 못했습니다/);
-  assert.doesNotMatch(mutateFallback, /파일 저장 완료|변경 파일|진단 통과/);
-  const compressed = compressToolBlockForAnswer(
-    '[read_file meta] path=ui/workspace/src/store/workspaceStore.ts lines=900\n' + 'x'.repeat(5000),
-  );
-  assert.match(compressed, /read_file summary/);
-  assert.match(compressed, /workspaceStore\.ts/);
-  assert.ok(compressed.length < 3000, 'answer path must shrink inspect dumps');
-}
-
-{
-  const { truncateToolResultForLlm } = await import('../core/dist/agent/agent-run-helpers.js');
+  const { projectEvidenceForModel } = await import('../core/dist/agent/agent-run-helpers.js');
   const dump =
     '[read_file meta] path=core/src/foo.ts lines=40\n' + 'const x = 1;\n'.repeat(500);
-  const out = truncateToolResultForLlm(dump, 'read_file');
-  assert.equal(out, dump, 'read_file content under the context budget stays intact');
-
-  const jsonBig = JSON.stringify({
+  const baseRecord = {
+    version: 1,
+    evidenceId: 'ev_failure_1',
+    runId: 'failure-plane',
+    tool: 'read_file',
+    args: { path: 'core/src/foo.ts' },
+    complete: true,
+    fingerprint: 'b'.repeat(64),
     ok: true,
-    path: 'a.js',
-    blob: 'z'.repeat(20_000),
-  });
-  const jsonOut = truncateToolResultForLlm(jsonBig, 'write_file', { maxChars: 2_000 });
-  assert.ok(jsonOut.length <= 2_200);
-  assert.match(jsonOut, /"ok":true|"ok": true/);
+    at: new Date(0).toISOString(),
+    bytes: Buffer.byteLength(dump),
+    bodyFile: 'data/evidence-runs/failure-plane/ev_failure_1.txt',
+    observedByModel: false,
+  };
+  const exact = projectEvidenceForModel(baseRecord, dump);
+  assert.match(exact, /const x = 1;/, 'evidence under the context budget stays exact');
+
+  const uniqueTail = 'MUST_NOT_LEAK_PARTIAL_BODY';
+  const oversized = `${'z'.repeat(20_000)}${uniqueTail}`;
+  const projected = projectEvidenceForModel(
+    { ...baseRecord, evidenceId: 'ev_failure_2', bytes: Buffer.byteLength(oversized) },
+    oversized,
+    { maxChars: 2_000 },
+  );
+  const doc = JSON.parse(projected);
+  assert.equal(doc.status, 'selection_required');
+  assert.equal(doc.complete, false);
+  assert.deepEqual(doc.returnedRanges, []);
+  assert.match(projected, /evidence_read/);
+  assert.doesNotMatch(projected, new RegExp(uniqueTail));
+}
+
+{
+  const { readWorkspaceFileThroughCache } = await import(
+    '../core/dist/agent/agent-read-through-cache.js'
+  );
+  const root = mkdtempSync(path.join(os.tmpdir(), 'my-agent-large-read-'));
+  try {
+    const source = Array.from({ length: 6000 }, (_, index) => `line-${index + 1}-${'x'.repeat(48)}`).join('\n');
+    writeFileSync(path.join(root, 'large.txt'), source, 'utf8');
+    const selection = readWorkspaceFileThroughCache({
+      workspaceRoot: root,
+      relPath: 'large.txt',
+    });
+    assert.equal(selection.status, 'selection_required');
+    assert.equal(selection.complete, false);
+    assert.equal(selection.text, '', 'selection response must not leak a partial body');
+    assert.deepEqual(selection.omitted_ranges, [{ start: 1, end: 6000 }]);
+
+    const lateRange = readWorkspaceFileThroughCache({
+      workspaceRoot: root,
+      relPath: 'large.txt',
+      startLine: 5001,
+      endLine: 5010,
+    });
+    assert.equal(lateRange.status, 'exact');
+    assert.equal(lateRange.complete, true);
+    assert.match(lateRange.text, /line-5001-/);
+    assert.match(lateRange.text, /line-5010-/);
+
+    const tooLarge = readWorkspaceFileThroughCache({
+      workspaceRoot: root,
+      relPath: 'large.txt',
+      startLine: 2000,
+      endLine: 5000,
+    });
+    assert.equal(tooLarge.status, 'range_too_large');
+    assert.equal(tooLarge.text, '', 'oversized range must return no partial body');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 console.log('verify-failure-plane: ok');

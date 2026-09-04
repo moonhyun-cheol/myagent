@@ -13,7 +13,6 @@ const JS_EXT_RE = /\.(?:js|mjs|cjs)$/i;
 const JSON_EXT_RE = /\.json$/i;
 const TS_EXT_RE = /\.(?:ts|tsx)$/i;
 const POST_MUTATE_SYNTAX_FAILED_RE = /\bERROR:\s*POST_MUTATE_SYNTAX_FAILED\b/;
-const LEGACY_SYNTAX_BROKEN_RE = /\bERROR:\s*SYNTAX_BROKEN\b/;
 const POST_MUTATE_SYNTAX_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch']);
 
 /** Top-level decl keywords; indented lines are skipped (class methods, nested blocks). */
@@ -225,8 +224,7 @@ export function appendPostMutateSyntaxCheck(
 }
 
 export function outputHasSyntaxBroken(output: string): boolean {
-  const text = String(output || '');
-  return POST_MUTATE_SYNTAX_FAILED_RE.test(text) || LEGACY_SYNTAX_BROKEN_RE.test(text);
+  return POST_MUTATE_SYNTAX_FAILED_RE.test(String(output || ''));
 }
 
 /**

@@ -38,7 +38,6 @@ import {
   completeAgentStepClientProtocol,
   completeAgentAnswerStep,
   completeAgentStepWithProtocol,
-  contentIsInspectAnswerSynthFailure,
 } from './agent-llm-step.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
@@ -84,7 +83,10 @@ import {
   createWorkspaceCheckpoint,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
-import type { CodeAgentResult } from './agent-run-types.js';
+import {
+  MAX_AGENT_STEPS,
+  type CodeAgentResult,
+} from './agent-run-types.js';
 import {
   collectAutoCheckpointPaths,
   estimateChatPayloadChars,
@@ -93,29 +95,20 @@ import {
   lastSuccessfulReadPath,
   messagesHadToolRole,
   pushToolResultMessage,
-  shrinkMessagesForInfraRetry,
+  projectEvidenceForModel,
   trimSnippet,
-  truncateToolResultForLlm,
   runWithToolBudget,
 } from './agent-run-helpers.js';
 import { agentToolOutputOk, summarizeAgentToolResult } from './agent-tool-result.js';
+import type { EvidenceRecord } from './agent-evidence-types.js';
 import { summarizeResponsesPerfState } from './agent-perf-metrics.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentInfraError } from './agent-failure-plane.js';
-
-import {
-  buildAgentProgressCheckpoint,
-  FAILURE_CHECKPOINT_THRESHOLD,
-  formatAgentProgressCheckpointPrompt,
-  formatProgressiveBudgetNotice,
-  MAX_PROGRESSIVE_TOTAL_ROUNDS,
-  PROGRESSIVE_STAGE_ROUNDS,
-  progressiveStageForStep,
-  type ProgressCheckpointReason,
-} from './agent-progress-checkpoint.js';
+import { prepareAgentContextForRequest } from './agent-context-assembler.js';
+import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
 import {
   loadAgentRunMeta,
-  recordSessionProgressCheckpoint,
+  recordSessionContinuationSnapshot,
 } from './agent-run-meta.js';
 
 import {
@@ -134,59 +127,53 @@ function recoveryToolProtocol(state: AgentRunStepState): 'api' | 'client' {
   return state.nativeToolsLocked ? 'api' : 'client';
 }
 
+function recordToolEvidence(
+  state: AgentRunStepState,
+  call: AgentToolCall,
+  output: string,
+): EvidenceRecord {
+  return state.evidenceStore.record({
+    tool: call.function.name,
+    args: parseToolArgs(call.function.arguments),
+    output,
+    ok: agentToolOutputOk(output) && !toolOutputHasSyntaxBroken(call.function.name, output),
+    complete: !/"complete"\s*:\s*false|\bselection_required\b|\bRANGE_TOO_LARGE\b/.test(output),
+  });
+}
+
 export async function runAgentStepLoop(state: AgentRunStepState): Promise<CodeAgentResult> {
   return runWithToolBudget({ modelId: state.modelId }, () => runAgentStepLoopInner(state));
 }
 
 async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgentResult> {
-  let toolFailuresSinceCheckpoint = 0;
+  let toolFailuresSinceSnapshot = 0;
   const cumulativeSteps = (): number => Math.min(
-    MAX_PROGRESSIVE_TOTAL_ROUNDS,
+    MAX_AGENT_STEPS,
     state.priorSteps + state.steps,
   );
-  const writeProgressCheckpoint = (
-    reason: ProgressCheckpointReason,
-    injectForNextRound: boolean,
-  ) => {
-    const activeTask = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).activeTask ?? null;
-    const recentFailures = state.toolTrace
+  const persistContinuationSnapshot = (status?: string) => {
+    const meta = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId);
+    const unresolvedFailures = state.toolTrace
       .filter((entry) => !entry.ok)
-      .slice(-FAILURE_CHECKPOINT_THRESHOLD)
+      .slice(-12)
       .map((entry) => `${entry.name}: ${entry.failure_type ?? `step ${entry.step}`}`);
-    const recentActivity = state.toolTrace
-      .slice(-8)
-      .map((entry) => `${entry.name}: ${entry.ok ? 'ok' : entry.failure_type ?? 'failed'} (step ${entry.step})`);
-    const checkpoint = buildAgentProgressCheckpoint({
-      reason,
+    const snapshot = buildAgentContinuationSnapshot({
       step: cumulativeSteps(),
-      maxSteps: MAX_PROGRESSIVE_TOTAL_ROUNDS,
-      failureCount: toolFailuresSinceCheckpoint,
-      readPaths: [...state.successfulReadsThisRun],
-      mutatedPaths: [...state.mutatedPathsThisRun, ...state.sessionMutatedPaths],
-      toolsUsed: [...state.toolsUsedThisRun],
-      failureDetails: recentFailures,
-      verifyWitness: state.verifyWitness,
-      activeTask,
-      modelOutput: state.lastModelOutput || state.answerBuf.trim(),
-      model: state.lastModel,
       elapsedMs: state.priorElapsedMs + (Date.now() - state.runStartedAt),
       payloadChars: estimateChatPayloadChars(state.messages),
-      recentActivity,
+      model: state.lastModel,
+      todoLedger: meta.todoLedger,
+      evidenceRefs: state.evidenceStore.list().map((record) => record.evidenceId),
+      readPaths: [...state.successfulReadsThisRun],
+      mutatedPaths: [...state.mutatedPathsThisRun, ...state.sessionMutatedPaths],
+      unresolvedFailures,
+      verifyWitness: state.verifyWitness,
+      lastModelOutput: state.lastModelOutput || state.answerBuf.trim(),
     });
-    recordSessionProgressCheckpoint(state.opts.cqrRoot, state.opts.sessionId, checkpoint);
+    recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
     state.persistLiveSessionMeta();
-    state.reportStatus(
-      reason === 'three_failures'
-        ? `중간 정리 · 실패 ${FAILURE_CHECKPOINT_THRESHOLD}회 누적 — 재개 지점 재설정`
-        : `중간 정리 · ${checkpoint.stage}/${checkpoint.maxStages}단계 — 진행 내역 확인`,
-    );
-    if (injectForNextRound) {
-      state.messages.push({
-        role: 'user',
-        content: formatAgentProgressCheckpointPrompt(checkpoint),
-      });
-    }
-    return checkpoint;
+    if (status) state.reportStatus(status);
+    return snapshot;
   };
 
   const withApiTimeout = <T extends object>(opts: T): T & { timeoutMs?: number } => {
@@ -207,11 +194,27 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     );
   }
 
-  while (state.steps < state.maxSteps) {
+  while (cumulativeSteps() < MAX_AGENT_STEPS) {
     throwIfAborted(state.opts.signal);
     state.steps += 1;
     state.thoughtBuf = '';
     state.answerBuf = '';
+    const metaBeforeModel = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId);
+    const preparedContext = prepareAgentContextForRequest({
+      phase: state.steps === 1 ? 'plan' : 'work',
+      messages: state.messages,
+      userMessage: state.opts.userMessage,
+      todoLedger: metaBeforeModel.todoLedger,
+      evidenceStore: state.evidenceStore,
+      modelId: state.modelId,
+      forceRebuild: state.steps === 1 && state.priorSteps > 0,
+    });
+    state.messages = preparedContext.messages;
+    if (preparedContext.action !== 'unchanged') {
+      state.reportStatus(
+        `Context View ${preparedContext.action === 'full_rebuild' ? '전면 재조립' : '선별 재조립'} · ${(preparedContext.utilization * 100).toFixed(0)}%`,
+      );
+    }
     const payloadChars = estimateChatPayloadChars(state.messages);
     const payloadKb = Math.max(1, Math.round(payloadChars / 1024));
     const modelWaitLabel = formatAgentPhaseStatus({
@@ -238,10 +241,20 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           // Same-step infra retry after shrinking payload — avoids dumping 504 to the user
           // when OWUI choked on a fat tool transcript mid-loop.
           if (!isOwuiOrGatewayError(e) || state.opts.signal?.aborted) throw e;
-          const dropped = shrinkMessagesForInfraRetry(state.messages);
-          const afterKb = Math.max(1, Math.round(estimateChatPayloadChars(state.messages) / 1024));
+          const beforeChars = estimateChatPayloadChars(state.messages);
+          const retryContext = prepareAgentContextForRequest({
+            phase: 'retry',
+            messages: state.messages,
+            userMessage: state.opts.userMessage,
+            todoLedger: loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).todoLedger,
+            evidenceStore: state.evidenceStore,
+            modelId: state.modelId,
+          });
+          state.messages = retryContext.messages;
+          const afterKb = Math.max(1, Math.round(retryContext.usedChars / 1024));
+          const dropped = Math.max(0, beforeChars - retryContext.usedChars);
           state.reportStatus(
-            `${label} · 인프라 타임아웃 → 컨텍스트 축소(-${Math.round(dropped / 1024)}KB→${afterKb}KB) 재시도…`,
+            `${label} · 인프라 타임아웃 → Context View 재조립(-${Math.round(dropped / 1024)}KB→${afterKb}KB) 재시도…`,
           );
           return await awaitWithWaitStatus(
             state.reportStatus,
@@ -299,6 +312,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       onContent: publishModelAnswer,
     };
 
+    const pendingObservationIds = state.evidenceStore.list()
+      .filter((record) => !record.observedByModel)
+      .map((record) => record.evidenceId);
     let result: ToolCompletionResult;
 
     if (state.toolProtocol === 'client') {
@@ -338,6 +354,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       if (step.protocol !== state.toolProtocol) state.toolProtocol = step.protocol;
     }
 
+    state.evidenceStore.markObserved(pendingObservationIds);
     state.lastModel = `${state.def.name}/${result.model}`;
     if (result.content?.trim()) {
       state.lastModelOutput = result.content.trim();
@@ -377,19 +394,27 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     if (!result.tool_calls.length) {
       let text = (result.content ?? '').trim();
       if (!text) {
-        state.reportStatus('빈 응답 — 도구 없이 재시도');
-        const retry = await completeAgentAnswerStep(
-          state.baseUrl,
-          state.secret.api_key,
-          state.modelId,
-          [
+        state.reportStatus('빈 응답 — TODO/Evidence 최종 Context View로 재시도');
+        const finalContext = prepareAgentContextForRequest({
+          phase: 'final',
+          messages: [
             ...state.messages,
             {
               role: 'user',
               content:
-                'Previous assistant content was empty. Answer the user now in Korean as normal prose. Do not call tools unless absolutely required.',
+                'Previous assistant content was empty. Write the final answer from the TODO and Acceptance evidence. Do not call tools.',
             },
           ],
+          userMessage: state.opts.userMessage,
+          todoLedger: loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).todoLedger,
+          evidenceStore: state.evidenceStore,
+          modelId: state.modelId,
+        });
+        const retry = await completeAgentAnswerStep(
+          state.baseUrl,
+          state.secret.api_key,
+          state.modelId,
+          finalContext.messages,
           state.opts,
           streamHandlers,
         );
@@ -400,12 +425,22 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             state.publishThoughtPanel();
           }
           if (!streamAnswer) state.opts.onAnswer?.(retryText);
+          persistContinuationSnapshot();
           return state.finish({ content: retryText, model: state.lastModel, steps: state.steps });
         } else {
+          const snapshot = persistContinuationSnapshot('최종 모델 응답 실패 · 재개 상태 보존');
           return state.finish({
-            content:
-              '모델이 빈 응답을 반환했습니다. 같은 요청을 다시 보내 주세요. (코드 모드에서 설명만 필요하면 「텍스트」 모드도 가능합니다.)',
-            model: state.lastModel, steps: state.steps
+            content: '',
+            model: state.lastModel,
+            steps: state.steps,
+            applicationNotice: {
+              kind: 'continuation',
+              title: '최종 답변 생성 중단',
+              message: '모델의 최종 답변을 받지 못했습니다. TODO와 Evidence는 보존되어 같은 대화에서 이어서 진행할 수 있습니다.',
+              model: snapshot.model ?? state.lastModel,
+              elapsedMs: snapshot.elapsedMs,
+              step: snapshot.step,
+            },
           });
         }
       }
@@ -415,6 +450,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         state.publishThoughtPanel();
       }
       if (!streamAnswer && text) state.opts.onAnswer?.(text);
+      persistContinuationSnapshot();
       return state.finish({ content: text, model: state.lastModel, steps: state.steps });
     }
 
@@ -656,10 +692,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                   state.guard,
                   state.toolCtx,
                 );
+                const evidence = recordToolEvidence(state, listCall, listRes.output);
                 pushToolResultMessage(
                   state.messages,
                   listCall.id,
-                  listRes.output,
+                  projectEvidenceForModel(evidence, listRes.output),
                   'list_directory',
                 );
                 state.readGate.noteListDirectory(dir);
@@ -668,10 +705,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                 state.toolsUsedThisRun.add('list_directory');
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
+                const failedOutput = `ERROR: auto_list_failed\n${msg}`;
+                const evidence = recordToolEvidence(state, listCall, failedOutput);
                 pushToolResultMessage(
                   state.messages,
                   listCall.id,
-                  `ERROR: auto_list_failed\n${msg}`,
+                  projectEvidenceForModel(evidence, failedOutput),
                   'list_directory',
                 );
                 state.readGate.noteListDirectory(dir);
@@ -703,10 +742,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                   state.guard,
                   state.toolCtx,
                 );
+                const evidence = recordToolEvidence(state, readCall, readRes.output);
                 pushToolResultMessage(
                   state.messages,
                   readCall.id,
-                  readRes.output,
+                  projectEvidenceForModel(evidence, readRes.output),
                   'read_file',
                 );
                 if (rel) {
@@ -719,10 +759,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                 state.toolsUsedThisRun.add('read_file');
               } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
+                const failedOutput = `ERROR: auto_read_failed\n${msg}`;
+                const evidence = recordToolEvidence(state, readCall, failedOutput);
                 pushToolResultMessage(
                   state.messages,
                   readCall.id,
-                  `ERROR: auto_read_failed\n${msg}`,
+                  projectEvidenceForModel(evidence, failedOutput),
                   'read_file',
                 );
               }
@@ -805,6 +847,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ({ output } = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx));
         durationMs = Date.now() - toolStarted;
       }
+      const rawEvidenceOutput = output;
+      const evidenceRecord = recordToolEvidence(state, execCall, rawEvidenceOutput);
       if (
         execCall.function.name === 'edit_file'
         && typeof args.path === 'string'
@@ -897,7 +941,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ok: toolOk,
         durationMs,
       });
-      if (!toolOk) toolFailuresSinceCheckpoint += 1;
+      if (!toolOk) toolFailuresSinceSnapshot += 1;
       const afterTool = await state.hooks.afterTool?.({
         tool: execCall.function.name,
         args,
@@ -908,7 +952,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       if (isHookStop(afterTool)) {
         state.hooks.onEvent?.({ type: 'hook_stop', reason: afterTool.reason, phase: 'afterTool' });
         loopGuard.noteResult(execCall, output);
-        pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
+        pushToolResultMessage(
+          state.messages,
+          execCall.id,
+          projectEvidenceForModel(evidenceRecord, output),
+          execCall.function.name,
+        );
         return state.finish({ content: `Agent stopped after tool: ${afterTool.reason}`, model: state.lastModel, steps: state.steps });
       }
       loopGuard.noteResult(execCall, output);
@@ -1041,7 +1090,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       state.messages.push({
         role: 'tool',
         tool_call_id: execCall.id,
-        content: truncateToolResultForLlm(output, execCall.function.name),
+        content: projectEvidenceForModel(evidenceRecord, output),
       });
     }
 
@@ -1049,11 +1098,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });
     }
 
-    let failureCheckpointInjected = false;
-    if (toolFailuresSinceCheckpoint >= FAILURE_CHECKPOINT_THRESHOLD) {
-      writeProgressCheckpoint('three_failures', true);
-      toolFailuresSinceCheckpoint = 0;
-      failureCheckpointInjected = true;
+    if (toolFailuresSinceSnapshot >= 3) {
+      persistContinuationSnapshot('진행 상태 저장 · 도구 실패 3회 누적');
+      toolFailuresSinceSnapshot = 0;
     }
 
     if (syntaxBrokenThisStep && state.silentVerifyAttempts < state.maxVerify) {
@@ -1085,39 +1132,28 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             mutatedPaths: [...state.mutatedPathsThisRun],
           }),
       });
+      persistContinuationSnapshot();
       continue;
     }
 
-    const chainSteps = cumulativeSteps();
-    if (
-      !failureCheckpointInjected
-      && chainSteps % PROGRESSIVE_STAGE_ROUNDS === 0
-      && chainSteps < MAX_PROGRESSIVE_TOTAL_ROUNDS
-      && state.steps < state.maxSteps
-    ) {
-      writeProgressCheckpoint('stage_boundary', true);
-      toolFailuresSinceCheckpoint = 0;
-      state.reportStatus(
-        `순차 진행 · ${progressiveStageForStep(chainSteps) + 1}단계 시작 (단계당 ${PROGRESSIVE_STAGE_ROUNDS}회)`,
-      );
-    }
+    // Every completed orchestration step gets a durable snapshot. It is never
+    // appended to state.messages; the next request is assembled from TODO/Evidence.
+    persistContinuationSnapshot();
   }
 
-  const checkpoint = writeProgressCheckpoint('budget_exhausted', false);
+  const snapshot = persistContinuationSnapshot('실행 상한 도달 · 재개 상태 저장');
   const modelContent = (state.lastModelOutput || state.answerBuf).trim();
-  const notice = formatProgressiveBudgetNotice(checkpoint);
   return state.finish({
-    content: modelContent || '이번 단계에서 모델이 별도의 서술형 작업 결과를 남기지 않았습니다.',
-    model: checkpoint.runtime?.model ?? state.lastModel,
+    content: modelContent,
+    model: snapshot.model ?? state.lastModel,
     steps: state.steps,
     applicationNotice: {
       kind: 'continuation',
-      title: notice.title,
-      message: notice.message,
-      model: checkpoint.runtime?.model ?? state.lastModel,
-      elapsedMs: checkpoint.runtime?.elapsedMs
-        ?? state.priorElapsedMs + (Date.now() - state.runStartedAt),
-      step: checkpoint.step,
+      title: '실행 제한으로 중간 종료',
+      message: `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 저장했습니다.`,
+      model: snapshot.model ?? state.lastModel,
+      elapsedMs: snapshot.elapsedMs,
+      step: snapshot.step,
     },
   });
 }

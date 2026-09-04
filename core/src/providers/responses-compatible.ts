@@ -17,6 +17,11 @@ class ResponsesHttpError extends Error {
   }
 }
 
+type ResponseReasoningPart = {
+  type?: string;
+  text?: string;
+};
+
 type ResponseOutputItem = {
   type?: string;
   role?: string;
@@ -24,7 +29,8 @@ type ResponseOutputItem = {
   call_id?: string;
   name?: string;
   arguments?: string;
-  content?: Array<{ type?: string; text?: string }>;
+  content?: Array<ResponseReasoningPart | string>;
+  summary?: Array<ResponseReasoningPart | string>;
 };
 
 type ResponsesDocument = {
@@ -207,7 +213,17 @@ function buildBody(
   if (opts?.extraBody) Object.assign(body, opts.extraBody);
   delete body.messages;
   delete body.reasoning_effort;
-  if (opts?.reasoningEffort?.trim()) body.reasoning = { effort: opts.reasoningEffort.trim() };
+  const reasoningEffort = opts?.reasoningEffort?.trim();
+  const configured = body.reasoning && typeof body.reasoning === 'object' && !Array.isArray(body.reasoning)
+    ? body.reasoning as Record<string, unknown>
+    : {};
+  // A Responses call always asks for a concise public reasoning summary.
+  // Capture/display callbacks and effort selection must not change that request.
+  body.reasoning = {
+    ...configured,
+    ...(reasoningEffort ? { effort: reasoningEffort } : {}),
+    summary: 'concise',
+  };
   return { body, requestItems };
 }
 
@@ -264,12 +280,40 @@ function outputText(doc: ResponsesDocument): string {
   for (const item of doc.output ?? []) {
     if (item.type !== 'message') continue;
     for (const part of item.content ?? []) {
+      if (typeof part === 'string') {
+        chunks.push(part);
+        continue;
+      }
       if ((part.type === 'output_text' || part.type === 'text') && typeof part.text === 'string') {
         chunks.push(part.text);
       }
     }
   }
   return chunks.join('');
+}
+
+function reasoningPartText(part: ResponseReasoningPart | string): string {
+  if (typeof part === 'string') return part.trim();
+  if (!part || typeof part !== 'object') return '';
+  return typeof part.text === 'string' ? part.text.trim() : '';
+}
+
+function outputItemReasoningText(item: ResponseOutputItem): string {
+  const summary = (item.summary ?? []).map(reasoningPartText).filter(Boolean).join('\n\n');
+  if (summary) return summary;
+  return (item.content ?? [])
+    .filter((part) => typeof part === 'string' || part.type === 'reasoning_text' || part.type === 'text')
+    .map(reasoningPartText)
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function outputReasoningSummary(doc: ResponsesDocument): string {
+  return (doc.output ?? [])
+    .filter((item) => item.type === 'reasoning')
+    .map(outputItemReasoningText)
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function outputToolCalls(doc: ResponsesDocument): AgentToolCallPayload[] {
@@ -344,6 +388,8 @@ export async function responsesCompletionAt(
     const doc = await readDocument(response);
     const content = outputText(doc);
     if (!content) throw new Error('EMPTY_COMPLETION');
+    const reasoning = outputReasoningSummary(doc);
+    if (reasoning) opts?.onThought?.(reasoning);
     const usage = usageFrom(doc);
     advanceResponsesState(doc, messages, prepared.requestItems, opts);
     logLlmWireResponse(reqId, { ok: true, status: response.status, model: doc.model ?? model, content, usage, durationMs: Date.now() - t0 });
@@ -367,6 +413,7 @@ export async function responsesCompletion(
 type StreamAccumulator = {
   content: string;
   thought: string;
+  fallbackThought: string;
   model: string;
   calls: Map<number, AgentToolCallPayload>;
   completed?: ResponsesDocument;
@@ -383,6 +430,10 @@ function applyStreamEvent(raw: string, acc: StreamAccumulator, handlers?: ToolSt
     handlers?.onThought?.(event.delta);
   } else if (type === 'response.output_item.added' || type === 'response.output_item.done') {
     const item = event.item as ResponseOutputItem | undefined;
+    if (type === 'response.output_item.done' && item?.type === 'reasoning') {
+      const fallback = outputItemReasoningText(item);
+      if (fallback) acc.fallbackThought = [acc.fallbackThought, fallback].filter(Boolean).join('\n\n');
+    }
     if (item?.type === 'function_call') {
       const index = Number(event.output_index ?? acc.calls.size);
       acc.calls.set(index, {
@@ -418,11 +469,22 @@ async function responsesStreamAt(
   handlers: ToolStreamHandlers,
   opts?: ChatCompletionOptions,
 ): Promise<ToolCompletionResult> {
-  const prepared = buildBody(model, messages, { ...opts, stream: true }, tools);
+  const prepared = buildBody(
+    model,
+    messages,
+    { ...opts, stream: true },
+    tools,
+  );
   const { response } = await postResponse(baseUrl, apiKey, prepared.body, opts);
   if (!response.ok) await readDocument(response);
   if (!response.body) throw new Error('NO_RESPONSE_BODY');
-  const acc: StreamAccumulator = { content: '', thought: '', model, calls: new Map() };
+  const acc: StreamAccumulator = {
+    content: '',
+    thought: '',
+    fallbackThought: '',
+    model,
+    calls: new Map(),
+  };
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -445,6 +507,14 @@ async function responsesStreamAt(
   const completedCalls = acc.completed ? outputToolCalls(acc.completed) : [];
   const calls = completedCalls.length ? completedCalls : [...acc.calls.values()].filter((call) => call.function.name);
   const content = acc.content || (acc.completed ? outputText(acc.completed) : '');
+  if (!acc.thought) {
+    const completedThought = acc.completed ? outputReasoningSummary(acc.completed) : '';
+    const fallbackThought = completedThought || acc.fallbackThought;
+    if (fallbackThought) {
+      acc.thought = fallbackThought;
+      handlers.onThought?.(fallbackThought);
+    }
+  }
   if (!content && calls.length === 0) throw new Error('EMPTY_COMPLETION');
   if (acc.completed) advanceResponsesState(acc.completed, messages, prepared.requestItems, opts);
   return {
@@ -491,10 +561,17 @@ export async function responsesCompletionWithTools(
   if (opts?.stream !== false && (handlers.onContent || handlers.onThought)) {
     return responsesStreamAt(base, apiKey, model, messages, tools, handlers, opts);
   }
-  const prepared = buildBody(model, messages, { ...opts, stream: false }, tools);
+  const prepared = buildBody(
+    model,
+    messages,
+    { ...opts, stream: false },
+    tools,
+  );
   const { response } = await postResponse(base, apiKey, prepared.body, opts);
   const doc = await readDocument(response);
   const content = outputText(doc) || null;
+  const reasoning = outputReasoningSummary(doc);
+  if (reasoning) handlers.onThought?.(reasoning);
   const tool_calls = outputToolCalls(doc);
   if (!content && tool_calls.length === 0) throw new Error('EMPTY_COMPLETION');
   advanceResponsesState(doc, messages, prepared.requestItems, opts);
@@ -503,6 +580,7 @@ export async function responsesCompletionWithTools(
     tool_calls,
     model: doc.model ?? model,
     finish_reason: tool_calls.length ? 'tool_calls' : 'stop',
+    reasoning: reasoning || null,
     response_id: doc.id,
     usage: usageFrom(doc),
   };

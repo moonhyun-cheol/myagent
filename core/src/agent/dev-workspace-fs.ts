@@ -59,6 +59,7 @@ const TREE_ROOT_PRIORITY = [
   'ui',
   'core',
   'docs',
+  'rulebook',
   'tools',
   'shell',
   'deploy',
@@ -188,9 +189,10 @@ export function listWorkspaceDirectory(workspaceRoot: string, relPath = '.', _gu
     throw new Error(`Not a directory: ${relPath}`);
   }
 
+  const names = readdirSync(abs).filter((name) => name !== 'node_modules' && name !== '.git');
+  const totalEntries = names.length;
   const entries: { name: string; path: string; is_dir: boolean; size?: number }[] = [];
-  for (const name of readdirSync(abs)) {
-    if (name === 'node_modules' || name === '.git') continue;
+  for (const name of names.slice(0, MAX_LIST)) {
     const full = isAbsoluteUserPath(abs) ? path.win32.join(abs, name) : path.join(abs, name);
     try {
       const child = statSync(full);
@@ -200,13 +202,18 @@ export function listWorkspaceDirectory(workspaceRoot: string, relPath = '.', _gu
         is_dir: child.isDirectory(),
         size: child.isFile() ? child.size : undefined,
       });
-      if (entries.length >= MAX_LIST) break;
     } catch {
       /* skip */
     }
   }
   entries.sort((a, b) => Number(b.is_dir) - Number(a.is_dir) || a.name.localeCompare(b.name));
-  return { path: toAgentPath(workspaceRoot, abs), entries };
+  return {
+    path: toAgentPath(workspaceRoot, abs),
+    entries,
+    returnedCount: entries.length,
+    totalCount: totalEntries,
+    complete: entries.length >= totalEntries,
+  };
 }
 
 export function readWorkspaceFile(workspaceRoot: string, relPath: string, _guard: WorkspaceGuardOptions = {}): string {

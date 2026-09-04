@@ -11,6 +11,7 @@ import type { WorkspaceReadGate } from './tool-read-gate.js';
 import type { PlaywrightSession } from '../browser/playwright-session.js';
 import type { AgentRuntimeHooks } from './agent-hooks.js';
 import type { LockedConstraints } from './agent-locked-constraints.js';
+import type { AgentEvidenceStore } from './agent-evidence-store.js';
 
 export interface AgentRunStepState {
   opts: CodeAgentOptions;
@@ -36,8 +37,6 @@ export interface AgentRunStepState {
   toolPack: import('./agent-tool-pack.js').AgentToolPack;
   /** Effective continuous-run flag (CODE/UI/GATE autopilot). */
   autopilot: boolean;
-  /** Cap for this app run; cumulative continuation is tracked separately. */
-  maxSteps: number;
   /** Completed orchestration steps from the persisted continuation chain. */
   priorSteps: number;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
@@ -80,6 +79,7 @@ export interface AgentRunStepState {
   llmUsage: NonNullable<import('./agent-perf-metrics.js').AgentPerfSnapshot['usage']>;
   browserSession: PlaywrightSession | null;
   toolCtx: AgentToolContext;
+  evidenceStore: AgentEvidenceStore;
   readGate: WorkspaceReadGate;
   autoCheckpointTaken: boolean;
   silentVerifyAttempts: number;
@@ -93,8 +93,6 @@ export interface AgentRunStepState {
    * Cap prevents post-mutate empty-spin when checklist incomplete or freeform.
    */
   autopilotEmptyAfterMutate: number;
-  /** After inspect tools + empty Korean answer: force one mutate/TOOL_CALL continue. */
-  inspectAnswerSynthRetries: number;
   ideEditNudgeCount: number;
   targetMissNudgeCount: number;
   evidenceDiagOk: DiagnosticsEvidenceStatus;

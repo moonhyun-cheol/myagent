@@ -13,18 +13,25 @@ import {
   formatAgentProgressResumeNote,
   type AgentProgressCheckpoint,
 } from './agent-progress-checkpoint.js';
+import {
+  formatAgentContinuationResumeNote,
+  type AgentContinuationSnapshot,
+} from './agent-continuation-snapshot.js';
 
 export function shouldUseSessionContinuity(opts: {
   userMessage: string;
   readPaths: string[];
   mutatedPaths: string[];
   hasProgressCheckpoint?: boolean;
-  /** Orchestrator progressive auto-chain — same turn, no bare 「이어서」 required. */
-  force?: boolean;
+  hasContinuationSnapshot?: boolean;
 }): boolean {
-  if (!opts.readPaths.length && !opts.mutatedPaths.length && !opts.hasProgressCheckpoint) return false;
-  if (opts.force) return true;
-  return /^(?:이어서|계속(?:해서)?|계속해(?:요|줘|주세요)?|마저(?:\s*해)?)\s*[.!。]*$/i.test(
+  if (
+    !opts.readPaths.length
+    && !opts.mutatedPaths.length
+    && !opts.hasProgressCheckpoint
+    && !opts.hasContinuationSnapshot
+  ) return false;
+  return /^(?:(?:이어서|계속(?:해서)?|마저)(?:\s*(?:진행|작업))?(?:\s*(?:하자|해|해줘|해주세요))?|계속해(?:요|줘|주세요)?)\s*[.!。]*$/i.test(
     String(opts.userMessage || '').trim(),
   );
 }
@@ -33,6 +40,7 @@ export function formatSessionContinuitySystemNote(opts: {
   readPaths: string[];
   mutatedPaths: string[];
   progressCheckpoint?: AgentProgressCheckpoint;
+  continuationSnapshot?: AgentContinuationSnapshot;
 }): string {
   const known = [...new Set([...opts.readPaths, ...opts.mutatedPaths])].slice(0, 16);
   const lines = [
@@ -44,7 +52,10 @@ export function formatSessionContinuitySystemNote(opts: {
     lines.push(`Known paths (read_before_write already satisfied): ${known.join(', ')}`);
   }
   lines.push('Continue from the known paths. Skip query_repo_map unless the target path is unknown.');
-  if (opts.progressCheckpoint) {
+  if (opts.continuationSnapshot) {
+    lines.push(formatAgentContinuationResumeNote(opts.continuationSnapshot));
+  } else if (opts.progressCheckpoint) {
+    // Backward compatibility for sessions persisted before Continuation Snapshot.
     lines.push(formatAgentProgressResumeNote(opts.progressCheckpoint));
   }
   return lines.join('\n');

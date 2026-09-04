@@ -27,6 +27,8 @@ import { loadAgentRunMeta } from './agent-run-meta.js';
 import { loadHarnessPolicy } from '../providers/harness-policy.js';
 import { resolveContextBudgets } from '../providers/model-context-limits.js';
 import type { CodeAgentOptions } from './agent-run-types.js';
+import type { EvidenceRecord } from './agent-evidence-types.js';
+import { formatEvidenceEnvelope } from './agent-evidence-store.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
@@ -160,7 +162,6 @@ export function buildAgentMessages(
         /### AGENTS\.md[\s\S]*$/,
         'SECRETARY: do not dump ui-target-map / MainWindow / ChatPane unless the user asked to edit UI.\n',
       );
-  const codingSpine = opts.agentPromptProfile !== 'general';
   const messages: ChatMessage[] = [
     {
       role: 'system',
@@ -169,9 +170,7 @@ export function buildAgentMessages(
         '',
         'You are one workspace agent. Decide from the conversation whether to explain, inspect, plan, mutate, or call tools.',
         'The local runtime does not classify the request or choose tools for you. Use any available safe tool when it improves the result; do not call tools merely to satisfy a local workflow.',
-        codingSpine
-          ? 'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and an explicit outcome-relevant Acceptance tool, call active_task complete. Automatic diagnostics alone never complete it. User correction may replace/cancel it.'
-          : 'Answer in the form best suited to the request. Do not force a completion-report, review table, or paths footer. Call tools only when they improve the answer.',
+        'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and an explicit outcome-relevant Acceptance tool, call active_task complete. Automatic diagnostics alone never complete it. User correction may replace/cancel it.',
         'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
         'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
         `Dev workspace root (not an FS cage): ${root}`,
@@ -180,9 +179,7 @@ export function buildAgentMessages(
         ...protocolLines,
         ...selfUiLines,
         'Preserve useful findings and answer in the form best suited to the user request.',
-        codingSpine
-          ? formatPatchFormatConstraints()
-          : 'If you edit files, mutate via tools only (read before write). Prefer apply_patch / edit_file. Do not paste full files in chat.',
+        formatPatchFormatConstraints(),
         injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
         injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace) : '',
@@ -273,16 +270,16 @@ export function isOwuiOrGatewayError(err: unknown): boolean {
   );
 }
 
-export type TruncateToolResultOpts = {
+export type ToolResultProjectionOpts = {
   modelId?: string | null;
   maxChars?: number;
 };
 
-/** Request-scoped tool budget (set for the duration of runAgentStepLoop). */
-let activeToolBudget: TruncateToolResultOpts | null = null;
+/** Request-scoped evidence projection budget (set for the duration of runAgentStepLoop). */
+let activeToolBudget: ToolResultProjectionOpts | null = null;
 
 export async function runWithToolBudget<T>(
-  opts: TruncateToolResultOpts,
+  opts: ToolResultProjectionOpts,
   fn: () => Promise<T>,
 ): Promise<T> {
   const prev = activeToolBudget;
@@ -294,96 +291,57 @@ export async function runWithToolBudget<T>(
   }
 }
 
-function resolveToolMaxChars(opts?: TruncateToolResultOpts): number {
-  const merged: TruncateToolResultOpts = { ...activeToolBudget, ...opts };
+function resolveToolMaxChars(opts?: ToolResultProjectionOpts): number {
+  const merged: ToolResultProjectionOpts = { ...activeToolBudget, ...opts };
   if (typeof merged.maxChars === 'number' && merged.maxChars > 0) return merged.maxChars;
   if (merged.modelId) return resolveContextBudgets(merged.modelId).toolResultMaxChars;
   return loadHarnessPolicy().toolResultMaxChars;
 }
 
-function headTailTruncate(text: string, max: number, label: string): string {
-  if (text.length <= max) return text;
-  const head = Math.floor(max * 0.75);
-  const tail = Math.max(0, max - head - 80);
-  return `${text.slice(0, head)}\n\n… (${label}: ${text.length.toLocaleString()} → ${max.toLocaleString()} chars)\n\n${text.slice(-tail)}`;
-}
-
-function compressJsonToolResult(raw: string, max: number): string | null {
-  try {
-    const doc = JSON.parse(raw) as unknown;
-    if (!doc || typeof doc !== 'object') return null;
-    const preferKeys = [
-      'ok',
-      'error',
-      'message',
-      'path',
-      'file',
-      'paths',
-      'mutated',
-      'status',
-      'exitCode',
-      'stdout',
-      'stderr',
-      'query',
-      'count',
-      'hits',
-      'total',
-    ];
-    const obj = doc as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const k of preferKeys) {
-      if (k in obj) out[k] = obj[k];
-    }
-    for (const [k, v] of Object.entries(obj)) {
-      if (k in out) continue;
-      if (typeof v === 'string' && v.length > 800) {
-        out[k] = `${v.slice(0, 600)}…(+${v.length - 600})`;
-      } else {
-        out[k] = v;
-      }
-    }
-    let s = JSON.stringify(out, null, 0);
-    if (s.length > max) s = headTailTruncate(s, max, 'tool json truncated');
-    return s;
-  } catch {
-    return null;
-  }
-}
-
-function looksLikeLogOrDiff(raw: string): boolean {
-  if (/^diff --git /m.test(raw) || /^\+\+\+ |\-\-\- /m.test(raw)) return true;
-  if (raw.length > 2_000 && (raw.match(/\n/g)?.length ?? 0) > 40) {
-    if (/^\d{4}-\d{2}-\d{2}|^\[?\d{1,2}:\d{2}|ERROR|WARN|INFO|DEBUG/m.test(raw)) return true;
-  }
-  return false;
+function evidenceProjectionRequired(
+  record: EvidenceRecord,
+  output: string,
+  maxChars: number,
+): string {
+  const lines = output.split(/\r?\n/);
+  const totalLines = Math.max(1, lines.length);
+  const averageCharsPerLine = Math.max(1, output.length / totalLines);
+  const suggestedMaxLines = Math.max(1, Math.floor(maxChars / averageCharsPerLine));
+  return JSON.stringify({
+    status: 'selection_required',
+    evidenceId: record.evidenceId,
+    complete: false,
+    evidenceComplete: record.complete,
+    bytes: record.bytes,
+    fingerprint: record.fingerprint,
+    returnedRanges: [],
+    omittedRanges: [{ start: 1, end: totalLines }],
+    suggestedMaxLines,
+    message: 'Exact evidence is stored. Call evidence_read with one or more smaller line ranges; no partial body was projected.',
+    next: {
+      tool: 'evidence_read',
+      arguments: {
+        evidence_id: record.evidenceId,
+        lines: [{ start: 1, end: Math.min(totalLines, suggestedMaxLines) }],
+      },
+    },
+  }, null, 2);
 }
 
 /**
- * Cap tool results fed back into the next LLM request.
- * Content-aware: inspect dumps → path+excerpt; JSON → prefer keys; logs → head/tail.
+ * Project exact evidence into a model request without semantically blind head/tail truncation.
+ * Oversized bodies remain exact in the Evidence Store and become an explicit selection request.
  */
-export function truncateToolResultForLlm(
+export function projectEvidenceForModel(
+  record: EvidenceRecord,
   output: string,
-  toolName?: string,
-  opts?: TruncateToolResultOpts,
+  opts?: ToolResultProjectionOpts,
 ): string {
-  const max = resolveToolMaxChars(opts);
-  const name = toolName ? ` (${toolName})` : '';
-  const raw = String(output ?? '');
-  if (!raw) return raw;
-
-  if (raw.length <= max) return raw;
-
-  if (raw.trimStart().startsWith('{') || raw.trimStart().startsWith('[')) {
-    const json = compressJsonToolResult(raw, max);
-    if (json) return json;
-  }
-
-  if (looksLikeLogOrDiff(raw)) {
-    return headTailTruncate(raw, max, `tool log/diff truncated${name}`);
-  }
-
-  return headTailTruncate(raw, max, `tool result truncated${name}`);
+  const exact = formatEvidenceEnvelope(record, String(output ?? ''));
+  const maxChars = resolveToolMaxChars(opts);
+  return exact.length <= maxChars
+    ? exact
+    : evidenceProjectionRequired(record, String(output ?? ''), maxChars);
 }
 
 export function estimateChatPayloadChars(messages: ChatMessage[]): number {
@@ -399,54 +357,13 @@ export function estimateChatPayloadChars(messages: ChatMessage[]): number {
   return n;
 }
 
-/**
- * In-place shrink after OWUI 504 — keep recent tool turns, stub older bulky tool bodies.
- * Returns bytes removed (approx). Used before a same-step infra retry.
- */
-export function shrinkMessagesForInfraRetry(
-  messages: ChatMessage[],
-  opts?: { keepRecentToolTurns?: number; maxToolChars?: number },
-): number {
-  const keepRecent = Math.max(1, opts?.keepRecentToolTurns ?? 2);
-  const maxTool = Math.max(1_500, opts?.maxToolChars ?? 4_000);
-  const before = estimateChatPayloadChars(messages);
-  const toolIdx: number[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i]?.role === 'tool') toolIdx.push(i);
-  }
-  const keepFrom = toolIdx.length <= keepRecent ? -1 : toolIdx[toolIdx.length - keepRecent]!;
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i];
-    if (!m) continue;
-    if (m.role === 'tool') {
-      const text = chatContentToText(m.content);
-      if (i < keepFrom) {
-        const pathM = text.match(/\bpath=([^\s\]]+)/);
-        const stub = pathM
-          ? `[tool stub · path=${pathM[1]} · truncated for infra retry]`
-          : '[tool stub · truncated for infra retry]';
-        m.content = stub;
-      } else if (text.length > maxTool) {
-        m.content = `${text.slice(0, maxTool)}\n…(infra-retry truncate ${text.length}→${maxTool})`;
-      }
-    } else if (m.role === 'assistant' && !m.tool_calls?.length) {
-      const text = chatContentToText(m.content);
-      if (text.length > 2_500 && i < messages.length - 4) {
-        m.content = `${text.slice(0, 1_200)}\n…(infra-retry truncate assistant)`;
-      }
-    }
-  }
-  return Math.max(0, before - estimateChatPayloadChars(messages));
-}
-
 export function pushToolResultMessage(
   messages: ChatMessage[],
   toolCallId: string,
   output: string,
   toolName?: string,
-  opts?: TruncateToolResultOpts,
 ): void {
-  const body = truncateToolResultForLlm(output, toolName, opts);
+  const body = String(output ?? '');
   let pathHint = '';
   try {
     const doc = JSON.parse(body) as { path?: unknown; file?: unknown };

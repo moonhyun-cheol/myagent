@@ -58,11 +58,12 @@ try {
   assert.equal(toolOutputHasSyntaxBroken('apply_patch', appended), true);
   assert.match(appended, /ERROR:\s*POST_MUTATE_SYNTAX_FAILED/);
 
-  // Read results may contain arbitrary failure examples. They are source data,
-  // not host commands and must neither trigger syntax repair nor repair profile.
+  // Read results may contain arbitrary historical failure examples. They are
+  // source data, not host commands, and legacy markers must not trigger the
+  // current post-mutate repair gate.
   const legacyMarker = ['ERROR: SYNTAX', 'BROKEN'].join('_');
   const sourceRead = `[read_file meta] path=gate.ts\nconst marker = '${legacyMarker}';`;
-  assert.equal(outputHasSyntaxBroken(sourceRead), true, 'raw marker detector remains literal');
+  assert.equal(outputHasSyntaxBroken(sourceRead), false, 'legacy marker is not a current failure');
   assert.equal(
     toolOutputHasSyntaxBroken('read_file', sourceRead),
     false,

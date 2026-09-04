@@ -95,6 +95,84 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'todo_update',
+      description: 'Update the active task TODO ledger and declare only evidence that should remain prominent. Omitted evidence is retained by the runtime as a retrievable reference; there is no delete/drop operation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todos: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                text: { type: 'string' },
+                status: { type: 'string', enum: ['pending', 'doing', 'done', 'blocked'] },
+                acceptance: { type: 'string' },
+                evidenceRefs: { type: 'array', items: { type: 'string' } },
+                nextAction: { type: 'string' },
+              },
+              required: ['id', 'text', 'status', 'evidenceRefs'],
+            },
+          },
+          retainEvidence: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                evidenceId: { type: 'string' },
+                todoId: { type: 'string' },
+                form: { type: 'string', enum: ['exact', 'digest', 'reference'] },
+                reason: { type: 'string' },
+              },
+              required: ['evidenceId', 'form'],
+            },
+          },
+          workingNotes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                todoId: { type: 'string' },
+                text: { type: 'string' },
+                supports: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['text', 'supports'],
+            },
+          },
+        },
+        required: ['todos', 'retainEvidence', 'workingNotes'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'evidence_read',
+      description: 'Read an exact tool-result body previously stored for this session. Use evidenceId and optional 1-based line ranges; stored evidence is never silently truncated.',
+      parameters: {
+        type: 'object',
+        properties: {
+          evidence_id: { type: 'string' },
+          lines: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                start: { type: 'number' },
+                end: { type: 'number' },
+              },
+              required: ['start', 'end'],
+            },
+          },
+        },
+        required: ['evidence_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'task_history_search',
       description: 'Search compact task cards without loading chat transcripts or raw tool output. Use when prior work is referenced or remembered facts conflict.',
       parameters: {

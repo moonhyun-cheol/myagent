@@ -1,13 +1,6 @@
-import type { ReasoningLevelWire } from './reasoning-levels.js';
-import {
-  clampReasoningEffortToSupported,
-  modelOmitsReasoningEffort,
-  modelSupportedReasoningLevels,
-} from './reasoning-levels.js';
-
 /**
  * Shared harness knobs for chat + code-agent (OWUI IQ redesign).
- * Env-only; no secrets. Defaults: reasoning high, history 40, code OWUI native tools.
+ * Env-only; no secrets. Defaults: provider-managed reasoning effort, history 40, code OWUI native tools.
  */
 
 export type OwuiProtocolMode = 'text' | 'probe' | 'api';
@@ -45,10 +38,10 @@ function parsePositiveInt(raw: string | undefined, fallback: number, min: number
   return Math.min(max, Math.max(min, n));
 }
 
-/** Resolve reasoning_effort for general chat wire. `0`/`off`/`none` → omit. */
+/** Resolve an explicit operator reasoning_effort override. Unset/`auto`/off → omit. */
 export function resolveReasoningEffort(env: NodeJS.ProcessEnv = process.env): string | null {
-  const raw = (env.MY_AGENT_REASONING_EFFORT ?? 'high').trim().toLowerCase();
-  if (!raw || raw === '0' || raw === 'off' || raw === 'none' || raw === 'false') return null;
+  const raw = (env.MY_AGENT_REASONING_EFFORT ?? '').trim().toLowerCase();
+  if (!raw || raw === 'auto' || raw === '0' || raw === 'off' || raw === 'none' || raw === 'false') return null;
   return raw;
 }
 
@@ -121,35 +114,27 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 }
 
 export function resolveSessionReasoningEffort(
-  requested: ReasoningLevelWire | 'none',
+  requested: string | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
   opts?: { providerId?: string | null; modelId?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
-  if (modelOmitsReasoningEffort(opts?.modelId)) return null;
-  // Legacy product value: omit effort field (not API "none").
-  if (requested === 'none') return null;
-
-  const supported = modelSupportedReasoningLevels(opts?.modelId);
-  // Empty supported with a model id means this family rejects effort (e.g. old Claude).
-  if (opts?.modelId && supported.length === 0) return null;
-
+  const level = String(requested ?? 'auto').trim().toLowerCase();
+  if (!level || level === 'none' || level === 'off' || level === 'false' || level === '0') return null;
+  const model = String(opts?.modelId ?? '').toLowerCase();
+  if (
+    (opts?.providerId === 'anthropic' || /claude/.test(model))
+    && !/(?:opus-(?:4[-_.](?:5|6|7|8)|5)|sonnet-(?:4[-_.]6|5)|fable-5|mythos)/.test(model)
+  ) {
+    return null;
+  }
   if ((env.MY_AGENT_REASONING_EFFORT ?? '').trim()) {
-    const fromEnv = resolveReasoningEffort(env);
-    if (!fromEnv) return null;
-    return clampReasoningEffortToSupported(fromEnv, supported.length ? supported : ['low', 'medium', 'high']);
+    return resolveReasoningEffort(env);
   }
-
-  if (requested === 'auto') {
-    const fromEnv = resolveReasoningEffort(env);
-    if (!fromEnv) return null;
-    return clampReasoningEffortToSupported(fromEnv, supported.length ? supported : ['low', 'medium', 'high']);
-  }
-
-  return clampReasoningEffortToSupported(
-    requested,
-    supported.length ? supported : ['low', 'medium', 'high'],
-  );
+  if (level !== 'auto') return level;
+  // Auto leaves the budget to the selected provider/model. Responses summary
+  // requests are assembled independently in responses-compatible.ts.
+  return null;
 }
 
 /** Fields to merge into ChatCompletionOptions for every LLM call. */

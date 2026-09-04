@@ -70,12 +70,14 @@ import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { isOfficeBinaryPath, normalizeWindowsPermissionError } from '../security/workspace-capabilities.js';
 import { appendPostMutateSyntaxCheck } from './agent-post-mutate-syntax.js';
-import { isMutatingAgentTool } from './verify-loop.js';
 import {
   loadAgentRunMeta,
   setSessionActiveTask,
+  setSessionTodoLedger,
   type SessionActiveTask,
 } from './agent-run-meta.js';
+import { mergeTodoLedgerUpdate } from './agent-todo-ledger.js';
+import type { TodoLedgerUpdate } from './agent-todo-types.js';
 import { normalizeToolCall, parseToolArgs } from './agent-tool-normalize.js';
 import type { AgentToolCall, AgentToolContext } from './agent-tool-types.js';
 import {
@@ -125,16 +127,6 @@ export async function executeAgentTool(
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
-
-  if (
-    ctx?.workspaceBehavior === 'plan'
-    && isMutatingAgentTool(name)
-  ) {
-    return {
-      label: name,
-      output: 'ERROR: WORKSPACE_BEHAVIOR_READ_ONLY — Plan mode forbids mutating tools. Switch to Agent mode to edit files.',
-    };
-  }
 
   try {
     switch (name) {
@@ -278,6 +270,43 @@ export async function executeAgentTool(
         }
         return { label: 'active task', output: `ERROR: unsupported active_task action: ${action}` };
       }
+      case 'todo_update': {
+        if (!ctx?.cqrRoot || !ctx.sessionId) {
+          return { label: 'todo update', output: 'ERROR: todo_update requires a session context' };
+        }
+        const meta = loadAgentRunMeta(ctx.cqrRoot, ctx.sessionId);
+        const update: TodoLedgerUpdate = {
+          todos: Array.isArray(args.todos) ? args.todos as TodoLedgerUpdate['todos'] : [],
+          retainEvidence: Array.isArray(args.retainEvidence) ? args.retainEvidence as TodoLedgerUpdate['retainEvidence'] : [],
+          workingNotes: Array.isArray(args.workingNotes) ? args.workingNotes as TodoLedgerUpdate['workingNotes'] : [],
+        };
+        const ledger = mergeTodoLedgerUpdate(meta.todoLedger, update, meta.evidenceRecords ?? []);
+        setSessionTodoLedger(ctx.cqrRoot, ctx.sessionId, ledger);
+        return { label: 'todo ledger updated', output: JSON.stringify({ ok: true, todoLedger: ledger }) };
+      }
+      case 'evidence_read': {
+        if (!ctx?.evidenceStore) {
+          return { label: 'evidence read', output: 'ERROR: evidence_read requires an agent evidence context' };
+        }
+        const evidenceId = String(args.evidence_id ?? '').trim();
+        if (!evidenceId) return { label: 'evidence read', output: 'ERROR: evidence_id is required' };
+        const lines = Array.isArray(args.lines)
+          ? args.lines
+              .filter((line) => line && typeof line === 'object')
+              .map((line) => ({
+                start: Number((line as { start?: unknown }).start),
+                end: Number((line as { end?: unknown }).end),
+              }))
+          : undefined;
+        const result = ctx.evidenceStore.read({ evidenceId, ...(lines?.length ? { lines } : {}) });
+        return {
+          label: `evidence ${evidenceId}`,
+          output: [
+            `[evidence_read meta] id=${evidenceId} complete=${result.record.complete} bytes=${Buffer.byteLength(result.content, 'utf8')} sha256=${result.record.fingerprint}`,
+            result.content,
+          ].join('\n'),
+        };
+      }
       case 'task_history_search': {
         if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
         const query = String(args.query ?? '').trim();
@@ -329,11 +358,34 @@ export async function executeAgentTool(
           endLine: typeof args.end_line === 'number' ? args.end_line : undefined,
         });
         const bytes = Buffer.byteLength(read.text, 'utf8');
+        if (read.status !== 'exact') {
+          return {
+            label: `read ${rel}`,
+            output: JSON.stringify({
+              status: read.status === 'range_too_large' ? 'RANGE_TOO_LARGE' : 'selection_required',
+              path: rel,
+              complete: false,
+              bytes: 0,
+              totalLines: read.total_lines,
+              returnedRanges: read.returned_ranges,
+              omittedRanges: read.omitted_ranges,
+              suggestedMaxLines: read.suggested_max_lines,
+              outline: read.outline ?? [],
+              fingerprint: read.content_sha256,
+              message: read.status === 'range_too_large'
+                ? 'Requested range is too large to return completely. Request smaller start_line/end_line ranges.'
+                : 'Source is too large for a complete default response. Select a complete range with start_line/end_line.',
+            }, null, 2),
+          };
+        }
         const meta = [
           '[read_file meta]',
           `path=${rel}`,
           `lines=${read.start_line}-${read.end_line}/${read.total_lines}`,
           `bytes=${bytes}`,
+          `complete=${read.complete}`,
+          `returnedRanges=${JSON.stringify(read.returned_ranges)}`,
+          `omittedRanges=${JSON.stringify(read.omitted_ranges)}`,
           `cache=${read.cache}`,
           `stat=${read.stat_fingerprint.slice(0, 16)}`,
           `sha256=${read.content_sha256}`,

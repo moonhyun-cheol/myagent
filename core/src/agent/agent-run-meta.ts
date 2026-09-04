@@ -6,6 +6,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentPerfSnapshot } from './agent-perf-metrics.js';
 import type { AgentProgressCheckpoint } from './agent-progress-checkpoint.js';
+import type { AgentContinuationSnapshot } from './agent-continuation-snapshot.js';
+import type { EvidenceRecord } from './agent-evidence-types.js';
+import type { TodoLedger } from './agent-todo-types.js';
+import { normalizeTodoLedger } from './agent-todo-ledger.js';
 
 /** Per-role contribution under a Supervisor parent run (ADR-005 MAR). */
 export interface AgentRoleContribution {
@@ -50,8 +54,14 @@ export interface AgentRunMeta {
   roleContributions?: AgentRoleContribution[];
   /** Single model-authored task that may survive a blocked/deferred turn. */
   activeTask?: SessionActiveTask | null;
-  /** Last deterministic hand-off produced at a ten-round boundary or after failures. */
+  /** Model-authored TODO state subordinate to activeTask; evidence retention is advisory only. */
+  todoLedger?: TodoLedger;
+  /** Exact tool bodies live under data/evidence-runs; session meta keeps references only. */
+  evidenceRecords?: EvidenceRecord[];
+  /** Last deterministic hand-off retained only for backward-compatible resume reads. */
   lastProgressCheckpoint?: AgentProgressCheckpoint;
+  /** Current TODO/Evidence resume state; persisted without injecting a chat message. */
+  continuationSnapshot?: AgentContinuationSnapshot;
   /**
    * Short durable facts that must survive history compress
    * (paths, product names, numeric decisions). Newest-first, capped.
@@ -147,6 +157,14 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
   if (contributions?.length) out.roleContributions = contributions;
   const activeTask = normalizeActiveTask(raw?.activeTask ?? null);
   if (activeTask) out.activeTask = activeTask;
+  const todoLedger = normalizeTodoLedger(raw?.todoLedger ?? null);
+  if (todoLedger) out.todoLedger = todoLedger;
+  if (Array.isArray(raw?.evidenceRecords)) {
+    const evidenceRecords = (raw.evidenceRecords as EvidenceRecord[])
+      .filter((record) => record?.version === 1 && typeof record.evidenceId === 'string' && typeof record.bodyFile === 'string')
+      .slice(-240);
+    if (evidenceRecords.length) out.evidenceRecords = evidenceRecords;
+  }
   if (raw?.lastProgressCheckpoint && typeof raw.lastProgressCheckpoint === 'object') {
     const checkpoint = raw.lastProgressCheckpoint as AgentProgressCheckpoint;
     if (
@@ -179,6 +197,31 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
       };
     }
   }
+  if (raw?.continuationSnapshot && typeof raw.continuationSnapshot === 'object') {
+    const snapshot = raw.continuationSnapshot as AgentContinuationSnapshot;
+    if (snapshot.version === 1 && Number.isFinite(snapshot.step)) {
+      out.continuationSnapshot = {
+        ...snapshot,
+        at: typeof snapshot.at === 'string' ? snapshot.at : new Date().toISOString(),
+        step: Math.max(0, Math.trunc(Number(snapshot.step) || 0)),
+        elapsedMs: Math.max(0, Math.trunc(Number(snapshot.elapsedMs) || 0)),
+        payloadChars: Math.max(0, Math.trunc(Number(snapshot.payloadChars) || 0)),
+        ...(typeof snapshot.model === 'string' && snapshot.model.trim()
+          ? { model: snapshot.model.trim().slice(0, 200) }
+          : {}),
+        ...(normalizeTodoLedger(snapshot.todoLedger ?? null)
+          ? { todoLedger: normalizeTodoLedger(snapshot.todoLedger ?? null)! }
+          : {}),
+        evidenceRefs: normalizePathList(snapshot.evidenceRefs, 240),
+        readPaths: normalizePathList(snapshot.readPaths, 40),
+        mutatedPaths: normalizePathList(snapshot.mutatedPaths, 40),
+        unresolvedFailures: normalizePathList(snapshot.unresolvedFailures, 12),
+        ...(typeof snapshot.lastModelOutput === 'string' && snapshot.lastModelOutput.trim()
+          ? { lastModelOutput: snapshot.lastModelOutput.trim().slice(-6_000) }
+          : {}),
+      };
+    }
+  }
   const pins = Array.isArray(raw?.pinnedFacts)
     ? [...new Set(raw!.pinnedFacts.map((f) => String(f || '').trim()).filter(Boolean))].slice(0, 24)
     : [];
@@ -198,8 +241,11 @@ function carryMeta(prev: AgentRunMeta): Pick<
   | 'agentId'
   | 'roleContributions'
   | 'activeTask'
+  | 'todoLedger'
+  | 'evidenceRecords'
   | 'readPaths'
   | 'lastProgressCheckpoint'
+  | 'continuationSnapshot'
   | 'pinnedFacts'
   | 'lastContextBudget'
   | 'lockedTargetRoot'
@@ -211,8 +257,11 @@ function carryMeta(prev: AgentRunMeta): Pick<
     | 'agentId'
     | 'roleContributions'
     | 'activeTask'
+    | 'todoLedger'
+    | 'evidenceRecords'
     | 'readPaths'
     | 'lastProgressCheckpoint'
+    | 'continuationSnapshot'
     | 'pinnedFacts'
     | 'lastContextBudget'
     | 'lockedTargetRoot'
@@ -222,8 +271,11 @@ function carryMeta(prev: AgentRunMeta): Pick<
   if (prev.agentId) out.agentId = prev.agentId;
   if (prev.roleContributions?.length) out.roleContributions = prev.roleContributions;
   if (prev.activeTask) out.activeTask = prev.activeTask;
+  if (prev.todoLedger) out.todoLedger = prev.todoLedger;
+  if (prev.evidenceRecords?.length) out.evidenceRecords = prev.evidenceRecords;
   if (prev.readPaths?.length) out.readPaths = prev.readPaths;
   if (prev.lastProgressCheckpoint) out.lastProgressCheckpoint = prev.lastProgressCheckpoint;
+  if (prev.continuationSnapshot) out.continuationSnapshot = prev.continuationSnapshot;
   if (prev.pinnedFacts?.length) out.pinnedFacts = prev.pinnedFacts;
   if (prev.lastContextBudget) out.lastContextBudget = prev.lastContextBudget;
   if (prev.lockedTargetRoot) out.lockedTargetRoot = prev.lockedTargetRoot;
@@ -359,6 +411,38 @@ export function setSessionActiveTask(
   return next;
 }
 
+export function setSessionTodoLedger(
+  cqrRoot: string,
+  sessionId: string | undefined,
+  todoLedger: TodoLedger,
+): AgentRunMeta {
+  const prev = loadAgentRunMeta(cqrRoot, sessionId);
+  const next = normalizeMeta({
+    updatedAt: new Date().toISOString(),
+    mutatedPaths: prev.mutatedPaths,
+    ...carryMeta(prev),
+    todoLedger,
+  });
+  saveAgentRunMeta(cqrRoot, sessionId, next);
+  return next;
+}
+
+export function recordSessionEvidenceRecords(
+  cqrRoot: string,
+  sessionId: string | undefined,
+  evidenceRecords: EvidenceRecord[],
+): AgentRunMeta {
+  const prev = loadAgentRunMeta(cqrRoot, sessionId);
+  const next = normalizeMeta({
+    updatedAt: new Date().toISOString(),
+    mutatedPaths: prev.mutatedPaths,
+    ...carryMeta(prev),
+    evidenceRecords,
+  });
+  saveAgentRunMeta(cqrRoot, sessionId, next);
+  return next;
+}
+
 export function recordSessionProgressCheckpoint(
   cqrRoot: string,
   sessionId: string | undefined,
@@ -370,6 +454,22 @@ export function recordSessionProgressCheckpoint(
     mutatedPaths: prev.mutatedPaths,
     ...carryMeta(prev),
     lastProgressCheckpoint: checkpoint,
+  });
+  saveAgentRunMeta(cqrRoot, sessionId, next);
+  return next;
+}
+
+export function recordSessionContinuationSnapshot(
+  cqrRoot: string,
+  sessionId: string | undefined,
+  continuationSnapshot: AgentContinuationSnapshot,
+): AgentRunMeta {
+  const prev = loadAgentRunMeta(cqrRoot, sessionId);
+  const next = normalizeMeta({
+    updatedAt: new Date().toISOString(),
+    mutatedPaths: prev.mutatedPaths,
+    ...carryMeta(prev),
+    continuationSnapshot,
   });
   saveAgentRunMeta(cqrRoot, sessionId, next);
   return next;

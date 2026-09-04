@@ -6,7 +6,8 @@ import type { AgentToolPack } from './agent-tool-pack.js';
 import type { ProviderWireApi } from '../providers/types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 
-export const MAX_AGENT_STEPS = 30;
+/** Single logical orchestration safety cap. Provider billing/quota remains authoritative. */
+export const MAX_AGENT_STEPS = 100;
 export const AGENT_STEP_TIMEOUT_MS = 600_000;
 
 export interface CodeAgentCallbacks {
@@ -68,22 +69,10 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   imageDataUrls?: string[];
   /** Force tool pack instead of message heuristic. */
   forceToolPack?: AgentToolPack;
-  /** Cap steps for this role (default MAX_AGENT_STEPS). */
-  maxSteps?: number;
   /** Extra system notes prepended after skill prompt. */
   extraSystemNotes?: string[];
-  /**
-   * Workspace-bound `chat` uses `general` (tools available, no coding-report spine).
-   * Explicit `web_dev` uses `coding`. Default `coding` for callers that omit it.
-   */
-  agentPromptProfile?: 'general' | 'coding';
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */
   autopilot?: boolean;
-  /**
-   * Force session continuity (checkpoint + readGate seed) even when the user
-   * message is not a bare 「이어서」 — used by progressive auto-chain.
-   */
-  forceSessionContinuity?: boolean;
 }
 
 export interface CodeAgentResult {

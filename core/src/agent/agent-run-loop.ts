@@ -74,7 +74,8 @@ import {
   formatActiveTaskSystemNote,
   loadAgentRunMeta,
   recordSessionPerf,
-  recordSessionProgressCheckpoint,
+  recordSessionEvidenceRecords,
+  recordSessionContinuationSnapshot,
 } from './agent-run-meta.js';
 import {
   flushLiveSessionProgress,
@@ -95,12 +96,9 @@ import {
 import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
-import {
-  buildAgentProgressCheckpoint,
-  MAX_PROGRESSIVE_TOTAL_ROUNDS,
-  progressiveRunBudget,
-  formatProgressiveBudgetNotice,
-} from './agent-progress-checkpoint.js';
+import { AgentEvidenceStore } from './agent-evidence-store.js';
+import { formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
+import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
 import { isAgentExecutionLimit } from './agent-failure-plane.js';
 import {
   formatLockedConstraintsSystemNote,
@@ -164,7 +162,6 @@ import {
   messagesHadToolRole,
   pushToolResultMessage,
   trimSnippet,
-  truncateToolResultForLlm,
   workspaceSnapshot,
 } from './agent-run-helpers.js';
 
@@ -505,9 +502,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     readPaths: sessionReadPaths,
     mutatedPaths: sessionMetaForGate.mutatedPaths,
     hasProgressCheckpoint: Boolean(sessionMetaForGate.lastProgressCheckpoint),
-    force: opts.forceSessionContinuity === true,
+    hasContinuationSnapshot: Boolean(sessionMetaForGate.continuationSnapshot),
   });
-  const continuationCheckpoint = sessionContinuity
+  const continuationSnapshot = sessionContinuity
+    ? sessionMetaForGate.continuationSnapshot
+    : undefined;
+  const continuationCheckpoint = sessionContinuity && !continuationSnapshot
     ? sessionMetaForGate.lastProgressCheckpoint
     : undefined;
   // Bare 「이어서」 keeps a continuous run. Persisted reviewer gates never steer a new request.
@@ -537,6 +537,11 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     pushThought(`Active task · ${activeTask.status} · ${activeTask.objective.slice(0, 72)}`);
     reportStatus(`Active task · ${activeTask.objective.slice(0, 60)}`);
   }
+  messages.splice(sysInsertAt, 0, {
+    role: 'system',
+    content: formatTodoLifecycleSystemNote(sessionMetaForGate.todoLedger),
+  });
+  sysInsertAt += 1;
   const taskTopicManifest = buildTaskLedgerTopicManifest(opts.cqrRoot, {
     sessionId: opts.sessionId,
     workspaceRoot: opts.workspaceRoot,
@@ -554,6 +559,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       content: formatSessionContinuitySystemNote({
         readPaths: sessionReadPaths,
         mutatedPaths: sessionMetaForGate.mutatedPaths,
+        continuationSnapshot,
         progressCheckpoint: continuationCheckpoint,
       }),
     });
@@ -601,10 +607,17 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       browserSession = null;
     }
   }
+  const evidenceStore = new AgentEvidenceStore({
+    cqrRoot: opts.cqrRoot,
+    sessionId: opts.sessionId,
+    records: sessionMetaForGate.evidenceRecords,
+    onRecordsChanged: (records) => recordSessionEvidenceRecords(opts.cqrRoot, opts.sessionId, records),
+  });
   const toolCtx: AgentToolContext = {
     browserSession,
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,
+    evidenceStore,
     allowLocalhost: opts.playwrightAllowLocalhost,
     signal: opts.signal,
     getRunEvidence: () => ({
@@ -630,7 +643,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let mutatedOkRun = false;
   let planDeferRetries = 0;
   let autopilotEmptyAfterMutate = 0;
-  let inspectAnswerSynthRetries = 0;
   let pendingPluginInvoke: string[] = [];
   let pluginInvokeForceCount = 0;
   let ideEditNudgeCount = 0;
@@ -642,10 +654,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let verifyWitness: import('./agent-claim-gates.js').VerifyWitness | null = null;
   let explicitAcceptanceOk = false;
   const sessionMutatedPaths = sessionMetaForGate.mutatedPaths;
-  const priorSteps = Math.max(0, continuationCheckpoint?.step ?? 0);
-  const maxSteps = progressiveRunBudget(
-    opts.maxSteps ?? MAX_AGENT_STEPS,
-    priorSteps,
+  const priorSteps = Math.min(
+    MAX_AGENT_STEPS,
+    Math.max(0, continuationSnapshot?.step ?? continuationCheckpoint?.step ?? 0),
   );
   const state: AgentRunStepState = {
     opts,
@@ -668,7 +679,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     agentTools,
     toolPack,
     autopilot,
-    maxSteps,
     priorSteps,
     selfWorkspace,
     uiFacts,
@@ -678,12 +688,15 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     finish,
     persistLiveSessionMeta,
     hooks,
-    lastModel: continuationCheckpoint?.runtime?.model ?? lastModel,
-    lastModelOutput: continuationCheckpoint?.modelOutput ?? '',
+    lastModel: continuationSnapshot?.model ?? continuationCheckpoint?.runtime?.model ?? lastModel,
+    lastModelOutput: continuationSnapshot?.lastModelOutput ?? continuationCheckpoint?.modelOutput ?? '',
     lockedConstraints,
     mutatedPathsThisRun,
     runStartedAt,
-    priorElapsedMs: Math.max(0, continuationCheckpoint?.runtime?.elapsedMs ?? 0),
+    priorElapsedMs: Math.max(
+      0,
+      continuationSnapshot?.elapsedMs ?? continuationCheckpoint?.runtime?.elapsedMs ?? 0,
+    ),
     firstToolMs: undefined,
     llmRoundTrips,
     toolCallCount,
@@ -696,6 +709,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     llmUsage,
     browserSession,
     toolCtx,
+    evidenceStore,
     readGate,
     autoCheckpointTaken,
     lastAutoCheckpointId,
@@ -706,7 +720,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     mutatedOkRun,
     planDeferRetries,
     autopilotEmptyAfterMutate,
-    inspectAnswerSynthRetries,
     pendingPluginInvoke,
     pluginInvokeForceCount,
     ideEditNudgeCount,
@@ -730,9 +743,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   try {
     return await runAgentStepLoop(state);
   } catch (e: unknown) {
-    // The host's physical-request ceiling is a safety limit, not a failed model
-    // answer. Convert it while live state is still available so the orchestrator
-    // never overwrites real model/runtime metadata with a policy pseudo-model.
+    // Compatibility path for an upstream host execution-limit error. This app
+    // no longer reserves a smaller physical-request allowance below the single
+    // logical MAX_AGENT_STEPS cap.
     if (!finished && stepState && isAgentExecutionLimit(e)) {
       const live = stepState;
       const meta = loadAgentRunMeta(opts.cqrRoot, opts.sessionId);
@@ -740,43 +753,37 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         .filter((entry) => !entry.ok)
         .slice(-3)
         .map((entry) => `${entry.name}: ${entry.failure_type ?? `step ${entry.step}`}`);
-      const recentActivity = live.toolTrace
-        .slice(-8)
-        .map((entry) => `${entry.name}: ${entry.ok ? 'ok' : entry.failure_type ?? 'failed'} (step ${entry.step})`);
-      const checkpoint = buildAgentProgressCheckpoint({
-        reason: 'budget_exhausted',
-        step: live.priorSteps + live.steps,
-        maxSteps: MAX_PROGRESSIVE_TOTAL_ROUNDS,
-        failureCount: recentFailures.length,
+      const snapshot = buildAgentContinuationSnapshot({
+        step: Math.min(MAX_AGENT_STEPS, live.priorSteps + live.steps),
         readPaths: [...live.successfulReadsThisRun],
         mutatedPaths: [...live.mutatedPathsThisRun, ...live.sessionMutatedPaths],
-        toolsUsed: [...live.toolsUsedThisRun],
-        failureDetails: recentFailures,
+        unresolvedFailures: recentFailures,
         verifyWitness: live.verifyWitness,
-        activeTask: meta.activeTask ?? null,
-        modelOutput: live.lastModelOutput || live.answerBuf.trim()
+        todoLedger: meta.todoLedger,
+        evidenceRefs: live.evidenceStore.list().map((record) => record.evidenceId),
+        lastModelOutput: live.lastModelOutput || live.answerBuf.trim()
+          || meta.continuationSnapshot?.lastModelOutput
           || meta.lastProgressCheckpoint?.modelOutput,
-        model: live.lastModel || meta.lastProgressCheckpoint?.runtime?.model,
+        model: live.lastModel
+          || meta.continuationSnapshot?.model
+          || meta.lastProgressCheckpoint?.runtime?.model,
         elapsedMs: live.priorElapsedMs + (Date.now() - live.runStartedAt),
         payloadChars: estimateChatPayloadChars(live.messages),
-        recentActivity,
       });
-      recordSessionProgressCheckpoint(opts.cqrRoot, opts.sessionId, checkpoint);
+      recordSessionContinuationSnapshot(opts.cqrRoot, opts.sessionId, snapshot);
       persistLiveSessionMeta();
-      reportStatus('호스트 실행 제한 · 현재 모델 출력과 재개 체크포인트 보존');
-      const modelContent = (checkpoint.modelOutput || '').trim();
-      const notice = formatProgressiveBudgetNotice(checkpoint);
+      reportStatus('호스트 실행 제한 · TODO/Evidence 재개 상태 보존');
       return await finish({
-        content: modelContent || '이번 구간에서 모델이 별도의 서술형 출력을 남기지 않았습니다.',
-        model: checkpoint.runtime?.model ?? live.lastModel,
+        content: snapshot.lastModelOutput || '',
+        model: snapshot.model ?? live.lastModel,
         steps: live.steps,
         applicationNotice: {
           kind: 'continuation',
-          title: notice.title,
-          message: notice.message,
-          model: checkpoint.runtime?.model ?? live.lastModel,
-          elapsedMs: checkpoint.runtime?.elapsedMs,
-          step: checkpoint.step,
+          title: '실행 제한으로 중간 종료',
+          message: `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 보존했습니다.`,
+          model: snapshot.model ?? live.lastModel,
+          elapsedMs: snapshot.elapsedMs,
+          step: snapshot.step,
         },
       });
     }

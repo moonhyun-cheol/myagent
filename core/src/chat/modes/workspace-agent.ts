@@ -9,13 +9,13 @@ import {
   resolveSessionReasoningEffort,
 } from '../../providers/harness-policy.js';
 import { normalizeExecutionPolicy } from '../../execution-policy.js';
-import { resolveAgentSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
+import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
 import { appendAgentAuditEvent } from '../../agent/agent-audit-ledger.js';
 import { resolveAutopilotEnabled } from '../../agent/agent-autopilot.js';
 import { TOOL_PLANE_NO_WORKSPACE_REFUSAL } from '../../agent/agent-failure-plane.js';
 import { hasNasWriteConsent } from '../../security/nas-write-consent.js';
-import { appendAssistantReply, scrubAssistantContent } from '../assistant-reply.js';
+import { appendAssistantReply } from '../assistant-reply.js';
 import { sanitizeHistoryForModel } from '../chat-filters.js';
 import { applyHistoryContentBudget, getHistoryTurns } from '../history-budget.js';
 import {
@@ -40,36 +40,35 @@ import {
 } from '../../agent/agent-workspace-lock.js';
 
 /**
- * Run Code Agent when the session is bound to a work folder, or standalone
- * with a configured global `dev_workspace_root` (R-301, RC-002).
- * Workspace association selects the tool plane only — it must not rewrite
- * `routing.mode` to `web_dev` (RC-013) or inject the web_dev skill (RC-014/015).
+ * Workspace association enables the tool-capable runtime; it does not select a
+ * skill or rewrite the user's route. Dedicated structured modes keep their own
+ * handlers, while chat/code/user-skill modes may use workspace tools.
+ *
+ * Top-level「새 채팅」(standalone, no project_id) must NOT inherit the connected
+ * notebook folder — only chats under that folder/project do.
  */
-export function shouldRunWorkspaceAgent(
+export function shouldUseWorkspaceAgentRuntime(
   configPath: string,
   sessionStore: SessionStore,
   projectStore: ProjectStore,
   sessionId: string,
   mode: ChatMode,
-  message: string,
-  explicitMode: ChatMode | null,
 ): boolean {
   const sessionRoot = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
-  void mode;
-  void message;
-  void explicitMode;
-  return Boolean(sessionRoot || (scope === 'standalone' && hasDevWorkspace(configPath)));
+  const workspaceAvailable = Boolean(
+    sessionRoot || (scope === 'standalone' && hasDevWorkspace(configPath)),
+  );
+  if (!workspaceAvailable) return false;
+  return mode === 'chat'
+    || mode === 'web_dev'
+    || mode === 'code_agent'
+    || mode.startsWith('user:');
 }
 
-/** Workspace tools must not rewrite the user's route intent (RC-013). */
+/** Tool availability must not mutate the model-facing intent or response style. */
 export function preserveWorkspaceAgentRouting(routing: RouteDecision): RouteDecision {
   return routing;
-}
-
-/** @deprecated Identity alias — chat must stay chat (RC-013). */
-export function promoteWorkspaceAgentRouting(routing: RouteDecision): RouteDecision {
-  return preserveWorkspaceAgentRouting(routing);
 }
 
 export function resolveCodeAgentProvider(
@@ -171,13 +170,6 @@ export async function runWorkspaceCodeAgent(opts: {
   signal?: AbortSignal;
   /** Injected on infra retry — disk may already include partial edits. */
   extraSystemNotes?: string[];
-  /** Force checkpoint continuity for progressive auto-chain segments. */
-  forceSessionContinuity?: boolean;
-  /**
-   * When false, skip session append so the orchestrator can persist once after
-   * progressive auto-chain segments finish. Default true.
-   */
-  persistAssistantReply?: boolean;
 }): Promise<ChatResponse> {
   const {
     cqrRoot,
@@ -193,8 +185,6 @@ export async function runWorkspaceCodeAgent(opts: {
     callbacks,
     signal,
     extraSystemNotes,
-    forceSessionContinuity,
-    persistAssistantReply = true,
   } = opts;
 
   const routing = preserveWorkspaceAgentRouting(rawRouting);
@@ -243,7 +233,7 @@ export async function runWorkspaceCodeAgent(opts: {
       `Ollama skipped for coding — using ${provider.display} (set MY_AGENT_ALLOW_OLLAMA_CODE=1 to force Ollama)`,
     );
   }
-  const skillMode = resolveAgentSkillMode(rawRouting);
+  const skillMode = resolveLlmSkillMode(routing.mode);
   const systemPrompt = skillMode
     ? resolveSkillSystemPrompt(skillMode, cqrRoot, message, { workspaceRoot }) ?? undefined
     : undefined;
@@ -340,8 +330,6 @@ export async function runWorkspaceCodeAgent(opts: {
     autopilot,
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
-    agentPromptProfile: rawRouting.mode === 'web_dev' ? 'coding' : 'general',
-    forceSessionContinuity: forceSessionContinuity === true,
     onThought: callbacks?.onThought,
     onCode: callbacks?.onCode,
     onWorkspaceMutate: callbacks?.onWorkspaceMutate,
@@ -352,18 +340,15 @@ export async function runWorkspaceCodeAgent(opts: {
     signal,
   });
 
-  const scrubbed = persistAssistantReply
-    ? appendAssistantReply(sessionStore, sessionId, {
-        content: agent.content,
-        model: agent.model,
-        mode: routing.mode,
-        application_notice: agent.applicationNotice,
-        userMessage: message,
-        emptyFallback:
-          '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
-      })
-    : scrubAssistantContent(agent.content, sessionId, message)
-      || '에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)';
+  const scrubbed = appendAssistantReply(sessionStore, sessionId, {
+    content: agent.content,
+    model: agent.model,
+    mode: routing.mode,
+    application_notice: agent.applicationNotice,
+    userMessage: message,
+    emptyFallback:
+      '코드 에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
+  });
 
   return {
     role: 'assistant',
@@ -372,7 +357,6 @@ export async function runWorkspaceCodeAgent(opts: {
     routing,
     model: agent.model,
     mutatedPaths: agent.mutatedPaths ?? [],
-    ...(agent.checkpointId ? { checkpointId: agent.checkpointId } : {}),
     ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
   };
 }
