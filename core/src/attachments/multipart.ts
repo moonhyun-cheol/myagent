@@ -12,9 +12,6 @@ export async function parseMultipart(req: IncomingMessage): Promise<ParsedMultip
   const contentType = req.headers['content-type'] ?? '';
   const match = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
   if (!match) {
-    // #region agent log
-    fetch('http://127.0.0.1:7742/ingest/aa87bd6c-3a9c-4926-a486-5ea0781a9b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b87a06'},body:JSON.stringify({sessionId:'b87a06',runId:'pre-fix',hypothesisId:'H1_H2',location:'multipart.ts:boundary-missing',message:'MULTIPART_BOUNDARY_MISSING',data:{contentType:String(contentType).slice(0,200),method:req.method??'',url:String(req.url??'').slice(0,120),hasContentLength:Boolean(req.headers['content-length']),transferEncoding:String(req.headers['transfer-encoding']??'')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     throw new Error('MULTIPART_BOUNDARY_MISSING');
   }
   const boundary = match[1] ?? match[2];

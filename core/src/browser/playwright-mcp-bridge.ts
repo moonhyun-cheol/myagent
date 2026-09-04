@@ -26,7 +26,7 @@ export async function browserScreenshotViaMcp(
 ): Promise<BrowserScreenshotResult> {
   const adapter = getPlaywrightMcpAdapter(opts.cqrRoot);
   if (!adapter.isAvailable()) {
-    return { ok: false, error: 'Playwright not installed — run tools/bootstrap-playwright.ps1' };
+    return { ok: false, error: 'PLAYWRIGHT_UNAVAILABLE' };
   }
   try {
     const result = await adapter.callTool('browser_screenshot', {
@@ -45,7 +45,7 @@ export async function browserNavigateViaMcp(
 ): Promise<BrowserNavigateResult> {
   const adapter = getPlaywrightMcpAdapter(opts.cqrRoot);
   if (!adapter.isAvailable()) {
-    return { ok: false, error: 'Playwright not installed — run tools/bootstrap-playwright.ps1' };
+    return { ok: false, error: 'PLAYWRIGHT_UNAVAILABLE' };
   }
   try {
     const result = await adapter.callTool('browser_navigate', { url });
@@ -82,7 +82,7 @@ export async function getPlaywrightMcpDiagnostics(cqrRoot?: string): Promise<Rec
       prefer: 'mcp',
       transport: 'stdio',
       server: shared.mcpEntry(),
-      error: 'Playwright runtime or MCP entry missing — run tools/bootstrap-playwright.ps1',
+      error: 'PLAYWRIGHT_RUNTIME_OR_MCP_UNAVAILABLE',
     };
   }
   // A health probe must not leave an MCP child alive: reuse a live session, else spawn a

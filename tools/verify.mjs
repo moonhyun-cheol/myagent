@@ -31,6 +31,7 @@ if (ensureKeys.status !== 0) {
 }
 
 const steps = [
+  ['no-debug-telemetry', () => runTool('verify-no-debug-telemetry.mjs', verifyEnv)],
   ['build', () => runTool('build.mjs')],
   ['deploy-parity', () => runTool('verify-deploy-parity.mjs', verifyEnv)],
   ['nas', () => runTool('verify-no-nas-paths.mjs', verifyEnv)],

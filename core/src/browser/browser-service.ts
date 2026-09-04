@@ -94,7 +94,7 @@ export async function browserScreenshot(
   opts: BrowserServiceOptions & { sessionId?: string; filename?: string },
 ): Promise<BrowserScreenshotResult> {
   if (!isPlaywrightAvailable(opts.cqrRoot)) {
-    return { ok: false, error: 'Playwright not installed — run tools/bootstrap-playwright.ps1' };
+    return { ok: false, error: 'PLAYWRIGHT_UNAVAILABLE' };
   }
   let session: PlaywrightSession | null = null;
   try {
@@ -129,7 +129,7 @@ export async function browserNavigate(
   opts: BrowserServiceOptions,
 ): Promise<BrowserNavigateResult> {
   if (!isPlaywrightAvailable(opts.cqrRoot)) {
-    return { ok: false, error: 'Playwright not installed — run tools/bootstrap-playwright.ps1' };
+    return { ok: false, error: 'PLAYWRIGHT_UNAVAILABLE' };
   }
   let session: PlaywrightSession | null = null;
   try {

@@ -98,6 +98,8 @@ export interface ChatCompletionOptions {
   extraBody?: Record<string, unknown>;
   /** OpenAI-style reasoning_effort when set (omit when undefined/null). */
   reasoningEffort?: string | null;
+  /** OpenAI Responses reasoning summary request policy, resolved from provider/model identity. */
+  reasoningSummary?: 'detailed' | 'receive_only' | 'omit';
   /** Public reasoning/thinking delta explicitly exposed by the provider. */
   onThought?: ThoughtTokenHandler;
   /** Responses is primary when selected; Chat Completions remains the compatibility fallback. */

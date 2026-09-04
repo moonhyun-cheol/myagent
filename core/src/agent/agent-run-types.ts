@@ -36,6 +36,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   wireApi?: ProviderWireApi;
   /** Configuration-time native tools decision. When true, runtime fallback to TEXT is forbidden. */
   nativeToolsLocked?: boolean;
+  /** Explicit Responses summary contract resolved from provider/model identity. */
+  reasoningSummary?: import('../providers/responses-compatible.js').ResponsesReasoningSummaryPolicy;
   /** One native Responses chain per agent run; MAR roles must not share this object. */
   responsesState?: ResponsesContinuationState;
   onResponsesState?: (state: ResponsesContinuationState) => void;

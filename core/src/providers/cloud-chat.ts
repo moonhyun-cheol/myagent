@@ -5,6 +5,7 @@ import {
   type ChatContentPart,
   type ChatMessage,
 } from './openai-compatible.js';
+import { resolveResponsesReasoningSummaryPolicy } from './responses-compatible.js';
 import { harnessCompletionExtras, ollamaEmergencyFallbackEnabled } from './harness-policy.js';
 import type { SessionMessage } from '../sessions/types.js';
 import type { SessionStore } from '../sessions/session-store.js';
@@ -29,12 +30,15 @@ export class CloudChatService {
     wireApi: import('./types.js').ProviderWireApi,
     sessionId?: string,
   ) {
-    if (wireApi !== 'responses' || !sessionId || !this.sessions) return {};
+    if (wireApi !== 'responses') return {};
+    const reasoningSummary = resolveResponsesReasoningSummaryPolicy(providerId, modelId);
+    if (!sessionId || !this.sessions) return { reasoningSummary };
     // Direct OpenAI has a known provider-side response store. Gateways replay exact
     // encrypted reasoning/output items unless their stateful capability is configured later.
     const mode = providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;
     const responsesState = this.sessions.responsesState(sessionId, providerId, modelId, mode);
     return {
+      reasoningSummary,
       responsesState,
       onResponsesState: (state: import('../sessions/types.js').ResponsesContinuationState) => {
         this.sessions?.saveResponsesState(sessionId, state);

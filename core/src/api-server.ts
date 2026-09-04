@@ -213,9 +213,6 @@ export async function createApiServer(port: number) {
     try {
       await dispatchApiRequest(ctx, req, res, url, method);
     } catch (e: unknown) {
-      // #region agent log
-      fetch('http://127.0.0.1:7742/ingest/aa87bd6c-3a9c-4926-a486-5ea0781a9b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b87a06'},body:JSON.stringify({sessionId:'b87a06',runId:'pre-fix',hypothesisId:'H3',location:'api-server.ts:catch',message:'dispatch catch reached',data:{method,path:url.pathname,errMsg:e instanceof Error ? e.message.slice(0,200) : String(e).slice(0,200)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       handleApiError(res, e);
     }
   });

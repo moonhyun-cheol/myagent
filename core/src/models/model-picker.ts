@@ -12,7 +12,6 @@ import {
   describeRemoteModels,
   isHardExcluded,
   loadCurateConfig,
-  pickModelForMode,
   type CuratedModel,
   type ModeHint,
 } from '../providers/remote-model-curate.js';
@@ -399,31 +398,9 @@ function resolveAutoProviderModel(
     };
   }
 
-  if (opts?.mode) {
-    const curated = overrides.company_model_ids?.length
-      ? describeRemoteModels(overrides.company_model_ids)
-      : getCachedCurated(defaultProvider);
-    if (curated.length) {
-      const pick = pickModelForMode(opts.mode, curated, {
-        hasAttachments: opts.hasAttachments,
-      });
-      if (pick) {
-        const modeResolved = providerStore.resolveProvider(defaultProvider, pick.id);
-        if (modeResolved) {
-          return {
-            display: pick.displayName,
-            route: {
-              type: 'provider',
-              providerId: defaultProvider,
-              modelId: pick.id,
-              baseUrl: modeResolved.baseUrl,
-            },
-          };
-        }
-      }
-    }
-  }
-
+  // `auto` must not hide a product-owned model ranking. It follows the model
+  // explicitly saved on the visible default provider connection. Scope and
+  // mode-specific ranking stay available for explicit picker choices.
   const secret = providerStore.getSecret(defaultProvider);
   const model = secret?.model_id || def.default_model;
   const resolved = providerStore.resolveProvider(defaultProvider, model || undefined);
@@ -459,10 +436,6 @@ export async function resolveChatModelAsync(
   providerStore: ProviderStore,
   opts?: ResolveChatModelOptions,
 ): Promise<ResolvedModelRoute> {
-  const localOnly = overrides.local_only === true;
-  if ((preference === 'auto' || !preference) && opts?.mode && !localOnly) {
-    await warmRemoteModelCache(providerStore);
-  }
   if (preference === 'auto' || !preference || preference.startsWith('provider:ollama')) {
     const ollama = providerStore.resolveProvider('ollama');
     if (ollama) await listOllamaModelNames(ollama.baseUrl);
@@ -519,6 +492,17 @@ export function resolveChatModel(
   }
 
   if (preference === 'auto' || !preference) {
+    if (overrides.default_model && overrides.default_model !== 'auto') {
+      const ovrParsed = parseProviderPreference(overrides.default_model);
+      if (ovrParsed) {
+        const picked = pickProvider(ovrParsed.providerId, ovrParsed.modelId);
+        if (picked) return picked;
+      }
+      if (overrides.default_model === 'cloud' && defaultProvider) {
+        const picked = pickProvider(defaultProvider);
+        if (picked) return picked;
+      }
+    }
     if (!localOnly) {
       const autoPicked = resolveAutoProviderModel(providerStore, overrides, opts);
       if (autoPicked) return autoPicked;

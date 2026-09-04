@@ -121,6 +121,28 @@ function useExclusiveSidebarMenu(menuId: string) {
   return { menuOpen, setMenuOpen, openMenu, toggleMenu };
 }
 
+function useSidebarMenuShortcuts(
+  menuOpen: boolean,
+  onNewChat?: () => void,
+  onDelete?: () => void,
+) {
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      const key = event.key.toLowerCase();
+      const action = key === 'n' ? onNewChat : key === 'd' ? onDelete : undefined;
+      if (!action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      action();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen, onDelete, onNewChat]);
+}
+
 function loadCollapsed(): Set<string> {
   try {
     const current = localStorage.getItem(COLLAPSED_KEY);
@@ -689,6 +711,11 @@ function TreeNode({
   const [labelColor, setLabelColor] = useState<ProjectColor>(node.color ?? 'gray');
   const menuId = `workspace-node:${node.id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  useSidebarMenuShortcuts(
+    menuOpen,
+    () => { setMenuOpen(false); onNewChat(node.id); },
+    () => { setMenuOpen(false); onDeleteNode(node); },
+  );
   const isPinned = pinnedNodes.includes(node.id);
   const pad = 8 + depth * 10;
 
@@ -788,11 +815,11 @@ function TreeNode({
                 <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />{node.kind === 'workspace_root' ? '작업폴더 설정' : '프로젝트 설정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />{node.kind === 'workspace_root' ? '작업폴더 지식·메모리' : '프로젝트 지식·메모리'}</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
               </div>
               <div className="mt-1 border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                  <ChatTeardropText size={13} />새 대화
+                  <ChatTeardropText size={13} />새 대화 N
                 </button>
                 {isContainer ? (
                   <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
@@ -902,6 +929,11 @@ function ProjectBlock({
   const menuId = `project:${id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
   const [labelColor, setLabelColor] = useState(color);
+  useSidebarMenuShortcuts(
+    menuOpen,
+    () => { setMenuOpen(false); onNewChat(); },
+    () => { setMenuOpen(false); onDelete(); },
+  );
   return (
     <div className="mb-0.5" data-sidebar-menu-id={menuId}>
       <div className="group relative flex h-8 items-center gap-0.5 rounded-md px-2 text-[12px] text-muted transition hover:bg-ink hover:text-text" onContextMenu={(event) => { event.preventDefault(); openMenu(); }}>
@@ -944,11 +976,11 @@ function ProjectBlock({
               <div className="border-t border-line pt-1">
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 대화</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 대화 N</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'project', id, title, preferredModel, allowedPaths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />프로젝트 설정</button>
                 <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
               </div>
             </div>
           ) : null}
@@ -1064,6 +1096,11 @@ function SessionRow({
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  useSidebarMenuShortcuts(
+    menuOpen,
+    undefined,
+    () => { setMenuOpen(false); onDelete(); },
+  );
   const beginRename = () => {
     setTitleDraft(session.title || '');
     setEditing(true);
@@ -1149,7 +1186,7 @@ function SessionRow({
             ) : null}
             <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'session', id: session.id, title: session.title || '제목 없음', preferredModel: session.preferred_model, allowedPaths: session.allowed_paths, projectId: session.project_id ?? session.workspace_project_id }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />대화 설정</button>
             <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
-            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제</button>
+            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
           </div>
         ) : null}
       </div>

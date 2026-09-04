@@ -80,7 +80,7 @@ export async function runBrowserVisionAgent(opts: {
   if (!isPlaywrightAvailable(opts.cqrRoot)) {
     return {
       ok: false,
-      content: 'Playwright가 설치되지 않았습니다. `tools\\bootstrap-playwright.ps1` 실행 후 다시 시도하세요.',
+      content: 'Playwright 실행 환경을 사용할 수 없습니다.',
       imageUrls: [],
       steps: 0,
       error: 'playwright_missing',

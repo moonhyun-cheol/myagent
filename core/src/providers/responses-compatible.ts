@@ -10,6 +10,27 @@ import type {
 } from './openai-compatible.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 
+export type ResponsesReasoningSummaryPolicy = 'detailed' | 'receive_only' | 'omit';
+
+/**
+ * Resolve an explicit Responses summary contract from configured provider/model identity.
+ * Unknown and non-OpenAI models omit the request field; returned summaries are still parsed.
+ */
+export function resolveResponsesReasoningSummaryPolicy(
+  providerId: string,
+  modelId: string,
+): ResponsesReasoningSummaryPolicy {
+  const provider = providerId.trim().toLowerCase();
+  const model = modelId.trim().toLowerCase();
+  const vendor = model.includes('/') ? model.slice(0, model.indexOf('/')) : '';
+
+  if (provider === 'openai' || vendor === 'openai' || model.startsWith('openai:')) return 'detailed';
+  if (vendor === 'moonshotai' || vendor === 'moonshot' || /(^|[/:_-])kimi([/:_.-]|$)/.test(model)) {
+    return 'receive_only';
+  }
+  return 'omit';
+}
+
 class ResponsesHttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -217,13 +238,16 @@ function buildBody(
   const configured = body.reasoning && typeof body.reasoning === 'object' && !Array.isArray(body.reasoning)
     ? body.reasoning as Record<string, unknown>
     : {};
-  // A Responses call always asks for a concise public reasoning summary.
-  // Capture/display callbacks and effort selection must not change that request.
-  body.reasoning = {
+  const reasoning: Record<string, unknown> = {
     ...configured,
     ...(reasoningEffort ? { effort: reasoningEffort } : {}),
-    summary: 'concise',
   };
+  // Summary generation is a model capability, not a consequence of using the
+  // Responses wire protocol. Receive-only/unknown models may still return a
+  // summary item, which the response parser preserves without requesting one.
+  delete reasoning.summary;
+  if (opts?.reasoningSummary === 'detailed') reasoning.summary = 'detailed';
+  body.reasoning = reasoning;
   return { body, requestItems };
 }
 

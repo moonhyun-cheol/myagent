@@ -1275,9 +1275,6 @@ export async function dispatchApiRequest(
       if (method === 'POST' && url.pathname === '/attachments') {
         license.assertWritable();
         const session = sessionFromReq(req);
-        // #region agent log
-        fetch('http://127.0.0.1:7742/ingest/aa87bd6c-3a9c-4926-a486-5ea0781a9b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'b87a06'},body:JSON.stringify({sessionId:'b87a06',runId:'pre-fix',hypothesisId:'H1_H4',location:'dispatch.ts:POST-/attachments',message:'attachment upload entry',data:{contentType:String(req.headers['content-type']??'').slice(0,200),sessionLen:session.length,ua:String(req.headers['user-agent']??'').slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         const saved = await attachments.uploadFromRequest(req, session);
         return sendJson(res, 201, { attachments: saved.map(publicAttachment) });
       }

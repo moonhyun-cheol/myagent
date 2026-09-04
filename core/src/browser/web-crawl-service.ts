@@ -151,7 +151,7 @@ export async function runWebCrawl(opts: {
     return {
       ok: false,
       pages: [],
-      error: 'Playwright가 필요합니다. tools\\bootstrap-playwright.ps1 실행 후 다시 시도하세요.',
+      error: 'Playwright 실행 환경을 사용할 수 없습니다.',
       engine: 'playwright',
     };
   }

@@ -58,7 +58,7 @@ export function probePlaywright(cqrRoot: string): PlaywrightProbeResult {
       module_path: moduleRoot,
       browsers_path,
       chromium_installed: false,
-      reason: 'Chromium not installed — run tools/bootstrap-playwright.ps1 (Playwright zip is NOT bundled; on-demand bootstrap only)',
+      reason: 'Chromium not installed',
     };
   }
   return {

@@ -32,6 +32,7 @@ export interface LlmStepAgentOptions {
   providerId?: string;
   wireApi?: ProviderWireApi;
   nativeToolsLocked?: boolean;
+  reasoningSummary?: import('../providers/responses-compatible.js').ResponsesReasoningSummaryPolicy;
   responsesState?: ResponsesContinuationState;
   onResponsesState?: (state: ResponsesContinuationState) => void;
   /** Used to tier reasoning (simple single-file → medium). */
@@ -59,6 +60,7 @@ function llmExtras(opts: CodeAgentOptions, modelId?: string) {
   });
   return {
     wireApi: opts.wireApi ?? 'chat_completions',
+    reasoningSummary: opts.reasoningSummary,
     responsesState: opts.responsesState,
     onResponsesState: opts.onResponsesState,
     ...harness,

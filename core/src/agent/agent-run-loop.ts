@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveResponsesReasoningSummaryPolicy } from '../providers/responses-compatible.js';
 import type { ChatMessage, ToolCompletionResult } from '../providers/openai-compatible.js';
 import {
   clientToolProtocolCacheKey,
@@ -227,6 +228,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   opts.wireApi = wireApi;
 
   if (wireApi === 'responses') {
+    opts.reasoningSummary = resolveResponsesReasoningSummaryPolicy(opts.providerId, modelId);
     const mode = opts.providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;
     const lane = 'agent:primary';
     const binding = opts.responsesStateFactory?.(lane, opts.providerId, modelId, mode);
@@ -242,6 +244,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     };
     opts.onResponsesState = binding?.onUpdate;
   } else {
+    opts.reasoningSummary = undefined;
     opts.responsesState = undefined;
     opts.onResponsesState = undefined;
   }

@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -6,10 +6,33 @@ const root = path.resolve(import.meta.dirname, '..');
 const compatible = await import(pathToFileURL(
   path.join(root, 'core', 'dist', 'providers', 'openai-compatible.js'),
 ));
+const responses = await import(pathToFileURL(
+  path.join(root, 'core', 'dist', 'providers', 'responses-compatible.js'),
+));
 const originalFetch = globalThis.fetch;
 const calls = [];
 
 try {
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+    return new Response(JSON.stringify({
+      model: 'gpt-reasoning',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'plain-answer' }] }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+
+  const plain = await compatible.chatCompletion(
+    'https://openai.test/v1',
+    'secret',
+    'gpt-reasoning',
+    [{ role: 'user', content: 'reason' }],
+    { wireApi: 'responses', reasoningSummary: 'detailed' },
+  );
+
+  assert.equal(plain.content, 'plain-answer');
+  assert.deepEqual(calls[0].body.reasoning, { summary: 'detailed' });
+
+  calls.length = 0;
   globalThis.fetch = async (url, init = {}) => {
     calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
     return new Response([
@@ -35,6 +58,7 @@ try {
     (delta) => { streamedAnswer += delta; },
     {
       wireApi: 'responses',
+      reasoningSummary: 'detailed',
       reasoningEffort: 'high',
       onThought: (delta) => { streamedThought += delta; },
     },
@@ -43,7 +67,7 @@ try {
   assert.equal(streamed.content, 'answer-stream');
   assert.equal(streamedAnswer, 'answer-stream');
   assert.equal(streamedThought, 'summary-stream');
-  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'concise' });
+  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'detailed' });
 
   calls.length = 0;
   globalThis.fetch = async (url, init = {}) => {
@@ -65,6 +89,7 @@ try {
     (delta) => { completedAnswer += delta; },
     {
       wireApi: 'responses',
+      reasoningSummary: 'detailed',
       reasoningEffort: 'high',
       onThought: (delta) => { completedThought += delta; },
     },
@@ -73,7 +98,7 @@ try {
   assert.equal(completedOnly.content, 'answer-completed');
   assert.equal(completedAnswer, '');
   assert.equal(completedThought, 'summary-string\n\nsummary-object');
-  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'concise' });
+  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'detailed' });
 
   calls.length = 0;
   globalThis.fetch = async (url, init = {}) => {
@@ -94,14 +119,21 @@ try {
     'gpt-reasoning',
     [{ role: 'user', content: 'inspect' }],
     [{ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } }],
-    { wireApi: 'responses', stream: false, reasoningEffort: 'high' },
+    { wireApi: 'responses', stream: false, reasoningEffort: 'high', reasoningSummary: 'detailed' },
     { onThought: (delta) => { documentThought += delta; } },
   );
 
   assert.equal(toolResult.reasoning, 'summary-document');
   assert.equal(documentThought, 'summary-document');
   assert.equal(toolResult.tool_calls[0].function.name, 'read_file');
-  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'concise' });
+  assert.deepEqual(calls[0].body.reasoning, { effort: 'high', summary: 'detailed' });
+
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('openai', 'gpt-5.4'), 'detailed');
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('custom', 'openai/gpt-5.6-sol'), 'detailed');
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('custom', 'moonshotai/kimi-k3'), 'receive_only');
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('custom', 'z-ai/glm-5'), 'omit');
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('custom', 'minimax/minimax-m3'), 'omit');
+  assert.equal(responses.resolveResponsesReasoningSummaryPolicy('custom', 'meta/muse-spark-1.3'), 'omit');
 
   console.log('VERIFY_OPENAI_REASONING_SUMMARY_OK');
 } finally {
