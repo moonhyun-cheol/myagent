@@ -11,6 +11,7 @@ export interface OrganizationSkillDef {
   selector_group?: string;
   selector_order?: number;
   selector_description?: string;
+  brand_files: string[];
   bundle_files: string[];
   pipeline_script?: string;
 }
@@ -65,6 +66,9 @@ export function listOrganizationSkillDefs(cqrRoot: string): Array<{ id: string; 
         selector_group: typeof raw.selector_group === 'string' ? raw.selector_group : undefined,
         selector_order: typeof raw.selector_order === 'number' ? raw.selector_order : undefined,
         selector_description: raw.selector_description,
+        brand_files: Array.isArray((raw as { brand_files?: unknown }).brand_files)
+          ? ((raw as { brand_files: string[] }).brand_files)
+          : [],
         bundle_files: Array.isArray(raw.bundle_files) ? raw.bundle_files : [],
         pipeline_script: raw.pipeline_script,
       },

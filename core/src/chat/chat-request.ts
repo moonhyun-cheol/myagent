@@ -1,4 +1,5 @@
 import type { ChatMode, ChatRequest } from '../router/types.js';
+import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
 
 export function parseChatRequest(raw: string): ChatRequest {
@@ -32,6 +33,7 @@ export function normalizeMode(mode?: string): ChatMode | null {
   if (mode === 'prompt_master') return null;
   if (ALL_MODES.includes(mode as ChatMode)) return mode as ChatMode;
   if (isUserSkillMode(mode)) return mode as ChatMode;
+  if (isOrgSkillMode(mode)) return mode as ChatMode;
   return null;
 }
 
@@ -52,7 +54,7 @@ export function statusLabelForMode(mode: ChatMode): string {
     case 'automaton_direct':
       return '업무 명령 접수…';
     default:
-      if (isUserSkillMode(mode)) return '스킬 답변 생성 중…';
+      if (isUserSkillMode(mode) || isOrgSkillMode(mode)) return '스킬 답변 생성 중…';
       return '답변 생성 중…';
   }
 }

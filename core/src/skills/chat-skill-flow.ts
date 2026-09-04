@@ -1,6 +1,7 @@
 import type { ChatMode, RouteDecision } from '../router/types.js';
 import { SKILL_CHAT_MODES } from '../router/types.js';
 import { getSkillSystemPromptByMode } from './skill-registry.js';
+import { isOrgSkillMode } from './organization-skill-store.js';
 import { isUserSkillMode } from './user-skill-store.js';
 import { shouldIncludeDesignFirst } from './web-landing-bundle.js';
 import { augmentSkillSystemPrompt } from './skill-routing-augment.js';
@@ -19,6 +20,7 @@ export function isSkillChatMode(mode: ChatMode): boolean {
 export function resolveLlmSkillMode(mode: ChatMode): ChatMode | null {
   if (isSkillChatMode(mode)) return mode;
   if (isUserSkillMode(mode)) return mode;
+  if (isOrgSkillMode(mode)) return mode;
   return null;
 }
 
@@ -33,7 +35,7 @@ export function resolveAgentSkillMode(rawRouting: RouteDecision): ChatMode | nul
 }
 
 export function isStreamableLlmSkillMode(mode: string): boolean {
-  return isSkillChatMode(mode as ChatMode) || isUserSkillMode(mode);
+  return isSkillChatMode(mode as ChatMode) || isUserSkillMode(mode) || isOrgSkillMode(mode);
 }
 
 export type ResolveSkillSystemPromptOptions = {
