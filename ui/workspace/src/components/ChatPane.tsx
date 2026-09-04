@@ -1486,7 +1486,7 @@ export function ChatPane() {
               </div>
             ) : null}
             <div className="flex items-center justify-between gap-3 px-3 pb-3">
-              <div className="flex items-center gap-2">
+              <div className="relative flex items-center gap-1.5">
                 <button
                   type="button"
                   title="파일 추가"
@@ -1498,41 +1498,24 @@ export function ChatPane() {
                 </button>
                 <button
                   type="button"
-                  title="조직 스킬 선택"
+                  title={skillMode && skillLabel ? `조직 스킬: ${skillLabel}` : '조직 스킬 선택'}
                   aria-label="조직 스킬 선택"
                   aria-expanded={skillPickerOpen}
                   data-testid="organization-skill-button"
                   onClick={() => setSkillPickerOpen((open) => !open)}
-                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium ${skillPickerOpen ? 'border-accent/60 bg-accent/15 text-accent' : 'border-line bg-panel-2/70 text-muted hover:border-accent/60 hover:text-text'}`}
+                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium ${
+                    skillMode || skillPickerOpen
+                      ? 'border-accent/60 bg-accent/15 text-accent'
+                      : 'border-line bg-panel-2/70 text-muted hover:border-accent/60 hover:text-text'
+                  }`}
                 >
                   <Plus size={14} weight="bold" />
                 </button>
-                {skillPickerOpen ? (
-                  <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-xl border border-line bg-panel p-2 shadow-xl">
-                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
-                    {selectableSkills.length ? selectableSkills.map((skill) => (
-                      <button
-                        key={skill.mode}
-                        type="button"
-                        className={`block w-full rounded-lg px-2 py-2 text-left text-xs hover:bg-panel-2 ${skillMode === skill.mode ? 'bg-accent/10 text-accent' : 'text-text'}`}
-                        onClick={() => {
-                          setSkillMode(skill.mode, skill.label);
-                          setSkillPickerOpen(false);
-                        }}
-                      >
-                        <div className="font-medium">{skill.label}</div>
-                        {skill.description ? <div className="mt-0.5 text-[10px] text-muted">{skill.description}</div> : null}
-                      </button>
-                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 조직 스킬이 없습니다.</div>}
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
                 <button
-                type="button"
-                title="컨텍스트 파일 추가"
-                data-testid="context-at-button"
-                onClick={(e) => {
+                  type="button"
+                  title="컨텍스트 파일 추가"
+                  data-testid="context-at-button"
+                  onClick={(e) => {
                     if (
                       e.shiftKey &&
                       activeFileId &&
@@ -1557,6 +1540,46 @@ export function ChatPane() {
                     <CircleNotch size={12} className="animate-spin" />
                     업로드 중…
                   </span>
+                ) : null}
+                {skillPickerOpen ? (
+                  <div
+                    className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-xl border border-line bg-panel p-2 shadow-xl"
+                    data-testid="organization-skill-menu"
+                  >
+                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
+                    {skillMode ? (
+                      <button
+                        type="button"
+                        data-testid="organization-skill-clear"
+                        className="mb-1 block w-full rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-panel-2 hover:text-text"
+                        onClick={() => {
+                          setSkillMode(null);
+                          setSkillPickerOpen(false);
+                        }}
+                      >
+                        <div className="font-medium">스킬 끄기</div>
+                        <div className="mt-0.5 text-[10px] text-muted">현재 적용 중: {skillLabel ?? skillMode}</div>
+                      </button>
+                    ) : null}
+                    {selectableSkills.length ? selectableSkills.map((skill) => (
+                      <button
+                        key={skill.mode}
+                        type="button"
+                        className={`block w-full rounded-lg px-2 py-2 text-left text-xs hover:bg-panel-2 ${skillMode === skill.mode ? 'bg-accent/10 text-accent' : 'text-text'}`}
+                        onClick={() => {
+                          if (skillMode === skill.mode) {
+                            setSkillMode(null);
+                          } else {
+                            setSkillMode(skill.mode, skill.label);
+                          }
+                          setSkillPickerOpen(false);
+                        }}
+                      >
+                        <div className="font-medium">{skill.label}{skillMode === skill.mode ? ' · 사용 중' : ''}</div>
+                        {skill.description ? <div className="mt-0.5 text-[10px] text-muted">{skill.description}</div> : null}
+                      </button>
+                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 조직 스킬이 없습니다.</div>}
+                  </div>
                 ) : null}
               </div>
               <div className="flex items-center gap-1.5">
