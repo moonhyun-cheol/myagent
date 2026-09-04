@@ -67,6 +67,7 @@ import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
   listAllSkills,
+  listSelectableOrganizationSkills,
   isBundledSkillId,
   getSkillSystemPromptByMode,
 } from '../skills/skill-registry.js';
@@ -2007,7 +2008,36 @@ export async function dispatchApiRequest(
         });
       }
 
-      if (method === 'POST' && url.pathname === '/skills/import') {
+      if (method === 'GET' && url.pathname === '/skills/selectable') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { skills: listSelectableOrganizationSkills(cqrRoot) });
+      }
+
+      if (method === 'POST' && url.pathname === '/skills') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as {
+            id: string;
+            label: string;
+            prompt: string;
+            anchors_ko?: string[];
+            anchors_en?: string[];
+          };
+          if (isBundledSkillId(body.id)) {
+            return sendJson(res, 403, { error: 'BUNDLED_SKILL_ID' });
+          }
+          const rec = userSkillStore.create(body);
+          return sendJson(res, 201, rec);
+        } catch (e: unknown) {
+          if (e instanceof UserSkillError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/skills/package') {
         license.assertWritable();
         license.assertFeature('chat');
         try {
@@ -2034,7 +2064,6 @@ export async function dispatchApiRequest(
           throw e;
         }
       }
-
       const skillMatch = url.pathname.match(/^\/skills\/([^/]+)$/);
       if (skillMatch) {
         const skillId = decodeURIComponent(skillMatch[1]);

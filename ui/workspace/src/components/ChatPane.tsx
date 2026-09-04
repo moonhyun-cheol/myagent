@@ -5,6 +5,7 @@ import {
   File as FileIcon,
   FilmStrip,
   Paperclip,
+  Plus,
   PaperPlaneTilt,
   Browser,
   CaretDown,
@@ -28,12 +29,14 @@ import { isChatTurnUiHidden } from '../lib/documentMemo';
 import type { ChatTurn } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
+  listSelectableOrganizationSkills,
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
   summarizeSession,
   type ApprovalLevel,
   type ReasoningLevel,
+  type SkillListItem,
   type WorkspaceBehavior,
 } from '../api/myAgentClient';
 import {
@@ -295,7 +298,9 @@ export function ChatPane() {
   const [pickerBusy, setPickerBusy] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const [selectableSkills, setSelectableSkills] = useState<SkillListItem[]>([]);
   const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; title: string; path: string }>>([]);
   const [projectOptions, setProjectOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [workspaceTreeProjectIds, setWorkspaceTreeProjectIds] = useState<string[]>([]);
@@ -356,6 +361,12 @@ export function ChatPane() {
       cancelled = true;
     };
   }, [activeSessionId, activeProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listSelectableOrganizationSkills().then((skills) => { if (!cancelled) setSelectableSkills(skills); }).catch(() => { if (!cancelled) setSelectableSkills([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     setMessageReferences([]);
@@ -1487,9 +1498,41 @@ export function ChatPane() {
                 </button>
                 <button
                   type="button"
-                  title="@ 컨텍스트 파일 검색 (현재 파일은 Shift+클릭)"
-                  data-testid="context-at-button"
-                  onClick={(e) => {
+                  title="조직 스킬 선택"
+                  aria-label="조직 스킬 선택"
+                  aria-expanded={skillPickerOpen}
+                  data-testid="organization-skill-button"
+                  onClick={() => setSkillPickerOpen((open) => !open)}
+                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium ${skillPickerOpen ? 'border-accent/60 bg-accent/15 text-accent' : 'border-line bg-panel-2/70 text-muted hover:border-accent/60 hover:text-text'}`}
+                >
+                  <Plus size={14} weight="bold" />
+                </button>
+                {skillPickerOpen ? (
+                  <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-xl border border-line bg-panel p-2 shadow-xl">
+                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
+                    {selectableSkills.length ? selectableSkills.map((skill) => (
+                      <button
+                        key={skill.mode}
+                        type="button"
+                        className={`block w-full rounded-lg px-2 py-2 text-left text-xs hover:bg-panel-2 ${skillMode === skill.mode ? 'bg-accent/10 text-accent' : 'text-text'}`}
+                        onClick={() => {
+                          setSkillMode(skill.mode, skill.label);
+                          setSkillPickerOpen(false);
+                        }}
+                      >
+                        <div className="font-medium">{skill.label}</div>
+                        {skill.description ? <div className="mt-0.5 text-[10px] text-muted">{skill.description}</div> : null}
+                      </button>
+                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 조직 스킬이 없습니다.</div>}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                type="button"
+                title="컨텍스트 파일 추가"
+                data-testid="context-at-button"
+                onClick={(e) => {
                     if (
                       e.shiftKey &&
                       activeFileId &&

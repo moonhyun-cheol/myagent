@@ -13,7 +13,7 @@ import {
   SidebarSimple,
   type Icon,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import automationSchedulerImage from '../assets/auto_scheduler.png';
 import {
   listAutomationFeed,
@@ -48,6 +48,8 @@ export function GeminiNavSidebar({
   const [busyMsg, setBusyMsg] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [automationFeedOpen, setAutomationFeedOpen] = useState(false);
+  const [width, setWidth] = useState(272);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const startNewChat = useWorkspaceStore((state) => state.startNewChat);
   const activeProjectId = useWorkspaceStore((state) => state.activeProjectId);
@@ -62,6 +64,20 @@ export function GeminiNavSidebar({
   }, []);
 
   useEffect(() => { void refreshProviders(); }, [refreshProviders, settingsOpen]);
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      if (!resizeRef.current) return;
+      setWidth(Math.min(560, Math.max(272, resizeRef.current.startWidth + event.clientX - resizeRef.current.startX)));
+    };
+    const onUp = () => { resizeRef.current = null; document.body.style.cursor = ''; };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, []);
 
   const onNewChat = async () => {
     setBusyMsg('');
@@ -81,9 +97,8 @@ export function GeminiNavSidebar({
 
   return (
     <aside
-      className={`flex h-full shrink-0 border-r border-line bg-panel transition-[width] duration-150 ${
-        collapsed ? 'w-14' : 'w-[272px]'
-      }`}
+      className={`relative flex h-full shrink-0 border-r border-line bg-panel ${collapsed ? 'w-14' : ''}`}
+      style={collapsed ? undefined : { width }}
       data-sidebar-collapsed={collapsed}
     >
       <nav className="flex h-full w-14 shrink-0 flex-col items-center border-r border-line py-2" aria-label="주요 메뉴">
@@ -179,6 +194,20 @@ export function GeminiNavSidebar({
             <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[9px] text-muted">개인 {personalCount}</span>
           </button>
         </div>
+      ) : null}
+
+      {!collapsed ? (
+        <button
+          type="button"
+          aria-label="사이드바 너비 조절"
+          title="드래그하여 사이드바 너비 조절"
+          className="absolute -right-1.5 top-0 z-20 h-full w-3 cursor-col-resize bg-transparent hover:bg-accent/20 focus:bg-accent/20 focus:outline-none"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            resizeRef.current = { startX: event.clientX, startWidth: width };
+            document.body.style.cursor = 'col-resize';
+          }}
+        />
       ) : null}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

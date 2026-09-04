@@ -13,7 +13,7 @@ MY Agent repo **안에는** 역공학 명세 본문을 두지 않습니다 (ADR-
 
 ## Cursor / Claude / 다른 프로그램 — 추린 export
 
-로컬 RULEBOOK (GitHub 없음, 현재 export: 2026-09-04 / 제품 캡처 1.1.4 / update_sequence 37):
+로컬 RULEBOOK (GitHub 없음, 현재 export: 2026-09-04 / 제품 캡처 1.1.4 / update_sequence 38):
 
 ```
 C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\

@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-04 / 제품 캡처 1.1.4, update 37):** 외부
+**RULEBOOK 지식 기준 (2026-09-04 / 제품 캡처 1.1.4, update 38):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, WorkKitLauncher 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
@@ -14,7 +14,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — version `1.1.4`, `update_sequence` **37**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
+- `manifest.json` — version `1.1.4`, `update_sequence` **38**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
 
 ## Product layout
 
@@ -35,6 +35,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.
 - **Document AI memo (R-620):** Preview「문서」→ 선택 → AI에게 묻기. Answer stays in floating AI memo (draggable; collapse → red corner reopen). **Not** ChatPane bubbles. Call uses ask + `uiHidden` / `documentMemo.ts`.
 - **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
+- **Sidebar / skills (update 38):** Material Icons distinguish 작업폴더 (`folder`) vs 프로젝트 (`account_tree`); resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
 - **Agent runtime (CQR SSOT):** `MAX_AGENT_STEPS = 100` sole logical cap (no progressive 30-segment auto-chain). Tool results → Evidence Store; model retains via `todo_update`/`retainEvidence`; Context Assembler before each LLM call; Continuation Snapshot for resume (not chat-message injection). Tools: `todo_update`, `evidence_read` under `active_task`.
 
 ## Hard rules (P0)

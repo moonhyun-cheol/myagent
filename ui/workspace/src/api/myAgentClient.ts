@@ -153,8 +153,9 @@ export interface SkillListItem {
   install_kind?: 'prompt' | 'package';
   description?: string;
   file_count?: number;
-  feature?: string;
-  prompt?: string;
+  selectable?: boolean;
+  selector_group?: string;
+  selector_order?: number;
   anchors_ko?: string[];
   anchors_en?: string[];
 }
@@ -1234,6 +1235,13 @@ export async function listSkills(): Promise<SkillListItem[]> {
   return (data.skills ?? []) as SkillListItem[];
 }
 
+export async function listSelectableOrganizationSkills(): Promise<SkillListItem[]> {
+  const res = await fetch('/skills/selectable');
+  if (!res.ok) throw new Error(`선택 가능한 조직 스킬 목록 실패 (${res.status})`);
+  const data = await res.json();
+  return (data.skills ?? []) as SkillListItem[];
+}
+
 export interface OrganizationModuleStatus {
   installed: {
     id: string;
@@ -1245,11 +1253,9 @@ export interface OrganizationModuleStatus {
     components: OrganizationModuleComponent[];
     root: string;
   } | null;
-  /** Bootstrap or installed feed; null if remote check unavailable. */
   feed_url?: string | null;
   can_check_remote?: boolean;
 }
-
 export interface OrganizationModuleComponent {
   id: string;
   version: string;

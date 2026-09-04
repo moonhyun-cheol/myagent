@@ -6,14 +6,13 @@ import {
   ChatTeardropText,
   DotsThree,
   FolderPlus,
-  FolderSimple,
   PencilSimple,
   Plus,
   PushPin,
   SlidersHorizontal,
   Trash,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   createProject,
   deleteProject,
@@ -27,6 +26,7 @@ import {
   setPinnedSessionIds,
   updateProject,
   type ProjectColor,
+  type ProjectKind,
   type SessionSummary,
   type WorkspaceNode,
   type WorkspaceTreePayload,
@@ -48,6 +48,39 @@ const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
   green: '#4ade80', teal: '#2dd4bf', blue: '#60a5fa', pink: '#f472b6',
 };
 const SIDEBAR_MENU_OPEN_EVENT = 'cqr:sidebar-menu-open';
+
+/** Material Icons ligature names — https://fonts.google.com/icons */
+const WORK_FOLDER_ICON = 'folder'; // 작업폴더 (disk-bound workspace_root)
+const PROJECT_ICON = 'account_tree'; // 프로젝트 / 하위 폴더 (project, folder)
+
+function treeKindIconName(kind: ProjectKind | 'standalone'): string {
+  if (kind === 'workspace_root' || kind === 'standalone') return WORK_FOLDER_ICON;
+  return PROJECT_ICON;
+}
+
+function TreeKindIcon({
+  kind,
+  color,
+  className,
+  title,
+}: {
+  kind: ProjectKind | 'standalone';
+  color?: string;
+  className?: string;
+  title?: string;
+}) {
+  const style: CSSProperties | undefined = color ? { color } : undefined;
+  return (
+    <span
+      className={`material-icons tree-kind-icon ${className ?? ''}`.trim()}
+      style={style}
+      title={title}
+      aria-hidden
+    >
+      {treeKindIconName(kind)}
+    </span>
+  );
+}
 
 function useExclusiveSidebarMenu(menuId: string) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -469,7 +502,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         {(tree?.standalone_sessions ?? []).filter(matchSession).length > 0 ? (
           <div className="mb-1">
             <div className="flex h-8 items-center gap-1 rounded-md px-1 text-[12px] text-muted">
-              <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX.gray }} />
+              <TreeKindIcon kind="standalone" color={PROJECT_COLOR_HEX.gray} title="개인 작업" />
               <span className="font-medium">개인 작업</span>
             </div>
             <div className="ml-[11px] border-l border-line/70 pl-1">
@@ -678,7 +711,12 @@ function TreeNode({
           {isOpen ? <CaretDown size={12} /> : <CaretRight size={12} />}
         </button>
         <span className="shrink-0 p-0.5" aria-label={`${node.title} 컬러 라벨`}>
-          <FolderSimple size={16} className="shrink-0" weight="fill" style={{ color: PROJECT_COLOR_HEX[labelColor] }} />
+          <TreeKindIcon
+            kind={node.kind}
+            className="shrink-0"
+            color={PROJECT_COLOR_HEX[labelColor]}
+            title={node.kind === 'workspace_root' ? '작업폴더' : node.kind === 'folder' ? '폴더' : '프로젝트'}
+          />
         </span>
         <button
           type="button"
@@ -859,7 +897,7 @@ function ProjectBlock({
         <button type="button" className="rounded p-0.5" onClick={onToggle} aria-label={collapsed ? '펼치기' : '접기'}>
           {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
         </button>
-        <FolderSimple size={16} weight="fill" style={{ color: PROJECT_COLOR_HEX[labelColor] }} />
+        <TreeKindIcon kind="project" color={PROJECT_COLOR_HEX[labelColor]} title="프로젝트" />
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-left font-medium"

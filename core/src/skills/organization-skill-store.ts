@@ -7,7 +7,10 @@ export interface OrganizationSkillDef {
   label: string;
   mode: string;
   feature?: string;
-  brand_files: string[];
+  user_selectable?: boolean;
+  selector_group?: string;
+  selector_order?: number;
+  selector_description?: string;
   bundle_files: string[];
   pipeline_script?: string;
 }
@@ -58,7 +61,10 @@ export function listOrganizationSkillDefs(cqrRoot: string): Array<{ id: string; 
         label: raw.label,
         mode: raw.mode === orgSkillMode(safeId) ? raw.mode : orgSkillMode(safeId),
         feature: raw.feature,
-        brand_files: Array.isArray(raw.brand_files) ? raw.brand_files : [],
+        user_selectable: raw.user_selectable === true,
+        selector_group: typeof raw.selector_group === 'string' ? raw.selector_group : undefined,
+        selector_order: typeof raw.selector_order === 'number' ? raw.selector_order : undefined,
+        selector_description: raw.selector_description,
         bundle_files: Array.isArray(raw.bundle_files) ? raw.bundle_files : [],
         pipeline_script: raw.pipeline_script,
       },
