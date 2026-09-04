@@ -79,6 +79,7 @@ export function isAllowedDocumentPath(relPath: string): boolean {
 }
 
 export function sessionScratchRelPath(sessionId: string): string {
+  // Legacy single-session scratch. Prefer documentRecoveryRelPath(sessionId, tabId).
   const sid = String(sessionId || '')
     .trim()
     .replace(/[\\/]/g, '_');
@@ -111,6 +112,44 @@ export function isDocumentScratchPath(relPath: string): boolean {
   const p = normalizeRelPath(relPath);
   const prefix = `${DOCUMENT_SCRATCH.scratchDir}/`;
   return p === DOCUMENT_SCRATCH.scratchDir || p.startsWith(prefix);
+}
+
+/** AI mutate → document tab: only project docs/, never scratch or README spam. */
+export function isAiDocumentOpenPath(relPath: string): boolean {
+  const p = normalizeRelPath(relPath);
+  if (!isAllowedDocumentPath(p) || isDocumentScratchPath(p)) return false;
+  const docs = DOCUMENT_SCRATCH.projectDocsDir.replace(/\/+$/, '');
+  return p === docs || p.startsWith(`${docs}/`);
+}
+
+export function documentTitleFromPath(relPath: string): string {
+  return normalizeRelPath(relPath).split('/').pop()?.trim() || '문서';
+}
+
+/** Reject path traversal and illegal filename characters. */
+export function validateDocumentFileName(name: string): string | null {
+  const raw = String(name || '').trim();
+  if (!raw) return '파일 이름을 입력하세요.';
+  if (/[\\/]/.test(raw)) return '파일 이름에 경로 구분자를 넣을 수 없습니다.';
+  if (/[<>:"|?*\u0000-\u001f]/.test(raw)) return '사용할 수 없는 문자가 있습니다.';
+  if (raw === '.' || raw === '..') return '잘못된 파일 이름입니다.';
+  return null;
+}
+
+export function ensureDocumentExtension(name: string): string {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return 'untitled.md';
+  const lower = trimmed.toLowerCase();
+  if (DOCUMENT_SCRATCH.allowedExtensions.some((ext) => lower.endsWith(ext.toLowerCase()))) {
+    return trimmed;
+  }
+  return `${trimmed}.md`;
+}
+
+export function joinDocumentSavePath(folderRel: string, fileName: string): string {
+  const folder = normalizeRelPath(folderRel).replace(/\/+$/, '');
+  const name = ensureDocumentExtension(fileName);
+  return folder ? `${folder}/${name}` : name;
 }
 
 /** Sanitize preview href: allow http(s), mailto, relative; block javascript/data. */

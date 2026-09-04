@@ -4,19 +4,20 @@ import { marked } from 'marked';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { setDevWorkspace, readWorkspaceFsFile } from '../api/myAgentClient';
-import { promptDialog } from '../lib/confirmDialog';
 import {
   DOCUMENT_SCRATCH,
+  documentTitleFromPath,
   isAllowedDocumentPath,
   normalizeRelPath,
-  projectDocRelPath,
   sanitizePreviewHref,
 } from '../lib/documentFile';
 import { DOCUMENT_MEMO_MARKER } from '../lib/documentMemo';
 import type { DocumentMemo } from '../lib/documentFile';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
+import { DocumentSaveModal, type DocumentSaveMode } from './DocumentSaveModal';
 import { FolderBrowserModal } from './FolderBrowserModal';
+import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
 
 type MemoRange = {
   startLineNumber: number;
@@ -79,6 +80,8 @@ function uidMemo(): string {
 
 export function MarkdownDocument() {
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
+  const files = useWorkspaceStore((s) => s.files);
+  const mode = useWorkspaceStore((s) => s.mode);
   const documentTabs = useWorkspaceStore((s) => s.documentTabs);
   const activeDocumentTabId = useWorkspaceStore((s) => s.activeDocumentTabId);
   const activeDocument = documentTabs.find((tab) => tab.id === activeDocumentTabId) ?? documentTabs[0] ?? null;
@@ -97,11 +100,18 @@ export function MarkdownDocument() {
   const setDocumentMemos = useWorkspaceStore((s) => s.setDocumentMemos);
   const setActiveDocumentTab = useWorkspaceStore((s) => s.setActiveDocumentTab);
   const closeDocumentTab = useWorkspaceStore((s) => s.closeDocumentTab);
+  const closeOtherDocumentTabs = useWorkspaceStore((s) => s.closeOtherDocumentTabs);
+  const closeDocumentTabsToTheRight = useWorkspaceStore((s) => s.closeDocumentTabsToTheRight);
+  const closeSavedDocumentTabs = useWorkspaceStore((s) => s.closeSavedDocumentTabs);
   const openDocumentPath = useWorkspaceStore((s) => s.openDocumentPath);
   const saveDocument = useWorkspaceStore((s) => s.saveDocument);
   const saveDocumentRecovery = useWorkspaceStore((s) => s.saveDocumentRecovery);
   const newDocument = useWorkspaceStore((s) => s.newDocument);
   const saveDocumentToProject = useWorkspaceStore((s) => s.saveDocumentToProject);
+  const saveDocumentAs = useWorkspaceStore((s) => s.saveDocumentAs);
+  const renameDocument = useWorkspaceStore((s) => s.renameDocument);
+  const reloadDocumentFromDisk = useWorkspaceStore((s) => s.reloadDocumentFromDisk);
+  const keepDocumentLocalEdits = useWorkspaceStore((s) => s.keepDocumentLocalEdits);
   const openLastDump = useWorkspaceStore((s) => s.openLastDump);
   const refreshExplorer = useWorkspaceStore((s) => s.refreshExplorer);
   const flushDocumentAfterWorkspaceConnect = useWorkspaceStore((s) => s.flushDocumentAfterWorkspaceConnect);
@@ -111,6 +121,13 @@ export function MarkdownDocument() {
   const chat = useWorkspaceStore((s) => s.chat);
 
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [docOpenOpen, setDocOpenOpen] = useState(false);
+  const [saveModal, setSaveModal] = useState<{
+    mode: DocumentSaveMode;
+    closeAfter?: boolean;
+    tabId?: string;
+  } | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [dumpPreview, setDumpPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
@@ -123,11 +140,53 @@ export function MarkdownDocument() {
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const decoIdsRef = useRef<string[]>([]);
   const { menu, openAt, close } = useContextMenu();
+  const tabMenu = useContextMenu();
+
+  const documentFiles = useMemo(
+    () =>
+      flattenWorkspaceFiles(files).filter((file) => isAllowedDocumentPath(file.path)),
+    [files],
+  );
 
   const hasWorkspace = Boolean(filesRoot?.trim());
+  const ensureWorkspace = useCallback(async (): Promise<boolean> => {
+    if (hasWorkspace) return true;
+    setBrowseOpen(true);
+    return false;
+  }, [hasWorkspace]);
   const previewHtml = useMemo(() => renderPreviewHtml(documentContent), [documentContent]);
   const openMemos = memos.filter((m) => m.open);
   const closedMemoCount = memos.filter((m) => !m.open).length;
+  const diskConflict = /디스크에서 변경됨/.test(documentStatus || '');
+
+  useEffect(() => {
+    if (mode !== 'document') return;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'o' || key === 'p') {
+        e.preventDefault();
+        if (!filesRoot) {
+          setBrowseOpen(true);
+          return;
+        }
+        setDocOpenOpen(true);
+      } else if (key === 's') {
+        e.preventDefault();
+        void (async () => {
+          if (!(await ensureWorkspace())) return;
+          if (activeDocument?.source === 'workspace' && activeDocument.path) {
+            await saveDocument();
+          } else {
+            setSaveModal({ mode: 'project' });
+          }
+        })();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, filesRoot, activeDocument?.source, activeDocument?.path, saveDocument, ensureWorkspace]);
 
   useEffect(() => {
     if (!hasWorkspace || !documentDirty) return;
@@ -256,11 +315,6 @@ export function MarkdownDocument() {
       window.removeEventListener('pointercancel', onUp);
     };
   }, [setMemos]);
-  const ensureWorkspace = useCallback(async (): Promise<boolean> => {
-    if (hasWorkspace) return true;
-    setBrowseOpen(true);
-    return false;
-  }, [hasWorkspace]);
 
   const readLiveSelection = (): string => {
     const editor = editorRef.current;
@@ -390,42 +444,31 @@ export function MarkdownDocument() {
     setMemos((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const onPickFile = async (file: File | null) => {
-    if (!file) return;
-    const name = file.name.toLowerCase();
-    if (!DOCUMENT_SCRATCH.allowedExtensions.some((ext) => name.endsWith(ext))) {
-      return;
+  const onPickFiles = async (list: FileList | null) => {
+    if (!list?.length) return;
+    for (const file of Array.from(list)) {
+      const name = file.name.toLowerCase();
+      if (!DOCUMENT_SCRATCH.allowedExtensions.some((ext) => name.endsWith(ext))) continue;
+      const text = await file.text();
+      await openDocumentPath(normalizeRelPath(file.name), text);
     }
-    const text = await file.text();
-    const rel = normalizeRelPath(file.name);
-    await openDocumentPath(rel, text);
   };
 
-  const onOpenWorkspaceDoc = async () => {
+  const openDocQuickOpen = async () => {
     if (!(await ensureWorkspace())) return;
-    const path = await promptDialog({
-      title: '문서 열기',
-      message: `작업 폴더 상대 경로 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')})`,
-      defaultValue: documentRelPath || 'docs/notes.md',
-      confirmLabel: '열기',
-    });
-    if (!path) return;
-    if (!isAllowedDocumentPath(path)) {
-      return;
-    }
-    await openDocumentPath(normalizeRelPath(path));
+    setDocOpenOpen(true);
   };
 
-  const onSaveProject = async () => {
+  const openSaveModal = async (mode: DocumentSaveMode, opts?: { closeAfter?: boolean; tabId?: string }) => {
     if (!(await ensureWorkspace())) return;
-    const title = await promptDialog({
-      title: '프로젝트에 저장',
-      message: `${DOCUMENT_SCRATCH.projectDocsDir}/ 아래 파일 이름`,
-      defaultValue: 'notes',
-      confirmLabel: '저장',
-    });
-    if (!title) return;
-    await saveDocumentToProject(projectDocRelPath(title));
+    setSaveModal({ mode, closeAfter: opts?.closeAfter, tabId: opts?.tabId });
+  };
+
+  const handleCloseTab = async (tabId: string) => {
+    const result = await closeDocumentTab(tabId);
+    if (result === 'need-project-save') {
+      await openSaveModal('project', { closeAfter: true, tabId });
+    }
   };
 
   const onConnectFolder = async (root: string) => {
@@ -466,7 +509,37 @@ export function MarkdownDocument() {
     });
   };
 
-  const pathLabel = documentRelPath || (hasWorkspace ? '(새 문서)' : '메모리 초안');
+  const pathLabel =
+    activeDocument?.source === 'workspace' && documentRelPath
+      ? `프로젝트 파일 · ${documentRelPath}`
+      : activeDocument?.source === 'import'
+        ? '외부 파일 · 아직 프로젝트에 저장되지 않음'
+        : hasWorkspace
+          ? '임시 초안'
+          : '메모리 초안';
+
+  const tabContextItems = (tabId: string): ContextMenuItem[] => [
+    {
+      id: 'close',
+      label: '닫기',
+      onSelect: () => void handleCloseTab(tabId),
+    },
+    {
+      id: 'close-others',
+      label: '다른 탭 닫기',
+      onSelect: () => void closeOtherDocumentTabs(tabId),
+    },
+    {
+      id: 'close-right',
+      label: '오른쪽 탭 닫기',
+      onSelect: () => void closeDocumentTabsToTheRight(tabId),
+    },
+    {
+      id: 'close-saved',
+      label: '저장된 탭 모두 닫기',
+      onSelect: () => void closeSavedDocumentTabs(),
+    },
+  ];
 
   const memoWindows =
     openMemos.length > 0
@@ -605,6 +678,7 @@ export function MarkdownDocument() {
             className={`flex shrink-0 items-center rounded border ${
               tab.id === activeDocumentTabId ? 'border-accent bg-accent/10' : 'border-line'
             }`}
+            onContextMenu={(e) => tabMenu.openAt(e, tabContextItems(tab.id))}
           >
             <button
               type="button"
@@ -618,7 +692,7 @@ export function MarkdownDocument() {
               type="button"
               className="px-1.5 py-1 text-[11px] text-muted hover:text-text"
               aria-label={`${tab.title} 닫기`}
-              onClick={() => void closeDocumentTab(tab.id)}
+              onClick={() => void handleCloseTab(tab.id)}
             >
               ×
             </button>
@@ -627,15 +701,16 @@ export function MarkdownDocument() {
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-2 py-1.5">
-        <span className="mr-1 max-w-[40%] truncate text-[10px] text-muted" title={pathLabel}>
+        <span className="mr-1 max-w-[42%] truncate text-[10px] text-muted" title={pathLabel}>
           {pathLabel}
         </span>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-          onClick={() => void onOpenWorkspaceDoc()}
+          onClick={() => void openDocQuickOpen()}
+          data-testid="document-open"
         >
-          경로로 열기
+          문서 열기
         </button>
         <button
           type="button"
@@ -647,9 +722,13 @@ export function MarkdownDocument() {
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept={DOCUMENT_SCRATCH.allowedExtensions.join(',')}
           className="hidden"
-          onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            void onPickFiles(e.target.files);
+            e.target.value = '';
+          }}
         />
         <button
           type="button"
@@ -658,12 +737,58 @@ export function MarkdownDocument() {
             if (activeDocument?.source === 'workspace' && activeDocument.path) {
               await saveDocument();
             } else {
-              await onSaveProject();
+              await openSaveModal('project');
             }
           })()}
+          data-testid="document-primary-save"
         >
           {activeDocument?.source === 'workspace' && activeDocument.path ? '저장' : '프로젝트에 저장…'}
         </button>
+        <div className="relative">
+          <button
+            type="button"
+            className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
+            onClick={() => setMoreOpen((v) => !v)}
+          >
+            더보기
+          </button>
+          {moreOpen ? (
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-[160px] rounded-lg border border-line bg-panel py-1 shadow-lg">
+              <button
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                onClick={() => {
+                  setMoreOpen(false);
+                  void openSaveModal('saveAs');
+                }}
+              >
+                다른 이름으로 저장…
+              </button>
+              <button
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
+                onClick={() => {
+                  setMoreOpen(false);
+                  void openSaveModal('rename');
+                }}
+              >
+                이름 변경…
+              </button>
+              <button
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                disabled={!activeDocument?.path}
+                onClick={() => {
+                  setMoreOpen(false);
+                  if (activeDocument?.path) void navigator.clipboard.writeText(activeDocument.path);
+                }}
+              >
+                경로 복사
+              </button>
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           disabled={!lastDumpPath && lastDumpContent == null}
@@ -672,6 +797,31 @@ export function MarkdownDocument() {
         >
           최근 덤프
         </button>
+        {diskConflict && activeDocument ? (
+          <>
+            <button
+              type="button"
+              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+              onClick={() => keepDocumentLocalEdits(activeDocument.id)}
+            >
+              내 편집 유지
+            </button>
+            <button
+              type="button"
+              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+              onClick={() => void reloadDocumentFromDisk(activeDocument.id)}
+            >
+              디스크 버전 보기
+            </button>
+            <button
+              type="button"
+              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+              onClick={() => setDocumentView('diff')}
+            >
+              변경 비교
+            </button>
+          </>
+        ) : null}
         {closedMemoCount > 0 ? (
           <button
             type="button"
@@ -761,9 +911,57 @@ export function MarkdownDocument() {
       </div>
 
       {menu ? <ContextMenuPortal menu={menu} onClose={close} /> : null}
+      {tabMenu.menu ? <ContextMenuPortal menu={tabMenu.menu} onClose={tabMenu.close} /> : null}
       {memoWindows}
 
       <FolderBrowserModal open={browseOpen} onClose={() => setBrowseOpen(false)} onSelect={(root) => void onConnectFolder(root)} />
+      {docOpenOpen ? (
+        <QuickOpenModal
+          title="문서 열기"
+          placeholder="파일명 또는 경로 검색… (Esc 닫기)"
+          files={documentFiles}
+          onClose={() => setDocOpenOpen(false)}
+          onOpen={(path) => {
+            void openDocumentPath(path);
+          }}
+        />
+      ) : null}
+      {saveModal ? (
+        <DocumentSaveModal
+          open
+          mode={saveModal.mode}
+          filesRoot={filesRoot}
+          files={files}
+          initialFolder={
+            saveModal.mode === 'rename' && activeDocument?.path
+              ? activeDocument.path.split('/').slice(0, -1).join('/')
+              : DOCUMENT_SCRATCH.projectDocsDir
+          }
+          initialName={
+            saveModal.mode === 'rename' || saveModal.mode === 'saveAs'
+              ? documentTitleFromPath(activeDocument?.path || activeDocument?.title || 'notes')
+              : activeDocument?.title?.startsWith('제목 없음')
+                ? 'notes'
+                : (activeDocument?.title || 'notes')
+          }
+          currentPath={activeDocument?.path}
+          onClose={() => setSaveModal(null)}
+          onConfirm={async (relPath) => {
+            const closeAfter = saveModal.closeAfter;
+            const tabId = saveModal.tabId;
+            if (saveModal.mode === 'rename') {
+              await renameDocument(relPath);
+            } else if (saveModal.mode === 'saveAs') {
+              await saveDocumentAs(relPath);
+            } else {
+              await saveDocumentToProject(relPath);
+            }
+            if (closeAfter && tabId) {
+              await closeDocumentTab(tabId);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }
