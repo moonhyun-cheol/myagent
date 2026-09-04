@@ -256,7 +256,7 @@ export function MarkdownDocument() {
       window.removeEventListener('pointercancel', onUp);
     };
   }, [setMemos]);
- = useCallback(async (): Promise<boolean> => {
+  const ensureWorkspace = useCallback(async (): Promise<boolean> => {
     if (hasWorkspace) return true;
     setBrowseOpen(true);
     return false;
