@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 39,
+    "update_sequence": 40,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-04T06:14:32.073Z",
+    "published_at": "2026-09-04T07:37:29.266Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-39",
+      "release_tag": "update-40",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267140755,
-      "sha256": "fb87b72b12c1789cb551d77906635f6ff722261682d79499a5c29e42cb1b335a"
+      "size": 267141243,
+      "sha256": "30f39555f744cf70922c5994877d2d38f1a74c208c9a0de4d9dcd65973de5fbf"
     },
-    "payload_manifest_sha256": "a7422c49258330af82195964d079ae3598d42f37922a6ffde736a514bef76bde",
-    "release_notes": ""
+    "payload_manifest_sha256": "4d537bb303f4a02dff1141a7f14dbe7f9bc0ba87bb3c39e15ca8241af0a0c499",
+    "release_notes": "Org skill routing (org:* modes), history isolation for concept RA, and ChatPane organization skill picker fixes."
   },
-  "signature": "wnsN3KEVSpsI+PdBBAgh8LKQjJ/uUBsxzvU90LzJK+4qkskqgoHLDg3R8j5d44SdL72ODr4it8o68oUKInLMiUjJf4Vj7lTeRf7Rz2MOvpvppeBVLV2w9mioBbjL5PylYBGXCfudxZYqAWmsiuh/Jjmq3aCHWLDWGehGywTXTK2C2/Gy7eSE8wUSZaW6w2prpTty8rOzYelueinVFuDdtOg3c7DBVXRawY50mlSRhGY3BW2LkcHYF/GDDKxjIhsvkNAJJJv2zfgDsgUbkVWaEtMrtHogH8omqS+O1w4WxbBOx+xSa/d6rrCazVC6DAgD0Db75jaDrrXiRBC8uEgz5tMKdSoP0sn8X0Ah88M1/CRH2kCMYu4aYv77G47728gBNGhdxDIlDuNsy7XB4tRMs5LJYsfICpZi7tWVL6VzDPbj9QMa31j+Grxbf5mxAsmLBNW7NvvwtlLBCEqHQaSp8w5Iu60IOhuZqmzzAeB5evJge/rbzUPpPLbr31yms7ms"
+  "signature": "ImTD5XXwneWA8T6NedPEyLG63TWYy0/UwVrQY9ylnKjpY+NqfyQXv9dgvbG3pmXEjmTJIBLrrJI7UefWKIkv2vc7TYr4cPgVErDtzYZCD0vz8MGQi8L+27fDBXEVG/ghMn8R5S6GBe0XCsD6icLNfL3AQV8Xxe7s+skJEwYgyqiP+PPrWp7kmVCTziSEYWFPXeZa7O7hwJqEh4OzFn6mDPUhiSlknERzdSNUpiq5ogwE9BXJF6o3VfkrPcIwdumcZPBDV/8uDVJvIQPPxJ9uTIKFerIiZ7MQYhsA7Pc93nUzEpOfsRgUh22KLfS28HTA2huBG0VR2xej8/jrmpcGX1Sj1H4TChK2xnMC438+VubxQjf8Aq4a7Pgquc76MJoxtXo5Couax/Z5TNpziGzI436cAkGgohWXQLho5O/EHaDS7MvSvObq3bXZ4EmK1o5ysrr9oGB8I79pGF2tj7pvd9H8NbL9T5AtCOpunzBItdXFC/Jp5sEPgtExBD0qhZE9"
 }
