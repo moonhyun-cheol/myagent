@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 33,
+    "update_sequence": 34,
     "minimum_supported_sequence": 1,
-    "version": "1.1.1",
+    "version": "1.1.2",
     "channel": "stable",
-    "published_at": "2026-09-03T23:51:21.908Z",
+    "published_at": "2026-09-04T01:48:40.473Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-33",
-      "name": "MYAgent-v1.1.1-delta.zip",
-      "size": 267123866,
-      "sha256": "63682d41840897f1d7863f5a321303d04693c183f73bd322a286f1da06774c53"
+      "release_tag": "update-34",
+      "name": "MYAgent-v1.1.2-delta.zip",
+      "size": 267127191,
+      "sha256": "d93bb8e14fb03213de55f587725280a9b699a54377ae8bcba7c049a76f640c5c"
     },
-    "payload_manifest_sha256": "bc95dad79a4b9f9fe8f4319cb671950925666e8ecd2fcb16daa603729c0d4a34",
-    "release_notes": ""
+    "payload_manifest_sha256": "a911260086c614ec79a1dece02d9eb045ff34749535075605e1ffa2c5e94c0d2",
+    "release_notes": "Update 34: progressive auto-chain continues 30-step segments in the same user turn up to 100 without requiring manual resume. Also includes document multi-tab workspace store wiring."
   },
-  "signature": "HMhMAcYzh3hkSrXy2DiJN1/ewr+ZLVdmqWh5z2tBrveQIJOduSedxEbIWEY3V9xIkAf+Gbf63QQuc0mSpMOJaVWczBveacCYomVR1aj+DQiOiAAVZCkyQ2hS45BfkAfiIembqiMSLixxRP7X4xYbNKk1mtBRRz8uhlak+6q/IR9CqnrLJwvw5N7EhV/joPexcD+IUsKH7AiUK+sOcqMWvsJQxy8zMJBGgRRsNMVHRveQOhMBHfuFr8XSTUccTySlVLE7BdGBmqps8/X5aEoTgtgRFZ9LCm9syLwPkowtGYSoA09+Rh2tlaurQA+LWoUWQICYgDrFpN/xCnidYEgA+Tu71PwSR+WEXqa+/nHlbNelRaAxvpdN7E0wJ3uGQUA/j4mystMnanhv7eoL2++fd/lBhX2CyMdZ7482+6hBImBKHPT47yYiXShqJQv7h+xwzFY7sjKCGS92Qz8aeZrgkScOjSDFvfHiIReUgU/Nuby+RxL0aBXzMUhnzY9vnkZM"
+  "signature": "rlphd8c+39Pj8+EIimI7ms4nmN6WfTJbyczmr4oRam92PicI6zA8WpUic26W342OVStUZL7q73Klpbla+Tpb2wL6SAzTYzCk0IRh/r6Vvz3FltGLohodhvBiS+F5FCLY0Uuvf/tenWlmhxx/cNUR+B7dM2XClGk0UVuPyOvvmCpi4aI6YYvPNnvyPvBQTSBme65d16XTx5kyOaof573hJ4Xgt/HYpRRA/Ae027Cpu5681XOOtLSLfXyTRY/ADxaK3dBBhyKVo9Mr34ENlseG0f+VaxKqsDRKjRLxIMeOl2bJS536vaLYSQv42Ab554f+i3IumylYRWV9cYuRf5JFGE6moEziQNO0GmO49vVM8yMf/F6lBI72b30dbeKRFG7TVYQaAAr/BMX8JMh6HHGBxXxKQQtfjt5sdwhBhAZ4EJdvaO25/gh7klBpOrx7lmCc1vwGaZovE23+/al/kCT0ynZqsVR57HppYNt0d6V+Tni23XbC9oeKF6TfdEczAWKY"
 }
