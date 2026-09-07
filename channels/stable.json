@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 41,
+    "update_sequence": 42,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-07T00:10:17.702Z",
+    "published_at": "2026-09-07T05:02:47.192Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-41",
+      "release_tag": "update-42",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267139841,
-      "sha256": "a0e04118e25d082f5c762ab5d93bd446bdcb8f57e65e22f22a4d9f8b74175607"
+      "size": 267175177,
+      "sha256": "e6ce75bbe12671bfc95d4804f022850c3331428a7350a7643cf77711d447d9f1"
     },
-    "payload_manifest_sha256": "97e74c9658ba9ec5e2eeae071098bf2f19f7997ebe0d1ef1a60180b25d168e50",
-    "release_notes": "Model-aware Responses summary, debug telemetry cleanup, sidebar N/D shortcuts, visible-default auto model, tools-plane prune, and remove composer Undo."
+    "payload_manifest_sha256": "19507847f70454757773ef35a14126a9b96e692fe5eae2444df7915c0c7eb968",
+    "release_notes": ""
   },
-  "signature": "JefmJSN/FQ2ICSiNydgmcoebD/kZ8xETh2PgnCi3s8jWoWAxmcPTZBzKhSGiGb1c4UTgU0Y6HUzIlPo17GNTF05a+MPQEp3+HCXLAmQ6TVMGKNDdlk26gis4SWhkavIAwTOikuSs2JALwNgkXaSdflvKT+6YA3Q1sT1F/ABruVT0ijkT4RX5vQfxSaTzrMgFySsrgfgcNHkd9EB7H6VIiUkilswWMeiNCZ6DYaGmAuEeaFuQVk/CAkKL5O20l+kKBiya2MZCJyLzfG1nWBEcnAd6eLuloMIEUI4SAX267xiR+vJMO3c02J2n7I810W/61Z/Y0ywj9G4TQ5XDqaU6/LR5V/CXHMRWU5pJxxAgNQlXFa7kMjUmvYeqdadTb5CyP7krAGxhviK8vFH4mfw6eXusVAsVl6qlwvD+RgpwzO1g2QsFR71dEA5/UkBqL0846zf8mlbkTviTuE5TADSexLBTotTnLgW2eZpmhxZdx20gwxVu0v8UV6SnX0CD3e61"
+  "signature": "b5cfHpk5p7gVng4NArtdAuMPbltjwY7kc7QtrPCvLqNuslOEJ9jXHTsLpxCpCVgKJK865OamSkfUvpsPQB/t1cleVkN/42qxr09J5ktKdB29yMfp88miWZwglQitX1ZfGQO/7Lpdj2TvSpwTAKsg5dP/pSK7VY6kNJv+xoURNMllEGKqL7+sdngN02o38ppp/ZFka1GquEF6v0Ue0Vr/35b+QO/2++0EcCfOuDOP0voam4QBxM4B72VOPwTX3IfQxEMqdEOMAJ9QOADk7TsBOuVKQMPVnwPb80anz5/sApd91i6PRd9n3ED9ORIcuQmNXJSrg3wIPS4DcyiHkJmiunq4uuAu57qdEijrHPIqbk1RzN4gbwKW+uZg5Kpt+GioqAK2vHvzO0033hOkgNfxd/9bRrIueZEaZ/eZiLQNgKMKBHp8pjH9k9C3CRXweeR3bbODw0QhoeDOxztKnGRBC01yj7i++8KkbdWjFWexwQd2BNDE6/ecaDMOT8LOcKn6"
 }
