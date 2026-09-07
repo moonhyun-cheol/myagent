@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-07 / 제품 캡처 1.1.4, update 42):** 외부
+**RULEBOOK 지식 기준 (2026-09-07 / 제품 캡처 1.1.4, update 43):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, WorkKitLauncher 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
@@ -14,7 +14,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — version `1.1.4`, `update_sequence` **42**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
+- `manifest.json` — version `1.1.4`, `update_sequence` **43**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
 
 ## Product layout
 
