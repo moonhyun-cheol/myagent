@@ -143,10 +143,15 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
       status: 'queued',
     });
     assert.match(progress, /명령어 접수|접수:/);
-    assert.match(progress, /중앙 허브/);
+    assert.match(progress, /상태:/);
+    assert.doesNotMatch(progress, /중앙 허브/);
+    assert.doesNotMatch(progress, /전달 경로/);
     assert.doesNotMatch(progress, /쪽지 수신자/);
     const ack = buildAutomatonAckContent('/발주검토자료 CRGO_PT', 'downloadtable_po_review');
-    assert.match(ack, /중앙 허브에서 백그라운드로 실행/);
+    assert.match(ack, /접수:/);
+    assert.match(ack, /상태:/);
+    assert.doesNotMatch(ack, /중앙 허브/);
+    assert.doesNotMatch(ack, /전달 경로/);
     assert.doesNotMatch(ack, /쪽지 수신자/);
   } finally {
     rmSync(sandbox, { recursive: true, force: true });

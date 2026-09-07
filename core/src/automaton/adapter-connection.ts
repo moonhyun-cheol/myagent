@@ -146,28 +146,15 @@ export function formatAdapterProgressMessage(
           : status === 'failed' || status === 'denied' || status === 'error'
             ? (progress.failed_text || '실패')
             : (progress.running_text || '진행 중');
+  // Progress status only — no hub/delivery explainer copy.
   const lines = [
     `접수: \`${opts.commandText.trim() || '(명령)'}\``,
     '',
     `상태: **${label}**`,
   ];
-  if (opts.stageMessage?.trim() && opts.stageMessage.trim() !== label) {
-    lines.push(opts.stageMessage.trim());
-  } else if (status === 'queued') {
-    lines.push('중앙 허브에서 백그라운드로 실행합니다.');
-    lines.push('완료 알림과 결과 파일 경로는 Adapter가 사용 가능한 전달 경로로 보냅니다.');
-  } else if (status === 'running') {
-    lines.push(opts.stageMessage?.trim() || '중앙 허브에서 실행 중입니다.');
-  }
-  if (opts.resultPath?.trim()) {
-    lines.push(`결과: \`${opts.resultPath.trim()}\``);
-  }
-  if (opts.deliveryStatus?.trim()) {
-    lines.push(`전달: ${opts.deliveryStatus.trim()}`);
-  }
-  if (opts.errorMessage?.trim()) {
-    lines.push(opts.errorMessage.trim());
-  }
+  const stage = opts.stageMessage?.trim();
+  if (stage && stage !== label) lines.push(stage);
+  if (opts.errorMessage?.trim()) lines.push(opts.errorMessage.trim());
   return lines.join('\n');
 }
 

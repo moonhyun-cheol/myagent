@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-04 / 제품 캡처 1.1.4, update 41):** 외부
+**RULEBOOK 지식 기준 (2026-09-07 / 제품 캡처 1.1.4, update 42):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, WorkKitLauncher 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
@@ -14,7 +14,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — version `1.1.4`, `update_sequence` **41**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
+- `manifest.json` — version `1.1.4`, `update_sequence` **42**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
 
 ## Product layout
 
@@ -28,15 +28,17 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 ## Critical product facts
 
-- **Work kits:** `WorkKitLauncher.exe` — catalog feed, per-shelf install, apply = pull + enable only (no runtime pin). No work-kit UI in Settings. Org skills via composer `+` / `/skills/selectable`.
+- **Work kits:** `WorkKitLauncher.exe` — catalog feed, per-shelf install, apply = pull + enable + optional `features.enable` (no runtime pin). No work-kit UI in Settings. Org skills via composer `+` / `/skills/selectable`.
 - **Updates (4 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; launcher `launcher-stable.json` + `--apply-update`; org module folder swap; work-kit catalog refresh. Idle gate defers Yes/No while chat session turns are alive (`session_busy`) or UI reports work (`workspace_busy`). See R-605/R-617/R-618, ADR-RE-007.
-- **Org module:** overlay loader in core; content in company repo. Settings → 스킬 for manual check/apply.
+- **Org module / Features:** base overlay in company repo; Automaton slash via Organization Feature (`data/organization-features/`) after ops Work Kit apply (ADR-RE-011 / R-625). Settings → 스킬 for module check/apply.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.
 - **Document AI memo (R-620):** Preview「문서」→ 선택 → AI에게 묻기. Answer stays in floating AI memo (draggable; collapse → red corner reopen). **Not** ChatPane bubbles. Call uses ask + `uiHidden` / `documentMemo.ts`.
 - **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
 - **Sidebar / skills (update 38):** resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
-- **Update 41:** strip debug telemetry; model-aware Responses summary; sidebar N/D shortcuts; auto follows visible default provider; tools-plane cleanup.\n- **Sidebar tree icons (update 39):** 개인 작업=`ChatTeardropText`, 워크스페이스=`HardDrives`, 프로젝트=`TreeStructure`, 하위 폴더=`FolderSimple`.
+- **Update 42:** Organization Features; idle gate `session_busy`/`workspace_busy`; Automaton progress-only status text.
+- **Update 41:** strip debug telemetry; model-aware Responses summary; sidebar N/D shortcuts; auto follows visible default provider; tools-plane cleanup.
+- **Sidebar tree icons (update 39):** 개인 작업=`ChatTeardropText`, 워크스페이스=`HardDrives`, 프로젝트=`TreeStructure`, 하위 폴더=`FolderSimple`.
 - **Agent runtime (CQR SSOT):** `MAX_AGENT_STEPS = 100` sole logical cap (no progressive 30-segment auto-chain). Tool results → Evidence Store; model retains via `todo_update`/`retainEvidence`; Context Assembler before each LLM call; Continuation Snapshot for resume (not chat-message injection). Tools: `todo_update`, `evidence_read` under `active_task`.
 
 ## Hard rules (P0)
