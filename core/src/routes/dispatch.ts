@@ -36,6 +36,7 @@ import {
   restoreAgentProfileLastState,
   saveAgentProfile,
   summarizeAppliedWorkKit,
+  unapplyWorkKit,
   type AgentProfile,
 } from '../config/agent-profile-store.js';
 import { testOllamaReachable } from '../inference/local-llama-runtime.js';
@@ -2079,25 +2080,33 @@ export async function dispatchApiRequest(
         }
       }
 
-      // ---- User memory: global user context + per-project fragments ----
+      // ---- User memory: global, project, and conversation fragments ----
       if (url.pathname === '/memory' || url.pathname.startsWith('/memory/')) {
         license.assertFeature('chat');
         const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
         try {
           if (method === 'GET' && url.pathname === '/memory') {
             const projectId = url.searchParams.get('project_id');
-            return sendJson(res, 200, memoryStore.list(projectId || null));
+            const sessionId = url.searchParams.get('session_id');
+            return sendJson(res, 200, memoryStore.list(projectId || null, sessionId || null));
           }
           if (method === 'POST' && url.pathname === '/memory') {
             license.assertWritable();
             const body = JSON.parse(await readBody(req)) as {
-              scope?: 'global' | 'project';
+              scope?: 'global' | 'project' | 'session';
               project_id?: string | null;
+              session_id?: string | null;
               text?: string;
             };
+            const scope = body.scope === 'session'
+              ? 'session'
+              : body.scope === 'project'
+                ? 'project'
+                : 'global';
             const entry = memoryStore.add({
-              scope: body.scope === 'project' ? 'project' : 'global',
+              scope,
               project_id: body.project_id ?? null,
+              session_id: body.session_id ?? null,
               text: body.text ?? '',
               source: 'user',
             });
@@ -2403,6 +2412,32 @@ export async function dispatchApiRequest(
         } catch (e: unknown) {
           if (e instanceof AgentProfileError) {
             const status = e.code === 'PROFILE_NOT_FOUND' || e.code === 'PROFILE_NOT_INSTALLED'
+              ? 404
+              : 400;
+            return sendJson(res, status, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      if (method === 'POST' && url.pathname === '/profiles/unapply') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        try {
+          const body = JSON.parse(await readBody(req)) as {
+            group?: string;
+            id?: string;
+            confirm?: boolean;
+          };
+          const result = unapplyWorkKit(cqrRoot, {
+            group: String(body.group ?? ''),
+            id: String(body.id ?? ''),
+            confirm: body.confirm,
+          });
+          return sendJson(res, 200, result);
+        } catch (e: unknown) {
+          if (e instanceof AgentProfileError) {
+            const status = e.code === 'PROFILE_NOT_APPLIED' || e.code === 'PROFILE_NOT_FOUND'
               ? 404
               : 400;
             return sendJson(res, status, { error: e.code, message: e.message });

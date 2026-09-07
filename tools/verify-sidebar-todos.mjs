@@ -9,13 +9,23 @@ const main = read('ui/workspace/src/components/MainWorkspaceContainer.tsx');
 assert.doesNotMatch(main, /extractTodoItems|cleanTodoLabel|sourceTurn|checklistItems/);
 assert.match(main, /useSessionTodos\(activeSessionId, busy\)/);
 const dispatch = read('core/src/routes/dispatch.ts');
-const route = dispatch.slice(dispatch.indexOf('      const sessionTodoMatch'), dispatch.indexOf("      if (sessionUndoMatch && method === 'POST')"));
-const runRoute = new Function('url', 'method', 'sessionStore', 'loadAgentRunMeta', 'cqrRoot', 'res', 'sendJson', route);
+const route = dispatch.slice(dispatch.indexOf('      const sessionTodoMatch'), dispatch.indexOf('      const sessionModelMatch'));
+const runRoute = new Function(
+  'url',
+  'method',
+  'sessionStore',
+  'loadAgentRunMeta',
+  'cqrRoot',
+  'res',
+  'sendJson',
+  'decodeURIComponent',
+  `${route}\nreturn undefined;`,
+);
 const temp = mkdtempSync(path.join(os.tmpdir(), 'todo-view-'));
 try {
   const todos = ['pending', 'doing', 'done', 'blocked'].map((status, i) => ({ id: String(i), text: 'task ' + i, status, evidenceRefs: [] }));
   setSessionTodoLedger(temp, 'a', { version: 1, todos, retainEvidence: [], workingNotes: [], updatedAt: new Date().toISOString() });
-  const call = id => runRoute(new URL('http://test/sessions/' + id + '/todos'), 'GET', { load: sid => ['a', 'b'].includes(sid) }, loadAgentRunMeta, temp, { setHeader() {} }, (_, status, body) => ({ status, body }));
+  const call = id => runRoute(new URL('http://test/sessions/' + id + '/todos'), 'GET', { load: sid => ['a', 'b'].includes(sid) }, loadAgentRunMeta, temp, { setHeader() {} }, (_, status, body) => ({ status, body }), decodeURIComponent);
   assert.deepEqual(call('a').body.todos, todos);
   assert.deepEqual(call('b').body.todos, []);
   assert.equal(call('missing').status, 404);

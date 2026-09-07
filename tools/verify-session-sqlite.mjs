@@ -95,7 +95,12 @@ try {
   store.saveResponsesState('policy', legacy.responses_state);
   store.saveResponsesState('policy', { ...legacy.responses_state, model_id: 'agent-model' }, 'agent');
   const policyReload = new SessionStore(dir, root);
-  assert.deepEqual(policyReload.load('policy').execution_policy, { reasoning: 'medium', autopilot: 'auto', approval: 'delegate' });
+  assert.deepEqual(policyReload.load('policy').execution_policy, {
+    reasoning: 'medium',
+    autopilot: 'auto',
+    approval: 'delegate',
+    workspace_behavior: 'agent',
+  });
   assert.deepEqual(policyReload.responsesState('policy', 'p', 'm', 'client_replay'), legacy.responses_state);
   assert.equal(policyReload.load('policy').responses_states.agent.model_id, 'agent-model');
   assert.equal(policyReload.publicRecord(policyReload.load('policy')).responses_states, undefined);

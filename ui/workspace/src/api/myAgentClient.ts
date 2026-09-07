@@ -659,12 +659,13 @@ export async function deleteProject(id: string, unlink = false): Promise<void> {
   if (!res.ok) throw new Error(data.message || data.error || `삭제 실패 (${res.status})`);
 }
 
-export type UserMemoryScope = 'global' | 'project';
+export type UserMemoryScope = 'global' | 'project' | 'session';
 
 export interface UserMemoryEntry {
   id: string;
   scope: UserMemoryScope;
   project_id?: string | null;
+  session_id?: string | null;
   text: string;
   source: 'user' | 'auto';
   enabled: boolean;
@@ -674,17 +675,22 @@ export interface UserMemoryEntry {
 
 export async function listUserMemory(
   projectId?: string | null,
-): Promise<{ global: UserMemoryEntry[]; project: UserMemoryEntry[] }> {
-  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  sessionId?: string | null,
+): Promise<{ global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[] }> {
+  const params = new URLSearchParams();
+  if (projectId) params.set('project_id', projectId);
+  if (sessionId) params.set('session_id', sessionId);
+  const q = params.size ? `?${params.toString()}` : '';
   const res = await fetch(`/memory${q}`, { cache: 'no-store' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `메모리 로드 실패 (${res.status})`);
-  return data as { global: UserMemoryEntry[]; project: UserMemoryEntry[] };
+  return data as { global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[] };
 }
 
 export async function addUserMemory(body: {
   scope: UserMemoryScope;
   project_id?: string | null;
+  session_id?: string | null;
   text: string;
 }): Promise<UserMemoryEntry> {
   const res = await fetch('/memory', {

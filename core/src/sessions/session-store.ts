@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { assertChatRunWritable, currentChatRun } from '../chat/chat-runs.js';
+import { assertChatRunWritable, currentChatRun, type ChatRun } from '../chat/chat-runs.js';
 import { SessionSqliteStore, type MessagePage } from './session-sqlite-store.js';
 import { DEFAULT_EXECUTION_POLICY, normalizeExecutionPolicy, type ExecutionPolicy } from '../execution-policy.js';
 import type {
@@ -284,6 +284,53 @@ export class SessionStore {
     this.database.append(rec, storedMessage);
     if (rec.project_id) this.onProjectActivity?.(rec.project_id);
     return rec;
+  }
+
+  updateMessageContent(id: string, index: number, content: string): SessionRecord | null {
+    assertChatRunWritable(id);
+    const rec = this.load(id);
+    if (!rec) return null;
+    if (!Number.isInteger(index) || index < 0 || index >= rec.messages.length) return null;
+    const next = content.trim();
+    if (!next) return null;
+    rec.messages[index] = {
+      ...rec.messages[index],
+      content: next,
+      at: new Date().toISOString(),
+    };
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    if (rec.project_id) this.onProjectActivity?.(rec.project_id);
+    return rec;
+  }
+
+  finalizeStoppedRun(run: ChatRun): void {
+    assertChatRunWritable(run.sessionId);
+    const rec = this.load(run.sessionId);
+    if (!rec || !rec.messages.some((m) => m.role === 'user' && m.run_id === run.runId)) return;
+    const replies = rec.messages.filter((m) => m.role === 'assistant' && m.run_id === run.runId);
+    if (replies.length) {
+      for (const message of replies) { message.status = 'stopped'; message.model_exclude = true; }
+    } else {
+      const activities = this.pendingToolActivity.get(rec.id);
+      this.pendingToolActivity.delete(rec.id);
+      rec.messages.push({
+        role: 'assistant',
+        content: run.partial.trim() || '(중지됨)',
+        at: new Date().toISOString(),
+        run_id: run.runId,
+        reply_to_run_id: run.runId,
+        status: 'stopped',
+        model_exclude: true,
+        thought: this.pendingAssistantThought.get(rec.id),
+        ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
+      });
+    }
+    this.pendingAssistantThought.delete(rec.id);
+    delete rec.responses_state;
+    delete rec.responses_states;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
   }
 
   delete(id: string): boolean {
