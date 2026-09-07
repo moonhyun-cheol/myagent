@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 42,
+    "update_sequence": 43,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-07T05:02:47.192Z",
+    "published_at": "2026-09-07T07:41:57.995Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-42",
+      "release_tag": "update-43",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267175177,
-      "sha256": "e6ce75bbe12671bfc95d4804f022850c3331428a7350a7643cf77711d447d9f1"
+      "size": 267193888,
+      "sha256": "11f95ad79ff0b75027c2c4ad8118421d00d77f7ef4424dd2fdc1ee792ee92c75"
     },
-    "payload_manifest_sha256": "19507847f70454757773ef35a14126a9b96e692fe5eae2444df7915c0c7eb968",
-    "release_notes": ""
+    "payload_manifest_sha256": "9b964774b4ae39232c3e969078e40fc4a14677a8104b0df7b0c651c6339ccbc5",
+    "release_notes": "Update 43: CQR_PA feature port (tool activity logs, SQLite sessions, memory batch UI, ledger TODO sync, automation feed focus) plus skill/reasoning/browser visibility fixes. Astra requires explicit reasoning; Preview opens external sites in the shell WebView2."
   },
-  "signature": "b5cfHpk5p7gVng4NArtdAuMPbltjwY7kc7QtrPCvLqNuslOEJ9jXHTsLpxCpCVgKJK865OamSkfUvpsPQB/t1cleVkN/42qxr09J5ktKdB29yMfp88miWZwglQitX1ZfGQO/7Lpdj2TvSpwTAKsg5dP/pSK7VY6kNJv+xoURNMllEGKqL7+sdngN02o38ppp/ZFka1GquEF6v0Ue0Vr/35b+QO/2++0EcCfOuDOP0voam4QBxM4B72VOPwTX3IfQxEMqdEOMAJ9QOADk7TsBOuVKQMPVnwPb80anz5/sApd91i6PRd9n3ED9ORIcuQmNXJSrg3wIPS4DcyiHkJmiunq4uuAu57qdEijrHPIqbk1RzN4gbwKW+uZg5Kpt+GioqAK2vHvzO0033hOkgNfxd/9bRrIueZEaZ/eZiLQNgKMKBHp8pjH9k9C3CRXweeR3bbODw0QhoeDOxztKnGRBC01yj7i++8KkbdWjFWexwQd2BNDE6/ecaDMOT8LOcKn6"
+  "signature": "n5pq6pFZcRF/zAwejXm631TsMYr6b6o8X5u1LNGX3flGH9JlEPcyZnufwASMTMFq0DHPvFQw4M7ETVhpR/KDpvrbX2bT0WLohkB2FFzF21uLBm+9coDmAcezghYvghR+WeUiFPLBgZ1Z+qS2bD/YFFMZbuJI2OytnxwZKHKem0VGnaNwPyymh4UTW1hsTuKAjwVysLPOpCNbe6N1EtP66wd86geqM6FVfBSEKiZVOhdUN6emrht4t1sJBUs2hzkr//Vf0Th9wqzFgoUTVTwS/F8/s1M67oZ0Xy45wdrUocHOih/eUZNCi4C51fwj8bCN9a8enebYrS7jWGaGqTAcSH3BP8tTpKLYJ+q6tmG5kJB1ErRWbsw4qNiJlbAaEILtwL84N+BqTMNIcBSTAqkKWceaEfavQID7LKbRVMD3BtwxdXEtQsFckJp0Ohl/YDIa2Yv53liUSS3zwVp62jWWLGz2Y4QApcIuTeV7jWeSOMMpKAYSmS2fnw2T/ioHHsBM"
 }
