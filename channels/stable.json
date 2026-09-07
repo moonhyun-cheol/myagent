@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 40,
+    "update_sequence": 41,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-04T07:37:29.266Z",
+    "published_at": "2026-09-07T00:10:17.702Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-40",
+      "release_tag": "update-41",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267141243,
-      "sha256": "30f39555f744cf70922c5994877d2d38f1a74c208c9a0de4d9dcd65973de5fbf"
+      "size": 267139841,
+      "sha256": "a0e04118e25d082f5c762ab5d93bd446bdcb8f57e65e22f22a4d9f8b74175607"
     },
-    "payload_manifest_sha256": "4d537bb303f4a02dff1141a7f14dbe7f9bc0ba87bb3c39e15ca8241af0a0c499",
-    "release_notes": "Org skill routing (org:* modes), history isolation for concept RA, and ChatPane organization skill picker fixes."
+    "payload_manifest_sha256": "97e74c9658ba9ec5e2eeae071098bf2f19f7997ebe0d1ef1a60180b25d168e50",
+    "release_notes": "Model-aware Responses summary, debug telemetry cleanup, sidebar N/D shortcuts, visible-default auto model, tools-plane prune, and remove composer Undo."
   },
-  "signature": "ImTD5XXwneWA8T6NedPEyLG63TWYy0/UwVrQY9ylnKjpY+NqfyQXv9dgvbG3pmXEjmTJIBLrrJI7UefWKIkv2vc7TYr4cPgVErDtzYZCD0vz8MGQi8L+27fDBXEVG/ghMn8R5S6GBe0XCsD6icLNfL3AQV8Xxe7s+skJEwYgyqiP+PPrWp7kmVCTziSEYWFPXeZa7O7hwJqEh4OzFn6mDPUhiSlknERzdSNUpiq5ogwE9BXJF6o3VfkrPcIwdumcZPBDV/8uDVJvIQPPxJ9uTIKFerIiZ7MQYhsA7Pc93nUzEpOfsRgUh22KLfS28HTA2huBG0VR2xej8/jrmpcGX1Sj1H4TChK2xnMC438+VubxQjf8Aq4a7Pgquc76MJoxtXo5Couax/Z5TNpziGzI436cAkGgohWXQLho5O/EHaDS7MvSvObq3bXZ4EmK1o5ysrr9oGB8I79pGF2tj7pvd9H8NbL9T5AtCOpunzBItdXFC/Jp5sEPgtExBD0qhZE9"
+  "signature": "JefmJSN/FQ2ICSiNydgmcoebD/kZ8xETh2PgnCi3s8jWoWAxmcPTZBzKhSGiGb1c4UTgU0Y6HUzIlPo17GNTF05a+MPQEp3+HCXLAmQ6TVMGKNDdlk26gis4SWhkavIAwTOikuSs2JALwNgkXaSdflvKT+6YA3Q1sT1F/ABruVT0ijkT4RX5vQfxSaTzrMgFySsrgfgcNHkd9EB7H6VIiUkilswWMeiNCZ6DYaGmAuEeaFuQVk/CAkKL5O20l+kKBiya2MZCJyLzfG1nWBEcnAd6eLuloMIEUI4SAX267xiR+vJMO3c02J2n7I810W/61Z/Y0ywj9G4TQ5XDqaU6/LR5V/CXHMRWU5pJxxAgNQlXFa7kMjUmvYeqdadTb5CyP7krAGxhviK8vFH4mfw6eXusVAsVl6qlwvD+RgpwzO1g2QsFR71dEA5/UkBqL0846zf8mlbkTviTuE5TADSexLBTotTnLgW2eZpmhxZdx20gwxVu0v8UV6SnX0CD3e61"
 }
