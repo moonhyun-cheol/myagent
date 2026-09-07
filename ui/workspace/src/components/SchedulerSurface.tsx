@@ -484,7 +484,7 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
           <DotsThree size={17} weight="bold" />
         </button>
         {menuOpen ? (
-          <div role="menu" className="absolute right-0 top-9 z-20 w-40 rounded-xl border border-line bg-white p-1.5 shadow-[0_12px_32px_rgba(23,33,29,0.16)]">
+          <div role="menu" className="absolute bottom-9 right-0 z-50 w-40 rounded-xl border border-line bg-white p-1.5 shadow-[0_12px_32px_rgba(23,33,29,0.16)]">
             <button
               type="button"
               role="menuitem"

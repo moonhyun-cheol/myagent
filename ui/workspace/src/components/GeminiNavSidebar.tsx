@@ -2,9 +2,7 @@ import {
   CalendarBlank,
   CheckCircle,
   Clock,
-  FileText,
   GearSix,
-  DownloadSimple,
   ArrowsOut,
   MagnifyingGlass,
   Notebook,
@@ -48,6 +46,7 @@ export function GeminiNavSidebar({
   const [busyMsg, setBusyMsg] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [automationFeedOpen, setAutomationFeedOpen] = useState(false);
+  const [automationFeedTargetId, setAutomationFeedTargetId] = useState<string | null>(null);
   const [width, setWidth] = useState(272);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -179,7 +178,13 @@ export function GeminiNavSidebar({
             {activeSurface === 'chat' ? (
               <ProjectsTree query={query} onMessage={setBusyMsg} />
             ) : (
-              <AutomationSidebarSummary unreadCount={automationUnreadCount} onOpenFeed={() => setAutomationFeedOpen(true)} />
+              <AutomationSidebarSummary
+                unreadCount={automationUnreadCount}
+                onOpenFeed={(itemId) => {
+                  setAutomationFeedTargetId(itemId ?? null);
+                  setAutomationFeedOpen(true);
+                }}
+              />
             )}
           </div>
 
@@ -211,12 +216,19 @@ export function GeminiNavSidebar({
       ) : null}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <AutomationFeedModal open={automationFeedOpen} onClose={() => setAutomationFeedOpen(false)} />
+      <AutomationFeedModal
+        open={automationFeedOpen}
+        targetItemId={automationFeedTargetId}
+        onClose={() => {
+          setAutomationFeedOpen(false);
+          setAutomationFeedTargetId(null);
+        }}
+      />
     </aside>
   );
 }
 
-function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: number; onOpenFeed: () => void }) {
+function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: number; onOpenFeed: (itemId?: string) => void }) {
   const [items, setItems] = useState<AutomationFeedItem[]>([]);
   const [loadError, setLoadError] = useState('');
 
@@ -243,7 +255,7 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
           ) : null}
           <button
             type="button"
-            onClick={onOpenFeed}
+            onClick={() => onOpenFeed()}
             className="ml-auto rounded-md border border-line bg-white/70 p-1.5 text-muted transition hover:border-accent/40 hover:text-accent"
             aria-label="작업 뉴스피드 크게 보기"
             title="크게 보기"
@@ -262,9 +274,9 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
             key={item.id}
             time={formatFeedTime(item.created_at)}
             label={item.kind === 'error' ? '실행 오류' : item.kind === 'status' ? '진행 알림' : '실행 완료'}
-            message={item.message}
-            attachments={item.attachments}
+            title={item.title}
             error={item.kind === 'error'}
+            onOpen={() => onOpenFeed(item.id)}
           />
         ))}
       </div>
@@ -278,25 +290,26 @@ function formatFeedTime(value: string): string {
   return new Intl.DateTimeFormat('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-function isAutomationDownloadPath(value: string | undefined): value is string {
-  return typeof value === 'string' && value.startsWith('/outputs/automations/');
-}
-
 function AutomationFeedMessage({
   time,
   label,
-  message,
-  attachments = [],
+  title,
   error = false,
+  onOpen,
 }: {
   time: string;
   label: string;
-  message: string;
-  attachments?: AutomationFeedItem['attachments'];
+  title: string;
   error?: boolean;
+  onOpen: () => void;
 }) {
   return (
-    <article className="rounded-xl border border-line bg-white/75 p-2.5 shadow-sm">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block w-full rounded-xl border border-line bg-white/75 p-2.5 text-left shadow-sm transition hover:border-accent/45 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      aria-label={`${title} 뉴스피드에서 보기`}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${error ? 'bg-red-600' : 'bg-emerald-600'}`}>
           {error ? <Clock size={11} /> : <CheckCircle size={11} weight="fill" />}
@@ -304,26 +317,9 @@ function AutomationFeedMessage({
         </span>
         <time className="text-[9px] text-muted">{time}</time>
       </div>
-      <p className="mt-1.5 text-[10px] leading-[1.55] text-text/90">{message}</p>
-      {attachments.map((attachment) => isAutomationDownloadPath(attachment.path) ? (
-        <a
-          key={`${attachment.path}:${attachment.name}`}
-          href={attachment.path}
-          download={attachment.name}
-          className="mt-2 flex items-center gap-2 rounded-lg border border-accent/35 bg-accent/5 px-2 py-1.5 transition hover:border-accent hover:bg-accent/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          aria-label={`${attachment.name} 다운로드`}
-        >
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-white">
-            <FileText size={14} weight="bold" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[9px] font-medium text-text">{attachment.name}</p>
-            <p className="text-[8px] text-muted">{attachment.mime === 'text/markdown' ? 'Markdown' : attachment.mime ?? '파일'}{attachment.size ? ` · ${Math.max(1, Math.ceil(attachment.size / 1024))} KB` : ''}</p>
-          </div>
-          <DownloadSimple size={14} className="shrink-0 text-accent" weight="bold" />
-        </a>
-      ) : null)}
-    </article>
+      <p className="mt-2 truncate text-[11px] font-semibold text-text">{title}</p>
+      <p className="mt-0.5 text-[9px] text-accent">뉴스피드에서 보기</p>
+    </button>
   );
 }
 

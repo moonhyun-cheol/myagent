@@ -8,7 +8,7 @@ import {
   WarningCircle,
   X,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   listAutomationFeed,
   type AutomationFeedAttachment,
@@ -29,11 +29,12 @@ function isDownloadable(attachment: AutomationFeedAttachment): attachment is Aut
   return typeof attachment.path === 'string' && attachment.path.startsWith('/outputs/automations/');
 }
 
-export function AutomationFeedModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AutomationFeedModal({ open, onClose, targetItemId = null }: { open: boolean; onClose: () => void; targetItemId?: string | null }) {
   const [items, setItems] = useState<AutomationFeedItem[]>([]);
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -61,6 +62,21 @@ export function AutomationFeedModal({ open, onClose }: { open: boolean; onClose:
     () => filter === 'all' ? items : items.filter((item) => item.kind === filter),
     [filter, items],
   );
+
+  useEffect(() => {
+    if (!open || !targetItemId || loading) return;
+    if (filter !== 'all') {
+      setFilter('all');
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(targetItemId) : targetItemId.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+      const target = scrollAreaRef.current?.querySelector<HTMLElement>(`[data-feed-item-id="${escapedId}"]`);
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filter, loading, open, targetItemId]);
 
   if (!open) return null;
 
@@ -121,7 +137,7 @@ export function AutomationFeedModal({ open, onClose }: { open: boolean; onClose:
           <span className="ml-auto text-xs text-muted">{filteredItems.length}개 항목</span>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div ref={scrollAreaRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {loadError ? (
             <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
           ) : loading && items.length === 0 ? (
@@ -134,7 +150,7 @@ export function AutomationFeedModal({ open, onClose }: { open: boolean; onClose:
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredItems.map((item) => <AutomationFeedCard key={item.id} item={item} />)}
+              {filteredItems.map((item) => <AutomationFeedCard key={item.id} item={item} highlighted={item.id === targetItemId} />)}
             </div>
           )}
         </div>
@@ -143,11 +159,15 @@ export function AutomationFeedModal({ open, onClose }: { open: boolean; onClose:
   );
 }
 
-function AutomationFeedCard({ item }: { item: AutomationFeedItem }) {
+function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFeedItem; highlighted?: boolean }) {
   const error = item.kind === 'error';
   const status = item.kind === 'status';
   return (
-    <article className={`rounded-2xl border bg-white/80 p-5 shadow-sm ${error ? 'border-red-200' : 'border-line'}`}>
+    <article
+      data-feed-item-id={item.id}
+      tabIndex={highlighted ? -1 : undefined}
+      className={`rounded-2xl border bg-white/80 p-5 shadow-sm outline-none transition ${highlighted ? 'border-accent ring-2 ring-accent/35' : error ? 'border-red-200' : 'border-line'}`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${error ? 'bg-red-600' : status ? 'bg-sky-600' : 'bg-emerald-600'}`}>
