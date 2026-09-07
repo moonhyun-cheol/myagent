@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BROWSER_HISTORY_MAX, validHttpUrl } from '../lib/browserUrl';
+import { BROWSER_HISTORY_MAX, normalizeBrowserUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
 import { showUserNotification } from '../lib/userNotifications';
 import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
@@ -1296,7 +1296,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     setBrowserInputUrl: (browserInputUrl) => set({ browserInputUrl }),
     navigateBrowser: (rawUrl) =>
       set((state) => {
-        const url = validHttpUrl(rawUrl);
+        const url = normalizeBrowserUrl(rawUrl);
         if (!url) return state;
         if (url === state.browserLoadedUrl && state.browserHistoryIndex >= 0) {
           return { browserInputUrl: url, browserLoadedUrl: url };
@@ -1659,14 +1659,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         approval: 'ask' as const,
         workspace_behavior: 'agent' as const,
       };
+      const selectedModel = rec.preferred_model ?? globalDefaultModel;
       set({
         activeSessionId: id,
         activeProjectId: rec.project_id ?? membershipProjectId,
         activeWorkspaceProjectId: workspaceRootProjectId,
         chat: [],
-        selectedModel: rec.preferred_model ?? globalDefaultModel,
+        selectedModel,
         activeExecutionPolicy: {
           ...policy,
+          reasoning: normalizeReasoningLevelForModel(policy.reasoning, selectedModel),
           workspace_behavior: policy.workspace_behavior ?? 'agent',
         },
         effectiveExecutionPolicy: null,
@@ -1755,12 +1757,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const workspaceRootProjectId = await resolveWorkspaceRootProjectId(membershipProjectId);
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
+        const selectedModel = rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto';
+        const rawPolicy = currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto' as const, autopilot: 'auto' as const, approval: 'ask' as const, workspace_behavior: 'agent' as const };
         const refreshed: SessionViewSnapshot = {
           activeProjectId: membershipProjectId,
-          selectedModel: rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto',
+          selectedModel,
           activeWorkspaceProjectId: workspaceRootProjectId,
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
-          activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
+          activeExecutionPolicy: {
+            ...rawPolicy,
+            reasoning: normalizeReasoningLevelForModel(rawPolicy.reasoning, selectedModel),
+            workspace_behavior: rawPolicy.workspace_behavior ?? 'agent',
+          },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,
           assets: currentLive && previous
             ? previous.assets
@@ -1775,6 +1783,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({
           activeProjectId: refreshed.activeProjectId,
           activeWorkspaceProjectId: refreshed.activeWorkspaceProjectId,
+          selectedModel: refreshed.selectedModel,
           chat: refreshed.chat,
           activeExecutionPolicy: refreshed.activeExecutionPolicy,
           effectiveExecutionPolicy: refreshed.effectiveExecutionPolicy,

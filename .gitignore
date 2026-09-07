@@ -124,3 +124,7 @@ tsconfig.tsbuildinfo
 # Code Agent apply-patch trash (deleted-file safety copies)
 .cqr-pa/
 
+
+# CQR_PA port scratch specs ? do not keep in product tree
+patch-candidates/
+

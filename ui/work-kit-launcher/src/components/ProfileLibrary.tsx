@@ -7,6 +7,8 @@ import {
   installWorkKitShelf,
   refreshWorkKitCatalog,
   restoreProfileLastState,
+  unapplyWorkKitProfile,
+  uninstallWorkKitShelfFiles,
   type AgentProfileApplied,
   type OrganizationFeatureStatus,
   type ShelfInstallStatus,
@@ -115,14 +117,24 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const isKitApplied = (shelf: WorkKitShelf) =>
     appliedKits.some((kit) => kit.group === shelf.group && kit.kit_id === shelf.id);
 
-  const restore = async () => {
+  /** Undo snapshot taken right before the last apply/unapply. */
+  const restoreLastSnapshot = async () => {
+    const ok = await confirmDialog({
+      title: '직전 작업 취소',
+      message:
+        '마지막으로 키트를 적용하거나 해제한 직전 상태로 플러그인·적용 목록·추가 기능을 되돌립니다. '
+        + '키트별로 「적용 해제」하는 것과는 다릅니다.',
+      confirmLabel: '직전 상태로',
+      danger: false,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await restoreProfileLastState();
-      setMessage('이전 상태로 되돌렸습니다.');
+      setMessage('직전 적용/해제 직전 상태로 되돌렸습니다.');
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '되돌리기 실패');
+      setMessage(error instanceof Error ? error.message : '직전 상태 복원 실패');
     } finally {
       setBusy(false);
     }
@@ -171,6 +183,56 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
     }
   };
 
+  const unapplyKit = async (shelf: WorkKitShelf) => {
+    const ok = await confirmDialog({
+      title: '적용 해제',
+      message:
+        `「${shelf.label}」 적용을 해제할까요?\n`
+        + '이 키트만 쓰던 플러그인·추가 기능(Feature)은 꺼집니다. '
+        + '받아 둔 설치 파일은 남습니다.',
+      confirmLabel: '적용 해제',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await unapplyWorkKitProfile(shelf.group, shelf.id);
+      const warn = result.warnings?.length ? ` (${result.warnings[0]})` : '';
+      setMessage(`「${shelf.label}」 적용을 해제했습니다.${warn}`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '적용 해제 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeInstalledFiles = async (shelf: WorkKitShelf) => {
+    if (isKitApplied(shelf)) {
+      setMessage('적용 중인 키트는 먼저 「적용 해제」한 뒤 설치 파일을 삭제하세요.');
+      return;
+    }
+    const ok = await confirmDialog({
+      title: '설치 파일 삭제',
+      message:
+        `「${shelf.label}」로 받아 둔 로컬 설치 파일을 삭제할까요?\n`
+        + '다시 쓰려면 「받기」가 필요합니다.',
+      confirmLabel: '삭제',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await uninstallWorkKitShelfFiles(shelf.group, shelf.id);
+      setMessage(`「${shelf.label}」 설치 파일을 삭제했습니다.`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '설치 파일 삭제 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const disabled = busy || syncing;
 
   return (
@@ -182,7 +244,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
         <div>
           <h1 className="text-lg font-semibold text-text">MY Agent 관리자</h1>
           <p className="mt-0.5 text-sm text-muted">
-            사용할 작업 키트를 받고 적용한 뒤 MY Agent를 실행하세요.
+            작업 키트 받기 → 적용 / 적용 해제. 조직 모듈 스킬은 모듈 단위입니다.
           </p>
           {feedSequence != null ? (
             <p className="mt-1 text-[11px] text-muted">카탈로그 seq {feedSequence}</p>
@@ -191,7 +253,9 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
             <p className="mt-2 text-sm text-text">
               적용 중 · <span className="font-semibold text-accent">{appliedLabel}</span>
             </p>
-          ) : null}
+          ) : (
+            <p className="mt-2 text-sm text-muted">적용 중인 키트 없음</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {onLaunchMyAgent ? (
@@ -220,11 +284,12 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
             <button
               type="button"
               data-testid="work-profile-restore"
+              title="마지막 적용/해제 직전 스냅샷으로 복원"
               disabled={disabled}
-              onClick={() => void restore()}
+              onClick={() => void restoreLastSnapshot()}
               className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-2 text-xs font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
             >
-              <ArrowCounterClockwise size={15} /> 되돌리기
+              <ArrowCounterClockwise size={15} /> 직전 작업 취소
             </button>
           ) : null}
         </div>
@@ -281,6 +346,8 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
                     disabled={disabled}
                     onInstall={() => void installKit(shelf)}
                     onApply={() => void applyKit(shelf)}
+                    onUnapply={() => void unapplyKit(shelf)}
+                    onRemoveInstall={() => void removeInstalledFiles(shelf)}
                   />
                 ))}
               </ul>
@@ -316,6 +383,8 @@ function KitCard({
   disabled,
   onInstall,
   onApply,
+  onUnapply,
+  onRemoveInstall,
 }: {
   shelf: WorkKitShelf;
   isApplied: boolean;
@@ -323,16 +392,19 @@ function KitCard({
   disabled: boolean;
   onInstall: () => void;
   onApply: () => void;
+  onUnapply: () => void;
+  onRemoveInstall: () => void;
 }) {
   const status = resolveInstallStatus(shelf);
   const canApply = status === 'installed' || status === 'update_available';
   const needsInstall = status === 'available' || status === 'update_available';
+  const canRemoveInstall = (status === 'installed' || status === 'update_available') && !isApplied;
   const statusText = statusLabel(status);
   const featureIds = Object.keys(shelf.features?.enable ?? {});
   const featureBadges = featureIds.map((id) => {
     const live = organizationFeatures.find((f) => f.id === id);
     if (live?.enabled) return { id, label: '추가 기능 활성', tone: 'ok' as const };
-    if (live?.installed) return { id, label: '추가 기능 설치됨', tone: 'warn' as const };
+    if (live?.installed) return { id, label: '추가 기능 설치됨(꺼짐)', tone: 'warn' as const };
     if (isApplied) return { id, label: '추가 기능 실패/미설치', tone: 'fail' as const };
     return { id, label: '추가 기능 필요', tone: 'muted' as const };
   });
@@ -382,7 +454,7 @@ function KitCard({
           <p className="mt-1.5 text-sm leading-relaxed text-muted">{shelf.description}</p>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
         {needsInstall ? (
           <button
             type="button"
@@ -394,15 +466,38 @@ function KitCard({
             {status === 'update_available' ? '업데이트' : '받기'}
           </button>
         ) : null}
-        <button
-          type="button"
-          data-testid={`profile-picker-apply-${shelf.group}-${shelf.id}`}
-          disabled={disabled || isApplied || !canApply}
-          onClick={onApply}
-          className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          {isApplied ? '적용됨' : '적용'}
-        </button>
+        {isApplied ? (
+          <button
+            type="button"
+            data-testid={`profile-picker-unapply-${shelf.group}-${shelf.id}`}
+            disabled={disabled}
+            onClick={onUnapply}
+            className="rounded-xl border border-red-300/70 bg-panel px-4 py-2 text-sm font-semibold text-red-700 hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            적용 해제
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid={`profile-picker-apply-${shelf.group}-${shelf.id}`}
+            disabled={disabled || !canApply}
+            onClick={onApply}
+            className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            적용
+          </button>
+        )}
+        {canRemoveInstall ? (
+          <button
+            type="button"
+            data-testid={`profile-picker-uninstall-${shelf.group}-${shelf.id}`}
+            disabled={disabled}
+            onClick={onRemoveInstall}
+            className="rounded-xl border border-line bg-panel px-3 py-2 text-xs font-semibold text-muted hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            설치 삭제
+          </button>
+        ) : null}
       </div>
     </li>
   );

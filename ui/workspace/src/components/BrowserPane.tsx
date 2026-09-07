@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
   ArrowClockwise,
   ArrowLeft,
@@ -8,7 +8,17 @@ import {
   Check,
   GlobeSimple,
 } from '@phosphor-icons/react';
-import { validHttpUrl } from '../lib/browserUrl';
+import { isLocalPreviewUrl, normalizeBrowserUrl } from '../lib/browserUrl';
+import {
+  inAppBrowserBack,
+  inAppBrowserForward,
+  inAppBrowserOpenExternal,
+  inAppBrowserReload,
+  isShellInAppBrowserAvailable,
+  navigateInAppBrowser,
+  openInAppBrowser,
+  subscribeInAppBrowserState,
+} from '../lib/inAppBrowserBridge';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
 type ViewportPreset = {
@@ -32,8 +42,8 @@ const VIEWPORT_PRESETS: ViewportPreset[] = [
 export function BrowserPane() {
   const browserInputUrl = useWorkspaceStore((s) => s.browserInputUrl);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
-  const canGoBack = useWorkspaceStore((s) => s.browserHistoryIndex > 0);
-  const canGoForward = useWorkspaceStore(
+  const storeCanGoBack = useWorkspaceStore((s) => s.browserHistoryIndex > 0);
+  const storeCanGoForward = useWorkspaceStore(
     (s) => s.browserHistoryIndex >= 0 && s.browserHistoryIndex < s.browserHistory.length - 1,
   );
   const browserReloadKey = useWorkspaceStore((s) => s.browserReloadKey);
@@ -42,11 +52,43 @@ export function BrowserPane() {
   const reloadBrowser = useWorkspaceStore((s) => s.reloadBrowser);
   const goBrowserBack = useWorkspaceStore((s) => s.goBrowserBack);
   const goBrowserForward = useWorkspaceStore((s) => s.goBrowserForward);
+  const shellAvailable = isShellInAppBrowserAvailable();
+  const [shellVisible, setShellVisible] = useState(false);
+  const [shellStatus, setShellStatus] = useState('');
+  const [shellCanGoBack, setShellCanGoBack] = useState(false);
+  const [shellCanGoForward, setShellCanGoForward] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [viewportOpen, setViewportOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportPreset>(VIEWPORT_PRESETS[0]);
   const [customWidth, setCustomWidth] = useState('390');
   const [customHeight, setCustomHeight] = useState('844');
+
+  const useShellSurface = Boolean(
+    shellAvailable && browserLoadedUrl && !isLocalPreviewUrl(browserLoadedUrl),
+  );
+  const useIframeSurface = Boolean(
+    browserLoadedUrl && (!shellAvailable || isLocalPreviewUrl(browserLoadedUrl)),
+  );
+  const canGoBack = useShellSurface ? shellCanGoBack || storeCanGoBack : storeCanGoBack;
+  const canGoForward = useShellSurface ? shellCanGoForward || storeCanGoForward : storeCanGoForward;
+
+  useEffect(() => {
+    if (!shellAvailable) return undefined;
+    return subscribeInAppBrowserState((state) => {
+      setShellVisible(state.visible);
+      setShellStatus(state.status);
+      setShellCanGoBack(state.canGoBack);
+      setShellCanGoForward(state.canGoForward);
+      if (state.url) {
+        const store = useWorkspaceStore.getState();
+        if (state.url !== store.browserLoadedUrl) {
+          store.navigateBrowser(state.url);
+        } else if (state.url !== store.browserInputUrl) {
+          store.setBrowserInputUrl(state.url);
+        }
+      }
+    });
+  }, [shellAvailable]);
 
   const selectViewport = (preset: ViewportPreset) => {
     setViewport(preset);
@@ -71,18 +113,43 @@ export function BrowserPane() {
 
   const openExternal = () => {
     if (!browserLoadedUrl) return;
+    if (inAppBrowserOpenExternal(browserLoadedUrl)) return;
     window.open(browserLoadedUrl, '_blank', 'noopener,noreferrer');
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const url = validHttpUrl(browserInputUrl);
+    const url = normalizeBrowserUrl(browserInputUrl);
     if (!url) {
-      setMessage('http:// 또는 https://로 시작하는 웹 주소만 열 수 있습니다.');
+      setMessage('웹 주소를 입력하세요. 예: example.com 또는 https://example.com');
       return;
     }
     setMessage(null);
+    setBrowserInputUrl(url);
     navigateBrowser(url);
+
+    if (shellAvailable && !isLocalPreviewUrl(url)) {
+      // Real browsing happens in the shell WebView2 (not iframe — most sites block framing).
+      if (!openInAppBrowser(url)) navigateInAppBrowser(url);
+      setShellVisible(true);
+      setShellStatus('페이지를 여는 중입니다.');
+    }
+  };
+
+  const onBack = () => {
+    if (useShellSurface && inAppBrowserBack()) return;
+    goBrowserBack();
+  };
+
+  const onForward = () => {
+    if (useShellSurface && inAppBrowserForward()) return;
+    goBrowserForward();
+  };
+
+  const onReload = () => {
+    if (!browserLoadedUrl) return;
+    if (useShellSurface && inAppBrowserReload()) return;
+    reloadBrowser();
   };
 
   return (
@@ -93,7 +160,7 @@ export function BrowserPane() {
       >
         <button
           type="button"
-          onClick={goBrowserBack}
+          onClick={onBack}
           disabled={!canGoBack}
           title="뒤로"
           className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
@@ -102,7 +169,7 @@ export function BrowserPane() {
         </button>
         <button
           type="button"
-          onClick={goBrowserForward}
+          onClick={onForward}
           disabled={!canGoForward}
           title="앞으로"
           className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
@@ -111,7 +178,7 @@ export function BrowserPane() {
         </button>
         <button
           type="button"
-          onClick={() => browserLoadedUrl && reloadBrowser()}
+          onClick={onReload}
           disabled={!browserLoadedUrl}
           title="새로고침"
           className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
@@ -128,14 +195,14 @@ export function BrowserPane() {
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            placeholder="https://example.com"
+            placeholder="example.com 또는 https://…"
             aria-label="웹 주소"
             className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-muted"
           />
         </label>
         <button
           type="submit"
-          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-ink hover:bg-accent/90"
+          className="rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-accent/90"
         >
           이동
         </button>
@@ -145,13 +212,15 @@ export function BrowserPane() {
             onClick={() => setViewportOpen((open) => !open)}
             aria-expanded={viewportOpen}
             aria-haspopup="dialog"
-            className="inline-flex items-center gap-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-muted hover:border-accent/50 hover:text-text"
+            disabled={useShellSurface}
+            title={useShellSurface ? '외부 사이트는 인앱 브라우저에서 실제 크기로 표시됩니다' : '화면 크기'}
+            className="inline-flex items-center gap-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-muted hover:border-accent/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span>{viewport.label}</span>
             <span className="text-[10px] text-muted/70">{viewport.width} × {viewport.height}</span>
             <CaretDown size={13} weight="bold" />
           </button>
-          {viewportOpen ? (
+          {viewportOpen && !useShellSurface ? (
             <div
               role="dialog"
               aria-label="웹 화면 크기 설정"
@@ -160,7 +229,7 @@ export function BrowserPane() {
               <div className="mb-2 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold text-text">웹 화면 크기</p>
-                  <p className="mt-0.5 text-[10px] text-muted">화면 크기</p>
+                  <p className="mt-0.5 text-[10px] text-muted">로컬 미리보기용</p>
                 </div>
                 <button
                   type="button"
@@ -226,7 +295,7 @@ export function BrowserPane() {
                   <button
                     type="button"
                     onClick={applyCustomViewport}
-                    className="rounded-md bg-accent px-2 py-1.5 text-[11px] font-semibold text-ink hover:bg-accent/90"
+                    className="rounded-md bg-accent px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-accent/90"
                   >
                     적용
                   </button>
@@ -238,13 +307,35 @@ export function BrowserPane() {
       </form>
 
       {message ? (
-        <p className="shrink-0 border-b border-red-400/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+        <p className="shrink-0 border-b border-red-400/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
           {message}
         </p>
       ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-auto bg-[#d7dcd9] p-4">
-        {browserLoadedUrl ? (
+        {useShellSurface ? (
+          <div className="flex h-full flex-col items-center justify-center gap-4 rounded-xl border-2 border-line bg-panel px-6 text-center shadow-sm">
+            <GlobeSimple size={40} className="text-accent" weight="duotone" />
+            <div className="max-w-md">
+              <p className="text-sm font-bold text-text">인앱 브라우저에서 실제 웹 페이지를 표시합니다</p>
+              <p className="mt-2 break-all text-xs font-medium text-accent-dim">{browserLoadedUrl}</p>
+              <p className="mt-2 text-xs leading-5 text-muted">
+                대부분의 사이트는 Preview iframe에 넣을 수 없어, 앱 오른쪽 WebView2에서 접속합니다.
+                주소창·뒤로/앞으로/새로고침은 이 Preview와 연결되어 있습니다.
+              </p>
+              {shellStatus ? <p className="mt-2 text-[11px] text-muted">{shellStatus}</p> : null}
+              {!shellVisible ? (
+                <button
+                  type="button"
+                  className="mt-4 rounded-lg bg-accent px-4 py-2 text-xs font-bold text-white hover:brightness-95"
+                  onClick={() => browserLoadedUrl && openInAppBrowser(browserLoadedUrl)}
+                >
+                  인앱 브라우저 다시 열기
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : useIframeSurface ? (
           <div className="flex min-h-full min-w-full items-start justify-center">
             <div
               className="shrink-0 overflow-hidden bg-white shadow-[0_8px_30px_rgba(15,23,42,0.16)] transition-[width,height] duration-200"
@@ -255,7 +346,7 @@ export function BrowserPane() {
             >
               <iframe
                 key={`${browserLoadedUrl}:${browserReloadKey}`}
-                src={browserLoadedUrl}
+                src={browserLoadedUrl ?? undefined}
                 title={`Preview 웹 페이지 · ${viewport.label} ${viewport.width}×${viewport.height}`}
                 referrerPolicy="strict-origin-when-cross-origin"
                 className="block h-full w-full border-0"
@@ -267,7 +358,11 @@ export function BrowserPane() {
             <GlobeSimple size={34} className="text-accent" weight="duotone" />
             <div>
               <p className="text-sm font-medium text-text">웹 미리보기</p>
-              <p className="mt-1 text-xs text-muted">주소 입력 후 Enter</p>
+              <p className="mt-1 text-xs text-muted">
+                {shellAvailable
+                  ? '주소를 입력한 뒤 Enter — 실제 사이트는 인앱 브라우저로 열립니다'
+                  : '주소 입력 후 Enter (로컬 서버 미리보기에 적합)'}
+              </p>
             </div>
           </div>
         )}
@@ -276,7 +371,11 @@ export function BrowserPane() {
       {browserLoadedUrl ? (
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-3 py-1.5">
           <p className="min-w-0 truncate text-[10px] text-muted">
-            안 열리면 기본 브라우저 사용
+            {useShellSurface
+              ? '실제 접속: 오른쪽 인앱 브라우저'
+              : shellAvailable
+                ? '로컬 미리보기 (디바이스 프레임)'
+                : 'iframe 미리보기 — 차단되면 기본 브라우저 사용'}
           </p>
           <button
             type="button"

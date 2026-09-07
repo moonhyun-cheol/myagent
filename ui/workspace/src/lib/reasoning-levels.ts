@@ -35,6 +35,35 @@ export function modelOmitsReasoningEffort(modelId?: string | null): boolean {
   return /gemini-3-pro-image|gemini.*-image|[-_/]image(?:-|$)|image-gen|imagen/i.test(m);
 }
 
+/**
+ * Gateways that reject omitted reasoning ("Reasoning is mandatory").
+ * Hide `자동` in the picker and persist an explicit default instead.
+ */
+export function modelRequiresExplicitReasoningEffort(modelId?: string | null): boolean {
+  const m = String(modelId || '').toLowerCase();
+  if (!m) return false;
+  return /\bgpt[-_. ]?astra\b/.test(m);
+}
+
+function defaultExplicitReasoningEffort(modelId?: string | null): ReasoningEffortLevel {
+  const supported = modelSupportedReasoningLevels(modelId);
+  if (supported.includes('low')) return 'low';
+  return supported[0] ?? 'low';
+}
+
+/**
+ * OpenAI-style reasoning models → full product ladder.
+ * New gpt-<alias> names inherit detail without a per-model level count.
+ */
+function isFullReasoningLadderModel(modelId?: string | null): boolean {
+  const m = String(modelId || '').toLowerCase();
+  if (!m) return false;
+  if (/deepseek|perplexity|sonar|grok|claude|anthropic|fable|mythos/.test(m)) return false;
+  if (/gpt-5|\bo[1-4](?:[-_.]|$)|codex/.test(m)) return true;
+  if (/\bgpt[-_. ](?![34]\b|[34][-_.]|4o\b)/.test(m)) return true;
+  return false;
+}
+
 export function modelSupportedReasoningLevels(modelId?: string | null): ReasoningEffortLevel[] {
   const m = String(modelId || '').toLowerCase();
   if (!m || modelOmitsReasoningEffort(m)) return [];
@@ -48,8 +77,8 @@ export function modelSupportedReasoningLevels(modelId?: string | null): Reasonin
     }
     return [];
   }
-  if (/gpt-5|o1|o3|o4|codex/.test(m)) {
-    return ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  if (isFullReasoningLadderModel(m)) {
+    return [...REASONING_EFFORT_LEVELS];
   }
   return ['low', 'medium', 'high'];
 }
@@ -59,13 +88,20 @@ export function normalizeReasoningLevelForModel(
   value: 'auto' | ReasoningEffortLevel,
   modelId?: string | null,
 ): 'auto' | ReasoningEffortLevel {
-  if (value === 'auto') return value;
+  if (value === 'auto') {
+    return modelRequiresExplicitReasoningEffort(modelId)
+      ? defaultExplicitReasoningEffort(modelId)
+      : 'auto';
+  }
   const supported = modelSupportedReasoningLevels(modelId);
-  if (!supported.length) return 'auto';
+  if (!supported.length) {
+    return modelRequiresExplicitReasoningEffort(modelId)
+      ? defaultExplicitReasoningEffort(modelId)
+      : 'auto';
+  }
   if (supported.includes(value)) return value;
   const requestedIndex = REASONING_EFFORT_LEVELS.indexOf(value);
-  return supported.reduce<ReasoningEffortLevel | 'auto'>((best, candidate) => {
-    if (best === 'auto') return candidate;
+  return supported.reduce<ReasoningEffortLevel>((best, candidate) => {
     const candidateIndex = REASONING_EFFORT_LEVELS.indexOf(candidate);
     const bestIndex = REASONING_EFFORT_LEVELS.indexOf(best);
     const candidateDistance = Math.abs(candidateIndex - requestedIndex);
@@ -73,7 +109,7 @@ export function normalizeReasoningLevelForModel(
     return candidateDistance < bestDistance || (candidateDistance === bestDistance && candidateIndex > bestIndex)
       ? candidate
       : best;
-  }, 'auto');
+  }, supported[0]!);
 }
 
 /** Full product ladder for Settings (no model context). */
@@ -94,8 +130,9 @@ export function reasoningSelectOptionsForModel(
     return [{ value: 'auto', label: REASONING_LEVEL_LABELS.auto }];
   }
   const levels = supported.length ? supported : [...REASONING_EFFORT_LEVELS];
-  return [
-    { value: 'auto', label: REASONING_LEVEL_LABELS.auto },
-    ...levels.map((value) => ({ value, label: REASONING_LEVEL_LABELS[value] })),
-  ];
+  const options = levels.map((value) => ({ value, label: REASONING_LEVEL_LABELS[value] }));
+  if (modelRequiresExplicitReasoningEffort(modelId)) {
+    return options;
+  }
+  return [{ value: 'auto', label: REASONING_LEVEL_LABELS.auto }, ...options];
 }

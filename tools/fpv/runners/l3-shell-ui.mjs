@@ -54,18 +54,20 @@ export async function runL3(opts = {}) {
   }
 
   // Shell integration wiring (AGENTS: <a href> alone ≠ 인앱 열림)
-  const uiOpen = fileHas(
-    'ui/workspace/src/components/ChatPane.tsx',
+  const bridgeOpen = fileHas(
+    'ui/workspace/src/lib/inAppBrowserBridge.ts',
     "type: 'inAppBrowser.open'",
   );
+  const chatUsesBridge = fileHas('ui/workspace/src/components/ChatPane.tsx', 'openInAppBrowser');
+  const uiOpenOk = bridgeOpen.ok && chatUsesBridge.ok;
   rows.push({
     id: 'ui.inAppBrowser.open_postMessage',
-    ok: uiOpen.ok,
-    tag: uiOpen.ok ? 'green' : 'red',
-    path: uiOpen.path,
-    acceptance: 'ChatPane → chrome.webview.postMessage inAppBrowser.open',
+    ok: uiOpenOk,
+    tag: uiOpenOk ? 'green' : 'red',
+    path: bridgeOpen.path,
+    acceptance: 'ChatPane → inAppBrowserBridge → chrome.webview.postMessage inAppBrowser.open',
     layer: 'L3',
-    note: uiOpen.reason,
+    note: uiOpenOk ? undefined : `${bridgeOpen.reason || ''} ${chatUsesBridge.reason || ''}`.trim(),
   });
 
   const shellCase = fileHas('shell/CqrPa.Shell/MainWindow.xaml.cs', 'case "inAppBrowser.open"');

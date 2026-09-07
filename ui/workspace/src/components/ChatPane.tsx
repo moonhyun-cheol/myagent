@@ -8,6 +8,8 @@ import {
   PaperPlaneTilt,
   Browser,
   CaretDown,
+  CheckCircle,
+  PuzzlePiece,
   X,
   Image as ImageIcon,
   Stop,
@@ -48,7 +50,11 @@ import {
   reasoningLevelLabel,
   reasoningSelectOptionsForModel,
   modelOmitsReasoningEffort,
+  modelRequiresExplicitReasoningEffort,
+  normalizeReasoningLevelForModel,
 } from '../lib/reasoning-levels';
+import { normalizeBrowserUrl } from '../lib/browserUrl';
+import { openInAppBrowser } from '../lib/inAppBrowserBridge';
 import {
   copyImageToClipboard,
   copyImageUrl,
@@ -102,25 +108,6 @@ const EXTERNAL_URL_RE =
   /(?:https?:\/\/|www\.)[^\s<>"'`）】)\]]+/gi;
 const URL_TRAILING_PUNCTUATION_RE = /[.,!?;:`'"”’）】)\]>]+$/;
 
-type ChromeWebViewHost = {
-  postMessage: (message: unknown) => void;
-};
-
-function getChromeWebView(): ChromeWebViewHost | null {
-  const chrome = (window as unknown as { chrome?: { webview?: ChromeWebViewHost } }).chrome;
-  return chrome?.webview ?? null;
-}
-
-/** Open http(s) in the WPF shell right-side BrowserWebView (not the system browser). */
-function openInAppBrowser(rawUrl: string): boolean {
-  const href = normalizeExternalHref(rawUrl);
-  if (!href) return false;
-  const webview = getChromeWebView();
-  if (!webview) return false;
-  webview.postMessage({ type: 'inAppBrowser.open', url: href });
-  return true;
-}
-
 /** Prefer shell in-app browser; otherwise Preview「웹」pane — never navigate the workspace away. */
 function openExternalUrl(rawUrl: string): boolean {
   const href = normalizeExternalHref(rawUrl);
@@ -134,16 +121,8 @@ function openExternalUrl(rawUrl: string): boolean {
 }
 
 function normalizeExternalHref(rawUrl: string): string | null {
-  let value = rawUrl.trim().replace(URL_TRAILING_PUNCTUATION_RE, '');
-  if (!value) return null;
-  if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
-  try {
-    const uri = new URL(value);
-    if (uri.protocol !== 'http:' && uri.protocol !== 'https:') return null;
-    return uri.href;
-  } catch {
-    return null;
-  }
+  const cleaned = rawUrl.trim().replace(URL_TRAILING_PUNCTUATION_RE, '');
+  return normalizeBrowserUrl(cleaned);
 }
 
 function formatElapsedRuntime(elapsedMs?: number): string | null {
@@ -1029,17 +1008,21 @@ export function ChatPane() {
               추론 수준
               <select
                 data-testid="chat-reasoning-level"
-                value={
-                  reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' })
-                    .some((o) => o.value === activeExecutionPolicy.reasoning)
-                    ? activeExecutionPolicy.reasoning
-                    : 'auto'
-                }
+                value={(() => {
+                  const options = reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' });
+                  const normalized = normalizeReasoningLevelForModel(
+                    activeExecutionPolicy.reasoning,
+                    skillMode === 'image' ? null : selectedModel,
+                  );
+                  return options.some((o) => o.value === normalized)
+                    ? normalized
+                    : (options[0]?.value ?? 'auto');
+                })()}
                 disabled={busy || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel)}
                 onChange={(event) => void setExecutionPolicy({
                   reasoning: event.target.value as ReasoningLevel,
                 })}
-                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
+                className="mt-1.5 w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm font-semibold text-text shadow-sm outline-none focus:border-accent-dim"
               >
                 {reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' }).map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1047,6 +1030,8 @@ export function ChatPane() {
               </select>
               {skillMode === 'image' || modelOmitsReasoningEffort(selectedModel) ? (
                 <span className="mt-1 block text-[11px] text-muted">이미지 모델에서는 추론 수준을 쓰지 않습니다.</span>
+              ) : modelRequiresExplicitReasoningEffort(selectedModel) ? (
+                <span className="mt-1 block text-[11px] text-muted">이 모델은 추론 수준을 반드시 지정해야 합니다. 「자동」은 지원되지 않습니다.</span>
               ) : null}
             </label>
             <label className="mt-3 block text-xs font-medium text-text">
@@ -1132,19 +1117,47 @@ export function ChatPane() {
         </div>
       ) : null}
 
-      {skillMode && skillLabel ? (
-        <div className="flex items-center justify-between border-b border-line bg-accent/10 px-5 py-1.5 text-[11px] text-accent">
-          <span>스킬 적용 중: {skillLabel}</span>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent/20"
-            onClick={() => setSkillMode(null)}
+      <div
+        data-testid="skill-status-bar"
+        data-active={Boolean(skillMode)}
+        className={`flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 ${
+          skillMode
+            ? 'border-accent-dim bg-accent-dim text-white shadow-[inset_4px_0_0_0_#ffffff]'
+            : 'border-line bg-panel-2 text-text shadow-[inset_4px_0_0_0_#4f5d57]'
+        }`}
+      >
+        <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 flex-1 items-center gap-3">
+          <span
+            aria-hidden="true"
+            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+              skillMode ? 'bg-white/20 text-white' : 'border border-line bg-white text-muted'
+            }`}
           >
-            <X size={12} />
-            해제
-          </button>
+            {skillMode ? <CheckCircle size={18} weight="fill" /> : <PuzzlePiece size={18} weight="bold" />}
+          </span>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className={`text-[11px] font-bold tracking-[0.08em] ${skillMode ? 'text-white/85' : 'text-muted'}`}>
+              {skillMode ? '스킬 적용 중' : '스킬 미적용'}
+            </span>
+            <span className="min-w-0 break-all text-[15px] font-bold leading-snug">
+              {skillMode ? (skillLabel || skillMode) : '일반 대화'}
+            </span>
+          </div>
         </div>
-      ) : null}
+        <button
+          type="button"
+          data-testid="skill-status-action"
+          className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-bold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 ${
+            skillMode
+              ? 'border-white bg-white text-accent-dim hover:bg-panel focus-visible:outline-white'
+              : 'border-text/25 bg-white text-text hover:border-accent-dim hover:bg-panel focus-visible:outline-accent-dim'
+          }`}
+          onClick={() => skillMode ? setSkillMode(null) : setSkillPickerOpen(true)}
+        >
+          {skillMode ? <X size={14} weight="bold" aria-hidden="true" /> : <Plus size={14} weight="bold" aria-hidden="true" />}
+          {skillMode ? '적용 해제' : '스킬 선택'}
+        </button>
+      </div>
 
       <div
         ref={scrollRef}
@@ -1601,9 +1614,9 @@ export function ChatPane() {
                   aria-expanded={skillPickerOpen}
                   data-testid="organization-skill-button"
                   onClick={() => setSkillPickerOpen((open) => !open)}
-                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium ${
+                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${
                     skillMode || skillPickerOpen
-                      ? 'border-accent/60 bg-accent/15 text-accent'
+                      ? 'border-accent-dim bg-accent-dim text-white'
                       : 'border-line bg-panel-2/70 text-muted hover:border-accent/60 hover:text-text'
                   }`}
                 >
@@ -1663,7 +1676,8 @@ export function ChatPane() {
                       <button
                         key={skill.mode}
                         type="button"
-                        className={`block w-full rounded-lg px-2 py-2 text-left text-xs hover:bg-panel-2 ${skillMode === skill.mode ? 'bg-accent/10 text-accent' : 'text-text'}`}
+                        aria-pressed={skillMode === skill.mode}
+                        className={`block w-full rounded-lg px-2 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${skillMode === skill.mode ? 'bg-accent-dim text-white hover:bg-accent-dim' : 'text-text hover:bg-panel-2'}`}
                         onClick={() => {
                           if (skillMode === skill.mode) {
                             setSkillMode(null);
@@ -1673,8 +1687,11 @@ export function ChatPane() {
                           setSkillPickerOpen(false);
                         }}
                       >
-                        <div className="font-medium">{skill.label}{skillMode === skill.mode ? ' · 사용 중' : ''}</div>
-                        {skill.description ? <div className="mt-0.5 text-[10px] text-muted">{skill.description}</div> : null}
+                        <div className="flex items-center gap-2 font-semibold">
+                          {skillMode === skill.mode ? <CheckCircle size={16} weight="fill" aria-hidden="true" className="shrink-0" /> : null}
+                          <span className="min-w-0 break-all">{skill.label}{skillMode === skill.mode ? ' · 적용 중' : ''}</span>
+                        </div>
+                        {skill.description ? <div className={`mt-1 text-xs ${skillMode === skill.mode ? 'text-white' : 'text-muted'}`}>{skill.description}</div> : null}
                       </button>
                     )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 조직 스킬이 없습니다.</div>}
                   </div>

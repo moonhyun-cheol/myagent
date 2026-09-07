@@ -24,24 +24,38 @@ const SHELL_INAPP_CASES = [
 export function runShellUiIntegrationSurface(root) {
   const rows = [];
   const chat = path.join(root, 'ui/workspace/src/components/ChatPane.tsx');
+  const bridge = path.join(root, 'ui/workspace/src/lib/inAppBrowserBridge.ts');
+  const browserPane = path.join(root, 'ui/workspace/src/components/BrowserPane.tsx');
   const shellCs = path.join(root, 'shell/CqrPa.Shell/MainWindow.xaml.cs');
   const facts = path.join(root, 'core/config/defaults/ui-facts.json');
 
-  if (!existsSync(chat)) {
-    rows.push(row('chat_pane', 'fail', 0, 'missing ChatPane.tsx'));
+  if (!existsSync(chat) || !existsSync(bridge)) {
+    rows.push(row('chat_pane', 'fail', 0, 'missing ChatPane.tsx or inAppBrowserBridge.ts'));
   } else {
-    const body = readFileSync(chat, 'utf8');
+    const chatBody = readFileSync(chat, 'utf8');
+    const bridgeBody = readFileSync(bridge, 'utf8');
     const hasPost =
-      /inAppBrowser\.open/.test(body)
-      && /chrome\.webview\.postMessage|webview\.postMessage/.test(body);
+      /openInAppBrowser/.test(chatBody)
+      && /inAppBrowser\.open/.test(bridgeBody)
+      && /webview\.postMessage/.test(bridgeBody);
+    const browserOk = existsSync(browserPane)
+      && /openInAppBrowser/.test(readFileSync(browserPane, 'utf8'));
     rows.push(
       row(
         'chat_inappbrowser_postmessage',
         hasPost ? 'pass' : 'fail',
         0,
         hasPost
-          ? 'ChatPane posts inAppBrowser.open'
+          ? 'ChatPane/BrowserPane → inAppBrowserBridge posts inAppBrowser.open'
           : 'missing postMessage inAppBrowser.open (a href alone = PARTIAL)',
+      ),
+    );
+    rows.push(
+      row(
+        'preview_browser_shell_bridge',
+        browserOk ? 'pass' : 'fail',
+        0,
+        browserOk ? 'BrowserPane opens shell WebView2 for real sites' : 'BrowserPane missing shell bridge',
       ),
     );
   }

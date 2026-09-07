@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-07T03:04:52.072Z",
+  "generated_at": "2026-09-07T05:21:40.759Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -56,7 +56,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 99,
+    "route_count": 102,
     "routes": [
       {
         "method": "GET",
@@ -375,17 +375,17 @@
       },
       {
         "method": "GET",
-        "path": "/organization-module",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
         "path": "/organization-features",
         "match": "exact"
       },
       {
         "method": "POST",
         "path": "/organization-features/install",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/organization-module",
         "match": "exact"
       },
       {
@@ -436,6 +436,11 @@
       {
         "method": "POST",
         "path": "/profiles/restore-last",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/profiles/unapply",
         "match": "exact"
       },
       {

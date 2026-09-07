@@ -1,4 +1,4 @@
-import { Archive, FolderOpen, Package, Trash } from '@phosphor-icons/react';
+import { Archive, CheckCircle, FolderOpen, Package, PuzzlePiece, Trash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyOrganizationModule,
@@ -10,6 +10,7 @@ import {
   type SkillListItem,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 function existingSkillIdFromError(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
@@ -41,6 +42,8 @@ function getShellWebView(): ShellWebViewHost | null {
 }
 
 export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
+  const skillMode = useWorkspaceStore((state) => state.skillMode);
+  const skillLabel = useWorkspaceStore((state) => state.skillLabel);
   const [skills, setSkills] = useState<SkillListItem[]>([]);
   const [zipPath, setZipPath] = useState('');
   const [busy, setBusy] = useState(false);
@@ -261,27 +264,71 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       </section>
 
       <details className="max-w-4xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <summary className="cursor-pointer text-sm font-medium text-text">고급 · 스킬 관리</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-text">고급 · 스킬 관리</summary>
 
         {organization.length > 0 ? (
           <div
             data-testid="organization-skill-chips"
-            className="mt-4 rounded-xl border border-line bg-panel/60 px-4 py-3"
+            className="mt-4 overflow-hidden rounded-xl border-2 border-line bg-white shadow-sm"
           >
-            <p className="mb-2 text-xs text-muted">
-              조직 모듈 스킬 {organization.length}개
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {organization.map((skill) => (
-                <span
-                  key={skill.id}
-                  data-testid={`organization-skill-${skill.id}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-ink/40 px-2.5 py-1.5 text-xs text-muted"
-                >
-                  {skill.label}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-panel-2 px-4 py-3">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-white text-accent-dim">
+                  <PuzzlePiece size={16} weight="bold" aria-hidden="true" />
                 </span>
-              ))}
+                <p className="text-sm font-bold text-text">
+                  조직 모듈 스킬
+                  <span className="ml-2 inline-flex min-w-6 items-center justify-center rounded-md bg-text px-1.5 py-0.5 text-[11px] font-bold text-white">
+                    {organization.length}개
+                  </span>
+                </p>
+              </div>
+              <p
+                role="status"
+                className={`rounded-md px-2.5 py-1 text-xs font-bold ${
+                  skillMode ? 'bg-accent-dim text-white' : 'border border-line bg-white text-text'
+                }`}
+              >
+                {skillMode ? `현재 대화: ${skillLabel || skillMode} 적용 중` : '현재 대화: 스킬 미적용'}
+              </p>
             </div>
+            <div className="grid gap-2 p-3 sm:grid-cols-2">
+              {organization.map((skill) => {
+                const active = skillMode === skill.mode;
+                return (
+                  <span
+                    key={skill.id}
+                    data-testid={`organization-skill-${skill.id}`}
+                    data-active={active}
+                    className={`inline-flex min-h-12 max-w-full items-center gap-2.5 rounded-lg border-2 px-3 py-2.5 text-sm font-semibold shadow-sm ${
+                      active
+                        ? 'border-accent-dim bg-accent-dim text-white'
+                        : 'border-line bg-panel text-text'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                        active ? 'bg-white/20 text-white' : 'bg-white text-muted'
+                      }`}
+                    >
+                      {active ? <CheckCircle size={16} weight="fill" /> : <PuzzlePiece size={15} weight="bold" />}
+                    </span>
+                    <span className="min-w-0 flex-1 break-all leading-snug">{skill.label}</span>
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold tracking-wide ${
+                        active ? 'bg-white text-accent-dim' : 'bg-panel-2 text-text'
+                      }`}
+                    >
+                      {active ? '적용 중' : '미적용'}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+            <p className="border-t border-line bg-panel px-4 py-2.5 text-xs leading-5 text-muted">
+              설치된 스킬 목록입니다. 현재 대화에 적용할 스킬은 입력창의 + 메뉴에서 선택하세요.
+            </p>
           </div>
         ) : null}
 

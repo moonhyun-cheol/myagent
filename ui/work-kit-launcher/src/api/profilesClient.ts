@@ -151,7 +151,33 @@ export async function applyWorkKitProfile(group: string, id: string): Promise<Pr
   return data as ProfileApplyResult;
 }
 
-export async function restoreProfileLastState(): Promise<void> {
-  const res = await apiFetch('/profiles/restore-last', { method: 'POST' });
-  if (!res.ok) await parseError(res, '되돌리기 실패');
+export async function unapplyWorkKitProfile(group: string, id: string): Promise<ProfileApplyResult> {
+  const res = await apiFetch('/profiles/unapply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group, id, confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) await parseError(res, '적용 해제 실패');
+  return data as ProfileApplyResult;
+}
+
+/** Undo the last apply/unapply snapshot (plugins + applied list + feature enable flags). */
+export async function restoreProfileLastState(): Promise<ProfileApplyResult> {
+  const res = await apiFetch('/profiles/restore-last', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) await parseError(res, '직전 상태 복원 실패');
+  return data as ProfileApplyResult;
+}
+
+export async function uninstallWorkKitShelfFiles(group: string, id: string): Promise<void> {
+  const res = await apiFetch(
+    `/profiles/shelves/${encodeURIComponent(group)}/${encodeURIComponent(id)}/uninstall`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+  );
+  if (!res.ok) await parseError(res, '설치 파일 삭제 실패');
 }

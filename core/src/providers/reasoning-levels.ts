@@ -1,6 +1,9 @@
 /**
  * Product reasoning ladder (UI Korean labels elsewhere).
  * Wire values match provider enums; `none` is not a product level.
+ *
+ * Supported levels are inferred from model *families*, not per-model counts,
+ * so new GPT aliases inherit the full ladder without a hand-maintained list.
  */
 
 export const REASONING_EFFORT_LEVELS = [
@@ -30,6 +33,38 @@ export function modelOmitsReasoningEffort(modelId?: string | null): boolean {
 }
 
 /**
+ * Gateways that reject omitted reasoning ("Reasoning is mandatory").
+ * UI must not offer `auto`; wire layer substitutes the least intrusive budget.
+ */
+export function modelRequiresExplicitReasoningEffort(modelId?: string | null): boolean {
+  const m = String(modelId || '').toLowerCase();
+  if (!m) return false;
+  return /\bgpt[-_. ]?astra\b/.test(m);
+}
+
+/** Default explicit budget when auto is unavailable for the model. */
+export function defaultExplicitReasoningEffort(modelId?: string | null): ReasoningEffortLevel {
+  const supported = modelSupportedReasoningLevels(modelId);
+  if (supported.includes('low')) return 'low';
+  return supported[0] ?? 'low';
+}
+
+/**
+ * OpenAI-style reasoning models → full product ladder.
+ * Catches gpt-5*, o-series, codex, and gpt-<alias> names (astra/sol/luna/…)
+ * without excluding classic gpt-3 / gpt-4 / gpt-4o chat models.
+ */
+export function isFullReasoningLadderModel(modelId?: string | null): boolean {
+  const m = String(modelId || '').toLowerCase();
+  if (!m) return false;
+  if (/deepseek|perplexity|sonar|grok|claude|anthropic|fable|mythos/.test(m)) return false;
+  if (/gpt-5|\bo[1-4](?:[-_.]|$)|codex/.test(m)) return true;
+  // gpt-<alias> (letter-led), not gpt-3 / gpt-4 / gpt-4o
+  if (/\bgpt[-_. ](?![34]\b|[34][-_.]|4o\b)/.test(m)) return true;
+  return false;
+}
+
+/**
  * Supported effort values for the selected model (excluding auto).
  * Empty array = omit effort (same as reject/image / unsupported Claude).
  */
@@ -46,8 +81,8 @@ export function modelSupportedReasoningLevels(modelId?: string | null): Reasonin
     }
     return [];
   }
-  if (/gpt-5|o1|o3|o4|codex/.test(m)) {
-    return ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  if (isFullReasoningLadderModel(m)) {
+    return [...REASONING_EFFORT_LEVELS];
   }
   return ['low', 'medium', 'high'];
 }

@@ -21,6 +21,7 @@ import {
   restoreAgentProfileLastState,
   saveAgentProfile,
   summarizeAppliedWorkKit,
+  unapplyWorkKit,
   AgentProfileError,
 } from '../core/dist/config/agent-profile-store.js';
 import {
@@ -229,15 +230,31 @@ try {
     'ops also applied',
   );
 
-  // Install-only contract: no work-kit context note module; API summary reflects both kits.
+  const unapplied = unapplyWorkKit(root, {
+    group: 'cqr',
+    id: 'ops',
+    confirm: true,
+    lockerRoot: locker,
+  });
+  assert.equal(unapplied.ok, true);
+  const afterUnapply = getAppliedProfileStates(root);
+  assert.equal(afterUnapply.length, 1, 'unapply removes only the named kit');
+  assert.equal(afterUnapply[0].kit_id, 'product-dev');
+  assert.equal(
+    existsSync(path.join(locker, 'profiles', 'cqr', 'ops', 'shelf.json')),
+    true,
+    'unapply keeps locker install files',
+  );
+
+  // Install-only contract: no work-kit context note module; API summary reflects remaining kits.
   assert.equal(
     existsSync(path.join(repoRoot, 'core/src/config/work-kit-context.ts')),
     false,
     'work-kit-context.ts removed (install-only profiles)',
   );
   const summary = summarizeAppliedWorkKit(root, { lockerRoot: locker });
-  assert.equal(summary.kits.length, 2, 'summary lists both applied kits');
-  assert.equal(summary.kit_id, 'ops', 'summary points at last applied kit');
+  assert.equal(summary.kits.length, 1, 'summary lists remaining applied kit');
+  assert.equal(summary.kit_id, 'product-dev', 'summary points at remaining kit');
   assert.ok(summary.label?.includes('CQR 제품개발'), `summary label: ${summary.label}`);
   assert.equal(summary.install_status, 'installed', 'meta-only installed kit reports installed');
 

@@ -3,6 +3,13 @@
  * Env-only; no secrets. Defaults: provider-managed reasoning effort, history 40, code OWUI native tools.
  */
 
+import {
+  clampReasoningEffortToSupported,
+  defaultExplicitReasoningEffort,
+  modelRequiresExplicitReasoningEffort,
+  modelSupportedReasoningLevels,
+} from './reasoning-levels.js';
+
 export type OwuiProtocolMode = 'text' | 'probe' | 'api';
 
 export interface HarnessPolicy {
@@ -61,15 +68,13 @@ export function resolveCodeReasoningEffortForModel(
 ): string | null {
   const effort = resolveCodeReasoningEffort(env);
   if (effort) return normalizeReasoningEffortForModel(effort, opts?.modelId);
-  // Some GPT aliases exposed by compatible Responses gateways require an
-  // explicit reasoning object. Auto normally omits effort, but these aliases
-  // reject that as "Reasoning is mandatory". Use the least intrusive budget.
-  const model = String(opts?.modelId ?? '').toLowerCase();
-  if (/\bgpt[-_. ]?astra\b/.test(model)) return 'low';
+  // Some GPT aliases require an explicit reasoning object. Auto normally omits
+  // effort, but those aliases reject that as "Reasoning is mandatory".
+  if (modelRequiresExplicitReasoningEffort(opts?.modelId)) {
+    return defaultExplicitReasoningEffort(opts?.modelId);
+  }
   return null;
 }
-
-const REASONING_LADDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /** Clamp an explicit effort to the closest level supported by a known model family (higher wins ties). */
 export function normalizeReasoningEffortForModel(
@@ -80,26 +85,10 @@ export function normalizeReasoningEffortForModel(
   if (!requested) return null;
   if (modelRejectsReasoningEffort(modelId)) return null;
 
-  const model = String(modelId ?? '').toLowerCase();
-  let supported: readonly string[] | null = null;
-  if (/deepseek/.test(model)) supported = ['low', 'high', 'max'];
-  else if (/sonar-deep-research|perplexity/.test(model)) supported = ['low', 'medium', 'high'];
-  else if (/grok/.test(model)) supported = ['low', 'medium', 'high', 'xhigh'];
-  else if (/gpt-5|o1|o3|o4|codex/.test(model)) supported = REASONING_LADDER;
-
-  if (!supported || supported.includes(requested)) return requested;
-  const requestedIndex = REASONING_LADDER.indexOf(requested as (typeof REASONING_LADDER)[number]);
-  if (requestedIndex < 0) return requested;
-  return supported.reduce<string | null>((best, candidate) => {
-    if (!best) return candidate;
-    const candidateIndex = REASONING_LADDER.indexOf(candidate as (typeof REASONING_LADDER)[number]);
-    const bestIndex = REASONING_LADDER.indexOf(best as (typeof REASONING_LADDER)[number]);
-    const candidateDistance = Math.abs(candidateIndex - requestedIndex);
-    const bestDistance = Math.abs(bestIndex - requestedIndex);
-    return candidateDistance < bestDistance || (candidateDistance === bestDistance && candidateIndex > bestIndex)
-      ? candidate
-      : best;
-  }, null);
+  const supported = modelSupportedReasoningLevels(modelId);
+  if (!supported.length) return requested;
+  if (supported.includes(requested as (typeof supported)[number])) return requested;
+  return clampReasoningEffortToSupported(requested, supported);
 }
 
 /**
@@ -175,8 +164,11 @@ export function resolveSessionReasoningEffort(
     return normalizeReasoningEffortForModel(resolveReasoningEffort(env), opts?.modelId);
   }
   if (level !== 'auto') return normalizeReasoningEffortForModel(level, opts?.modelId);
-  // Auto leaves the budget to the selected provider/model. Responses summary
-  // requests are assembled independently in responses-compatible.ts.
+  // Auto leaves the budget to the selected provider/model — except aliases that
+  // reject omitted reasoning. Responses summary is assembled separately.
+  if (modelRequiresExplicitReasoningEffort(opts?.modelId)) {
+    return defaultExplicitReasoningEffort(opts?.modelId);
+  }
   return null;
 }
 

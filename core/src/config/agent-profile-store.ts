@@ -32,6 +32,7 @@ import {
 import {
   applyWorkKitFeatures,
   OrganizationFeatureError,
+  releaseWorkKitFeatureRefs,
   snapshotOrganizationFeatureState,
   restoreOrganizationFeatureState,
 } from '../features/organization-feature-manager.js';
@@ -476,6 +477,77 @@ export function applyWorkKit(
     pulled_skills: pull.pulled_skills,
     installed_features,
     enabled_features,
+    warnings,
+  };
+}
+
+/**
+ * Remove one work kit from the applied set.
+ * Disables plugins this kit alone required, and releases Feature refs (disables when no refs remain).
+ * Does not delete locker install files — use uninstallWorkKitShelf for that.
+ */
+export function unapplyWorkKit(
+  cqrRoot: string,
+  input: {
+    group: string;
+    id: string;
+    confirm?: boolean;
+    lockerRoot?: string;
+  },
+): ProfileApplyResult {
+  if (input.confirm !== true) {
+    throw new AgentProfileError('PROFILE_CONFIRM_REQUIRED', 'unapply에는 confirm=true가 필요합니다.');
+  }
+  const group = String(input.group ?? '').trim();
+  const id = String(input.id ?? '').trim();
+  const profileKey = `${group}/${id}`;
+  if (!isWorkKitApplied(cqrRoot, group, id)) {
+    throw new AgentProfileError('PROFILE_NOT_APPLIED', `적용 중이 아닌 작업 키트입니다: ${profileKey}`);
+  }
+
+  const shelf = findWorkKitShelf(cqrRoot, group, id, { lockerRoot: input.lockerRoot });
+  const warnings: string[] = [];
+  const remaining = getAppliedProfileStates(cqrRoot).filter(
+    (entry) => !(entry.group === group && entry.kit_id === id),
+  );
+
+  const stillWantedPlugins = new Set<string>();
+  for (const entry of remaining) {
+    if (!entry.group || !entry.kit_id) continue;
+    const other = findWorkKitShelf(cqrRoot, entry.group, entry.kit_id, { lockerRoot: input.lockerRoot });
+    for (const [pid, want] of Object.entries(other?.plugins.enable ?? {})) {
+      if (want === true) stillWantedPlugins.add(pid);
+    }
+  }
+
+  const disableMap: Record<string, boolean> = {};
+  for (const [pid, want] of Object.entries(shelf?.plugins.enable ?? {})) {
+    if (want === true && !stillWantedPlugins.has(pid)) disableMap[pid] = false;
+  }
+
+  snapshotBeforeApply(cqrRoot);
+  invalidateAgentPluginCache(cqrRoot);
+  const { toggled, warnings: toggleWarn } = toggleEnables(cqrRoot, disableMap);
+  warnings.push(...toggleWarn);
+
+  releaseWorkKitFeatureRefs(cqrRoot, profileKey);
+
+  if (remaining.length > 0) {
+    writeAppliedDocument(cqrRoot, remaining);
+  } else {
+    const appliedFile = path.join(profilesRoot(cqrRoot), APPLIED_FILE);
+    if (existsSync(appliedFile)) {
+      assertWritablePath(appliedFile, cqrRoot);
+      rmSync(appliedFile);
+    }
+  }
+
+  return {
+    ok: true,
+    profile_id: profileKey,
+    group,
+    kit_id: id,
+    toggled,
     warnings,
   };
 }

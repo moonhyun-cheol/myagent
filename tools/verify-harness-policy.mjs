@@ -232,6 +232,16 @@ function withEnv(patch, fn) {
     'auto omits effort so the provider/model owns its reasoning budget',
   );
   assert.equal(
+    resolveSessionReasoningEffort('auto', {}, { providerId: 'openai', modelId: 'openai/gpt-astra' }),
+    'low',
+    'GPT Astra auto must send an explicit least-intrusive effort',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort('high', {}, { providerId: 'openai', modelId: 'openai/gpt-astra' }),
+    'high',
+    'GPT Astra explicit effort is preserved',
+  );
+  assert.equal(
     resolveSessionReasoningEffort('low', {}, { providerId: 'openai', modelId: 'gpt-5.6-sol' }),
     'low',
     'an explicit session effort is preserved',

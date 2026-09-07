@@ -16,8 +16,16 @@ function mustInclude(rel, needles) {
 }
 
 mustInclude('ui/workspace/src/components/ChatPane.tsx', [
+  'openInAppBrowser',
+]);
+mustInclude('ui/workspace/src/lib/inAppBrowserBridge.ts', [
   "type: 'inAppBrowser.open'",
   'webview.postMessage',
+]);
+mustInclude('ui/workspace/src/components/BrowserPane.tsx', [
+  'openInAppBrowser',
+  'inAppBrowserBridge',
+  'normalizeBrowserUrl',
 ]);
 mustInclude('shell/CqrPa.Shell/MainWindow.xaml.cs', [
   'case "inAppBrowser.open"',
