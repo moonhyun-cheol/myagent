@@ -4,10 +4,17 @@ import type { AutomatonDispatchOptions, AutomatonDispatchResult } from './adapte
 import { AutomatonDispatchError } from './errors.js';
 import { formatAutomatonEnvelope } from './format-result.js';
 import {
+  buildAdapterStatusUrl,
+  formatAdapterProgressMessage,
+  loadAdapterConnection,
+  type AdapterConnectionDoc,
+} from './adapter-connection.js';
+import {
   buildGateCommandContextPayload,
   signGateCommandContext,
 } from './openclaw-gate-context.js';
 import { attachLocalNopsUserId } from './local-nops-user-id.js';
+import { ensureOpenClawDeviceToken } from './openclaw-adapter-bootstrap.js';
 import { readOpenClawAdapterVault } from './openclaw-adapter-vault.js';
 import { resolveOpenClawWorkflow } from './openclaw-workflow-map.js';
 import { resolveAutomatonToolTimeoutMs } from './timeouts.js';
@@ -23,6 +30,11 @@ export interface OpenClawAdapterConfig {
   /** Prefer server-signed /cqr/adapter/request (default true). */
   useCqrEntry?: boolean;
   enabled?: boolean;
+  /** True when token may be filled via install bootstrap before dispatch. */
+  needsBootstrap?: boolean;
+  cqrRoot?: string;
+  vaultDir?: string;
+  connection?: AdapterConnectionDoc | null;
 }
 
 export function resolveOpenClawAdapterConfig(input: {
@@ -36,12 +48,15 @@ export function resolveOpenClawAdapterConfig(input: {
   cqrRoot?: string;
   vaultDir?: string;
 }): OpenClawAdapterConfig | null {
+  const cqrRoot = input.cqrRoot?.trim() || process.env.MY_AGENT_ROOT?.trim() || '';
   const vaultDir = input.vaultDir
-    ?? (input.cqrRoot ? path.join(input.cqrRoot, 'data', 'vault') : undefined);
+    ?? (cqrRoot ? path.join(cqrRoot, 'data', 'vault') : undefined);
   const vault = vaultDir ? readOpenClawAdapterVault(vaultDir) : null;
+  const connection = cqrRoot ? loadAdapterConnection(cqrRoot) : null;
   const baseUrl = (
     process.env.OPENCLAW_ADAPTER_BASE_URL?.trim()
     || vault?.base_url?.trim()
+    || connection?.base_url?.trim()
     || input.baseUrl?.trim()
     || ''
   ).replace(/\/+$/, '');
@@ -59,7 +74,15 @@ export function resolveOpenClawAdapterConfig(input: {
     || vault?.signing_private_key_hex?.trim()
     || ''
   );
-  if (!baseUrl || !token) return null;
+  const canBootstrap = Boolean(
+    connection?.authentication?.mode === 'install_bootstrap'
+    && connection?.authentication?.bootstrap_key?.trim()
+    && baseUrl
+    && cqrRoot
+    && vaultDir,
+  );
+  if (!baseUrl) return null;
+  if (!token && !canBootstrap) return null;
   return {
     baseUrl,
     token,
@@ -69,6 +92,10 @@ export function resolveOpenClawAdapterConfig(input: {
     channelId: process.env.MY_AGENT_OPENCLAW_CHANNEL_ID?.trim() || input.channelId || 'cqr-pa-chat',
     useCqrEntry: input.useCqrEntry !== false,
     enabled: true,
+    needsBootstrap: !token && canBootstrap,
+    cqrRoot: cqrRoot || undefined,
+    vaultDir,
+    connection,
   };
 }
 
@@ -257,47 +284,174 @@ function asNestedBusinessStatus(result: Record<string, unknown>): string {
   return s != null ? String(s).trim() : '';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollAdapterJobUntilDone(
+  cfg: OpenClawAdapterConfig,
+  jobId: string,
+  connection: AdapterConnectionDoc | null | undefined,
+  options?: AutomatonDispatchOptions,
+  commandText = '',
+): Promise<Record<string, unknown>> {
+  const pollMs = Math.max(500, Number(connection?.transport?.poll_interval_ms ?? 2500) || 2500);
+  const timeoutMs = Math.max(
+    pollMs,
+    Number(connection?.transport?.timeout_ms ?? 1_800_000) || 1_800_000,
+  );
+  const statusTemplate = connection?.transport?.status_path_template
+    || '/cqr/adapter/jobs/{job_id}';
+  const url = buildAdapterStatusUrl(cfg.baseUrl, jobId, statusTemplate);
+  const started = Date.now();
+  let lastStatus = 'queued';
+
+  while (Date.now() - started < timeoutMs) {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(Math.min(60_000, timeoutMs)),
+      });
+    } catch (err) {
+      throw new AutomatonDispatchError(
+        'MCP_SPAWN_FAILED',
+        `OpenClaw job status 연결 실패: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = text ? JSON.parse(text) as Record<string, unknown> : {};
+    } catch {
+      parsed = { status: 'error', detail: text.slice(0, 2_000) };
+    }
+    if (res.status === 401) {
+      throw new AutomatonDispatchError('MCP_SPAWN_FAILED', 'OpenClaw Adapter unauthorized (token)');
+    }
+    if (res.status === 404) {
+      throw new AutomatonDispatchError(
+        'MCP_SPAWN_FAILED',
+        `OpenClaw job not found: ${jobId}`,
+      );
+    }
+    if (!res.ok && !parsed.status) {
+      throw new AutomatonDispatchError(
+        'MCP_SPAWN_FAILED',
+        `OpenClaw job status HTTP ${res.status}: ${text.slice(0, 500)}`,
+      );
+    }
+
+    const status = String(parsed.status ?? '').trim().toLowerCase() || 'running';
+    lastStatus = status;
+    const progressText = formatAdapterProgressMessage(connection, {
+      commandText,
+      status,
+      stageMessage: String(parsed.message || parsed.stage || '').trim() || undefined,
+      errorMessage: String(parsed.error_message || '').trim() || undefined,
+      resultPath: String(parsed.result_path || '').trim() || undefined,
+      deliveryStatus: String(parsed.delivery_status || '').trim() || undefined,
+    });
+    options?.onStatus?.(progressText);
+
+    if (status === 'completed' || status === 'failed') {
+      return parsed;
+    }
+    await sleep(pollMs);
+  }
+
+  throw new AutomatonDispatchError(
+    'MCP_SPAWN_FAILED',
+    `OpenClaw job polling timeout (${lastStatus}): ${jobId}`,
+  );
+}
+
 export async function dispatchAutomatonToolRemote(
   message: string,
   matchedTool: string,
   cfg: OpenClawAdapterConfig,
   options?: AutomatonDispatchOptions,
 ): Promise<AutomatonDispatchResult> {
-  const built = buildOpenClawRawRequest(matchedTool, message, cfg, {
-    cqrRoot: options?.cqrRoot,
+  const cqrRoot = options?.cqrRoot?.trim() || cfg.cqrRoot?.trim() || '';
+  const vaultDir = cfg.vaultDir
+    || (cqrRoot ? path.join(cqrRoot, 'data', 'vault') : '');
+  const connection = cfg.connection ?? (cqrRoot ? loadAdapterConnection(cqrRoot) : null);
+
+  let activeCfg = cfg;
+  if (!activeCfg.token.trim() || activeCfg.needsBootstrap) {
+    if (!cqrRoot || !vaultDir) {
+      throw new AutomatonDispatchError(
+        'MCP_SPAWN_FAILED',
+        'OpenClaw Adapter token missing and bootstrap root/vault unavailable',
+      );
+    }
+    options?.onStatus?.('OpenClaw 장치 토큰 bootstrap 중…');
+    const boot = await ensureOpenClawDeviceToken({
+      cqrRoot,
+      vaultDir,
+      baseUrl: activeCfg.baseUrl,
+      connection,
+    });
+    if (!boot.ok || !boot.token) {
+      throw new AutomatonDispatchError(
+        'MCP_SPAWN_FAILED',
+        boot.error || 'OpenClaw bootstrap failed',
+      );
+    }
+    activeCfg = {
+      ...activeCfg,
+      token: boot.token,
+      baseUrl: boot.baseUrl || activeCfg.baseUrl,
+      needsBootstrap: false,
+    };
+  }
+
+  const built = buildOpenClawRawRequest(matchedTool, message, activeCfg, {
+    cqrRoot,
   });
-  const useCqrEntry = cfg.useCqrEntry !== false;
-  const timeoutMs = resolveAutomatonToolTimeoutMs(matchedTool);
+  const useCqrEntry = activeCfg.useCqrEntry !== false;
+  const timeoutMs = Math.max(
+    resolveAutomatonToolTimeoutMs(matchedTool),
+    Number(connection?.transport?.timeout_ms ?? 0) || 0,
+  );
 
   let url: string;
   let body: Record<string, unknown>;
+  const requestPath = connection?.transport?.request_path?.trim() || '/cqr/adapter/request';
 
-  if (useCqrEntry || !cfg.signingPrivateKeyHex) {
-    url = `${cfg.baseUrl}/cqr/adapter/request`;
+  if (useCqrEntry || !activeCfg.signingPrivateKeyHex) {
+    url = `${activeCfg.baseUrl}${requestPath.startsWith('/') ? '' : '/'}${requestPath}`;
     body = {
       raw_request: built.rawRequest,
       callback_url: '',
       token_refs: [],
     };
-    options?.onStatus?.('OpenClaw CQR Adapter (:8790) 요청 중…');
+    options?.onStatus?.(formatAdapterProgressMessage(connection, {
+      commandText: message,
+      status: 'queued',
+    }));
   } else {
     const gatePayload = buildGateCommandContextPayload({
       requestId: built.requestId,
       transactionId: built.transactionId,
-      actorId: cfg.actorId ?? 'cqr-pa',
-      guildId: cfg.guildId,
-      channelId: cfg.channelId,
+      actorId: activeCfg.actorId ?? 'cqr-pa',
+      guildId: activeCfg.guildId,
+      channelId: activeCfg.channelId,
       taskProfileId: built.taskProfileId,
       toolId: built.workflowToolId,
       ttlSeconds: 3_600,
       platform: 'cqr_pa',
     });
-    url = `${cfg.baseUrl}/adapter/request`;
+    url = `${activeCfg.baseUrl}/adapter/request`;
     body = {
       raw_request: built.rawRequest,
       callback_url: '',
       token_refs: [],
-      gate_command_context: signGateCommandContext(gatePayload, cfg.signingPrivateKeyHex),
+      gate_command_context: signGateCommandContext(gatePayload, activeCfg.signingPrivateKeyHex),
     };
     options?.onStatus?.('OpenClaw Adapter (:8790) 요청 중…');
   }
@@ -309,7 +463,7 @@ export async function dispatchAutomatonToolRemote(
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${cfg.token}`,
+        Authorization: `Bearer ${activeCfg.token}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
@@ -355,6 +509,38 @@ export async function dispatchAutomatonToolRemote(
     );
   }
 
-  options?.onStatus?.(`OpenClaw Adapter 응답: ${String(parsed.status ?? res.status)}`);
+  const acceptStatus = String(parsed.status ?? res.status).trim().toLowerCase();
+  const jobId = String(parsed.job_id || (Array.isArray(parsed.job_ids) ? parsed.job_ids[0] : '') || '').trim();
+  if (
+    jobId
+    && (acceptStatus === 'queued' || acceptStatus === 'running' || acceptStatus === 'todo_plan_ready')
+  ) {
+    options?.onStatus?.(formatAdapterProgressMessage(connection, {
+      commandText: message,
+      status: acceptStatus === 'todo_plan_ready' ? 'queued' : acceptStatus,
+    }));
+    const finalStatus = await pollAdapterJobUntilDone(
+      activeCfg,
+      jobId,
+      connection,
+      options,
+      message,
+    );
+    return formatOpenClawResult(matchedTool, {
+      ...parsed,
+      ...finalStatus,
+      job_id: jobId,
+      status_contract: finalStatus.status_contract || parsed.status_contract || 'adapter-job-v1',
+    });
+  }
+
+  options?.onStatus?.(formatAdapterProgressMessage(connection, {
+    commandText: message,
+    status: acceptStatus || 'completed',
+    stageMessage: String(parsed.message || '').trim() || undefined,
+    errorMessage: String(parsed.error_message || parsed.user_message || '').trim() || undefined,
+    resultPath: String(parsed.result_path || '').trim() || undefined,
+    deliveryStatus: String(parsed.delivery_status || '').trim() || undefined,
+  }));
   return formatOpenClawResult(matchedTool, parsed);
 }

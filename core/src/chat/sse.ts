@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http';
+import { chatRunCanPublish, currentChatRun } from './chat-runs.js';
 
 const ssePings = new WeakMap<ServerResponse, ReturnType<typeof setInterval>>();
 
@@ -61,6 +62,16 @@ export function initSse(res: ServerResponse): void {
 }
 
 export function sseEvent(res: ServerResponse, payload: unknown): void {
+  if (res.destroyed || res.writableEnded || !chatRunCanPublish()) return;
+  const run = currentChatRun();
+  if (run && payload && typeof payload === 'object') {
+    const event = payload as { type?: string; text?: string };
+    if (typeof event.text === 'string') {
+      if (event.type === 'token') run.partial = (run.partial + event.text).slice(-200_000);
+      if (event.type === 'content_replace') run.partial = event.text.slice(-200_000);
+    }
+    payload = { ...payload, runId: run.runId };
+  }
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
   flushSse(res);
 }

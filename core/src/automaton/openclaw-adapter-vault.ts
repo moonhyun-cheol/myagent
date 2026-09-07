@@ -7,8 +7,11 @@ export interface OpenClawAdapterVaultDoc {
   token?: string;
   /** Optional legacy client-side signing — prefer empty (server /cqr path). */
   signing_private_key_hex?: string;
+  /** Stable install device id used for bootstrap re-issue. */
+  device_id?: string;
+  expires_at?: string;
   updated_at?: string;
-  source?: 'activation' | 'manual' | 'env';
+  source?: 'activation' | 'manual' | 'env' | 'bootstrap';
 }
 
 export function openClawAdapterVaultPath(vaultDir: string): string {
@@ -37,6 +40,8 @@ export function writeOpenClawAdapterVault(
     ...doc,
     base_url: doc.base_url?.trim().replace(/\/+$/, '') || doc.base_url,
     token: doc.token?.trim() || doc.token,
+    device_id: doc.device_id?.trim() || doc.device_id,
+    expires_at: doc.expires_at?.trim() || doc.expires_at,
     updated_at: new Date().toISOString(),
   };
   writeFileSync(p, `${JSON.stringify(out, null, 2)}\n`, 'utf8');

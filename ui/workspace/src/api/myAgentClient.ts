@@ -17,7 +17,9 @@ async function askToolApprovalDecision(
   summary: string,
   danger: boolean,
   details?: { access?: ToolApprovalAccess; targets?: string[]; expires?: 'once' | 'run' },
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  if (signal?.aborted) return false;
   const sticky = {
     allowBackdropDismiss: false,
     allowEscapeDismiss: false,
@@ -49,6 +51,7 @@ async function askToolApprovalDecision(
   });
   try {
     return await confirmDialog({
+      signal,
       title: danger ? '위험 작업 승인' : '접근 승인',
       message: `${danger ? '[위험] ' : ''}${approvalMessage}`,
       danger,
@@ -92,6 +95,9 @@ export interface ApplicationNotice {
 
 export interface SessionMessage {
   role: 'user' | 'assistant';
+  run_id?: string;
+  reply_to_run_id?: string;
+  status?: 'completed' | 'stopped';
   content: string;
   at: string;
   model?: string;
@@ -343,6 +349,7 @@ export function setPinnedSessionIds(ids: string[]): void {
 }
 
 export interface StreamHandlers {
+  isCurrent?: () => boolean;
   onStatus?: (text: string) => void;
   onToken?: (text: string) => void;
   onContentReplace?: (text: string) => void;
@@ -1277,6 +1284,25 @@ export async function applyOrganizationModule(): Promise<void> {
   if (!res.ok) throw new Error(data.message || data.error || `조직 모듈 업데이트 실패 (${res.status})`);
 }
 
+export interface OrganizationFeatureStatus {
+  id: string;
+  installed: boolean;
+  enabled: boolean;
+  version?: string;
+  update_sequence?: number;
+  label?: string;
+  capabilities: string[];
+  refs: string[];
+  root?: string;
+}
+
+export async function listOrganizationFeatures(): Promise<OrganizationFeatureStatus[]> {
+  const res = await fetch('/organization-features');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `추가 기능 목록 실패 (${res.status})`);
+  return Array.isArray(data.features) ? (data.features as OrganizationFeatureStatus[]) : [];
+}
+
 export async function installOrganizationModule(zipPath: string): Promise<OrganizationModuleStatus['installed']> {
   const res = await fetch('/organization-module/install', {
     method: 'POST',
@@ -1594,6 +1620,7 @@ export async function deleteAttachment(id: string): Promise<void> {
 export async function streamChat(
   opts: {
     message: string;
+    runId?: string;
     mode?: ChatApiMode;
     model?: string;
     execution_policy?: ExecutionPolicy;
@@ -1612,6 +1639,7 @@ export async function streamChat(
   const sessionId = opts.sessionId ?? (await ensureSession());
   const body: Record<string, unknown> = {
     message: opts.message,
+    runId: opts.runId ?? crypto.randomUUID(),
     model: opts.model ?? 'auto',
     attachments: opts.attachments ?? [],
   };
@@ -1641,15 +1669,26 @@ export async function streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let terminalEvent = false;
+  const assertCurrent = () => {
+    if (handlers.signal?.aborted || handlers.isCurrent?.() === false) {
+      throw new DOMException('Stopped or superseded', 'AbortError');
+    }
+  };
 
+  try {
   while (true) {
+    assertCurrent();
     const { done, value } = await reader.read();
+    assertCurrent();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const parsed = parseSseBlocks(buffer);
     buffer = parsed.rest;
     for (const raw of parsed.events) {
+      assertCurrent();
       const evt = raw as Record<string, unknown>;
+      if (evt.runId !== undefined && evt.runId !== body.runId) continue;
       const type = evt.type as string;
       if (type === 'status' && typeof evt.text === 'string') handlers.onStatus?.(evt.text);
       else if (type === 'token' && typeof evt.text === 'string') handlers.onToken?.(evt.text);
@@ -1690,6 +1729,7 @@ export async function streamChat(
         const img = evt.image as { url?: string } | undefined;
         if (img?.url) handlers.onImage?.(img.url);
       } else if (type === 'done') {
+        terminalEvent = true;
         const raw = Array.isArray(evt.mutatedPaths) ? evt.mutatedPaths : [];
         const mutatedPaths = raw
           .map((p) => String(p ?? '').replace(/\\/g, '/').trim())
@@ -1739,18 +1779,46 @@ export async function streamChat(
           ? evt.targets.map((target) => String(target ?? '').trim()).filter(Boolean)
           : undefined;
         const expires = evt.expires === 'run' || evt.expires === 'once' ? evt.expires : undefined;
-        const approved = await askToolApprovalDecision(summary, danger, { access, targets, expires });
+        const approved = await askToolApprovalDecision(summary, danger, { access, targets, expires }, handlers.signal);
+        assertCurrent();
         await fetch('/chat/tool-approval', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: evt.id, approved }),
+          body: JSON.stringify({ id: evt.id, approved, runId: body.runId }),
+          signal: handlers.signal,
         }).catch(() => {});
+        assertCurrent();
         handlers.onStatus?.(approved ? '승인됨 · 계속…' : '거절됨');
       } else if (type === 'stopped') {
+        terminalEvent = true;
         handlers.onDone?.({ model: '중지됨' });
       }
     }
   }
+  if (!terminalEvent) throw new Error('응답 연결이 종료되었습니다. 서버 정지를 확인합니다.');
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+/** Explicit run-scoped cancellation. Never release the UI queue on transport abort alone. */
+export async function confirmChatRunStopped(sessionId: string, runId: string): Promise<boolean> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch('/chat/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', [SESSION_HEADER]: sessionId },
+        body: JSON.stringify({ runId }),
+        signal: AbortSignal.timeout(3_000),
+      });
+      const result = await res.json();
+      if (res.ok && result.runId === runId && ['stopped', 'completed', 'failed'].includes(result.state)) return true;
+    } catch { /* Retain ownership and retry; do not assume the server stopped. */ }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
 }
 
 /** Discard agent mutations by restoring auto-checkpoint taken before first mutate. */

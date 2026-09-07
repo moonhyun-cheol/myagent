@@ -95,6 +95,8 @@ import {
   readWorkspaceFileThroughCache,
 } from './agent-read-through-cache.js';
 import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
+import { assertChatRunWritable } from '../chat/chat-runs.js';
+import { throwIfAborted } from '../chat/abort.js';
 import type { SchedulerTaskInput } from '../scheduler/types.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
@@ -124,6 +126,8 @@ export async function executeAgentTool(
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
 ): Promise<{ output: string; label: string }> {
+  assertChatRunWritable();
+  throwIfAborted(ctx?.signal);
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;

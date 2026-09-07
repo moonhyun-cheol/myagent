@@ -20,7 +20,16 @@ export function getSkillSystemPrompt(id: string, cqrRoot: string, opts?: {tier?:
 export function getSkillMode(id: string): string | null { return getSkillDef(id)?.mode ?? null; }
 export function listSkillModes(): string[] { return Object.values(loadManifest().skills).map(s=>s.mode); }
 export function skillIdForMode(mode: string): string | null { return Object.entries(loadManifest().skills).find(([,s])=>s.mode===mode)?.[0] ?? null; }
-export function resolvePipelineScript(id: string,cqrRoot:string):string|null { const def=getSkillDef(id); const root=resolveOrganizationModuleRoot(cqrRoot); if(!def?.pipeline_script||!root)return null; const p=path.join(root,def.pipeline_script); return existsSync(p)?p:null; }
+export function resolvePipelineScript(id: string, cqrRoot: string): string | null {
+  const root = resolveOrganizationModuleRoot(cqrRoot);
+  if (!root) return null;
+  const orgDef = getOrganizationSkillDef(id, cqrRoot);
+  const bundled = getSkillDef(id);
+  const rel = orgDef?.pipeline_script ?? bundled?.pipeline_script;
+  if (!rel) return null;
+  const p = path.join(root, rel);
+  return existsSync(p) ? p : null;
+}
 function userSkillStore(cqrRoot:string):UserSkillStore{return new UserSkillStore(path.join(cqrRoot,'data','skills'),cqrRoot);}
 export function listBundledSkills():SkillListItem[]{return Object.entries(loadManifest().skills).map(([id,def])=>({id,label:def.label,mode:def.mode,source:'bundled',editable:false,feature:def.feature}));}
 function organizationSkills(cqrRoot:string):SkillListItem[]{return listOrganizationSkillDefs(cqrRoot).map(({id,def})=>({id,label:def.label,mode:def.mode,source:'organization',editable:false,feature:def.feature,selectable:def.user_selectable===true,selector_group:def.selector_group,selector_order:def.selector_order,description:def.selector_description}));}

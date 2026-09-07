@@ -362,7 +362,14 @@ export function ChatPane() {
   useEffect(() => {
     let cancelled = false;
     void listSelectableOrganizationSkills().then((skills) => { if (!cancelled) setSelectableSkills(skills); }).catch(() => { if (!cancelled) setSelectableSkills([]); });
-    return () => { cancelled = true; };
+    const onFocus = () => {
+      void listSelectableOrganizationSkills().then((skills) => { if (!cancelled) setSelectableSkills(skills); }).catch(() => {});
+    };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   useEffect(() => {

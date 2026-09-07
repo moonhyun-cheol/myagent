@@ -29,7 +29,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 ## Critical product facts
 
 - **Work kits:** `WorkKitLauncher.exe` — catalog feed, per-shelf install, apply = pull + enable only (no runtime pin). No work-kit UI in Settings. Org skills via composer `+` / `/skills/selectable`.
-- **Updates (4 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; launcher `launcher-stable.json` + `--apply-update`; org module folder swap; work-kit catalog refresh. See R-605/R-617/R-618, ADR-RE-007.
+- **Updates (4 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; launcher `launcher-stable.json` + `--apply-update`; org module folder swap; work-kit catalog refresh. Idle gate defers Yes/No while chat session turns are alive (`session_busy`) or UI reports work (`workspace_busy`). See R-605/R-617/R-618, ADR-RE-007.
 - **Org module:** overlay loader in core; content in company repo. Settings → 스킬 for manual check/apply.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.

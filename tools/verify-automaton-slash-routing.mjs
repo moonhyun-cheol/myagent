@@ -26,12 +26,16 @@ const {
 const prev = process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
 delete process.env.MY_AGENT_ORGANIZATION_MODULE_ROOT;
 resetAutomatonToolManifestCache();
-const neutral = peekAutomatonIntent('/반품율분석 text: OVERALL');
+
+const sandbox = path.join(root, '.tmp', 'automaton-slash-routing');
+const neutralRoot = path.join(sandbox, 'neutral-product');
+mkdirSync(neutralRoot, { recursive: true });
+const neutral = peekAutomatonIntent('/반품율분석 text: OVERALL', neutralRoot);
 assert.equal(neutral, null, 'neutral core must not route company slash commands');
 
 // Unregistered slash must still hard-route to automaton_direct (no LLM fallback),
 // with no matched_tool so the orchestrator answers with the unregistered message.
-const unregistered = resolveSlashRoute('/CTR COMBAT_SHRT');
+const unregistered = resolveSlashRoute('/CTR COMBAT_SHRT', neutralRoot);
 assert.ok(unregistered, 'unregistered slash must produce a route (never chat/LLM)');
 assert.equal(unregistered.routing.mode, 'automaton_direct');
 assert.equal(unregistered.routing.matched_tool, undefined, 'unregistered slash must not invent a tool');
@@ -42,10 +46,9 @@ assert.ok(
 );
 
 // Non-slash chat must not be captured by the slash gate.
-assert.equal(resolveSlashRoute('안녕하세요'), null, 'plain chat must stay on the normal route');
-assert.equal(resolveSlashRoute('/ '), null, 'bare slash + space is not a structural command');
+assert.equal(resolveSlashRoute('안녕하세요', neutralRoot), null, 'plain chat must stay on the normal route');
+assert.equal(resolveSlashRoute('/ ', neutralRoot), null, 'bare slash + space is not a structural command');
 
-const sandbox = path.join(root, '.tmp', 'automaton-slash-routing');
 const orgRoot = path.join(sandbox, 'organization-module');
 mkdirSync(orgRoot, { recursive: true });
 writeFileSync(

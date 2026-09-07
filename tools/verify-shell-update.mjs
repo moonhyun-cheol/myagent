@@ -45,9 +45,15 @@ assert.match(
 );
 assert.match(dispatchSource, /\/system\/update-gate/);
 assert.match(dispatchSource, /\/system\/ui-busy/);
+assert.match(updateGateSource, /session_busy/);
+assert.match(updateGateSource, /workspace_busy/);
 assert.match(updateGateSource, /agent_busy/);
 assert.match(updateGateSource, /scheduler_busy/);
 assert.match(updateGateSource, /automaton_background/);
+assert.match(read('core/src/chat/chat-runs.ts'), /hasActiveChatRuns/);
+assert.match(read('core/src/chat/chat-runs.ts'), /beginActiveWork/);
+assert.match(read('core/src/system/ui-busy-state.ts'), /workspace_busy/);
+assert.match(read('ui/workspace/src/App.tsx'), /workspace_busy/);
 assert.match(appSource, /SingleInstanceGuard/);
 assert.match(singleInstanceSource, /TryBecomePrimary/);
 assert.match(singleInstanceSource, /EventWaitHandle/);

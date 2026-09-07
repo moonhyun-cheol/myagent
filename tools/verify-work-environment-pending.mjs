@@ -91,6 +91,29 @@ try {
   assert.equal(gateBusy.ready, false);
   assert.ok(gateBusy.reasons.includes('scheduler_busy'));
 
+  const {
+    beginChatRun,
+    executeChatRun,
+    hasActiveChatRuns,
+  } = await import('../core/dist/chat/chat-runs.js');
+  const sessionGateIdle = evaluateUpdateGate({
+    license: { getStatus: () => ({ mode: 'full' }) },
+    personalScheduler: { countActiveRuns: () => 0 },
+    personalSchedulerRuntime: { isBusy: () => false },
+  });
+  assert.equal(sessionGateIdle.ready, true);
+
+  const run = beginChatRun('verify-session', 'run-session-busy-1');
+  assert.equal(hasActiveChatRuns(), true);
+  const sessionGateBusy = evaluateUpdateGate({
+    license: { getStatus: () => ({ mode: 'full' }) },
+    personalScheduler: { countActiveRuns: () => 0 },
+    personalSchedulerRuntime: { isBusy: () => false },
+  });
+  assert.equal(sessionGateBusy.ready, false);
+  assert.ok(sessionGateBusy.reasons.includes('session_busy'));
+  await executeChatRun(run, undefined, async () => undefined, () => {});
+  assert.equal(hasActiveChatRuns(), false);
   const pending = await evaluateWorkEnvironmentPending(temp);
   assert.equal(pending.any_pending, false);
   assert.equal(pending.launcher.update_available, false);

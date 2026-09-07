@@ -54,6 +54,7 @@ export function statusLabelForMode(mode: ChatMode): string {
     case 'automaton_direct':
       return '업무 명령 접수…';
     default:
+      if (mode === 'org:market_research') return '시장조사 실행 중…';
       if (isUserSkillMode(mode) || isOrgSkillMode(mode)) return '스킬 답변 생성 중…';
       return '답변 생성 중…';
   }

@@ -23,6 +23,9 @@ export interface ApplicationNotice {
 
 export interface SessionMessage {
   role: 'user' | 'assistant';
+  run_id?: string;
+  reply_to_run_id?: string;
+  status?: 'completed' | 'stopped';
   content: string;
   at: string;
   model?: string;

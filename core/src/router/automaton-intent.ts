@@ -2,6 +2,7 @@ import {
   buildAutomatonCommandText,
   getSlashAutomatonPatterns,
 } from '../automaton/tool-catalog.js';
+import { matchOptionalFeatureRequired } from '../features/optional-feature-slash-index.js';
 import type { RouteDecision } from './types.js';
 
 export interface AutomatonIntentResult {
@@ -61,6 +62,20 @@ export function resolveSlashRoute(message: string, cqrRoot?: string): SlashRoute
       routing: automatonIntentToRoute(intent),
       automatonText: intent.commandText ?? message,
     };
+  }
+  if (cqrRoot) {
+    const required = matchOptionalFeatureRequired(message, cqrRoot);
+    if (required) {
+      return {
+        routing: {
+          mode: 'automaton_direct',
+          confidence: 1,
+          layer: 'explicit',
+          feature_required: required,
+        },
+        automatonText: message,
+      };
+    }
   }
   return {
     routing: { mode: 'automaton_direct', confidence: 1, layer: 'explicit' },

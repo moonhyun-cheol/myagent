@@ -54,6 +54,28 @@ export function modelSupportedReasoningLevels(modelId?: string | null): Reasonin
   return ['low', 'medium', 'high'];
 }
 
+/** Keep persisted chat policy valid when the selected model family changes. */
+export function normalizeReasoningLevelForModel(
+  value: 'auto' | ReasoningEffortLevel,
+  modelId?: string | null,
+): 'auto' | ReasoningEffortLevel {
+  if (value === 'auto') return value;
+  const supported = modelSupportedReasoningLevels(modelId);
+  if (!supported.length) return 'auto';
+  if (supported.includes(value)) return value;
+  const requestedIndex = REASONING_EFFORT_LEVELS.indexOf(value);
+  return supported.reduce<ReasoningEffortLevel | 'auto'>((best, candidate) => {
+    if (best === 'auto') return candidate;
+    const candidateIndex = REASONING_EFFORT_LEVELS.indexOf(candidate);
+    const bestIndex = REASONING_EFFORT_LEVELS.indexOf(best);
+    const candidateDistance = Math.abs(candidateIndex - requestedIndex);
+    const bestDistance = Math.abs(bestIndex - requestedIndex);
+    return candidateDistance < bestDistance || (candidateDistance === bestDistance && candidateIndex > bestIndex)
+      ? candidate
+      : best;
+  }, 'auto');
+}
+
 /** Full product ladder for Settings (no model context). */
 export const ALL_REASONING_SELECT_OPTIONS: Array<{ value: 'auto' | ReasoningEffortLevel; label: string }> = [
   { value: 'auto', label: REASONING_LEVEL_LABELS.auto },

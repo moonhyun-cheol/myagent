@@ -8,6 +8,7 @@ import {
   describeRemoteModels,
 } from '../core/dist/providers/remote-model-curate.js';
 import { configurationWireCandidates } from '../core/dist/providers/provider-wire-api.js';
+import { resolveCodeReasoningEffortForModel } from '../core/dist/providers/harness-policy.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(path.join(root, rel), 'utf8');
@@ -172,7 +173,18 @@ const registry = { load: () => ({ default_llm_id: null, models: [] }) };
 try {
   const cold = await buildModelPicker(registry, {}, providerStore);
   assert.equal(fetchCount, 0, 'cold picker must not probe company /models');
-  assert.ok(cold.options.some((item) => item.value.includes('company-default')));
+  assert.equal(
+    cold.options.some((item) => item.provider_id === 'custom' && item.value.includes('company-default')),
+    false,
+    'provider saved model must not be appended outside the default MY Models set',
+  );
+  assert.deepEqual(
+    cold.options
+      .filter((item) => item.provider_id === 'custom')
+      .map((item) => decodeURIComponent(item.value.split('@')[1] ?? '')),
+    cold.company_models?.selected,
+    'cold workspace picker company options must match the default MY Models set',
+  );
   assert.ok(cold.options.some((item) => item.value === 'provider:openai'));
   assert.ok(
     cold.options.every((item) => !item.label.includes('★')),
@@ -193,6 +205,18 @@ try {
   assert.equal(personalized.company_models?.source, 'personalized');
   assert.deepEqual(personalized.company_models?.selected, [normalizedPersonalizedId]);
   assert.ok(personalized.options.some((item) => item.value.includes(encodeURIComponent(normalizedPersonalizedId))));
+  assert.equal(
+    personalized.options.some((item) => item.provider_id === 'custom' && item.value.includes('company-default')),
+    false,
+    'workspace picker must not append a saved provider model that is not selected in MY Models',
+  );
+  assert.deepEqual(
+    personalized.options
+      .filter((item) => item.provider_id === 'custom')
+      .map((item) => item.value),
+    [`provider:custom@${encodeURIComponent(normalizedPersonalizedId)}`],
+    'workspace picker company options must exactly match the selected MY Models list',
+  );
 
   await buildModelPicker(registry, {}, providerStore, { refreshRemote: true });
   assert.ok(fetchCount > 0, 'explicit refresh must probe remote models');
@@ -202,5 +226,21 @@ try {
 
 assert.deepEqual(configurationWireCandidates({ ...definitions[0], id: 'user_openai', custom: false, user_defined: true, compatibility: 'openai' }, 'claude-routed'), ['responses', 'chat_completions']);
 assert.deepEqual(configurationWireCandidates({ ...definitions[0], id: 'user_anthropic', custom: false, user_defined: true, compatibility: 'anthropic' }, 'any-model'), ['messages']);
+
+assert.equal(
+  resolveCodeReasoningEffortForModel({}, { modelId: 'openai/gpt-astra' }),
+  'low',
+  'GPT Astra must receive explicit reasoning when the session setting is Auto',
+);
+assert.equal(
+  resolveCodeReasoningEffortForModel({ MY_AGENT_REASONING_EFFORT: 'high' }, { modelId: 'openai/gpt-astra' }),
+  'high',
+  'an explicit GPT Astra reasoning selection must be preserved',
+);
+assert.equal(
+  resolveCodeReasoningEffortForModel({}, { modelId: 'openai/gpt-5.6-sol' }),
+  null,
+  'ordinary GPT models must keep provider-managed Auto reasoning',
+);
 
 console.log('verify-startup-model-center: PASS');

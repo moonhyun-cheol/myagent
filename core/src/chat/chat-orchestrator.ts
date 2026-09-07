@@ -15,6 +15,7 @@ import { ingestOwuiChatImages } from '../image/owui-media.js';
 import { resolveChatModelAsync } from '../models/model-picker.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
 import { isAbortError, throwIfAborted } from './abort.js';
+import { chatRunCanPublish } from './chat-runs.js';
 import { LocalChatService } from '../inference/local-chat.js';
 import { loadUserOverrides } from '../config/user-overrides.js';
 import {
@@ -47,12 +48,18 @@ import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool } from '../automaton/adapter.js';
 import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
+import { loadAdapterConnection } from '../automaton/adapter-connection.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
 import { buildAutomatonProgressPath } from '../automaton/progress.js';
 import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
-import { peekAutomatonIntent, automatonIntentToRoute } from '../router/automaton-intent.js';
+import {
+  resolveSlashRoute,
+  SLASH_COMMAND_UNREGISTERED_MESSAGE,
+} from '../router/automaton-intent.js';
+import { matchMarketResearchSlash } from '../skills/market-pipeline-capability.js';
+import { handleMarketResearchMode } from './modes/market-research.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -128,13 +135,26 @@ export class ChatOrchestrator {
       };
     }
 
-    // Slash commands are structural input, not natural-language keyword routing.
-    const peek = /^\/\S/.test(message.trim()) ? peekAutomatonIntent(message) : null;
-    const quickAutomaton = peek ? automatonIntentToRoute(peek) : null;
-    if (quickAutomaton && peek) {
+    // Host-local market research slashes (not Bulbasaur / OpenClaw).
+    const marketSlash = matchMarketResearchSlash(message);
+    if (marketSlash) {
       return {
-        routing: quickAutomaton,
-        automatonText: peek.commandText ?? message,
+        routing: {
+          mode: 'org:market_research',
+          matched_tool: marketSlash.toolId,
+          confidence: 1,
+          layer: 'explicit',
+        },
+        automatonText: marketSlash.commandText,
+      };
+    }
+
+    // Org + core Automaton slash commands — must pass cqrRoot so org manifest loads.
+    const slash = resolveSlashRoute(message, this.cqrRoot);
+    if (slash) {
+      return {
+        routing: slash.routing,
+        automatonText: slash.automatonText,
       };
     }
 
@@ -181,19 +201,20 @@ export class ChatOrchestrator {
     const openclaw = resolveOpenclaw();
     if (defaults.openclaw_adapter_base_url?.trim() && !openclaw) {
       throw new Error(
-        'OpenClaw URL은 있으나 토큰이 없습니다. data/vault/openclaw-adapter.json에 {"token":"..."}을 저장하거나 OPENCLAW_ADAPTER_TOKEN 환경 변수를 설정하세요.',
+        'OpenClaw URL은 있으나 토큰/bootstrap이 없습니다. adapter-connection.json bootstrap_key, vault token, 또는 OPENCLAW_ADAPTER_TOKEN을 확인하세요.',
       );
     }
     if (!openclaw && !automatonRoot) {
       throw new Error(
-        'Automaton not configured — set openclaw_adapter_base_url + OPENCLAW_ADAPTER_TOKEN (or data/vault/openclaw-adapter.json), or LIVE_AUTOMATON_ROOT',
+        'Automaton not configured — set openclaw_adapter_base_url + bootstrap/token (or data/vault/openclaw-adapter.json), or LIVE_AUTOMATON_ROOT',
       );
     }
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)
       : undefined;
     const ack = buildAutomatonAckContent(message, tool);
-    options?.onStatus?.('접수됨 — 회신은 놉스 프로 쪽지');
+    options?.onStatus?.('명령어 접수');
+    const beforeLen = this.sessionStore.load(sessionId)?.messages.length ?? 0;
     this.sessionStore.append(sessionId, {
       role: 'assistant',
       content: ack,
@@ -201,6 +222,7 @@ export class ChatOrchestrator {
       model: `automaton/${tool}`,
       mode: 'automaton_direct',
     });
+    const statusMessageIndex = beforeLen;
     void this.runAutomatonBackground(sessionId, {
       message,
       tool,
@@ -208,6 +230,7 @@ export class ChatOrchestrator {
       progressFile,
       openclaw,
       fallbackLocal: defaults.openclaw_fallback_local !== false && Boolean(automatonRoot),
+      statusMessageIndex,
     });
     return {
       role: 'assistant',
@@ -227,15 +250,57 @@ export class ChatOrchestrator {
       progressFile?: string;
       openclaw: ReturnType<typeof resolveOpenClawAdapterConfig>;
       fallbackLocal: boolean;
+      statusMessageIndex?: number;
     },
   ): Promise<void> {
+    const connection = loadAdapterConnection(this.cqrRoot);
+    const editExisting = connection?.progress?.edit_existing_message_when_supported !== false;
+    const appendWhenUnsupported = connection?.progress?.append_status_when_edit_unsupported !== false;
+    let lastPublished = '';
+    const publishStatus = (text: string) => {
+      const next = text.trim();
+      if (!next || next === lastPublished) return;
+      lastPublished = next;
+      try {
+        if (
+          editExisting
+          && typeof job.statusMessageIndex === 'number'
+          && this.sessionStore.updateMessageContent(sessionId, job.statusMessageIndex, next)
+        ) {
+          return;
+        }
+        if (appendWhenUnsupported && chatRunCanPublish()) {
+          this.sessionStore.append(sessionId, {
+            role: 'assistant',
+            content: next,
+            at: new Date().toISOString(),
+            model: `automaton/${job.tool}`,
+            mode: 'automaton_direct',
+          });
+        }
+      } catch {
+        /* aborted chat run must not kill adapter polling */
+      }
+    };
+
     try {
-      await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
+      const result = await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
         progressFile: job.progressFile,
         openclaw: job.openclaw,
         preferRemote: Boolean(job.openclaw),
         fallbackLocal: job.fallbackLocal,
+        cqrRoot: this.cqrRoot,
+        onStatus: publishStatus,
       });
+      if (result?.content?.trim()) {
+        const envelopeStatus = String(result.envelope?.status ?? '').trim().toLowerCase();
+        if (
+          envelopeStatus
+          && !['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(envelopeStatus)
+        ) {
+          publishStatus(result.content);
+        }
+      }
     } catch (err: unknown) {
       const content = [
         '**업무 명령 실행 실패**',
@@ -243,13 +308,7 @@ export class ChatOrchestrator {
         `접수: \`${job.message.trim()}\``,
         err instanceof Error ? err.message : String(err),
       ].join('\n');
-      this.sessionStore.append(sessionId, {
-        role: 'assistant',
-        content,
-        at: new Date().toISOString(),
-        model: `automaton/${job.tool}`,
-        mode: 'automaton_direct',
-      });
+      publishStatus(content);
       this.autoReportError({
         subject: 'MY Agent 오류 [automaton_direct]',
         summary: content,
@@ -323,7 +382,47 @@ export class ChatOrchestrator {
     this.sessionStore.append(sessionId, { role: 'user', content: message, at: now, mode: routing.mode });
 
     if (routing.mode === 'automaton_direct') {
+      if (routing.feature_required) {
+        const content = appendAssistantReply(this.sessionStore, sessionId, {
+          content: routing.feature_required.message,
+          model: 'automaton/feature_required',
+          mode: 'automaton_direct',
+        });
+        return {
+          role: 'assistant',
+          content,
+          mode: 'automaton_direct',
+          routing,
+          model: 'automaton/feature_required',
+        };
+      }
+      if (!routing.matched_tool) {
+        const content = appendAssistantReply(this.sessionStore, sessionId, {
+          content: SLASH_COMMAND_UNREGISTERED_MESSAGE,
+          model: 'automaton/unregistered',
+          mode: 'automaton_direct',
+        });
+        return {
+          role: 'assistant',
+          content,
+          mode: 'automaton_direct',
+          routing,
+          model: 'automaton/unregistered',
+        };
+      }
       return this.handleAutomatonDirect(sessionId, routing, automatonText);
+    }
+
+    if (routing.mode === 'org:market_research') {
+      const pipelineReply = await handleMarketResearchMode({
+        cqrRoot: this.cqrRoot,
+        sessionStore: this.sessionStore,
+        sessionId,
+        message,
+        routing,
+      });
+      if (pipelineReply) return pipelineReply;
+      // Fall through to org skill LLM chat with CQR_MARKET_INJECT.
     }
 
     if (routing.mode === 'deep_research') {
@@ -558,6 +657,8 @@ export class ChatOrchestrator {
     this.sessionStore.setExecutionPolicy(sessionId, requestedExecutionPolicy);
     req = { ...req, execution_policy: requestedExecutionPolicy };
 
+    let userAlreadyAppended = false;
+
     if (routing.mode === 'automaton_direct') {
       try {
         this.sessionStore.append(sessionId, {
@@ -566,6 +667,33 @@ export class ChatOrchestrator {
           at: new Date().toISOString(),
           mode: routing.mode,
         });
+        if (routing.feature_required) {
+          const fr = routing.feature_required;
+          sseEvent(res, { type: 'meta', routing, model: 'automaton/feature_required' });
+          sseEvent(res, { type: 'token', text: fr.message });
+          sseEvent(res, { type: 'done', model: 'automaton/feature_required', mode: 'automaton_direct' });
+          this.sessionStore.append(sessionId, {
+            role: 'assistant',
+            content: fr.message,
+            at: new Date().toISOString(),
+            model: 'automaton/feature_required',
+            mode: 'automaton_direct',
+          });
+          return;
+        }
+        if (!routing.matched_tool) {
+          sseEvent(res, { type: 'meta', routing, model: 'automaton/unregistered' });
+          sseEvent(res, { type: 'token', text: SLASH_COMMAND_UNREGISTERED_MESSAGE });
+          sseEvent(res, { type: 'done', model: 'automaton/unregistered', mode: 'automaton_direct' });
+          this.sessionStore.append(sessionId, {
+            role: 'assistant',
+            content: SLASH_COMMAND_UNREGISTERED_MESSAGE,
+            at: new Date().toISOString(),
+            model: 'automaton/unregistered',
+            mode: 'automaton_direct',
+          });
+          return;
+        }
         sseEvent(res, { type: 'status', text: statusLabelForMode('automaton_direct') });
         const full = await this.handleAutomatonDirect(sessionId, routing, automatonText, {
           onStatus: (text) => sseEvent(res, { type: 'status', text }),
@@ -595,6 +723,44 @@ export class ChatOrchestrator {
       return;
     }
 
+    if (routing.mode === 'org:market_research') {
+      try {
+        this.sessionStore.append(sessionId, {
+          role: 'user',
+          content: message,
+          at: new Date().toISOString(),
+          mode: routing.mode,
+        });
+        userAlreadyAppended = true;
+        sseEvent(res, { type: 'status', text: statusLabelForMode('org:market_research') });
+        const pipelineReply = await handleMarketResearchMode({
+          cqrRoot: this.cqrRoot,
+          sessionStore: this.sessionStore,
+          sessionId,
+          message,
+          routing,
+        });
+        if (pipelineReply) {
+          sseEvent(res, { type: 'meta', routing: pipelineReply.routing, model: pipelineReply.model });
+          sseEvent(res, { type: 'token', text: pipelineReply.content });
+          sseEvent(res, {
+            type: 'done',
+            model: pipelineReply.model,
+            mode: pipelineReply.mode,
+            ...(pipelineReply.research ? { research: pipelineReply.research } : {}),
+          });
+          sseDone(res);
+          return;
+        }
+        // Fall through to skill stream with userAlreadyAppended=true.
+      } catch (e: unknown) {
+        const msg = formatChatErrorMessage(e);
+        sseEvent(res, { type: 'error', message: msg });
+        sseDone(res);
+        return;
+      }
+    }
+
     if (workspaceAgentAvailable) {
       const agentRouting = preserveWorkspaceAgentRouting(routing);
       let userAppended = false;
@@ -609,13 +775,17 @@ export class ChatOrchestrator {
             hasAttachments: (req.attachments?.length ?? 0) > 0,
           },
         );
-        this.sessionStore.append(sessionId, {
-          role: 'user',
-          content: message,
-          at: new Date().toISOString(),
-          mode: agentRouting.mode,
-        });
-        userAppended = true;
+        if (!userAlreadyAppended) {
+          this.sessionStore.append(sessionId, {
+            role: 'user',
+            content: message,
+            at: new Date().toISOString(),
+            mode: agentRouting.mode,
+          });
+          userAppended = true;
+        } else {
+          userAppended = true;
+        }
         sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
@@ -948,12 +1118,14 @@ export class ChatOrchestrator {
       effective: { reasoning: effectiveReasoning, autopilot: false },
     });
 
-    this.sessionStore.append(sessionId, {
-      role: 'user',
-      content: message,
-      at: new Date().toISOString(),
-      mode: routing.mode,
-    });
+    if (!userAlreadyAppended) {
+      this.sessionStore.append(sessionId, {
+        role: 'user',
+        content: message,
+        at: new Date().toISOString(),
+        mode: routing.mode,
+      });
+    }
 
     sseEvent(res, { type: 'meta', routing, model: resolved.display });
 

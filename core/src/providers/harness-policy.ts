@@ -57,9 +57,49 @@ export function resolveCodeReasoningEffort(env: NodeJS.ProcessEnv = process.env)
  */
 export function resolveCodeReasoningEffortForModel(
   env: NodeJS.ProcessEnv = process.env,
-  _opts?: { modelId?: string | null },
+  opts?: { modelId?: string | null },
 ): string | null {
-  return resolveCodeReasoningEffort(env);
+  const effort = resolveCodeReasoningEffort(env);
+  if (effort) return normalizeReasoningEffortForModel(effort, opts?.modelId);
+  // Some GPT aliases exposed by compatible Responses gateways require an
+  // explicit reasoning object. Auto normally omits effort, but these aliases
+  // reject that as "Reasoning is mandatory". Use the least intrusive budget.
+  const model = String(opts?.modelId ?? '').toLowerCase();
+  if (/\bgpt[-_. ]?astra\b/.test(model)) return 'low';
+  return null;
+}
+
+const REASONING_LADDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/** Clamp an explicit effort to the closest level supported by a known model family (higher wins ties). */
+export function normalizeReasoningEffortForModel(
+  effort: string | null | undefined,
+  modelId?: string | null,
+): string | null {
+  const requested = String(effort ?? '').trim().toLowerCase();
+  if (!requested) return null;
+  if (modelRejectsReasoningEffort(modelId)) return null;
+
+  const model = String(modelId ?? '').toLowerCase();
+  let supported: readonly string[] | null = null;
+  if (/deepseek/.test(model)) supported = ['low', 'high', 'max'];
+  else if (/sonar-deep-research|perplexity/.test(model)) supported = ['low', 'medium', 'high'];
+  else if (/grok/.test(model)) supported = ['low', 'medium', 'high', 'xhigh'];
+  else if (/gpt-5|o1|o3|o4|codex/.test(model)) supported = REASONING_LADDER;
+
+  if (!supported || supported.includes(requested)) return requested;
+  const requestedIndex = REASONING_LADDER.indexOf(requested as (typeof REASONING_LADDER)[number]);
+  if (requestedIndex < 0) return requested;
+  return supported.reduce<string | null>((best, candidate) => {
+    if (!best) return candidate;
+    const candidateIndex = REASONING_LADDER.indexOf(candidate as (typeof REASONING_LADDER)[number]);
+    const bestIndex = REASONING_LADDER.indexOf(best as (typeof REASONING_LADDER)[number]);
+    const candidateDistance = Math.abs(candidateIndex - requestedIndex);
+    const bestDistance = Math.abs(bestIndex - requestedIndex);
+    return candidateDistance < bestDistance || (candidateDistance === bestDistance && candidateIndex > bestIndex)
+      ? candidate
+      : best;
+  }, null);
 }
 
 /**
@@ -69,6 +109,9 @@ export function resolveCodeReasoningEffortForModel(
 export function modelRejectsReasoningEffort(modelId?: string | null): boolean {
   const m = String(modelId || '').toLowerCase();
   if (!m) return false;
+  if (/gemini-3-pro-image|gemini.*-image|[-_/]image(?:-|$)|image-gen|imagen/i.test(m)) {
+    return true;
+  }
   if (/thinking|reasoner|\br1\b|o1|o3|o4|gpt-5|opus-4|sonnet-4|gemini-2\.5|gemini-3/i.test(m)) {
     return false;
   }
@@ -129,9 +172,9 @@ export function resolveSessionReasoningEffort(
     return null;
   }
   if ((env.MY_AGENT_REASONING_EFFORT ?? '').trim()) {
-    return resolveReasoningEffort(env);
+    return normalizeReasoningEffortForModel(resolveReasoningEffort(env), opts?.modelId);
   }
-  if (level !== 'auto') return level;
+  if (level !== 'auto') return normalizeReasoningEffortForModel(level, opts?.modelId);
   // Auto leaves the budget to the selected provider/model. Responses summary
   // requests are assembled independently in responses-compatible.ts.
   return null;

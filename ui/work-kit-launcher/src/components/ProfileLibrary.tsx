@@ -8,6 +8,7 @@ import {
   refreshWorkKitCatalog,
   restoreProfileLastState,
   type AgentProfileApplied,
+  type OrganizationFeatureStatus,
   type ShelfInstallStatus,
   type WorkKitCatalogGroup,
   type WorkKitShelf,
@@ -23,6 +24,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
   const [groups, setGroups] = useState<WorkKitCatalogGroup[]>([]);
   const [feedSequence, setFeedSequence] = useState<number | null>(null);
   const [appliedKits, setAppliedKits] = useState<AgentProfileApplied[]>([]);
+  const [organizationFeatures, setOrganizationFeatures] = useState<OrganizationFeatureStatus[]>([]);
   const [canRestore, setCanRestore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -36,6 +38,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
       setGroups(data.groups);
       setFeedSequence(data.feed_sequence);
       setAppliedKits(Array.isArray(data.applied_kits) ? data.applied_kits : (data.applied ? [data.applied] : []));
+      setOrganizationFeatures(data.organization_features ?? []);
       setCanRestore(data.can_restore);
       setSelectedGroup((prev) => {
         if (prev && data.groups.some((g) => g.id === prev)) return prev;
@@ -155,8 +158,11 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
         await syncOrganizationModuleIfNeeded();
       }
       const result = await applyWorkKitProfile(shelf.group, shelf.id);
+      const featureNote = result.enabled_features?.length
+        ? ` · 추가 기능 활성 ${result.enabled_features.length}`
+        : '';
       const warn = result.warnings?.length ? ` (${result.warnings[0]})` : '';
-      setMessage(`「${shelf.label}」 적용했습니다.${warn}`);
+      setMessage(`「${shelf.label}」 적용했습니다.${featureNote}${warn}`);
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '적용 실패');
@@ -271,6 +277,7 @@ export function ProfileLibrary({ onLaunchMyAgent }: ProfileLibraryProps) {
                     key={`${shelf.group}/${shelf.id}`}
                     shelf={shelf}
                     isApplied={isKitApplied(shelf)}
+                    organizationFeatures={organizationFeatures}
                     disabled={disabled}
                     onInstall={() => void installKit(shelf)}
                     onApply={() => void applyKit(shelf)}
@@ -305,12 +312,14 @@ function resolveInstallStatus(shelf: WorkKitShelf): ShelfInstallStatus {
 function KitCard({
   shelf,
   isApplied,
+  organizationFeatures,
   disabled,
   onInstall,
   onApply,
 }: {
   shelf: WorkKitShelf;
   isApplied: boolean;
+  organizationFeatures: OrganizationFeatureStatus[];
   disabled: boolean;
   onInstall: () => void;
   onApply: () => void;
@@ -319,6 +328,14 @@ function KitCard({
   const canApply = status === 'installed' || status === 'update_available';
   const needsInstall = status === 'available' || status === 'update_available';
   const statusText = statusLabel(status);
+  const featureIds = Object.keys(shelf.features?.enable ?? {});
+  const featureBadges = featureIds.map((id) => {
+    const live = organizationFeatures.find((f) => f.id === id);
+    if (live?.enabled) return { id, label: '추가 기능 활성', tone: 'ok' as const };
+    if (live?.installed) return { id, label: '추가 기능 설치됨', tone: 'warn' as const };
+    if (isApplied) return { id, label: '추가 기능 실패/미설치', tone: 'fail' as const };
+    return { id, label: '추가 기능 필요', tone: 'muted' as const };
+  });
 
   return (
     <li
@@ -342,6 +359,24 @@ function KitCard({
               적용 중
             </span>
           ) : null}
+          {featureBadges.map((badge) => (
+            <span
+              key={badge.id}
+              data-testid={`profile-feature-${shelf.group}-${shelf.id}-${badge.id}`}
+              title={badge.id}
+              className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                badge.tone === 'ok'
+                  ? 'bg-accent/10 text-accent'
+                  : badge.tone === 'warn'
+                    ? 'bg-amber-500/10 text-amber-700'
+                    : badge.tone === 'fail'
+                      ? 'bg-red-500/10 text-red-700'
+                      : 'bg-ink/40 text-muted'
+              }`}
+            >
+              {badge.label}
+            </span>
+          ))}
         </div>
         {shelf.description ? (
           <p className="mt-1.5 text-sm leading-relaxed text-muted">{shelf.description}</p>

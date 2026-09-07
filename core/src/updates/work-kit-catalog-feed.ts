@@ -425,6 +425,7 @@ function writeShelfFromFeedMeta(
     description: shelf.description,
     pull: shelf.pull ?? [],
     plugins: shelf.plugins ?? { enable: {} },
+    features: shelf.features,
     hints: shelf.hints,
     min_core_sequence: shelf.min_core_sequence,
   };

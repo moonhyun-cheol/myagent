@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { resolveOrganizationModuleRoot } from '../skills/organization-module-root.js';
+import { loadFeatureAutomatonTools } from '../features/organization-feature-loader.js';
 
 export interface OrganizationAutomatonToolEntry {
   id: string;
@@ -29,7 +30,7 @@ function normalizeToolEntry(tool: OrganizationAutomatonToolEntry): OrganizationA
   };
 }
 
-export function loadOrganizationAutomatonTools(cqrRoot: string): OrganizationAutomatonToolEntry[] {
+function loadLegacyOrganizationAutomatonTools(cqrRoot: string): OrganizationAutomatonToolEntry[] {
   const orgRoot = resolveOrganizationModuleRoot(cqrRoot);
   if (!orgRoot) return [];
   const manifestPath = path.join(orgRoot, 'automaton-tools.manifest.json');
@@ -40,4 +41,16 @@ export function loadOrganizationAutomatonTools(cqrRoot: string): OrganizationAut
   } catch {
     return [];
   }
+}
+
+/** Legacy modules/organization + enabled Organization Feature roots. */
+export function loadOrganizationAutomatonTools(cqrRoot: string): OrganizationAutomatonToolEntry[] {
+  const merged = new Map<string, OrganizationAutomatonToolEntry>();
+  for (const tool of loadLegacyOrganizationAutomatonTools(cqrRoot)) {
+    merged.set(tool.id, tool);
+  }
+  for (const tool of loadFeatureAutomatonTools(cqrRoot)) {
+    merged.set(tool.id, normalizeToolEntry(tool));
+  }
+  return [...merged.values()];
 }

@@ -85,6 +85,75 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
 }
 
 {
+  const sandbox = path.join(root, '.tmp', 'adapter-connection');
+  const orgRoot = path.join(sandbox, 'modules', 'organization');
+  mkdirSync(orgRoot, { recursive: true });
+  writeFileSync(
+    path.join(orgRoot, 'adapter-connection.json'),
+    `${JSON.stringify({
+      version: 1,
+      base_url: 'http://127.0.0.1:8790',
+      transport: {
+        request_path: '/cqr/adapter/request',
+        status_path_template: '/cqr/adapter/jobs/{job_id}',
+        poll_interval_ms: 2500,
+      },
+      authentication: {
+        mode: 'install_bootstrap',
+        bootstrap_path: '/cqr/adapter/auth/bootstrap',
+        bootstrap_key: 'install-fixture',
+      },
+      progress: {
+        accepted_text: '명령어 접수',
+        running_text: '진행 중',
+        completed_text: '완료',
+        failed_text: '실패',
+      },
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    path.join(orgRoot, 'module.json'),
+    `${JSON.stringify({
+      id: 'organization',
+      adapter_connection_file: 'adapter-connection.json',
+      openclaw_adapter_base_url: 'http://127.0.0.1:8790',
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const {
+    buildAdapterStatusUrl,
+    formatAdapterProgressMessage,
+    loadAdapterConnection,
+  } = await import('../core/dist/automaton/adapter-connection.js');
+  const { buildAutomatonAckContent } = await import('../core/dist/automaton/automaton-ack.js');
+
+  try {
+    const conn = loadAdapterConnection(sandbox);
+    assert.ok(conn);
+    assert.equal(conn.base_url, 'http://127.0.0.1:8790');
+    assert.equal(conn.authentication?.bootstrap_key, 'install-fixture');
+    assert.equal(
+      buildAdapterStatusUrl(conn.base_url, 'job-1', conn.transport?.status_path_template),
+      'http://127.0.0.1:8790/cqr/adapter/jobs/job-1',
+    );
+    const progress = formatAdapterProgressMessage(conn, {
+      commandText: '/발주검토자료 CRGO_PT',
+      status: 'queued',
+    });
+    assert.match(progress, /명령어 접수|접수:/);
+    assert.match(progress, /중앙 허브/);
+    assert.doesNotMatch(progress, /쪽지 수신자/);
+    const ack = buildAutomatonAckContent('/발주검토자료 CRGO_PT', 'downloadtable_po_review');
+    assert.match(ack, /중앙 허브에서 백그라운드로 실행/);
+    assert.doesNotMatch(ack, /쪽지 수신자/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
+{
   const sandbox = path.join(root, '.tmp', 'openclaw-raw-request');
   const orgRoot = path.join(sandbox, 'modules', 'organization');
   mkdirSync(orgRoot, { recursive: true });

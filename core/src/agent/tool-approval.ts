@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { currentChatRun } from '../chat/chat-runs.js';
 import { envFlagOn } from '../providers/harness-policy.js';
 import { pluginInstallNeedsHitl } from './agent-plugin-capability.js';
 import path from 'node:path';
@@ -162,26 +163,29 @@ export function waitForToolApproval(
   opts?: { timeoutMs?: number; signal?: AbortSignal },
 ): Promise<boolean> {
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const signal = opts?.signal ?? currentChatRun()?.controller.signal;
   return new Promise((resolve) => {
+    const onAbort = () => finish(false);
     const finish = (approved: boolean) => {
       const row = pending.get(id);
       if (!row) return;
+      signal?.removeEventListener('abort', onAbort);
       clearTimeout(row.timer);
       pending.delete(id);
-      resolve(approved);
+      resolve(approved && !signal?.aborted);
     };
 
     const timer = setTimeout(() => finish(false), timeoutMs);
     pending.set(id, { resolve: finish, timer });
 
-    if (opts?.signal) {
-      if (opts.signal.aborted) {
+    if (signal) {
+      if (signal.aborted) {
         finish(false);
         return;
       }
-      opts.signal.addEventListener(
+      signal.addEventListener(
         'abort',
-        () => finish(false),
+        onAbort,
         { once: true },
       );
     }

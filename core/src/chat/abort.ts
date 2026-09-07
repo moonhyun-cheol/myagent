@@ -1,10 +1,21 @@
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export function clientAbortSignal(req: IncomingMessage): AbortSignal {
+export function clientAbortSignal(req: IncomingMessage, res: ServerResponse): AbortSignal {
   const controller = new AbortController();
-  req.on('close', () => {
-    if (!controller.signal.aborted) controller.abort();
-  });
+  const abort = () => controller.abort();
+  const cleanup = () => {
+    req.off('aborted', abort);
+    res.off('close', close);
+    res.off('finish', cleanup);
+  };
+  const close = () => {
+    if (!res.writableFinished) abort();
+    cleanup();
+  };
+  req.once('aborted', abort);
+  res.once('close', close);
+  res.once('finish', cleanup);
+  if (req.aborted || res.destroyed || (req.destroyed && !req.complete)) abort();
   return controller.signal;
 }
 

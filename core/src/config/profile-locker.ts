@@ -44,6 +44,9 @@ export interface WorkKitFeedShelf {
   description?: string;
   pull?: ShelfPullSlot[];
   plugins?: { enable?: Record<string, boolean> };
+  features?: {
+    enable?: Record<string, { required?: boolean }>;
+  };
   hints?: {
     needs_organization_module?: boolean;
   };
@@ -80,6 +83,10 @@ export interface WorkKitShelf {
   description?: string;
   pull: ShelfPullSlot[];
   plugins: { enable: Record<string, boolean> };
+  /** Optional Organization Features to install/enable on apply (schema_version 1 compatible). */
+  features?: {
+    enable?: Record<string, { required?: boolean }>;
+  };
   hints?: {
     needs_organization_module?: boolean;
   };
@@ -221,6 +228,20 @@ function normalizePull(raw: unknown): ShelfPullSlot[] {
   return out;
 }
 
+function normalizeFeatures(raw: unknown): WorkKitShelf['features'] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const enableRaw = (raw as { enable?: unknown }).enable;
+  if (!enableRaw || typeof enableRaw !== 'object') return undefined;
+  const enable: Record<string, { required?: boolean }> = {};
+  for (const [key, value] of Object.entries(enableRaw as Record<string, { required?: boolean }>)) {
+    const id = String(key).trim().toLowerCase();
+    if (!id || id.includes('..') || id.includes('/') || id.includes('\\')) continue;
+    enable[id] = { required: value?.required === true };
+  }
+  if (Object.keys(enable).length === 0) return undefined;
+  return { enable };
+}
+
 function normalizeShelf(
   raw: Partial<WorkKitShelf>,
   group: string,
@@ -246,6 +267,7 @@ function normalizeShelf(
     description: raw.description ? String(raw.description).trim().slice(0, 400) : undefined,
     pull: normalizePull(raw.pull),
     plugins: { enable },
+    features: normalizeFeatures(raw.features),
     hints: raw.hints?.needs_organization_module
       ? { needs_organization_module: true }
       : undefined,
@@ -319,6 +341,7 @@ function feedShelfToCatalogShelf(
       : lockerShelf?.description,
     pull,
     plugins: { enable },
+    features: normalizeFeatures(feed.features ?? lockerShelf?.features),
     hints: feed.hints?.needs_organization_module || lockerShelf?.hints?.needs_organization_module
       ? { needs_organization_module: true }
       : undefined,

@@ -29,6 +29,12 @@ export interface RouteDecision {
   confidence: number;
   layer: 'explicit' | 'bypass' | 'L1' | 'L2' | 'intent' | 'default';
   matched_tool?: string;
+  /** Optional Feature not installed/enabled — orchestrator returns guidance, never LLM. */
+  feature_required?: {
+    feature_id: string;
+    slash: string;
+    message: string;
+  };
 }
 
 /** Workspace UI → 채팅 API — 현재 편집 중 파일 힌트 (경량 컨텍스트) */
@@ -42,6 +48,7 @@ export interface EditorContext {
 
 export interface ChatRequest {
   message: string;
+  runId?: string;
   mode?: ChatMode | 'chat';
   attachments?: string[];
   /** `auto` | `cloud` | registry model id */

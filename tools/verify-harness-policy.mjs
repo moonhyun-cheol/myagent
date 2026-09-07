@@ -70,6 +70,7 @@ const {
   resolveReasoningEffort,
   resolveCodeReasoningEffort,
   resolveCodeReasoningEffortForModel,
+  normalizeReasoningEffortForModel,
   resolveSessionReasoningEffort,
   resolveOwuiProtocolMode,
   resolveCodeOwuiProtocolMode,
@@ -252,6 +253,24 @@ function withEnv(patch, fn) {
     ),
     null,
     'unsupported models still omit effort',
+  );
+  assert.equal(
+    normalizeReasoningEffortForModel('max', 'x-ai/grok-4.6'),
+    'xhigh',
+    'Grok clamps max to its highest supported effort',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort('max', {}, { providerId: 'custom', modelId: 'x-ai/grok-4.6' }),
+    'xhigh',
+    'session effort is normalized after switching to Grok',
+  );
+  assert.equal(
+    resolveCodeReasoningEffortForModel(
+      { MY_AGENT_REASONING_EFFORT: 'max' },
+      { modelId: 'x-ai/grok-4.6' },
+    ),
+    'xhigh',
+    'code-agent operator/session effort is normalized for Grok too',
   );
 }
 

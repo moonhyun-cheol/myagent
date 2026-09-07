@@ -55,6 +55,7 @@ import { browserNavigateViaMcp, browserScreenshotViaMcp, getPlaywrightMcpDiagnos
 import { parseChatRequest } from '../chat/chat-orchestrator.js';
 import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
 import { clientAbortSignal } from '../chat/abort.js';
+import { beginChatRun, cancelChatRun, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
 import { ProjectStoreError } from '../projects/project-store.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
@@ -62,7 +63,7 @@ import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error
 import { evaluateUpdateGate } from '../system/update-gate.js';
 import { evaluateWorkEnvironmentPending } from '../system/work-environment-pending.js';
 import { LauncherUpdateError } from '../updates/launcher-update-feed.js';
-import { setMutateReviewPending, uiBusySnapshot } from '../system/ui-busy-state.js';
+import { setMutateReviewPending, setWorkspaceBusy, uiBusySnapshot } from '../system/ui-busy-state.js';
 import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
@@ -92,6 +93,15 @@ import {
   applyOrganizationModuleUpdate,
   checkOrganizationModuleUpdate,
 } from '../updates/organization-module-feed.js';
+import {
+  disableOrganizationFeature,
+  enableOrganizationFeature,
+  getOrganizationFeatureStatus,
+  installOrganizationFeatureFromZip,
+  listOrganizationFeatures,
+  OrganizationFeatureError,
+  removeOrganizationFeature,
+} from '../features/organization-feature-manager.js';
 import {
   checkWorkKitCatalogUpdateRemote,
   describeWorkKitCatalogConfig,
@@ -214,6 +224,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/workspace',
     '/error-report',
     '/organization-module',
+    '/organization-features',
     '/assets/',
   ];
   return roots.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
@@ -315,8 +326,16 @@ export async function dispatchApiRequest(
       }
 
       if (method === 'POST' && url.pathname === '/system/ui-busy') {
-        const body = JSON.parse(await readBody(req)) as { mutate_review_pending?: boolean };
-        setMutateReviewPending(body.mutate_review_pending === true);
+        const body = JSON.parse(await readBody(req)) as {
+          mutate_review_pending?: boolean;
+          workspace_busy?: boolean;
+        };
+        if (typeof body.mutate_review_pending === 'boolean') {
+          setMutateReviewPending(body.mutate_review_pending);
+        }
+        if (typeof body.workspace_busy === 'boolean') {
+          setWorkspaceBusy(body.workspace_busy);
+        }
         return sendJson(res, 200, uiBusySnapshot());
       }
 
@@ -1902,6 +1921,109 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, describeOrganizationModuleStatus(cqrRoot));
       }
 
+      if (method === 'GET' && url.pathname === '/organization-features') {
+        return sendJson(res, 200, { features: listOrganizationFeatures(cqrRoot) });
+      }
+
+      if (method === 'POST' && url.pathname === '/organization-features/install') {
+        license.assertWritable();
+        try {
+          const body = JSON.parse(await readBody(req)) as {
+            zip_path?: string;
+            enable?: boolean;
+            confirm?: boolean;
+          };
+          if (body.confirm !== true) {
+            return sendJson(res, 400, {
+              error: 'FEATURE_CONFIRM_REQUIRED',
+              message: 'install에는 confirm=true가 필요합니다.',
+            });
+          }
+          const zipPath = String(body.zip_path ?? '').trim();
+          if (!zipPath) {
+            return sendJson(res, 400, { error: 'FEATURE_ZIP_REQUIRED', message: 'zip_path가 필요합니다.' });
+          }
+          const installed = installOrganizationFeatureFromZip(cqrRoot, zipPath, {
+            enable: body.enable === true,
+          });
+          return sendJson(res, 200, {
+            ok: true,
+            feature: installed.feature,
+            root: installed.root,
+            enabled: installed.enabled,
+          });
+        } catch (e: unknown) {
+          if (e instanceof OrganizationFeatureError) {
+            return sendJson(res, 400, { error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+
+      {
+        const enableMatch = url.pathname.match(
+          /^\/organization-features\/([a-z][a-z0-9_.-]{0,96})\/enable$/,
+        );
+        if (method === 'POST' && enableMatch) {
+          license.assertWritable();
+          try {
+            const body = JSON.parse(await readBody(req)) as { confirm?: boolean };
+            const status = enableOrganizationFeature(cqrRoot, enableMatch[1], {
+              confirm: body.confirm,
+            });
+            return sendJson(res, 200, { ok: true, feature: status });
+          } catch (e: unknown) {
+            if (e instanceof OrganizationFeatureError) {
+              return sendJson(res, 400, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
+        }
+        const disableMatch = url.pathname.match(
+          /^\/organization-features\/([a-z][a-z0-9_.-]{0,96})\/disable$/,
+        );
+        if (method === 'POST' && disableMatch) {
+          license.assertWritable();
+          try {
+            const body = JSON.parse(await readBody(req)) as { confirm?: boolean };
+            const status = disableOrganizationFeature(cqrRoot, disableMatch[1], {
+              confirm: body.confirm,
+            });
+            return sendJson(res, 200, { ok: true, feature: status });
+          } catch (e: unknown) {
+            if (e instanceof OrganizationFeatureError) {
+              return sendJson(res, 400, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
+        }
+        const featureMatch = url.pathname.match(/^\/organization-features\/([a-z][a-z0-9_.-]{0,96})$/);
+        if (method === 'GET' && featureMatch) {
+          const status = getOrganizationFeatureStatus(cqrRoot, featureMatch[1]);
+          if (!status) return sendJson(res, 404, { error: 'FEATURE_NOT_FOUND' });
+          return sendJson(res, 200, status);
+        }
+        if (method === 'DELETE' && featureMatch) {
+          license.assertWritable();
+          try {
+            const body = JSON.parse(await readBody(req).catch(() => '{}')) as {
+              confirm?: boolean;
+              force?: boolean;
+            };
+            const result = removeOrganizationFeature(cqrRoot, featureMatch[1], {
+              confirm: body.confirm === true,
+              force: body.force === true,
+            });
+            return sendJson(res, 200, result);
+          } catch (e: unknown) {
+            if (e instanceof OrganizationFeatureError) {
+              return sendJson(res, 400, { error: e.code, message: e.message });
+            }
+            throw e;
+          }
+        }
+      }
+
       if (method === 'POST' && url.pathname === '/organization-module/check') {
         try {
           const update = await checkOrganizationModuleUpdate(cqrRoot);
@@ -2231,6 +2353,7 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, {
           ...listWorkKitProfileCatalog(cqrRoot),
           applied_work_kit: summarizeAppliedWorkKit(cqrRoot),
+          organization_features: listOrganizationFeatures(cqrRoot),
         });
       }
 
@@ -2651,6 +2774,16 @@ export async function dispatchApiRequest(
         return sendJson(res, ok ? 200 : 404, { ok, id, approved: doc.approved === true });
       }
 
+      if (method === 'POST' && url.pathname === '/chat/cancel') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const session = sessionFromReq(req);
+        const doc = JSON.parse(await readBody(req)) as { runId?: unknown };
+        if (!validChatRunId(doc.runId)) return sendJson(res, 400, { error: 'INVALID_RUN_ID' });
+        const state = cancelChatRun(session, doc.runId);
+        return sendJson(res, 200, { runId: doc.runId, state });
+      }
+
       if (method === 'POST' && url.pathname === '/chat/stream') {
         license.assertWritable();
         license.assertFeature('chat');
@@ -2664,7 +2797,20 @@ export async function dispatchApiRequest(
         if (reqDoc.mode === 'browser_automation') license.assertFeature('browser_automation');
         if (reqDoc.mode === 'browser_agent') license.assertFeature('browser_automation');
         if (reqDoc.mode === 'web_crawl') license.assertFeature('deep_research');
-        await orchestrator.handleStream(reqDoc, session, res, clientAbortSignal(req));
+        const signal = clientAbortSignal(req, res);
+        let run;
+        try { run = beginChatRun(session, reqDoc.runId ?? randomUUID(), signal); }
+        catch (error) {
+          if (error instanceof ChatRunConflict) return sendJson(res, 409, { error: error.code });
+          throw error;
+        }
+        try {
+          await executeChatRun(run, signal,
+            (runSignal) => orchestrator.handleStream(reqDoc, session, res, runSignal),
+            (stopped) => sessionStore.finalizeStoppedRun(stopped));
+        } finally {
+          if (!res.writableEnded) res.end();
+        }
         return;
       }
 
@@ -2681,7 +2827,16 @@ export async function dispatchApiRequest(
         if (reqDoc.mode === 'browser_automation') license.assertFeature('browser_automation');
         if (reqDoc.mode === 'browser_agent') license.assertFeature('browser_automation');
         if (reqDoc.mode === 'web_crawl') license.assertFeature('deep_research');
-        const result = await orchestrator.handle(reqDoc, session);
+        const signal = clientAbortSignal(req, res);
+        let run;
+        try { run = beginChatRun(session, reqDoc.runId ?? randomUUID(), signal); }
+        catch (error) {
+          if (error instanceof ChatRunConflict) return sendJson(res, 409, { error: error.code });
+          throw error;
+        }
+        const result = await executeChatRun(run, signal,
+          () => orchestrator.handle(reqDoc, session),
+          (stopped) => sessionStore.finalizeStoppedRun(stopped));
         return sendJson(res, 200, result);
       }
 

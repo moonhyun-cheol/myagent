@@ -29,6 +29,13 @@ import {
   type WorkKitCatalogGroup,
   type WorkKitShelf,
 } from './profile-locker.js';
+import {
+  applyWorkKitFeatures,
+  OrganizationFeatureError,
+  snapshotOrganizationFeatureState,
+  restoreOrganizationFeatureState,
+} from '../features/organization-feature-manager.js';
+import type { OrganizationFeatureIndex } from '../features/organization-feature-types.js';
 
 export interface AgentProfile {
   id: string;
@@ -62,6 +69,7 @@ interface ProfileLastState {
   /** @deprecated single-entry snapshot; use applied_entries */
   applied: AgentProfileAppliedState | null;
   applied_entries?: AgentProfileAppliedState[];
+  organization_features?: OrganizationFeatureIndex;
 }
 
 export interface ProfileApplyResult {
@@ -72,6 +80,8 @@ export interface ProfileApplyResult {
   toggled: Array<{ id: string; enabled: boolean }>;
   pulled_plugins?: string[];
   pulled_skills?: string[];
+  installed_features?: string[];
+  enabled_features?: string[];
   warnings: string[];
 }
 
@@ -299,6 +309,7 @@ function snapshotBeforeApply(cqrRoot: string): void {
     plugins: { ...currentEnabled },
     applied: getAppliedProfileState(cqrRoot),
     applied_entries: entries,
+    organization_features: snapshotOrganizationFeatureState(cqrRoot),
   };
   writeJson(cqrRoot, path.join(profilesRoot(cqrRoot), LAST_STATE_FILE), snapshot);
 }
@@ -416,18 +427,32 @@ export function applyWorkKit(
   const warnings: string[] = [];
   const shelfDir = shelf.shelf_dir;
   const origin = shelf.origin === 'catalog' ? 'locker' : shelf.origin;
+  const profileKey = `${group}/${id}`;
 
   const pull = pullShelfSlots(cqrRoot, shelfDir, shelf.pull);
   warnings.push(...pull.warnings);
   if (shelf.hints?.needs_organization_module) {
     warnings.push('이 키트는 조직 모듈 스킬을 사용합니다. 설정 → 스킬 → 모듈에서 설치·적용하세요.');
   }
+
+  let installed_features: string[] = [];
+  let enabled_features: string[] = [];
+  try {
+    const featureResult = applyWorkKitFeatures(cqrRoot, shelfDir, shelf.features, profileKey);
+    installed_features = featureResult.installed_features;
+    enabled_features = featureResult.enabled_features;
+    warnings.push(...featureResult.warnings);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error instanceof OrganizationFeatureError ? error.code : 'FEATURE_APPLY_FAILED';
+    throw new AgentProfileError(code, message);
+  }
+
   invalidateAgentPluginCache(cqrRoot);
 
   const { toggled, warnings: toggleWarn } = toggleEnables(cqrRoot, shelf.plugins.enable);
   warnings.push(...toggleWarn);
 
-  const profileKey = `${group}/${id}`;
   const applied: AgentProfileAppliedState = {
     profile_id: profileKey,
     group,
@@ -449,6 +474,8 @@ export function applyWorkKit(
     toggled,
     pulled_plugins: pull.pulled_plugins,
     pulled_skills: pull.pulled_skills,
+    installed_features,
+    enabled_features,
     warnings,
   };
 }
@@ -489,6 +516,9 @@ export function restoreAgentProfileLastState(
   } else if (existsSync(appliedFile)) {
     assertWritablePath(appliedFile, cqrRoot);
     rmSync(appliedFile);
+  }
+  if (snapshot.organization_features) {
+    restoreOrganizationFeatureState(cqrRoot, snapshot.organization_features);
   }
   return { ok: true, profile_id: snapshot.applied?.profile_id ?? '', toggled, warnings };
 }

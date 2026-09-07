@@ -255,7 +255,6 @@ export async function buildModelPicker(
           recent: remote.recent,
         };
 
-        const remoteIds = new Set(selectedModels.map((m) => m.id));
         for (const m of selectedModels) {
           options.push({
             value: encodeProviderModelPick(def.id, m.id),
@@ -268,30 +267,10 @@ export async function buildModelPicker(
           });
         }
 
-        const savedModel = secret?.model_id?.trim();
-        if (
-          savedModel
-          && !remoteIds.has(savedModel)
-          && (!matrixPickerOnly || opts?.refreshRemote !== true)
-        ) {
-          const personal = curateRemoteModels([savedModel])[0] ?? {
-            id: savedModel,
-            displayName: savedModel,
-            category: 'general' as const,
-            tier: 'C' as const,
-          };
-          options.push({
-            value: encodeProviderModelPick(def.id, savedModel),
-            label: personal.displayName,
-            kind: 'provider',
-            access_mode: def.id === 'openai' ? 'byok' : 'managed',
-            provider_id: def.id,
-            configured: true,
-            category: personal.category,
-          });
-        }
-
-        if (selectedModels.length === 0 && !savedModel) {
+        // The workspace picker is the projection of the saved MY Models
+        // selection. Do not append the provider connection's saved model_id:
+        // that value controls `auto`, but it may have been deselected in MY Models.
+        if (selectedModels.length === 0) {
           if (remote.error) {
             options.push({
               value: `provider:${def.id}`,

@@ -1,4 +1,5 @@
 export type ConfirmDialogOptions = {
+  signal?: AbortSignal;
   title?: string;
   message: string;
   /** Red-styled confirm (deletes) */
@@ -84,8 +85,20 @@ export function confirmDialog(input: string | ConfirmDialogOptions): Promise<boo
   const opts: ConfirmDialogOptions =
     typeof input === 'string' ? { message: input, danger: true } : input;
   return new Promise((resolve) => {
+    let row: PendingConfirm | undefined;
+    const finish = (ok: boolean) => {
+      opts.signal?.removeEventListener('abort', abort);
+      resolve(ok && !opts.signal?.aborted);
+    };
+    const abort = () => {
+      if (row && pending === row) { pending = null; notify(); }
+      finish(false);
+    };
+    if (opts.signal?.aborted) { finish(false); return; }
+    opts.signal?.addEventListener('abort', abort, { once: true });
     enqueue(() => {
-      pending = {
+      if (opts.signal?.aborted) { finish(false); return; }
+      row = {
         kind: 'confirm',
         title: opts.title ?? '확인',
         message: opts.message,
@@ -97,8 +110,9 @@ export function confirmDialog(input: string | ConfirmDialogOptions): Promise<boo
         allowEnterConfirm: opts.allowEnterConfirm !== false,
         autoFocusConfirm: opts.autoFocusConfirm !== false,
         presentation: opts.presentation ?? 'default',
-        resolve,
+        resolve: finish,
       };
+      pending = row;
       notify();
     });
   });

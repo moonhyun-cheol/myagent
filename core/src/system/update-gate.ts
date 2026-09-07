@@ -1,16 +1,18 @@
 import { listActiveTerminalJobIds } from '../agent/run-terminal.js';
 import { countPendingToolApprovals } from '../agent/tool-approval.js';
+import { hasActiveChatRuns, listActiveChatSessionIds } from '../chat/chat-runs.js';
 import type { ILicenseGate } from '../license/types.js';
 import type { PersonalSchedulerRuntime } from '../scheduler/personal-scheduler-runtime.js';
 import type { PersonalSchedulerService } from '../scheduler/personal-scheduler-service.js';
 import { isAutomatonBackgroundBusy } from './automaton-background-registry.js';
 import { isAgentWorkBusy, listActiveWork } from './active-work-registry.js';
-import { isMutateReviewPending } from './ui-busy-state.js';
+import { isMutateReviewPending, isWorkspaceBusy } from './ui-busy-state.js';
 
 export interface UpdateGateResult {
   ready: boolean;
   reasons: string[];
   active_work?: ReturnType<typeof listActiveWork>;
+  active_sessions?: string[];
 }
 
 export function evaluateUpdateGate(input: {
@@ -22,6 +24,13 @@ export function evaluateUpdateGate(input: {
 
   if (input.license.getStatus().mode !== 'full') {
     reasons.push('read_only_license');
+  }
+  // Live chat/agent turn: defer update prompt until the next idle opportunity.
+  if (hasActiveChatRuns()) {
+    reasons.push('session_busy');
+  }
+  if (isWorkspaceBusy()) {
+    reasons.push('workspace_busy');
   }
   if (isAgentWorkBusy()) {
     reasons.push('agent_busy');
@@ -47,5 +56,6 @@ export function evaluateUpdateGate(input: {
     ready: unique.length === 0,
     reasons: unique,
     active_work: isAgentWorkBusy() ? listActiveWork() : undefined,
+    active_sessions: hasActiveChatRuns() ? listActiveChatSessionIds() : undefined,
   };
 }

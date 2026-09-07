@@ -227,6 +227,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   // Transport is fixed before the loop; no request-time protocol negotiation or fallback.
   opts.wireApi = wireApi;
 
+  // Resolve the final model before setting request options. Certain compatible
+  // Responses aliases (for example GPT Astra) require explicit reasoning even
+  // when the session setting is Auto.
+  opts.reasoningEffort = opts.reasoningEffort
+    ?? resolveCodeReasoningEffortForModel(process.env, { modelId });
+
   if (wireApi === 'responses') {
     opts.reasoningSummary = resolveResponsesReasoningSummaryPolicy(opts.providerId, modelId);
     const mode = opts.providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;

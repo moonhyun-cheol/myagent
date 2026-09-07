@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, validHttpUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
 import { showUserNotification } from '../lib/userNotifications';
+import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
 import {
   PLAN_BUILD_USER_MESSAGE,
   shouldOfferPlanBuild,
@@ -50,6 +51,7 @@ import {
   writeWorkspaceFsFile,
   rollbackWorkspaceCheckpoint,
   cancelRunTerminalJob,
+  confirmChatRunStopped,
   type PickerModel,
   type SessionMessage,
   type ExecutionPolicy,
@@ -132,7 +134,7 @@ function readTerminalOpenPref(): boolean {
   }
 }
 
-export type SessionRunPhase = 'running';
+export type SessionRunPhase = 'running' | 'stopping' | 'stop_failed';
 
 export interface EditorTab {
   id: string;
@@ -265,7 +267,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       id: `restored-${i}-${m.at}`,
       role: m.role,
       mode: (m.mode === 'image_gen' ? 'image' : m.mode === 'web_dev' ? 'code' : 'text') as AiWorkMode,
-      text: isPlaceholder ? '' : text,
+      text: m.status === 'stopped' && text !== '(중지됨)' ? `${text}\n\n(중지됨)` : isPlaceholder ? '' : text,
       uiHidden: uiHidden || undefined,
       model: m.role === 'assistant' ? m.reasoning?.model ?? m.model : undefined,
       thought: m.role === 'assistant'
@@ -279,7 +281,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       imageUrls: urls.length ? urls : undefined,
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
-      planBuildOffer: shouldOfferPlanBuild(messages, i),
+      planBuildOffer: m.status !== 'stopped' && shouldOfferPlanBuild(messages, i),
       planConstraintsLocked:
         m.role === 'assistant' && typeof m.plan_constraints_locked === 'boolean'
           ? m.plan_constraints_locked
@@ -347,6 +349,8 @@ interface SessionViewSnapshot {
 
 interface LiveJob {
   sessionId: string;
+  runId: string;
+  stopConfirmation?: Promise<boolean>;
   abort: AbortController;
   userTurn: ChatTurn;
   assistantId: string;
@@ -690,7 +694,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const phase = sid ? get().sessionPhases[sid] : undefined;
     const live = sid ? liveJobs.get(sid) : undefined;
     set({
-      busy: phase === 'running',
+      busy: Boolean(phase),
       statusText: live?.statusText ?? '',
       streamAbort: live?.abort ?? null,
     });
@@ -732,11 +736,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     });
   };
 
-  const finishJob = (sid: string) => {
+  const finishJob = async (sid: string, expected: LiveJob) => {
+    if (liveJobs.get(sid) !== expected) return;
+    if (expected.abort.signal.aborted) {
+      expected.statusText = '중지 중…';
+      set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stopping' } });
+      patchLiveChat(sid, expected.chat, expected.statusText);
+      const confirmation = expected.stopConfirmation ??= confirmChatRunStopped(sid, expected.runId);
+      const stopped = await confirmation;
+      if (expected.stopConfirmation === confirmation) expected.stopConfirmation = undefined;
+      if (liveJobs.get(sid) !== expected) return;
+      if (!stopped) {
+        set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stop_failed' } });
+        patchLiveChat(sid, expected.chat, '정지 확인 실패 · 다음 작업 보류 (정지 버튼으로 재확인)');
+        return;
+      }
+      expected.chat = expected.chat.map((turn) => turn.id !== expected.assistantId ? turn : {
+        ...turn, streamPreview: undefined, planBuildOffer: false,
+        text: !turn.text?.trim() || turn.text === '작업 중…' ? '(중지됨)' :
+          turn.text.endsWith('(중지됨)') ? turn.text : `${turn.text}\n\n(중지됨)`,
+      });
+    }
     const finishedJob = liveJobs.get(sid);
     if (finishedJob) {
       const completedAt = new Date().toISOString();
-      const isPlanRun = finishedJob.executionPolicy.workspace_behavior === 'plan';
+      const isPlanRun = !finishedJob.abort.signal.aborted && finishedJob.executionPolicy.workspace_behavior === 'plan';
       const completedChat = finishedJob.chat.map((turn) => {
         if (turn.id !== finishedJob.assistantId) return turn;
         const next: ChatTurn = { ...turn, completedAt };
@@ -779,6 +803,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     }
 
     const patchAssistant = (partial: Partial<ChatTurn>) => {
+      if (liveJobs.get(sid) !== job) return;
       const next = job.chat.map((t) => (t.id === job.assistantId ? { ...t, ...partial } : t));
       patchLiveChat(sid, next);
     };
@@ -833,9 +858,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             attachments: job.attachmentIds,
             editor_context,
             sessionId: sid,
+            runId: job.runId,
           },
           {
             signal: job.abort.signal,
+            isCurrent: () => liveJobs.get(sid) === job,
             onStatus: (t) => {
               const text = String(t || '');
               if (/Exit Gate OPEN/i.test(text)) {
@@ -1066,7 +1093,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if (isAbortError(err) || job.abort.signal.aborted) {
           if (!content.trim() || content === '작업 중…') finishAssistantText('(중지됨)');
           else finishAssistantText(content);
-          finishJob(sid);
+          await finishJob(sid, job);
           return;
         }
         // ADR-008: never demote tool-plane (code) → tool-less chat — that invents "no tools".
@@ -1077,7 +1104,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (job.abort.signal.aborted) {
         if (!content.trim() || content === '작업 중…') finishAssistantText('(중지됨)');
         else finishAssistantText(content);
-        finishJob(sid);
+        await finishJob(sid, job);
         return;
       }
 
@@ -1129,7 +1156,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (get().modelOptions.length <= 1) {
         void get().refreshModelPicker().catch(() => undefined);
       }
-      finishJob(sid);
+      await finishJob(sid, job);
     } catch (err) {
       if (isAbortError(err) || job.abort.signal.aborted) {
         if (!job.chat.find((t) => t.id === job.assistantId)?.text?.trim()) {
@@ -1137,15 +1164,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         } else {
           patchAssistant({ streamPreview: undefined });
         }
-        finishJob(sid);
+        await finishJob(sid, job);
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
       patchAssistant({ text: `[오류] ${message}`, streamPreview: undefined });
+      // A network error is not proof of server termination either.
+      job.abort.abort();
       if (get().activeSessionId === sid) {
         set({ apiOnline: false, apiError: message });
       }
-      finishJob(sid);
+      await finishJob(sid, job);
     }
   };
 
@@ -1248,11 +1277,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const previous = get().selectedModel;
       const sessionId = get().activeSessionId;
       set({ selectedModel });
-      if (!sessionId) return;
+      const normalizedReasoning = normalizeReasoningLevelForModel(
+        get().activeExecutionPolicy.reasoning,
+        selectedModel,
+      );
+      if (!sessionId) {
+        if (normalizedReasoning !== get().activeExecutionPolicy.reasoning) {
+          set({
+            activeExecutionPolicy: {
+              ...get().activeExecutionPolicy,
+              reasoning: normalizedReasoning,
+            },
+            effectiveExecutionPolicy: null,
+          });
+        }
+        return;
+      }
       try {
         await setSessionPreferredModel(sessionId, selectedModel);
         const cached = sessionViewCache.get(sessionId);
         if (cached) sessionViewCache.set(sessionId, { ...cached, selectedModel });
+        if (normalizedReasoning !== get().activeExecutionPolicy.reasoning) {
+          await get().setExecutionPolicy({ reasoning: normalizedReasoning });
+        }
       } catch (err) {
         if (get().activeSessionId === sessionId && get().selectedModel === selectedModel) {
           set({ selectedModel: previous });
@@ -2705,6 +2752,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
       const job: LiveJob = {
         sessionId: sid,
+        runId: crypto.randomUUID(),
         abort,
         userTurn,
         assistantId,
@@ -2776,10 +2824,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const phase = get().sessionPhases[sid];
       const job = liveJobs.get(sid);
       if (!phase || !job) return;
-      if (phase !== 'running') return;
+      if (phase === 'stopping') return;
+      if (phase === 'stop_failed') { void finishJob(sid, job); return; }
+      job.statusText = '중지 중…';
       set({ statusText: '중지 중…' });
       job.abort.abort();
-      void cancelRunTerminalJob({ sessionId: sid }).catch(() => undefined);
+      job.stopConfirmation ??= confirmChatRunStopped(sid, job.runId);
     },
   };
 });

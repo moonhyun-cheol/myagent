@@ -25,6 +25,9 @@ export interface WorkKitShelf {
   description?: string;
   pull: Array<'agent-plugins' | 'skills'>;
   plugins: { enable: Record<string, boolean> };
+  features?: {
+    enable?: Record<string, { required?: boolean }>;
+  };
   hints?: { needs_organization_module?: boolean };
   origin: 'locker' | 'bundled' | 'catalog';
   install_status?: ShelfInstallStatus;
@@ -46,12 +49,23 @@ export interface AgentProfileApplied {
   applied_at: string;
 }
 
+export interface OrganizationFeatureStatus {
+  id: string;
+  installed: boolean;
+  enabled: boolean;
+  version?: string;
+  label?: string;
+  refs: string[];
+}
+
 export interface ProfileApplyResult {
   ok: boolean;
   profile_id: string;
   group?: string;
   kit_id?: string;
   toggled: Array<{ id: string; enabled: boolean }>;
+  installed_features?: string[];
+  enabled_features?: string[];
   warnings: string[];
 }
 
@@ -78,6 +92,7 @@ export async function fetchProfiles(): Promise<{
   applied: AgentProfileApplied | null;
   applied_kits: AgentProfileApplied[];
   can_restore: boolean;
+  organization_features: OrganizationFeatureStatus[];
 }> {
   const res = await apiFetch('/profiles');
   const data = await res.json().catch(() => ({}));
@@ -89,6 +104,7 @@ export async function fetchProfiles(): Promise<{
     applied: data.applied ?? null,
     applied_kits: Array.isArray(data.applied_kits) ? data.applied_kits : (data.applied ? [data.applied] : []),
     can_restore: data.can_restore === true,
+    organization_features: Array.isArray(data.organization_features) ? data.organization_features : [],
   };
 }
 

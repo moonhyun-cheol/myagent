@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { assertChatRunWritable, currentChatRun, type ChatRun } from '../chat/chat-runs.js';
 import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
@@ -204,6 +205,7 @@ export class SessionStore {
 
   /** Start collecting the public work log for one streamed assistant turn. */
   beginAssistantThought(id: string): void {
+    assertChatRunWritable(id);
     const safe = sanitizeId(id);
     if (!safe) return;
     this.pendingAssistantThought.delete(safe);
@@ -211,6 +213,8 @@ export class SessionStore {
 
   /** Append an SSE `thought` delta without feeding it back into future model context. */
   appendAssistantThought(id: string, delta: string): void {
+    if (currentChatRun()?.controller.signal.aborted) return;
+    assertChatRunWritable(id);
     const safe = sanitizeId(id);
     if (!safe || !delta) return;
     const combined = `${this.pendingAssistantThought.get(safe) ?? ''}${delta}`;
@@ -221,6 +225,10 @@ export class SessionStore {
   }
 
   append(id: string, message: SessionMessage): SessionRecord {
+    assertChatRunWritable(id);
+    const run = currentChatRun();
+    if (run) message = { ...message, run_id: run.runId,
+      ...(message.role === 'assistant' ? { reply_to_run_id: run.runId, status: 'completed' as const } : {}) };
     const rec = this.ensure(id);
     let storedMessage = message;
     if (message.role === 'assistant') {
@@ -258,6 +266,24 @@ export class SessionStore {
         /* temp GC must not fail the turn */
       }
     }
+    return rec;
+  }
+
+  /** Update an existing message by index (adapter-job progress edit). */
+  updateMessageContent(id: string, index: number, content: string): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    if (!Number.isInteger(index) || index < 0 || index >= rec.messages.length) return null;
+    const next = content.trim();
+    if (!next) return null;
+    rec.messages[index] = {
+      ...rec.messages[index],
+      content: next,
+      at: new Date().toISOString(),
+    };
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    if (rec.project_id) this.onProjectActivity?.(rec.project_id);
     return rec;
   }
 
@@ -454,7 +480,28 @@ export class SessionStore {
     };
   }
 
+  /** Called outside the cancelled context, before the next run is admitted. */
+  finalizeStoppedRun(run: ChatRun): void {
+    const rec = this.load(run.sessionId);
+    if (!rec || !rec.messages.some((m) => m.role === 'user' && m.run_id === run.runId)) return;
+    const replies = rec.messages.filter((m) => m.role === 'assistant' && m.run_id === run.runId);
+    if (replies.length) {
+      for (const message of replies) { message.status = 'stopped'; message.model_exclude = true; }
+    } else {
+      rec.messages.push({ role: 'assistant', content: run.partial.trim() || '(중지됨)',
+        at: new Date().toISOString(), run_id: run.runId, reply_to_run_id: run.runId,
+        status: 'stopped', model_exclude: true,
+        thought: this.pendingAssistantThought.get(rec.id) });
+    }
+    this.pendingAssistantThought.delete(rec.id);
+    delete rec.responses_state;
+    delete rec.responses_states;
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+  }
+
   private save(rec: SessionRecord): void {
+    assertChatRunWritable(rec.id);
     const fp = this.filePath(rec.id);
     assertWritablePath(fp, this.cqrRoot);
     writeFileSync(fp, JSON.stringify(rec, null, 2) + '\n', 'utf8');
