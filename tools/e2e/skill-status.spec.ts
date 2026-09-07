@@ -75,7 +75,11 @@ test('selection, switching and clear stay synchronized with settings', async ({ 
   await openSkills(page);
   await expect(page.getByTestId('organization-skill-chips').locator('[data-active="true"]')).toHaveCount(0);
   await expect(page.getByTestId('organization-skill-chips')).toContainText('현재 대화: 스킬 미적용');
-  await expectTextContrast(page.getByTestId('organization-skill-sample'));
+  // Non-selectable org skills (sample/brand) must not appear in Settings chips.
+  await expect(page.getByTestId('organization-skill-sample')).toHaveCount(0);
+  await expect(page.getByTestId('organization-skill-brand')).toHaveCount(0);
+  await expect(page.getByTestId('organization-skill-research')).toBeVisible();
+  await expect(page.getByTestId('organization-skill-concept')).toBeVisible();
   await page.getByRole('button', { name: '설정 닫기' }).click();
 
   await choose(page, '시장조사');

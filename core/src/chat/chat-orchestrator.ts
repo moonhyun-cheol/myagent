@@ -59,6 +59,8 @@ import {
   SLASH_COMMAND_UNREGISTERED_MESSAGE,
 } from '../router/automaton-intent.js';
 import { matchMarketResearchSlash } from '../skills/market-pipeline-capability.js';
+import { shouldAutoRouteSizeGuide } from '../skills/size-guide-capability.js';
+import { appendBrandManualIfNeeded } from '../providers/brand-manual-context.js';
 import { handleMarketResearchMode } from './modes/market-research.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
@@ -155,6 +157,20 @@ export class ChatOrchestrator {
       return {
         routing: slash.routing,
         automatonText: slash.automatonText,
+      };
+    }
+
+    // Ambient sample-size ask → org:size_guide when the org skill is installed
+    // (non-selectable in +; mirrors brand "ask and it works" intent).
+    if (shouldAutoRouteSizeGuide(message, this.cqrRoot)) {
+      return {
+        routing: {
+          mode: 'org:size_guide',
+          matched_tool: 'size_guide',
+          confidence: 0.9,
+          layer: 'intent',
+        },
+        automatonText: message,
       };
     }
 
@@ -524,7 +540,11 @@ export class ChatOrchestrator {
         ? resolved.route.modelId
         : undefined;
     let histBudget = { modelId: histModelId } as ReturnType<typeof buildSessionHistoryBudgetOpts>;
-    const systemPrompt = skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) : undefined;
+    const systemPrompt = await appendBrandManualIfNeeded(
+      this.cqrRoot,
+      message,
+      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
+    );
     const attachmentCtx = await buildAttachmentContext(
       req.attachments ?? [],
       this.attachments,
@@ -1143,7 +1163,11 @@ export class ChatOrchestrator {
         ? resolved.route.modelId
         : undefined;
     let histBudget = { modelId: histModelId } as ReturnType<typeof buildSessionHistoryBudgetOpts>;
-    const systemPrompt = skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) : undefined;
+    const systemPrompt = await appendBrandManualIfNeeded(
+      this.cqrRoot,
+      message,
+      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
+    );
     const attachmentCtx = await buildAttachmentContext(
       req.attachments ?? [],
       this.attachments,

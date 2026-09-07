@@ -126,8 +126,14 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     () => skills.filter((skill) => skill.source === 'bundled').sort(byLabel),
     [skills],
   );
+  // Match composer `+`: only user_selectable org skills (R-623). Non-selectable
+  // entries (e.g. CQR 브랜드, 샘플 사이즈) stay installed for embedding/pipelines
+  // but are not a settings toggle surface.
   const organization = useMemo(
-    () => skills.filter((skill) => skill.source === 'organization').sort(byLabel),
+    () =>
+      skills
+        .filter((skill) => skill.source === 'organization' && skill.selectable === true)
+        .sort(byLabel),
     [skills],
   );
 
@@ -327,7 +333,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
               })}
             </div>
             <p className="border-t border-line bg-panel px-4 py-2.5 text-xs leading-5 text-muted">
-              설치된 스킬 목록입니다. 현재 대화에 적용할 스킬은 입력창의 + 메뉴에서 선택하세요.
+              + 메뉴에서 고를 수 있는 조직 스킬만 표시합니다. 현재 대화 적용도 입력창 + 에서 하세요.
             </p>
           </div>
         ) : null}

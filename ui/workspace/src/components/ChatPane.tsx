@@ -1117,14 +1117,11 @@ export function ChatPane() {
         </div>
       ) : null}
 
+      {skillMode ? (
       <div
         data-testid="skill-status-bar"
         data-active={Boolean(skillMode)}
-        className={`flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 ${
-          skillMode
-            ? 'border-accent-dim bg-accent-dim text-white shadow-[inset_4px_0_0_0_#ffffff]'
-            : 'border-line bg-panel-2 text-text shadow-[inset_4px_0_0_0_#4f5d57]'
-        }`}
+        className="flex flex-wrap items-center justify-between gap-3 border-b border-accent-dim bg-accent-dim px-5 py-3 text-white shadow-[inset_4px_0_0_0_#ffffff]"
       >
         <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 flex-1 items-center gap-3">
           <span
@@ -1158,6 +1155,7 @@ export function ChatPane() {
           {skillMode ? '적용 해제' : '스킬 선택'}
         </button>
       </div>
+      ) : null}
 
       <div
         ref={scrollRef}

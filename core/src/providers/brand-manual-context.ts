@@ -96,3 +96,20 @@ export async function loadBrandManualContext(
     return cached ? renderBrandManualContext(url, cached.content) : null;
   }
 }
+
+/** Append live brand manual when the turn asks for it or the skill prompt opts in. */
+export async function appendBrandManualIfNeeded(
+  cqrRoot: string | undefined,
+  userMessage: string,
+  systemPrompt: string | undefined,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const brand = await loadBrandManualContext(cqrRoot, {
+    userMessage,
+    systemPrompt,
+    signal,
+  });
+  if (!brand) return systemPrompt;
+  if (!systemPrompt?.trim()) return brand;
+  return `${systemPrompt.trim()}\n\n---\n\n${brand}`;
+}

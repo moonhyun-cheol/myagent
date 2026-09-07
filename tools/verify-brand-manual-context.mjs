@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  appendBrandManualIfNeeded,
   clearBrandManualCacheForTests,
   loadBrandManualContext,
   needsBrandManual,
@@ -45,6 +46,13 @@ try {
   assert.equal(unrelated, null);
   assert.equal(fetchCount, 1, 'unrelated requests must not fetch the manual');
 
+  clearBrandManualCacheForTests();
+  fetchCount = 0;
+  const appended = await appendBrandManualIfNeeded(root, '브랜드 매뉴얼 요약', 'base skill prompt');
+  assert.match(appended ?? '', /base skill prompt/);
+  assert.match(appended ?? '', /Organization brand manual/);
+  assert.equal(fetchCount, 1);
+
   const moduleRoot = mkdtempSync(path.join(tmpdir(), 'my-agent-brand-manual-mod-'));
   mkdirSync(path.join(moduleRoot, 'modules', 'organization'), { recursive: true });
   writeFileSync(
@@ -73,7 +81,7 @@ try {
   clearBrandManualCacheForTests();
   const disabled = await loadBrandManualContext(root, { userMessage: '브랜드 매뉴얼 정보' });
   assert.equal(disabled, null);
-  assert.equal(fetchCount, 2, 'the environment override can disable the source');
+  assert.equal(fetchCount, 3, 'the environment override can disable the source');
 
   console.log('verify-brand-manual-context: PASS');
 } finally {

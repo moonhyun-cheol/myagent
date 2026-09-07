@@ -23,6 +23,7 @@
     "verify:windows-entrypoint": "node tools/verify-windows-entrypoint.mjs",
     "verify:port-keep": "node tools/verify-port-keep-policy.mjs",
     "verify:brand-manual": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-brand-manual-context.mjs",
+    "verify:size-guide-intent": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-size-guide-intent.mjs",
     "verify:startup-model-center": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-startup-model-center.mjs",
     "verify:session-execution-policy": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-session-execution-policy.mjs",
     "verify:chat-run-race": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-chat-run-race.mjs",

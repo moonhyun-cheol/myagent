@@ -10,6 +10,7 @@ import {
 } from '../../providers/harness-policy.js';
 import { normalizeExecutionPolicy } from '../../execution-policy.js';
 import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
+import { appendBrandManualIfNeeded } from '../../providers/brand-manual-context.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
 import { appendAgentAuditEvent } from '../../agent/agent-audit-ledger.js';
 import { resolveAutopilotEnabled } from '../../agent/agent-autopilot.js';
@@ -235,9 +236,13 @@ export async function runWorkspaceCodeAgent(opts: {
     );
   }
   const skillMode = resolveLlmSkillMode(routing.mode);
-  const systemPrompt = skillMode
-    ? resolveSkillSystemPrompt(skillMode, cqrRoot, message, { workspaceRoot }) ?? undefined
-    : undefined;
+  const systemPrompt = await appendBrandManualIfNeeded(
+    cqrRoot,
+    message,
+    skillMode
+      ? resolveSkillSystemPrompt(skillMode, cqrRoot, message, { workspaceRoot }) ?? undefined
+      : undefined,
+  );
   // Always-on agent-tier index (tree + repo-map); query hits added inside code-agent.
   const editorSnippet = buildEditorContextSnippet(req?.editor_context);
   const workspaceContext = workspaceLock.narrowed
