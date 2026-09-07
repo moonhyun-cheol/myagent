@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-07T05:21:40.759Z",
+  "generated_at": "2026-09-07T07:41:37.175Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -56,7 +56,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 102,
+    "route_count": 104,
     "routes": [
       {
         "method": "GET",
@@ -86,6 +86,11 @@
       {
         "method": "GET",
         "path": "/agent-plugins/templates",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/attachments",
         "match": "exact"
       },
       {
@@ -336,6 +341,11 @@
       {
         "method": "POST",
         "path": "/memory",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/memory/batch",
         "match": "exact"
       },
       {
