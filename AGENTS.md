@@ -36,6 +36,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 - **Document AI memo (R-620):** Preview「문서」→ 선택 → AI에게 묻기. Answer stays in floating AI memo (draggable; collapse → red corner reopen). **Not** ChatPane bubbles. Call uses ask + `uiHidden` / `documentMemo.ts`.
 - **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
 - **Sidebar / skills (update 38):** resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
+- **Update 43:** CQR_PA feature port (tool activity, SQLite sessions, memory batch, ledger TODO, automation feed focus); skill/reasoning/browser visibility; Astra explicit reasoning.
 - **Update 42:** Organization Features; idle gate `session_busy`/`workspace_busy`; Automaton progress-only status text.
 - **Update 41:** strip debug telemetry; model-aware Responses summary; sidebar N/D shortcuts; auto follows visible default provider; tools-plane cleanup.
 - **Sidebar tree icons (update 39):** 개인 작업=`ChatTeardropText`, 워크스페이스=`HardDrives`, 프로젝트=`TreeStructure`, 하위 폴더=`FolderSimple`.
