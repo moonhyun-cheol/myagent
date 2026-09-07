@@ -46,8 +46,7 @@ import {
 } from './agent-plugin-store.js';
 import { runAgentPlugin } from './agent-plugin-runner.js';
 import { callUserMcpTool } from './user-mcp.js';
-import { runWorkspaceTests } from './run-tests.js';
-import { runWorkspaceDiagnostics } from './run-diagnostics.js';
+import { runWorkspaceTestsAsync, runWorkspaceDiagnosticsAsync } from './run-verification-async.js';
 import {
   createWorkspaceCheckpoint,
   listWorkspaceCheckpoints,
@@ -94,6 +93,8 @@ import {
   invalidateWorkspaceReadCache,
   readWorkspaceFileThroughCache,
 } from './agent-read-through-cache.js';
+import { createToolActivity } from './tool-activity.js';
+import { randomUUID } from 'node:crypto';
 import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
 import { assertChatRunWritable } from '../chat/chat-runs.js';
 import { throwIfAborted } from '../chat/abort.js';
@@ -128,6 +129,27 @@ export async function executeAgentTool(
 ): Promise<{ output: string; label: string }> {
   assertChatRunWritable();
   throwIfAborted(ctx?.signal);
+  const normalized = normalizeToolCall(call);
+  const activity = createToolActivity(randomUUID(), normalized.function.name,
+    parseToolArgs(normalized.function.arguments), ctx?.onToolActivity);
+  try {
+    const result = await executeAgentToolInner(workspaceRoot, normalized, guard, {
+      ...ctx, onOutput: (stream, chunk) => activity.output(stream, chunk),
+    });
+    activity.finish(result.output, ctx?.signal?.aborted);
+    return result;
+  } catch (error) {
+    activity.finish('ERROR: execution failed', ctx?.signal?.aborted);
+    throw error;
+  }
+}
+
+async function executeAgentToolInner(
+  workspaceRoot: string,
+  call: AgentToolCall,
+  guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
+  ctx?: AgentToolContext,
+): Promise<{ output: string; label: string }> {
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
@@ -600,7 +622,8 @@ export async function executeAgentTool(
         }
         const run = await runTerminalCommandAsync(workspaceRoot, command, {
           signal: ctx?.signal,
-          jobId: ctx?.sessionId ? `agent_${ctx.sessionId}` : undefined,
+          onOutput: ctx?.onOutput,
+          jobId: ctx?.sessionId ? `agent_${ctx.sessionId}_${normalized.id}` : undefined,
         });
         return {
           label: `run ${command.slice(0, 60)}`,
@@ -609,7 +632,8 @@ export async function executeAgentTool(
       }
       case 'run_tests': {
         const command = typeof args.command === 'string' ? args.command : undefined;
-        const output = runWorkspaceTests(workspaceRoot, { command });
+        const output = await runWorkspaceTestsAsync(workspaceRoot, { command, signal: ctx?.signal, onOutput: ctx?.onOutput,
+          jobId: ctx?.sessionId ? `agent_${ctx.sessionId}_${normalized.id}` : undefined });
         return { label: 'run_tests', output };
       }
       case 'run_diagnostics': {
@@ -619,7 +643,8 @@ export async function executeAgentTool(
           const meta = loadAgentRunMeta(ctx.cqrRoot, ctx.sessionId);
           if (meta?.mutatedPaths?.length) changedPaths = meta.mutatedPaths;
         }
-        const output = runWorkspaceDiagnostics(workspaceRoot, { command, changedPaths });
+        const output = await runWorkspaceDiagnosticsAsync(workspaceRoot, { command, changedPaths, signal: ctx?.signal, onOutput: ctx?.onOutput,
+          jobId: ctx?.sessionId ? `agent_${ctx.sessionId}_${normalized.id}` : undefined });
         return { label: 'run_diagnostics', output };
       }
       case 'workspace_checkpoint': {

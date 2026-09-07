@@ -32,6 +32,7 @@ export function appendAssistantReply(
     model: string;
     mode: ChatMode | string;
     image_urls?: string[];
+    tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
     application_notice?: import('../sessions/types.js').ApplicationNotice;
     emptyFallback?: string;
     /** Used for Korean-vs-Chinese outlet language warning */
@@ -49,6 +50,7 @@ export function appendAssistantReply(
     model: opts.model,
     mode: opts.mode,
     ...(opts.image_urls?.length ? { image_urls: opts.image_urls } : {}),
+    ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity.slice(-40) } : {}),
     ...(opts.application_notice ? { application_notice: opts.application_notice } : {}),
   });
   return content;

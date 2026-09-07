@@ -623,6 +623,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     onRecordsChanged: (records) => recordSessionEvidenceRecords(opts.cqrRoot, opts.sessionId, records),
   });
   const toolCtx: AgentToolContext = {
+    onToolActivity: opts.onToolActivity,
     browserSession,
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,

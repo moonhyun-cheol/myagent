@@ -278,7 +278,9 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
             : undefined)
         : undefined,
       applicationNotice: m.role === 'assistant' ? m.application_notice : undefined,
-      imageUrls: urls.length ? urls : undefined,
+      toolActivity: m.role === 'assistant' ? m.tool_activity?.slice(-40) : undefined,
+      attachmentNames: m.attachments?.map((a) => a.name),
+      imageUrls: [...urls, ...(m.attachments ?? []).filter((a) => a.mime.startsWith('image/')).map((a) => a.url)],
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
       planBuildOffer: m.status !== 'stopped' && shouldOfferPlanBuild(messages, i),
@@ -893,6 +895,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           {
             signal: job.abort.signal,
             isCurrent: () => liveJobs.get(sid) === job,
+            onToolActivity: (row) => {
+              const turn = job.chat.find((t) => t.id === job.assistantId);
+              const rows = [...(turn?.toolActivity ?? [])];
+              const index = rows.findIndex((item) => item.id === row.id);
+              if (index < 0) rows.push(row);
+              else if (rows[index].updatedAt <= row.updatedAt) rows[index] = row;
+              patchAssistant({ toolActivity: rows.slice(-40) });
+            },
             onStatus: (t) => {
               const text = String(t || '');
               if (/Exit Gate OPEN/i.test(text)) {
@@ -2772,6 +2782,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         text: displayText,
         uiHidden: uiHidden || undefined,
         attachmentNames: attachmentNames.length ? attachmentNames : undefined,
+        imageUrls: pending.filter((a) => a.mime?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i.test(a.name))
+          .map((a) => `/attachments/${encodeURIComponent(a.id)}?session=${encodeURIComponent(sid!)}`),
       };
       const assistantTurn: ChatTurn = {
       id: assistantId,

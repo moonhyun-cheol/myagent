@@ -58,7 +58,22 @@ export interface ApplicationNotice {
   step?: number;
 }
 
+export interface ToolActivity {
+  id: string;
+  tool: string;
+  target: string;
+  state: 'running' | 'success' | 'failed' | 'cancelled';
+  startedAt: number;
+  updatedAt: number;
+  finishedAt?: number;
+  lastOutputAt?: number;
+  output: string;
+  truncated: boolean;
+  exitCode?: number | null;
+}
+
 export interface ChatTurn {
+  toolActivity?: ToolActivity[];
   id: string;
   role: 'user' | 'assistant';
   mode: AiWorkMode;

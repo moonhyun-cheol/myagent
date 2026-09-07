@@ -11,6 +11,7 @@ export const MAX_AGENT_STEPS = 100;
 export const AGENT_STEP_TIMEOUT_MS = 600_000;
 
 export interface CodeAgentCallbacks {
+  onToolActivity?: (row: import('./tool-activity.js').ToolActivity) => void;
   onThought?: (text: string) => void;
   onAnswer?: (delta: string) => void;
   onCode?: (snippet: { label: string; text: string }) => void;

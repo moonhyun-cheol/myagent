@@ -94,6 +94,7 @@ export function collectLiveTempRefs(messages: SessionMessage[] | undefined): Liv
   for (const msg of messages ?? []) {
     collectFromText(msg.content || '', into);
     for (const url of msg.image_urls ?? []) collectFromText(url, into);
+    for (const attachment of msg.attachments ?? []) collectFromText(attachment.url, into);
   }
   return into;
 }

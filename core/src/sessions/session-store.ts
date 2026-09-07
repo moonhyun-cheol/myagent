@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { assertChatRunWritable, currentChatRun, type ChatRun } from '../chat/chat-runs.js';
-import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { assertWritablePath } from '../security/path-guard.js';
+import { assertChatRunWritable, currentChatRun } from '../chat/chat-runs.js';
+import { SessionSqliteStore, type MessagePage } from './session-sqlite-store.js';
 import { DEFAULT_EXECUTION_POLICY, normalizeExecutionPolicy, type ExecutionPolicy } from '../execution-policy.js';
 import type {
   ResponsesContinuationState,
@@ -11,9 +10,8 @@ import type {
   SessionRecord,
   SessionSummary,
 } from './types.js';
-import { gcDeletedSessionTemp, pruneSessionTemp } from './session-temp-gc.js';
+import { gcDeletedSessionTemp } from './session-temp-gc.js';
 
-const MAX_MESSAGES = 80;
 const MAX_ASSISTANT_THOUGHT_CHARS = 200_000;
 const TRUNCATED_THOUGHT_PREFIX = '[이전 작업 로그 일부 생략]\n';
 
@@ -24,24 +22,26 @@ export function normalizeSessionTitle(title: string): string {
 }
 
 export class SessionStore {
+  private readonly database: SessionSqliteStore;
   /** Work-log deltas collected before the matching assistant message is persisted. */
   private readonly pendingAssistantThought = new Map<string, string>();
+  private readonly pendingToolActivity = new Map<string, Map<string, import('../agent/tool-activity.js').ToolActivity>>();
 
   constructor(
     private readonly sessionsDir: string,
     private readonly cqrRoot: string,
     private readonly onProjectActivity?: (projectId: string) => void,
     private readonly resolveWorkspaceRoot?: (rec: SessionRecord) => string | null,
-  ) {}
+  ) {
+    this.database = new SessionSqliteStore(sessionsDir, cqrRoot);
+  }
 
   list(): SessionSummary[] {
-    return this.loadAll()
-      .map((rec) => this.toSummary(rec))
-      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return this.database.list();
   }
 
   /** Import the portable cqr-pa conversation export as a new local session. */
-  importPortable(raw: unknown, projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): SessionRecord {
+  importPortable(raw: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): SessionRecord {
     const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
     const conversation = source.conversation && typeof source.conversation === 'object'
       ? source.conversation as Record<string, unknown>
@@ -54,36 +54,49 @@ export class SessionStore {
         content: typeof item.content === 'string' ? item.content : '',
         at: typeof item.at === 'string' ? item.at : new Date().toISOString(),
         ...(typeof item.mode === 'string' ? { mode: item.mode } : {}),
-        ...(typeof item.thought === 'string' && item.thought.trim()
-          ? { thought: item.thought }
-          : {}),
+        ...(typeof item.model === 'string' && item.model.trim() ? { model: item.model } : {}),
+        ...(() => {
+          const rawReasoning = item.reasoning && typeof item.reasoning === 'object'
+            ? item.reasoning as Record<string, unknown>
+            : null;
+          const content = typeof rawReasoning?.content === 'string' && rawReasoning.content.trim()
+            ? rawReasoning.content
+            : typeof item.thought === 'string' && item.thought.trim()
+              ? item.thought
+              : '';
+          if (!content) return {};
+          const reasoningModel = typeof rawReasoning?.model === 'string' && rawReasoning.model.trim()
+            ? rawReasoning.model
+            : typeof item.model === 'string' && item.model.trim()
+              ? item.model
+              : undefined;
+          return {
+            reasoning: {
+              version: 1 as const,
+              format: 'public_summary' as const,
+              content,
+              ...(reasoningModel ? { model: reasoningModel } : {}),
+            },
+          };
+        })(),
       }))
-      .filter((item) => item.content.trim())
-      .slice(-MAX_MESSAGES);
+      .filter((item) => item.content.trim());
     const title = normalizeSessionTitle(
       typeof conversation.title === 'string' && conversation.title.trim()
         ? conversation.title
         : messages.find((message) => message.role === 'user')?.content ?? '가져온 세션',
     ) || '가져온 세션';
     const now = new Date().toISOString();
-    const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
     const rec: SessionRecord = {
       id: randomUUID(), title, created_at: now, updated_at: now, messages,
-      project_id: membershipProjectId ? sanitizeId(membershipProjectId) : null,
+      project_id: projectId, workspace_project_id: workspaceProjectId,
     };
     this.save(rec);
     return rec;
   }
 
   loadAll(): SessionRecord[] {
-    if (!existsSync(this.sessionsDir)) return [];
-    const out: SessionRecord[] = [];
-    for (const name of readdirSync(this.sessionsDir)) {
-      if (!name.endsWith('.json')) continue;
-      const rec = this.load(name.slice(0, -5));
-      if (rec) out.push(rec);
-    }
-    return out;
+    return this.list().map((summary) => this.load(summary.id)).filter((rec): rec is SessionRecord => rec !== null);
   }
 
   listStandalone(): SessionSummary[] {
@@ -99,17 +112,12 @@ export class SessionStore {
   load(id: string): SessionRecord | null {
     const safe = sanitizeId(id);
     if (!safe) return null;
-    const fp = this.filePath(safe);
-    if (!existsSync(fp)) return null;
-    try {
-      const rec = JSON.parse(readFileSync(fp, 'utf8')) as SessionRecord;
-      if (rec.project_id === undefined) rec.project_id = null;
-      if (rec.workspace_project_id === undefined) rec.workspace_project_id = null;
-      rec.execution_policy = normalizeExecutionPolicy(rec.execution_policy);
-      return rec;
-    } catch {
-      return null;
-    }
+    const rec = this.database.load(safe);
+    if (!rec) return null;
+    if (rec.project_id === undefined) rec.project_id = null;
+    if (rec.workspace_project_id === undefined) rec.workspace_project_id = null;
+    rec.execution_policy = normalizeExecutionPolicy(rec.execution_policy);
+    return rec;
   }
 
   ensure(id: string, opts?: { project_id?: string | null; execution_policy?: ExecutionPolicy }): SessionRecord {
@@ -209,6 +217,18 @@ export class SessionStore {
     const safe = sanitizeId(id);
     if (!safe) return;
     this.pendingAssistantThought.delete(safe);
+    this.pendingToolActivity.delete(safe);
+  }
+
+  /** Bounded display snapshots, attached even when an infra/cancel reply is saved. */
+  appendToolActivity(id: string, row: import('../agent/tool-activity.js').ToolActivity): void {
+    assertChatRunWritable(id);
+    const safe = sanitizeId(id);
+    if (!safe) return;
+    const rows = this.pendingToolActivity.get(safe) ?? new Map();
+    rows.set(row.id, { ...row });
+    if (rows.size > 40) rows.delete(rows.keys().next().value!);
+    this.pendingToolActivity.set(safe, rows);
   }
 
   /** Append an SSE `thought` delta without feeding it back into future model context. */
@@ -227,8 +247,13 @@ export class SessionStore {
   append(id: string, message: SessionMessage): SessionRecord {
     assertChatRunWritable(id);
     const run = currentChatRun();
-    if (run) message = { ...message, run_id: run.runId,
-      ...(message.role === 'assistant' ? { reply_to_run_id: run.runId, status: 'completed' as const } : {}) };
+    if (run) {
+      message = {
+        ...message,
+        run_id: run.runId,
+        ...(message.role === 'assistant' ? { reply_to_run_id: run.runId, status: 'completed' as const } : {}),
+      };
+    }
     const rec = this.ensure(id);
     let storedMessage = message;
     if (message.role === 'assistant') {
@@ -236,6 +261,9 @@ export class SessionStore {
       this.pendingAssistantThought.delete(rec.id);
       const reasoningContent = message.reasoning?.content || message.thought || pendingThought;
       const { thought: _legacyThought, ...normalizedMessage } = message;
+      const activities = this.pendingToolActivity.get(rec.id);
+      this.pendingToolActivity.delete(rec.id);
+      if (activities?.size) normalizedMessage.tool_activity = [...activities.values()];
       storedMessage = reasoningContent?.trim()
         ? {
             ...normalizedMessage,
@@ -249,40 +277,11 @@ export class SessionStore {
         : normalizedMessage;
     }
     rec.messages.push(storedMessage);
-    const trimmed = rec.messages.length > MAX_MESSAGES;
-    if (trimmed) {
-      rec.messages = rec.messages.slice(-MAX_MESSAGES);
-    }
     if (storedMessage.role === 'user' && rec.title === '새 대화') {
       rec.title = storedMessage.content.trim().slice(0, 48) || '새 대화';
     }
     rec.updated_at = new Date().toISOString();
-    this.save(rec);
-    if (rec.project_id) this.onProjectActivity?.(rec.project_id);
-    if (trimmed) {
-      try {
-        pruneSessionTemp(this.cqrRoot, rec.id, this.loadAll());
-      } catch {
-        /* temp GC must not fail the turn */
-      }
-    }
-    return rec;
-  }
-
-  /** Update an existing message by index (adapter-job progress edit). */
-  updateMessageContent(id: string, index: number, content: string): SessionRecord | null {
-    const rec = this.load(id);
-    if (!rec) return null;
-    if (!Number.isInteger(index) || index < 0 || index >= rec.messages.length) return null;
-    const next = content.trim();
-    if (!next) return null;
-    rec.messages[index] = {
-      ...rec.messages[index],
-      content: next,
-      at: new Date().toISOString(),
-    };
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
+    this.database.append(rec, storedMessage);
     if (rec.project_id) this.onProjectActivity?.(rec.project_id);
     return rec;
   }
@@ -291,26 +290,28 @@ export class SessionStore {
     const safe = sanitizeId(id);
     if (!safe) return false;
     const rec = this.load(safe);
-    const fp = this.filePath(safe);
-    if (!existsSync(fp)) return false;
-    assertWritablePath(fp, this.cqrRoot);
-    unlinkSync(fp);
+    if (!this.database.delete(safe)) return false;
+    this.pendingAssistantThought.delete(safe);
+    this.pendingToolActivity.delete(safe);
     try {
       const workspaceRoot = rec ? this.resolveWorkspaceRoot?.(rec) ?? null : null;
       gcDeletedSessionTemp(this.cqrRoot, safe, this.loadAll(), workspaceRoot);
     } catch {
-      /* session JSON is already gone */
+      /* session transaction already committed */
     }
     return true;
   }
 
   recentMessages(id: string, limit = 20): SessionMessage[] {
-    const rec = this.load(id);
-    if (!rec) return [];
-    return rec.messages.slice(-limit);
+    const safe = sanitizeId(id);
+    return safe ? this.database.recent(safe, limit) : [];
   }
 
-  /** Legacy workspace binding — sets dormant filesystem binding without changing active project scope. */
+  messagePage(id: string, limit = 50, before?: number): MessagePage | null {
+    const safe = sanitizeId(id);
+    return safe ? this.database.page(safe, limit, before) : null;
+  }
+
   setWorkspaceProject(id: string, workspaceProjectId: string | null): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;
@@ -426,20 +427,6 @@ export class SessionStore {
     return publicRecord;
   }
 
-  /** Compact public projection used by workspace trees and settings responses. */
-  getSummary(rec: SessionRecord): SessionSummary {
-    return {
-      id: rec.id,
-      title: rec.title,
-      updated_at: rec.updated_at,
-      message_count: rec.messages.length,
-      project_id: rec.project_id ?? null,
-      workspace_project_id: rec.workspace_project_id ?? null,
-      preferred_model: rec.preferred_model,
-      allowed_paths: rec.allowed_paths ?? [],
-    };
-  }
-
   popLastTurn(id: string): { userText?: string; removed: number } | null {
     const rec = this.load(id);
     if (!rec?.messages.length) return null;
@@ -467,7 +454,8 @@ export class SessionStore {
     return { userText, removed };
   }
 
-  private toSummary(rec: SessionRecord): SessionSummary {
+  /** Compact public projection used by workspace trees and settings responses. */
+  getSummary(rec: SessionRecord): SessionSummary {
     return {
       id: rec.id,
       title: rec.title,
@@ -480,35 +468,9 @@ export class SessionStore {
     };
   }
 
-  /** Called outside the cancelled context, before the next run is admitted. */
-  finalizeStoppedRun(run: ChatRun): void {
-    const rec = this.load(run.sessionId);
-    if (!rec || !rec.messages.some((m) => m.role === 'user' && m.run_id === run.runId)) return;
-    const replies = rec.messages.filter((m) => m.role === 'assistant' && m.run_id === run.runId);
-    if (replies.length) {
-      for (const message of replies) { message.status = 'stopped'; message.model_exclude = true; }
-    } else {
-      rec.messages.push({ role: 'assistant', content: run.partial.trim() || '(중지됨)',
-        at: new Date().toISOString(), run_id: run.runId, reply_to_run_id: run.runId,
-        status: 'stopped', model_exclude: true,
-        thought: this.pendingAssistantThought.get(rec.id) });
-    }
-    this.pendingAssistantThought.delete(rec.id);
-    delete rec.responses_state;
-    delete rec.responses_states;
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
-  }
-
   private save(rec: SessionRecord): void {
     assertChatRunWritable(rec.id);
-    const fp = this.filePath(rec.id);
-    assertWritablePath(fp, this.cqrRoot);
-    writeFileSync(fp, JSON.stringify(rec, null, 2) + '\n', 'utf8');
-  }
-
-  private filePath(id: string): string {
-    return path.join(this.sessionsDir, `${id}.json`);
+    this.database.save(rec);
   }
 }
 

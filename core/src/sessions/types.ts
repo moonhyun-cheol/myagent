@@ -34,8 +34,12 @@ export interface SessionMessage {
   reasoning?: PublicReasoningRecord;
   /** @deprecated Legacy public work-log field; read for backward compatibility only. */
   thought?: string;
+  /** Redacted bounded tool execution snapshots, UI-only (not reasoning). */
+  tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
   /** Local `/outputs/images/...` URLs for chat + image_gen restore */
   image_urls?: string[];
+  /** Uploaded files owned by the originating chat; no blob URLs or absolute paths. */
+  attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice rendered separately from model-authored content. */
   application_notice?: ApplicationNotice;
   /**

@@ -251,7 +251,7 @@ function validateShellCommand(command: string, workspaceRoot: string): string | 
 export function runTerminalCommandAsync(
   workspaceRoot: string,
   command: string,
-  opts?: { timeoutMs?: number; signal?: AbortSignal; jobId?: string },
+  opts?: { timeoutMs?: number; signal?: AbortSignal; jobId?: string; onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void },
 ): Promise<RunTerminalResult> {
   assertDevWorkspaceRootReadable(workspaceRoot);
   const cwd = normalizeWorkspacePath(workspaceRoot);
@@ -361,12 +361,14 @@ export function runTerminalCommandAsync(
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
+      try { opts?.onOutput?.('stdout', chunk); } catch { /* display observer only */ }
       stdoutRaw += chunk;
       if (Buffer.byteLength(stdoutRaw, 'utf8') > MAX_OUTPUT_BYTES * 2) {
         stdoutRaw = stdoutRaw.slice(0, MAX_OUTPUT_BYTES);
       }
     });
     child.stderr.on('data', (chunk: string) => {
+      try { opts?.onOutput?.('stderr', chunk); } catch { /* display observer only */ }
       stderrRaw += chunk;
       if (Buffer.byteLength(stderrRaw, 'utf8') > MAX_OUTPUT_BYTES * 2) {
         stderrRaw = stderrRaw.slice(0, MAX_OUTPUT_BYTES);
@@ -449,6 +451,7 @@ export function formatRunTerminalOutput(result: RunTerminalResult): string {
     {
       ok: result.ok,
       exit_code: result.exit_code,
+      cancelled: result.cancelled,
       output,
       truncated: result.truncated || truncated,
       cwd: result.cwd,

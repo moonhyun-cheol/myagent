@@ -1299,6 +1299,14 @@ export async function dispatchApiRequest(
         return sendJson(res, 201, { attachments: saved.map(publicAttachment) });
       }
 
+      if (method === 'GET' && url.pathname === '/attachments') {
+        const session = url.searchParams.get('session');
+        if (!session || !/^[a-zA-Z0-9_-]+$/.test(session) || !sessionStore.load(session)) {
+          return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        }
+        return sendJson(res, 200, { attachments: attachments.listSession(session) });
+      }
+
       if (method === 'GET' && url.pathname === '/models/picker') {
         const payload = await buildModelPicker(modelRegistry, getOverrides(), providerStore, {
           refreshRemote: url.searchParams.get('refresh') === '1',
@@ -2691,6 +2699,19 @@ export async function dispatchApiRequest(
           sessionStore.delete(targetId);
           throw error;
         }
+      }
+
+      const messagePageMatch = url.pathname.match(/^\/sessions\/([^/]+)\/messages$/);
+      if (method === 'GET' && messagePageMatch) {
+        const limit = Number(url.searchParams.get('limit') ?? '50');
+        const rawBefore = url.searchParams.get('before');
+        const before = rawBefore === null ? undefined : Number(rawBefore);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200
+          || (before !== undefined && (!Number.isSafeInteger(before) || before < 1))) {
+          return sendJson(res, 400, { error: 'INVALID_MESSAGE_PAGE' });
+        }
+        const page = sessionStore.messagePage(messagePageMatch[1], limit, before);
+        return sendJson(res, page ? 200 : 404, page ?? { error: 'SESSION_NOT_FOUND' });
       }
 
       const sessionMatch = url.pathname.match(/^\/sessions\/([^/]+)$/);

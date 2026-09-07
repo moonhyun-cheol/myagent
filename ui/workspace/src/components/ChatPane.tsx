@@ -26,6 +26,7 @@ import {
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
 import type { ChatTurn } from '../types';
+import { ToolActivityLog } from './ToolActivityLog';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import {
   listSelectableOrganizationSkills,
@@ -57,6 +58,7 @@ import {
 } from '../lib/mediaActions';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
+import { SessionAttachmentGallery } from './SessionAttachmentGallery';
 
 const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
 
@@ -868,6 +870,9 @@ export function ChatPane() {
       onDragOver={onComposerDragOver}
       onDrop={onComposerDrop}
     >
+      <SessionAttachmentGallery key={activeSessionId ?? 'none'} sessionId={activeSessionId}
+        onOpen={(url, name) => openImagePreview({ src: url, title: name, prompt: '' })}
+        onMenu={(e, url, name) => openImageMenu(e, url, name, '')} />
       {dragActive ? (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-ink/75 text-sm font-medium text-accent">
           파일을 여기에 놓으세요 (형식 제한 없음)
@@ -1268,6 +1273,9 @@ export function ChatPane() {
                     : ''
                   : renderMessageText(turn.text)}
               </div>
+              {turn.role === 'assistant' && turn.toolActivity?.length ? (
+                <ToolActivityLog rows={turn.toolActivity} live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id} />
+              ) : null}
               {turn.role === 'assistant' && turn.applicationNotice ? (
                 <aside
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
@@ -1398,8 +1406,12 @@ export function ChatPane() {
                     key={a.id}
                     className="group relative flex items-center gap-2 rounded-xl border border-line bg-panel-2 px-2 py-1.5"
                   >
-                    {a.previewUrl && isImageAttachment(a.mime, a.name) ? (
-                      <img src={a.previewUrl} alt="" className="h-10 w-10 rounded-md object-cover" />
+                    {isImageAttachment(a.mime, a.name) ? (
+                      <button type="button" aria-label={`${a.name} 크게 보기`}
+                        onClick={() => openImagePreview({ src: a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, title: a.name, prompt: '' })}
+                        onContextMenu={(e) => openImageMenu(e, a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, a.name, '')}>
+                        <img src={a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`} alt={a.name} className="h-10 w-10 rounded-md object-cover" />
+                      </button>
                     ) : isVideoAttachment(a.mime, a.name) ? (
                       <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-accent">
                         <FilmStrip size={16} weight="bold" />

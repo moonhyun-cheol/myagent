@@ -92,6 +92,25 @@ export class AttachmentService {
     return null;
   }
 
+  messageAttachments(ids: string[], sessionId: string) {
+    return [...new Set(ids)].flatMap((id) => {
+      const rec = this.get(id, sessionId);
+      return rec ? [{ id: rec.id, name: rec.original_name, mime: rec.mime,
+        url: `/attachments/${encodeURIComponent(rec.id)}?session=${encodeURIComponent(sessionId)}` }] : [];
+    });
+  }
+
+  listSession(sessionId: string) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return [];
+    const dir = path.join(this.attachmentsDir, sessionId);
+    if (!existsSync(dir)) return [];
+    const ids = readdirSync(dir).flatMap((name) => {
+      const match = /^([0-9a-f-]{36})_/i.exec(name);
+      return match ? [match[1]] : [];
+    });
+    return this.messageAttachments(ids, sessionId);
+  }
+
   delete(id: string, sessionId?: string): boolean {
     const rec = this.get(id, sessionId);
     if (!rec) return false;

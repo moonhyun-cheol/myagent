@@ -155,6 +155,7 @@ export async function runWorkspaceCodeAgent(opts: {
   /** Text extracted from attachments (logs, code, docs). */
   attachmentContext?: string;
   callbacks?: {
+    onToolActivity?: (row: import('../../agent/tool-activity.js').ToolActivity) => void;
     onThought?: (text: string) => void;
     onCode?: (snippet: { label: string; text: string }) => void;
     onWorkspaceMutate?: (paths: string[]) => void;
@@ -293,6 +294,7 @@ export async function runWorkspaceCodeAgent(opts: {
     providerId: provider.providerId,
     modelId: provider.modelId,
   });
+  const activities = new Map<string, import('../../agent/tool-activity.js').ToolActivity>();
   callbacks?.onExecutionPolicy?.({
     requested: requestedPolicy,
     effective: { reasoning: reasoningEffort, autopilot: autopilot === true, approval: requestedPolicy.approval },
@@ -331,6 +333,11 @@ export async function runWorkspaceCodeAgent(opts: {
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
     onThought: callbacks?.onThought,
+    onToolActivity: (row) => {
+      activities.set(row.id, row);
+      if (activities.size > 40) activities.delete(activities.keys().next().value!);
+      callbacks?.onToolActivity?.(row);
+    },
     onCode: callbacks?.onCode,
     onWorkspaceMutate: callbacks?.onWorkspaceMutate,
     onStatus: callbacks?.onStatus,
@@ -342,6 +349,7 @@ export async function runWorkspaceCodeAgent(opts: {
 
   const scrubbed = appendAssistantReply(sessionStore, sessionId, {
     content: agent.content,
+    tool_activity: [...activities.values()],
     model: agent.model,
     mode: routing.mode,
     application_notice: agent.applicationNotice,

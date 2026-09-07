@@ -17,6 +17,8 @@ export interface AgentToolCall {
 }
 
 export interface AgentToolContext {
+  onToolActivity?: (row: import('./tool-activity.js').ToolActivity) => void;
+  onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
   browserSession?: PlaywrightSession | null;
   cqrRoot?: string;
   sessionId?: string;

@@ -379,7 +379,8 @@ export class ChatOrchestrator {
       },
     );
     const now = new Date().toISOString();
-    this.sessionStore.append(sessionId, { role: 'user', content: message, at: now, mode: routing.mode });
+    this.sessionStore.append(sessionId, { role: 'user', content: message, at: now, mode: routing.mode,
+      attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId) });
 
     if (routing.mode === 'automaton_direct') {
       if (routing.feature_required) {
@@ -666,6 +667,7 @@ export class ChatOrchestrator {
           content: message,
           at: new Date().toISOString(),
           mode: routing.mode,
+          attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId),
         });
         if (routing.feature_required) {
           const fr = routing.feature_required;
@@ -781,6 +783,7 @@ export class ChatOrchestrator {
             content: message,
             at: new Date().toISOString(),
             mode: agentRouting.mode,
+            attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId),
           });
           userAppended = true;
         } else {
@@ -826,6 +829,10 @@ export class ChatOrchestrator {
                 : undefined,
             callbacks: {
               onThought: (text) => emitThought(text),
+              onToolActivity: (activity) => {
+                this.sessionStore.appendToolActivity(sessionId, activity);
+                sseEvent(res, { type: 'tool_activity', activity });
+              },
               onCode: (snippet) => sseEvent(res, { type: 'code', ...snippet }),
               onWorkspaceMutate: (paths) => {
                 const clean = (paths ?? [])
@@ -1124,6 +1131,7 @@ export class ChatOrchestrator {
         content: message,
         at: new Date().toISOString(),
         mode: routing.mode,
+        attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId),
       });
     }
 

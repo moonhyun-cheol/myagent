@@ -114,6 +114,8 @@ export interface SessionMessage {
   thought?: string;
   workspace_behavior?: WorkspaceBehavior;
   plan_constraints_locked?: boolean;
+  tool_activity?: import('../types').ToolActivity[];
+  attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice, never model-authored chat content. */
   application_notice?: ApplicationNotice;
 }
@@ -350,6 +352,7 @@ export function setPinnedSessionIds(ids: string[]): void {
 
 export interface StreamHandlers {
   isCurrent?: () => boolean;
+  onToolActivity?: (row: import('../types').ToolActivity) => void;
   onStatus?: (text: string) => void;
   onToken?: (text: string) => void;
   onContentReplace?: (text: string) => void;
@@ -1726,6 +1729,14 @@ export async function streamChat(
       else if (type === 'content_replace' && typeof evt.text === 'string') {
         handlers.onContentReplace?.(evt.text);
       } else if (type === 'thought' && typeof evt.text === 'string') handlers.onThought?.(evt.text);
+      else if (type === 'tool_activity' && evt.activity && typeof evt.activity === 'object') {
+        const row = evt.activity as import('../types').ToolActivity;
+        if (typeof row.id === 'string' && typeof row.tool === 'string' && typeof row.output === 'string'
+          && typeof row.target === 'string' && Number.isFinite(row.startedAt)
+          && ['running', 'success', 'failed', 'cancelled'].includes(row.state)) {
+          handlers.onToolActivity?.({ ...row, output: row.output.slice(-12_000), target: row.target.slice(0, 600) });
+        }
+      }
       else if (type === 'execution_policy' && evt.requested && evt.effective) {
         handlers.onExecutionPolicy?.({
           requested: evt.requested as unknown as ExecutionPolicy,
