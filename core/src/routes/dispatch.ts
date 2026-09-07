@@ -2432,16 +2432,6 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, { sessions: sessionStore.list() });
       }
 
-      const sessionUndoMatch = url.pathname.match(/^\/sessions\/([^/]+)\/undo$/);
-      if (sessionUndoMatch && method === 'POST') {
-        license.assertWritable();
-        license.assertFeature('chat');
-        const sid = sessionUndoMatch[1];
-        const result = sessionStore.popLastTurn(sid);
-        if (!result) return sendJson(res, 404, { error: 'NOTHING_TO_UNDO' });
-        return sendJson(res, 200, result);
-      }
-
       const sessionModelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/preferred-model$/);
       if (sessionModelMatch && method === 'PUT') {
         license.assertWritable();

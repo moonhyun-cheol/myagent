@@ -1,6 +1,5 @@
 import {
   ArrowClockwise,
-  ArrowUUpLeft,
   CircleNotch,
   File as FileIcon,
   FilmStrip,
@@ -230,8 +229,6 @@ export function ChatPane() {
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
-  const undoLastTurn = useWorkspaceStore((s) => s.undoLastTurn);
-  const canUndo = useWorkspaceStore((s) => s.canUndo);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
   const activeQueue = messageQueue.filter((item) => item.sessionId === activeSessionId);
@@ -822,8 +819,6 @@ export function ChatPane() {
   const attachDisabled = pasting;
 
   const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
-
-  const showUndo = canUndo && !busy;
 
   const submit = () => {
     if (!canSend) return;
@@ -1585,21 +1580,6 @@ export function ChatPane() {
                 ) : null}
               </div>
               <div className="flex items-center gap-1.5">
-                {showUndo ? (
-                  <button
-                    type="button"
-                    title="마지막 턴 되돌리기"
-                    onClick={() =>
-                      void undoLastTurn().then((text) => {
-                        if (text) setDraft(text);
-                      })
-                    }
-                    className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text"
-                  >
-                    <ArrowUUpLeft size={14} weight="bold" />
-                    Undo
-                  </button>
-                ) : null}
                 {busy ? (
                   <>
                     <button

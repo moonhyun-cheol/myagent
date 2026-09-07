@@ -46,7 +46,6 @@ import {
   setSessionPreferredModel,
   setSessionProject as saveSessionProject,
   setSessionWorkspaceProject as saveSessionWorkspaceProject,
-  undoSessionTurn,
   uploadAttachments,
   writeWorkspaceFsFile,
   rollbackWorkspaceCheckpoint,
@@ -339,7 +338,6 @@ interface SessionViewSnapshot {
   selectedModel: string;
   activeExecutionPolicy: ExecutionPolicy;
   effectiveExecutionPolicy: EffectiveExecutionPolicy | null;
-  canUndo: boolean;
   assets: WorkspaceAsset[];
   canvasNodes: Node[];
   canvasEdges: Edge[];
@@ -461,7 +459,6 @@ interface WorkspaceState {
    */
   pendingMutateReview: PendingMutateReview | null;
   streamAbort: AbortController | null;
-  canUndo: boolean;
   /** Per-session run phase for sidebar badges (FIFO global queue). */
   sessionPhases: Record<string, SessionRunPhase>;
   /** User messages waiting for the current turn to finish, in session FIFO order. */
@@ -565,7 +562,6 @@ interface WorkspaceState {
   /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
   buildFromPlan: (assistantTurnId: string) => Promise<void>;
   stopAiMessage: () => void;
-  undoLastTurn: () => Promise<string | null>;
 }
 
 /** In-flight jobs keyed by session. Different sessions may run concurrently. */
@@ -681,7 +677,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
       activeExecutionPolicy: liveJobs.get(sid)?.executionPolicy ?? state.activeExecutionPolicy,
       effectiveExecutionPolicy: liveJobs.get(sid)?.effectiveExecutionPolicy ?? state.effectiveExecutionPolicy,
-      canUndo: state.canUndo,
       assets: state.assets,
       canvasNodes: state.canvasNodes,
       canvasEdges: state.canvasEdges,
@@ -765,7 +760,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         busy: false,
         statusText: '',
         streamAbort: null,
-        canUndo: true,
         ...(finishedJob?.terminalUsed ? { terminalAttention: true } : {}),
       });
     } else if (finishedJob?.terminalUsed) {
@@ -781,7 +775,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       sessionPhases: { ...get().sessionPhases, [sid]: 'running' },
     });
     if (get().activeSessionId === sid) {
-      set({ busy: true, statusText: '연결 중…', streamAbort: job.abort, canUndo: false });
+      set({ busy: true, statusText: '연결 중…', streamAbort: job.abort });
     }
 
     const patchAssistant = (partial: Partial<ChatTurn>) => {
@@ -1205,7 +1199,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     pendingContextPaths: [],
     pendingMutateReview: null,
     streamAbort: null,
-    canUndo: false,
     sessionPhases: {},
     messageQueue: loadMessageQueue(),
     removeQueuedMessage: (id) => {
@@ -1574,7 +1567,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           workspace_behavior: policy.workspace_behavior ?? 'agent',
         },
         effectiveExecutionPolicy: null,
-        canUndo: false,
         assets: [],
         canvasNodes: [],
         canvasEdges: [],
@@ -1603,7 +1595,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           workspace_behavior: 'agent',
         },
         effectiveExecutionPolicy: null,
-        canUndo: false,
         assets: [],
         canvasNodes: [],
         canvasEdges: [],
@@ -1629,7 +1620,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           chat: live?.chat ?? snapshot?.chat ?? [],
           activeExecutionPolicy: live?.executionPolicy ?? snapshot?.activeExecutionPolicy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: live?.effectiveExecutionPolicy ?? snapshot?.effectiveExecutionPolicy ?? null,
-          canUndo: live ? false : (snapshot?.canUndo ?? false),
           assets: snapshot?.assets ?? [],
           canvasNodes: snapshot?.canvasNodes ?? [],
           canvasEdges: snapshot?.canvasEdges ?? [],
@@ -1645,7 +1635,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           chat: [],
           activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: null,
-          canUndo: false,
           assets: [],
           canvasNodes: [],
           canvasEdges: [],
@@ -1670,7 +1659,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
           activeExecutionPolicy: currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,
-          canUndo: currentLive ? false : messages.some((m) => m.role === 'user'),
           assets: currentLive && previous
             ? previous.assets
             : [...loadSessionAssets(sessionId), ...assetsFromMessages(messages)],
@@ -1687,7 +1675,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           chat: refreshed.chat,
           activeExecutionPolicy: refreshed.activeExecutionPolicy,
           effectiveExecutionPolicy: refreshed.effectiveExecutionPolicy,
-          canUndo: refreshed.canUndo,
           assets: refreshed.assets,
           canvasNodes: refreshed.canvasNodes,
           canvasEdges: refreshed.canvasEdges,
@@ -2748,7 +2735,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({
         pendingAttachments: [],
         pendingContextPaths: [],
-        canUndo: false,
         sessionPhases: { ...get().sessionPhases, [sid]: 'running' },
         chat,
         busy: true,
@@ -2794,24 +2780,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set({ statusText: '중지 중…' });
       job.abort.abort();
       void cancelRunTerminalJob({ sessionId: sid }).catch(() => undefined);
-    },
-
-    undoLastTurn: async () => {
-      const sid = get().activeSessionId;
-      if (!sid || get().busy) return null;
-      try {
-        const result = await undoSessionTurn(sid);
-        const rec = await fetchSession(sid);
-        const messages = rec.messages ?? [];
-        set({
-          chat: sessionMessagesToChat(messages),
-          canUndo: false,
-        });
-        return result.userText ?? null;
-      } catch {
-        set({ canUndo: false });
-        return null;
-      }
     },
   };
 });

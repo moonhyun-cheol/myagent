@@ -852,18 +852,6 @@ export async function deleteSession(id: string): Promise<void> {
   if (localStorage.getItem(SESSION_KEY) === id) localStorage.removeItem(SESSION_KEY);
 }
 
-export async function undoSessionTurn(id: string): Promise<{ userText?: string; removed: number }> {
-  const res = await fetch(`/sessions/${encodeURIComponent(id)}/undo`, { method: 'POST' });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.message || data.error || `Undo 실패 (${res.status})`);
-  }
-  return {
-    userText: typeof data.userText === 'string' ? data.userText : undefined,
-    removed: Number(data.removed ?? 0),
-  };
-}
-
 export interface LocalModelInfo {
   id: string;
   kind: 'llm' | 'image' | string;
