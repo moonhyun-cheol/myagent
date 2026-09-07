@@ -13,7 +13,6 @@ import {
   syncMinimizeToTrayOnClose,
 } from '../lib/appPreferences';
 import { ChatPane } from './ChatPane';
-import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { GeminiNavSidebar, type AppSurface } from './GeminiNavSidebar';
 import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
@@ -27,48 +26,8 @@ import {
 } from './workspacePreviewModes';
 import { SchedulerSurface } from './SchedulerSurface';
 import { TerminalPane } from './TerminalPane';
-import { WorkspaceObjectsPane, type TodoProgressItem } from './WorkspaceObjectsPane';
-
-function cleanTodoLabel(value: string): string {
-  return value
-    .replace(/\*\*/g, '')
-    .replace(/`/g, '')
-    .replace(/\s*[:：]\s*$/, '')
-    .trim();
-}
-
-type ExtractedTodo = {
-  label: string;
-  checked?: boolean;
-};
-
-function extractTodoItems(text: string): ExtractedTodo[] {
-  const taskListItems = [...text.matchAll(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/gm)]
-    .map((match) => ({
-      label: cleanTodoLabel(match[2] ?? ''),
-      checked: (match[1] ?? '').toLowerCase() === 'x',
-    }))
-    .filter((item) => Boolean(item.label));
-  const numberedHeadings = [...text.matchAll(/^\s{0,3}#{1,6}\s+(?:\*\*)?\d+[.)]\s+(.+?)(?:\*\*)?\s*$/gm)]
-    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
-    .filter((item) => Boolean(item.label));
-  const plainNumberedItems = [...text.matchAll(/^\s*\d+[.)]\s+(.+?)\s*$/gm)]
-    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
-    .filter((item) => Boolean(item.label));
-  const boldListItems = [...text.matchAll(/^\s*[-*]\s+\*\*(.+?)\*\*\s*(?::|：|$)/gm)]
-    .map((match) => ({ label: cleanTodoLabel(match[1] ?? '') }))
-    .filter((item) => Boolean(item.label));
-  const candidates = taskListItems.length > 0
-    ? taskListItems
-    : numberedHeadings.length >= 2
-      ? numberedHeadings
-      : plainNumberedItems.length >= 2
-        ? plainNumberedItems
-        : boldListItems;
-  return candidates
-    .filter((item, index) => candidates.findIndex((candidate) => candidate.label === item.label) === index)
-    .slice(0, 12);
-}
+import { WorkspaceObjectsPane } from './WorkspaceObjectsPane';
+import { useSessionTodos } from '../lib/useSessionTodos';
 
 const PIP_MIN_WIDTH = 360;
 const PIP_MAX_WIDTH = 960;
@@ -113,24 +72,9 @@ function PreviewBody() {
   const pipDragRef = useRef<{ offsetX: number; offsetY: number } | null>(null);
   const pipResizeRef = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null);
   const mode = useWorkspaceStore((s) => s.mode);
-  const chat = useWorkspaceStore((s) => s.chat);
+  const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
   const busy = useWorkspaceStore((s) => s.busy);
-  const todoItems = useMemo<TodoProgressItem[]>(() => {
-    // To-do는 도구 호출 기록이 아니라 모델이 답변에서 구분한 과제·목표를 보여준다.
-    const sourceTurn = [...chat]
-      .reverse()
-      .find((turn) => turn.role === 'assistant' && !isChatTurnUiHidden(turn, chat) && turn.text.trim());
-    const checklistItems = extractTodoItems(sourceTurn?.text ?? '');
-    return checklistItems.map((item, index) => ({
-      id: `${sourceTurn?.id ?? 'todo'}-${index}-${item.label}`,
-      label: item.label,
-      status: item.checked === true
-        ? 'done'
-        : busy && index === checklistItems.findIndex((candidate) => candidate.checked !== true)
-          ? 'active'
-          : 'pending',
-    }));
-  }, [busy, chat]);
+  const { items: todoItems, error: todoError } = useSessionTodos(activeSessionId, busy);
 
   const detachPreview = () => {
     const bridge = (window as typeof window & {
@@ -310,7 +254,7 @@ function PreviewBody() {
         {previewDisplayActions}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} /> : null}
+        {mode === 'objects' ? <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} todoError={todoError} /> : null}
         {mode === 'document' || mode === 'canvas' ? <MarkdownDocument /> : null}
         {mode === 'media' ? <MediaPane /> : null}
         {mode === 'browser' ? <BrowserPane /> : null}

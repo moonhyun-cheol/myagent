@@ -707,6 +707,23 @@ export async function updateUserMemory(
   if (!res.ok) throw new Error(data.message || data.error || `메모리 수정 실패 (${res.status})`);
 }
 
+export async function batchUserMemory(body: {
+  ids: string[];
+  action: 'enable' | 'disable' | 'delete' | 'move';
+  project_id?: string | null;
+  session_id?: string | null;
+  target_scope?: UserMemoryScope;
+}): Promise<{ changed: number }> {
+  const res = await fetch('/memory/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 일괄 작업 실패 (${res.status})`);
+  return data;
+}
+
 export async function deleteUserMemory(id: string): Promise<void> {
   const res = await fetch(`/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
@@ -769,6 +786,20 @@ export async function listSessions(): Promise<SessionSummary[]> {
   if (!res.ok) throw new Error(`세션 목록 실패 (${res.status})`);
   const data = await res.json();
   return (data.sessions ?? []) as SessionSummary[];
+}
+
+export interface SessionTodoItem {
+  id: string;
+  text: string;
+  status: 'pending' | 'doing' | 'done' | 'blocked';
+}
+
+export async function fetchSessionTodos(id: string, signal?: AbortSignal): Promise<SessionTodoItem[]> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}/todos`, { signal, cache: 'no-store' });
+  if (!res.ok) throw new Error(`TODO 조회 실패 (${res.status})`);
+  const data = await res.json();
+  if (data.sessionId !== id || !Array.isArray(data.todos)) throw new Error('잘못된 TODO 응답');
+  return data.todos;
 }
 
 export async function fetchSession(id: string): Promise<SessionRecord> {

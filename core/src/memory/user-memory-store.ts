@@ -26,6 +26,14 @@ export interface MemoryEntry {
   updated_at: string;
 }
 
+export interface MemoryBatchInput {
+  ids: string[];
+  action: 'enable' | 'disable' | 'delete' | 'move';
+  project_id?: string | null;
+  session_id?: string | null;
+  target_scope?: MemoryScope;
+}
+
 interface MemoryIndex {
   version: number;
   entries: MemoryEntry[];
@@ -160,6 +168,58 @@ export class UserMemoryStore {
     entry.updated_at = new Date().toISOString();
     this.saveIndex(index);
     return entry;
+  }
+
+  /** Validate the entire selection before a single write; never copy/delete a move. */
+  batch(input: MemoryBatchInput): number {
+    if (!input || !Array.isArray(input.ids) || !input.ids.length || input.ids.length > 300
+      || input.ids.some((id) => typeof id !== 'string' || !id)
+      || !['enable', 'disable', 'delete', 'move'].includes(input.action)) {
+      throw new UserMemoryStoreError('INVALID_BATCH', '유효한 항목과 작업을 선택하세요.');
+    }
+    const ids = new Set(input.ids);
+    const index = this.loadIndex();
+    const selected = index.entries.filter((e) => ids.has(e.id));
+    if (selected.length !== ids.size || selected.some((e) =>
+      e.scope === 'project' ? !input.project_id || e.project_id !== input.project_id
+        : e.scope === 'session' ? !input.session_id || e.session_id !== input.session_id : e.scope !== 'global')) {
+      throw new UserMemoryStoreError('STALE_SELECTION', '선택한 항목이 없거나 현재 범위 밖에 있습니다. 새로고침하세요.');
+    }
+    if (input.action === 'move') {
+      const scope = input.target_scope;
+      if (!scope || !['global', 'project', 'session'].includes(scope)
+        || (scope === 'project' && !input.project_id) || (scope === 'session' && !input.session_id)) {
+        throw new UserMemoryStoreError('INVALID_TARGET', '사용 가능한 저장 범위를 선택하세요.');
+      }
+      const destination = index.entries.filter((e) => !ids.has(e.id) && e.scope === scope
+        && (scope !== 'project' || e.project_id === input.project_id)
+        && (scope !== 'session' || e.session_id === input.session_id));
+      if (destination.length + selected.length > MAX_ENTRIES_PER_SCOPE) {
+        throw new UserMemoryStoreError('SCOPE_FULL', `대상 범위는 최대 ${MAX_ENTRIES_PER_SCOPE}개까지 저장할 수 있습니다.`);
+      }
+      const texts = new Set(destination.map((e) => normalizeForDedupe(e.text)));
+      for (const entry of selected) {
+        const text = normalizeForDedupe(entry.text);
+        if (texts.has(text)) throw new UserMemoryStoreError('DUPLICATE_TEXT', '대상 범위 또는 선택 항목에 같은 메모리가 있습니다. 중복을 정리한 뒤 이동하세요.');
+        texts.add(text);
+      }
+      for (const entry of selected) {
+        entry.scope = scope;
+        entry.project_id = scope === 'project' ? input.project_id : null;
+        entry.session_id = scope === 'session' ? input.session_id : null;
+      }
+    }
+    if (input.action === 'delete') {
+      index.entries = index.entries.filter((e) => !ids.has(e.id));
+    } else {
+      const now = new Date().toISOString();
+      for (const entry of selected) {
+        if (input.action !== 'move') entry.enabled = input.action === 'enable';
+        entry.updated_at = now;
+      }
+    }
+    this.saveIndex(index);
+    return selected.length;
   }
 
   remove(id: string): boolean {

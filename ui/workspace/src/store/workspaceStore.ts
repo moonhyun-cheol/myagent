@@ -467,7 +467,11 @@ interface WorkspaceState {
   sessionPhases: Record<string, SessionRunPhase>;
   /** User messages waiting for the current turn to finish, in session FIFO order. */
   messageQueue: QueuedMessage[];
+  /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
+  queueReviewSessions: Record<string, boolean>;
+  updateQueuedMessage: (id: string, text: string) => void;
   removeQueuedMessage: (id: string) => void;
+  continueQueuedMessages: (sessionId: string) => void;
   setMode: (mode: WorkspaceMode) => void;
   setBrowserInputUrl: (url: string) => void;
   navigateBrowser: (url: string) => void;
@@ -716,15 +720,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     }
   };
 
-  const dispatchNextQueuedMessage = (sid: string) => {
-    if (get().activeSessionId !== sid || liveJobs.has(sid) || get().sessionPhases[sid]) return;
+  const dispatchNextQueuedMessage = (sid: string, force = false) => {
+    if (
+      get().activeSessionId !== sid
+      || liveJobs.has(sid)
+      || get().sessionPhases[sid]
+      || (!force && get().queueReviewSessions[sid])
+    ) return;
     const next = get().messageQueue.find((item) => item.sessionId === sid);
-    if (!next) return;
+    if (!next) {
+      if (get().queueReviewSessions[sid]) {
+        const reviewSessions = { ...get().queueReviewSessions };
+        delete reviewSessions[sid];
+        set({ queueReviewSessions: reviewSessions });
+      }
+      return;
+    }
 
     const remaining = get().messageQueue.filter((item) => item.id !== next.id);
+    const reviewSessions = { ...get().queueReviewSessions };
+    delete reviewSessions[sid];
     saveMessageQueue(remaining);
     set({
       messageQueue: remaining,
+      queueReviewSessions: reviewSessions,
       pendingAttachments: next.attachmentIds.map((id, index) => ({
         id,
         name: next.attachmentNames[index] ?? '첨부 파일',
@@ -789,7 +808,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     } else if (finishedJob?.terminalUsed) {
       set({ terminalAttention: true });
     }
-    queueMicrotask(() => dispatchNextQueuedMessage(sid));
+    // When multiple turns were queued at completion time, pause before dispatch
+    // so the user can review/edit all of them while preserving their FIFO order.
+    const queuedForSession = get().messageQueue.filter((item) => item.sessionId === sid);
+    if (queuedForSession.length > 1) {
+      set({
+        queueReviewSessions: { ...get().queueReviewSessions, [sid]: true },
+      });
+    } else {
+      // Drain only after all completion state is committed. If this session is not
+      // visible yet, loadChatSession will retry when the user returns to it.
+      queueMicrotask(() => dispatchNextQueuedMessage(sid));
+    }
   };
 
   const runJob = async (sid: string) => {
@@ -1230,10 +1260,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     streamAbort: null,
     sessionPhases: {},
     messageQueue: loadMessageQueue(),
-    removeQueuedMessage: (id) => {
-      const queue = get().messageQueue.filter((item) => item.id !== id);
+    queueReviewSessions: {},
+    updateQueuedMessage: (id, text) => {
+      const queue = get().messageQueue.map((item) => (
+        item.id === id ? { ...item, text } : item
+      ));
       saveMessageQueue(queue);
       set({ messageQueue: queue });
+    },
+    removeQueuedMessage: (id) => {
+      const removed = get().messageQueue.find((item) => item.id === id);
+      const queue = get().messageQueue.filter((item) => item.id !== id);
+      const reviewSessions = { ...get().queueReviewSessions };
+      if (removed && !queue.some((item) => item.sessionId === removed.sessionId)) {
+        delete reviewSessions[removed.sessionId];
+      }
+      saveMessageQueue(queue);
+      set({ messageQueue: queue, queueReviewSessions: reviewSessions });
+    },
+    continueQueuedMessages: (sessionId) => {
+      queueMicrotask(() => dispatchNextQueuedMessage(sessionId, true));
     },
 
     setMode: (mode) => set({ mode: normalizeWorkspaceMode(mode) }),

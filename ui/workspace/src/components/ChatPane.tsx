@@ -227,7 +227,10 @@ export function ChatPane() {
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
+  const queueReviewSessions = useWorkspaceStore((s) => s.queueReviewSessions);
+  const updateQueuedMessage = useWorkspaceStore((s) => s.updateQueuedMessage);
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
+  const continueQueuedMessages = useWorkspaceStore((s) => s.continueQueuedMessages);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
@@ -262,6 +265,8 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
+  const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
+  const [editingQueueText, setEditingQueueText] = useState('');
   // 세션별 입력 초안 분리: 미전송 초안이 다른 채팅으로 전환할 때 따라가지 않도록
   // 세션 id별로 보관하고, 전환 시 해당 세션의 초안을 복원한다.
   const draftsBySessionRef = useRef<Map<string, string>>(new Map());
@@ -1473,14 +1478,91 @@ export function ChatPane() {
             />
             {activeQueue.length > 0 ? (
               <div className="mx-3 mb-2 rounded-lg border border-line bg-panel-2/60 px-3 py-2" data-testid="message-queue">
-                <div className="mb-1 text-[10px] font-semibold text-muted">대기 중 {activeQueue.length}</div>
-                {activeQueue.map((item, index) => (
-                  <div key={item.id} className="flex items-center gap-2 py-1 text-[11px] text-text">
-                    <span className="text-muted">{index + 1}</span>
-                    <span className="min-w-0 flex-1 truncate">{item.text || item.attachmentNames.join(', ')}</span>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-semibold text-muted">대기 중 {activeQueue.length}</div>
+                  {activeSessionId && queueReviewSessions[activeSessionId] ? (
                     <button
                       type="button"
-                      className="text-muted hover:text-red-300"
+                      disabled={editingQueueId !== null || activeQueue.some((item) => !item.text.trim() && item.attachmentIds.length === 0)}
+                      onClick={() => continueQueuedMessages(activeSessionId)}
+                      className="rounded-md bg-accent px-2 py-1 text-[10px] font-semibold text-ink disabled:opacity-40"
+                    >
+                      편집 완료 후 진행
+                    </button>
+                  ) : null}
+                </div>
+                {activeSessionId && queueReviewSessions[activeSessionId] ? (
+                  <div className="mb-1.5 text-[10px] text-muted">순서를 유지한 채 내용을 확인·수정한 다음 진행하세요.</div>
+                ) : null}
+                {activeQueue.map((item, index) => (
+                  <div key={item.id} className="flex items-start gap-2 py-1 text-[11px] text-text">
+                    <span className="pt-1 text-muted">{index + 1}</span>
+                    {editingQueueId === item.id ? (
+                      <textarea
+                        autoFocus
+                        rows={2}
+                        value={editingQueueText}
+                        onChange={(event) => setEditingQueueText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                          if (event.key === 'Escape') {
+                            setEditingQueueId(null);
+                            setEditingQueueText('');
+                          }
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            if (editingQueueText.trim() || item.attachmentIds.length > 0) {
+                              updateQueuedMessage(item.id, editingQueueText.trim());
+                              setEditingQueueId(null);
+                              setEditingQueueText('');
+                            }
+                          }
+                        }}
+                        className="min-w-0 flex-1 resize-y rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-text outline-none focus:border-accent"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{item.text || item.attachmentNames.join(', ')}</span>
+                    )}
+                    {editingQueueId === item.id ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={!editingQueueText.trim() && item.attachmentIds.length === 0}
+                          className="pt-1 text-accent disabled:opacity-40"
+                          onClick={() => {
+                            updateQueuedMessage(item.id, editingQueueText.trim());
+                            setEditingQueueId(null);
+                            setEditingQueueText('');
+                          }}
+                        >
+                          저장
+                        </button>
+                        <button
+                          type="button"
+                          className="pt-1 text-muted hover:text-text"
+                          onClick={() => {
+                            setEditingQueueId(null);
+                            setEditingQueueText('');
+                          }}
+                        >
+                          취소
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="pt-1 text-muted hover:text-text"
+                        onClick={() => {
+                          setEditingQueueId(item.id);
+                          setEditingQueueText(item.text);
+                        }}
+                      >
+                        편집
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="pt-1 text-muted hover:text-red-300"
                       onClick={() => removeQueuedMessage(item.id)}
                     >
                       삭제

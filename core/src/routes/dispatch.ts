@@ -3,6 +3,7 @@ import { readFileSync, existsSync, readdirSync, renameSync, statSync } from 'nod
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { loadAgentRunMeta } from '../agent/agent-run-meta.js';
 import { assertPathUnder } from '../security/path-guard.js';
 import { SecurityError } from '../security/errors.js';
 import { assertDevWorkspaceRoot } from '../security/dev-workspace-guard.js';
@@ -2094,6 +2095,10 @@ export async function dispatchApiRequest(
             });
             return sendJson(res, 201, entry);
           }
+          if (method === 'POST' && url.pathname === '/memory/batch') {
+            const body = JSON.parse(await readBody(req));
+            return sendJson(res, 200, { changed: memoryStore.batch(body) });
+          }
           const memoryMatch = url.pathname.match(/^\/memory\/([^/]+)$/);
           if (memoryMatch) {
             const memoryId = decodeURIComponent(memoryMatch[1]);
@@ -2553,6 +2558,15 @@ export async function dispatchApiRequest(
       if (method === 'GET' && url.pathname === '/sessions') {
         license.assertFeature('chat');
         return sendJson(res, 200, { sessions: sessionStore.list() });
+      }
+
+      const sessionTodoMatch = url.pathname.match(/^\/sessions\/([^/]+)\/todos$/);
+      if (sessionTodoMatch && method === 'GET') {
+        const sid = decodeURIComponent(sessionTodoMatch[1]);
+        if (!sessionStore.load(sid)) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        const ledger = loadAgentRunMeta(cqrRoot, sid).todoLedger;
+        res.setHeader('Cache-Control', 'no-store');
+        return sendJson(res, 200, { sessionId: sid, todos: ledger?.todos ?? [], updatedAt: ledger?.updatedAt ?? null });
       }
 
       const sessionModelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/preferred-model$/);

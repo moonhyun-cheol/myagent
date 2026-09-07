@@ -25,6 +25,7 @@ export default defineConfig({
       '/fs': MY_AGENT_API,
       '/workspace': MY_AGENT_API,
       '/projects': MY_AGENT_API,
+      '/memory': MY_AGENT_API,
     },
   },
 });
