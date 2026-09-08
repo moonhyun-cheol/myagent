@@ -1,0 +1,28 @@
+.message-markdown { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown p { margin: .6em 0; white-space: pre-wrap; }
+.message-markdown h1, .message-markdown h2, .message-markdown h3, .message-markdown h4 { font-weight: 700; margin: 1em 0 .5em; line-height: 1.4; }
+.message-markdown h1 { font-size: 1.4em; }
+.message-markdown h2 { font-size: 1.25em; }
+.message-markdown h3 { font-size: 1.1em; }
+.message-markdown ul, .message-markdown ol { padding-left: 1.6em; margin: .6em 0; }
+.message-markdown ul { list-style: disc; }
+.message-markdown ol { list-style: decimal; }
+.message-markdown li { margin: .25em 0; }
+.message-markdown blockquote { border-left: 3px solid var(--color-accent, #888); padding-left: 1em; margin: .8em 0; opacity: .85; }
+.message-markdown a { color: var(--color-accent, #70aaff); text-decoration: underline; cursor: pointer; }
+.message-markdown code { font-family: ui-monospace, Consolas, monospace; font-size: .92em; }
+.message-markdown :not(pre) > code { background: color-mix(in srgb, currentColor 10%, transparent); border-radius: 4px; padding: .12em .3em; white-space: break-spaces; }
+.message-code-block { min-width: 0; max-width: 100%; margin: .8em 0; border-radius: 12px; overflow: hidden; background: color-mix(in srgb, currentColor 7%, transparent); border: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+.message-code-block header { display: flex; justify-content: space-between; align-items: center; gap: 1em; padding: .45em .9em; font-size: .8em; }
+.message-code-block button { cursor: pointer; padding: .25em .5em; border-radius: 4px; }
+.message-code-block button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.message-code-block button:focus-visible { outline: 2px solid currentColor; }
+.message-code-block pre { margin: 0; padding: .8em 1em; overflow: auto; white-space: pre; max-height: 32rem; }
+.message-table-scroll { max-width: 100%; overflow-x: auto; margin: .8em 0; }
+.message-markdown table { border-collapse: collapse; }
+.message-markdown th, .message-markdown td { border: 1px solid color-mix(in srgb, currentColor 22%, transparent); padding: .45em .7em; }
+.message-markdown th { background: color-mix(in srgb, currentColor 8%, transparent); font-weight: 600; }
+.message-markdown hr { margin: 1em 0; opacity: .3; }
+.message-image-label { opacity: .7; font-size: .9em; }

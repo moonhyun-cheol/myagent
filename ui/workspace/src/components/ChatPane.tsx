@@ -9,7 +9,7 @@ import {
   Browser,
   CaretDown,
   CheckCircle,
-  PuzzlePiece,
+  FolderSimple,
   X,
   Image as ImageIcon,
   Stop,
@@ -18,6 +18,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
   type ReactNode,
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
+import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -50,7 +52,6 @@ import {
   reasoningLevelLabel,
   reasoningSelectOptionsForModel,
   modelOmitsReasoningEffort,
-  modelRequiresExplicitReasoningEffort,
   normalizeReasoningLevelForModel,
 } from '../lib/reasoning-levels';
 import { normalizeBrowserUrl } from '../lib/browserUrl';
@@ -65,6 +66,8 @@ import {
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
 import { SessionAttachmentGallery } from './SessionAttachmentGallery';
+import { MessageMarkdown } from './MessageMarkdown';
+import { focusHistoryBackground, navigateHistory, type HistoryCursor } from '../lib/chatHistoryNavigation';
 
 const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
 
@@ -192,6 +195,36 @@ function renderMessageText(text: string): ReactNode {
   return parts;
 }
 
+function PolicyChoices({ testId, label, value, options, disabled, onSelect }: {
+  testId: string;
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string; description?: string }>;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+}) {
+  return <div role="menu" aria-label={label} data-testid={testId} className="chat-policy-choices"
+    onKeyDown={(event) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+        : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }}>
+    {options.map((option) => <button key={option.value} type="button" role="menuitemradio"
+      aria-checked={option.value === value} aria-label={option.label} disabled={disabled}
+      data-value={option.value} tabIndex={option.value === value ? 0 : -1}
+      className="chat-policy-choice" onClick={() => onSelect(option.value)}>
+      <span className="chat-policy-check" aria-hidden="true">{option.value === value ? '✓' : ''}</span>
+      <span><span className="block font-semibold">{option.label}</span>
+        {option.description ? <span className="mt-0.5 block text-[11px] leading-5 text-muted">{option.description}</span> : null}
+      </span>
+    </button>)}
+  </div>;
+}
+
 export function ChatPane() {
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
@@ -223,6 +256,10 @@ export function ChatPane() {
   const selectedModel = useWorkspaceStore((s) => s.selectedModel);
   const setSelectedModel = useWorkspaceStore((s) => s.setSelectedModel);
   const modelOptions = useWorkspaceStore((s) => s.modelOptions);
+  const selectedReasoningCapability = useMemo(
+    () => modelOptions.find((option) => option.id === selectedModel)?.reasoning_capability,
+    [modelOptions, selectedModel],
+  );
   const refreshModelPicker = useWorkspaceStore((s) => s.refreshModelPicker);
   const activeExecutionPolicy = useWorkspaceStore((s) => s.activeExecutionPolicy);
   const effectiveExecutionPolicy = useWorkspaceStore((s) => s.effectiveExecutionPolicy);
@@ -246,6 +283,16 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
+  useEffect(() => {
+    const receiveDocument = (event: Event) => {
+      const detail = (event as CustomEvent<{ session: string; text: string }>).detail;
+      if (detail?.session === activeSessionId && typeof detail.text === 'string') {
+        setDraft((previous) => (previous ? `${previous}\n\n${detail.text}` : detail.text));
+      }
+    };
+    window.addEventListener('my-agent-document-request', receiveDocument);
+    return () => window.removeEventListener('my-agent-document-request', receiveDocument);
+  }, [activeSessionId]);
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
   // 세션별 입력 초안 분리: 미전송 초안이 다른 채팅으로 전환할 때 따라가지 않도록
@@ -280,8 +327,155 @@ export function ChatPane() {
   const [pasting, setPasting] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
+  const [policyTarget, setPolicyTarget] = useState('chat-workspace-behavior');
+  const policyId = useId();
+  const policyRef = useRef<HTMLDivElement>(null);
+  const policyTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [policySaving, setPolicySaving] = useState(false);
+  const policySavingRef = useRef(false);
+  const [policyError, setPolicyError] = useState<string | null>(null);
+  const policyEpochRef = useRef(0);
+  const openPolicy = (event: ReactMouseEvent<HTMLButtonElement>, target: string) => {
+    const sameTrigger = policyTriggerRef.current === event.currentTarget;
+    policyTriggerRef.current = event.currentTarget;
+    policyEpochRef.current += 1;
+    setPolicyError(null);
+    setPolicyTarget(target);
+    setPolicyOpen((open) => !open || !sameTrigger);
+  };
+  const closePolicy = () => {
+    policyEpochRef.current += 1;
+    setPolicyOpen(false);
+    policyTriggerRef.current?.focus();
+  };
+  const savePolicy = async (patch: Parameters<typeof setExecutionPolicy>[0]) => {
+    if (busy || policySavingRef.current) return;
+    const epoch = policyEpochRef.current;
+    const previous = useWorkspaceStore.getState().activeExecutionPolicy;
+    const session = useWorkspaceStore.getState().activeSessionId;
+    policySavingRef.current = true;
+    setPolicySaving(true);
+    setPolicyError(null);
+    try {
+      await setExecutionPolicy(patch);
+      if (epoch === policyEpochRef.current) closePolicy();
+    } catch (error) {
+      // The store updates optimistically. Do not leave an unsaved value looking applied.
+      const current = useWorkspaceStore.getState();
+      if (current.activeSessionId === session || session === null && epoch === policyEpochRef.current) {
+        if (Object.entries(patch).every(([key, value]) => current.activeExecutionPolicy[key as keyof typeof patch] === value)) {
+          const restored = Object.fromEntries(Object.keys(patch).map((key) => [key, previous[key as keyof typeof previous]]));
+          useWorkspaceStore.setState({ activeExecutionPolicy: { ...current.activeExecutionPolicy, ...restored } });
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (epoch === policyEpochRef.current) setPolicyError(`저장하지 못했습니다. ${message}`);
+      else flashPasteHint(`설정 저장 실패: ${message}`);
+    } finally {
+      policySavingRef.current = false;
+      setPolicySaving(false);
+    }
+  };
+  useLayoutEffect(() => {
+    if (!policyOpen) return;
+    const panel = policyRef.current;
+    const trigger = policyTriggerRef.current;
+    if (!panel || !trigger) return;
+    const position = () => {
+      const rect = trigger.getBoundingClientRect();
+      const width = document.documentElement.clientWidth;
+      const height = window.innerHeight;
+      const below = height - rect.bottom - 14;
+      const above = rect.top - 14;
+      const upward = below < Math.min(panel.scrollHeight, 260) && above > below;
+      panel.style.maxHeight = `${Math.max(0, upward ? above : below)}px`;
+      panel.style.left = `${Math.max(8, Math.min(rect.left, width - panel.offsetWidth - 8))}px`;
+      panel.style.top = `${upward ? Math.max(8, rect.top - panel.offsetHeight - 6) : rect.bottom + 6}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(panel);
+    observer.observe(trigger.closest('.chat-settings-header') ?? trigger);
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
+  }, [policyOpen, policyTarget]);
+  useEffect(() => {
+    if (!policyOpen) return;
+    const panel = policyRef.current;
+    const target = panel?.querySelector<HTMLButtonElement | HTMLSelectElement>('button[aria-checked="true"]:not(:disabled), select:not(:disabled)')
+      ?? panel?.querySelector<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)');
+    (target && !target.disabled ? target : panel)?.focus();
+    const dismissOutside = (event: Event) => {
+      const node = event.target as Node;
+      if (!panel?.contains(node) && !policyTriggerRef.current?.contains(node)) {
+        policyEpochRef.current += 1;
+        setPolicyOpen(false);
+      }
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      policyEpochRef.current += 1;
+      setPolicyOpen(false);
+      policyTriggerRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('focusin', dismissOutside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [policyOpen, policyTarget]);
+  useEffect(() => {
+    if (!policyOpen || policySaving) return;
+    const panel = policyRef.current;
+    if (document.activeElement === document.body || document.activeElement === panel) {
+      panel?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]:not(:disabled)')?.focus();
+    }
+  }, [policyOpen, policySaving, policyError]);
+  const policySessionRef = useRef(activeSessionId);
+  useEffect(() => {
+    const previous = policySessionRef.current;
+    policySessionRef.current = activeSessionId;
+    // A first save creates the session; keep its pending/error UI visible.
+    if (previous === null && policySavingRef.current) return;
+    policyEpochRef.current += 1;
+    setPolicyOpen(false);
+  }, [activeSessionId]);
   const [dragActive, setDragActive] = useState(false);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const skillPickerRef = useRef<HTMLDivElement>(null);
+  const skillButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!skillPickerOpen) return;
+    const panel = skillPickerRef.current;
+    (panel?.querySelector<HTMLButtonElement>('button') ?? panel)?.focus();
+    const dismissOutside = (event: Event) => {
+      const node = event.target as Node;
+      if (!panel?.contains(node) && !skillButtonRef.current?.contains(node)) setSkillPickerOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      setSkillPickerOpen(false);
+      skillButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('focusin', dismissOutside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [skillPickerOpen]);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [selectableSkills, setSelectableSkills] = useState<SkillListItem[]>([]);
   const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; title: string; path: string }>>([]);
@@ -370,6 +564,8 @@ export function ChatPane() {
   }, [busy]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const historyCursorRef = useRef<HistoryCursor | null>(null);
+  useEffect(() => { historyCursorRef.current = null; }, [activeSessionId]);
   const openedSessionRef = useRef<string | null>(null);
   const turnAnchorRefs = useRef<Map<string, HTMLElement>>(new Map());
   const wasBusyRef = useRef(false);
@@ -934,15 +1130,19 @@ export function ChatPane() {
           </div>
         </div>
       ) : null}
-      <div className="relative flex h-10 shrink-0 items-center gap-1.5 border-b border-line px-3">
+      <div className="chat-settings-header" data-testid="chat-settings-header" role="group" aria-label="대화 설정">
+        <div className="chat-model-control">
         <select
+          aria-label="대화 모델"
+          data-testid="chat-model-select"
           value={selectedModel}
           disabled={busy}
           onChange={(e) => {
             void setSelectedModel(e.target.value);
           }}
-          className="min-w-0 flex-1 truncate rounded-md border-0 bg-transparent py-1 text-[12px] text-text outline-none focus:text-accent"
-          title={busy ? '응답 생성 중에는 모델을 변경할 수 없습니다.' : '모델'}
+          className="chat-model-select"
+          style={{ width: `${Math.min(30, Math.max(14, (modelOptions.find((m) => m.id === selectedModel)?.label ?? selectedModel).length + 5))}ch` }}
+          title={`${modelOptions.find((model) => model.id === selectedModel)?.label ?? (selectedModel || '모델 없음')}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
         >
           {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
             <option value={selectedModel}>{selectedModel} · 현재 목록에 없음</option>
@@ -971,123 +1171,121 @@ export function ChatPane() {
             </optgroup>
           ) : null}
         </select>
+        <CaretDown size={14} aria-hidden="true" className="chat-model-caret" />
+        </div>
+        <div className="chat-policy-controls" role="group" aria-label="실행 설정">
+          <button type="button" data-testid="chat-execution-policy" className="chat-setting-control"
+            aria-label={`작업 방식: ${workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)}`}
+            aria-haspopup="dialog" aria-controls={policyOpen && policyTarget === 'chat-workspace-behavior' ? policyId : undefined}
+            aria-expanded={policyOpen && policyTarget === 'chat-workspace-behavior'}
+            onClick={(event) => openPolicy(event, 'chat-workspace-behavior')}>
+            {workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)} <CaretDown size={12} aria-hidden="true" />
+          </button>
+          <button type="button" data-testid="chat-reasoning-button" className="chat-setting-control"
+            aria-haspopup="dialog" aria-controls={policyOpen && policyTarget === 'chat-reasoning-level' ? policyId : undefined}
+            aria-expanded={policyOpen && policyTarget === 'chat-reasoning-level'}
+            onClick={(event) => openPolicy(event, 'chat-reasoning-level')}>
+            <span>추론: {skillMode === 'image' || modelOmitsReasoningEffort(selectedModel, selectedReasoningCapability) ? '미사용' : reasoningLabel(activeExecutionPolicy.reasoning)}</span>
+            <CaretDown size={12} aria-hidden="true" />
+          </button>
+          <button type="button" data-testid="chat-approval-button" className="chat-setting-control"
+            aria-haspopup="dialog" aria-controls={policyOpen && policyTarget === 'chat-approval-level' ? policyId : undefined}
+            aria-expanded={policyOpen && policyTarget === 'chat-approval-level'}
+            onClick={(event) => openPolicy(event, 'chat-approval-level')}>
+            <span>승인: {approvalLabel(activeExecutionPolicy.approval)}</span> <CaretDown size={12} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="chat-context-controls" role="group" aria-label="작업 폴더 및 보조 도구">
         <button
           type="button"
           data-testid="chat-workspace-button"
-          onClick={() => setPolicyOpen(true)}
-          className={`shrink-0 rounded-lg border px-2.5 py-1 text-[11px] ${
-            activeWorkspaceProjectId
-              ? 'border-accent/50 bg-accent/10 text-accent'
-              : 'border-line bg-panel text-muted hover:border-accent/50 hover:text-text'
-          }`}
-          title="이 채팅에 등록 작업폴더 연결"
+          onClick={(event) => openPolicy(event, 'chat-workspace-select')}
+          className="chat-setting-control chat-workspace-control"
+          aria-haspopup="dialog" aria-controls={policyOpen && policyTarget === 'chat-workspace-select' ? policyId : undefined}
+          aria-expanded={policyOpen && policyTarget === 'chat-workspace-select'}
+          aria-label={activeWorkspaceProjectId ? `작업 폴더: ${workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.title ?? '연결됨'}` : '작업폴더 연결'}
+          title={workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '이 채팅에 등록 작업폴더 연결'}
         >
-          {activeWorkspaceProjectId ? '작업폴더 연결됨' : '작업폴더 연결'}
+          <FolderSimple size={16} aria-hidden="true" />
+          <span>{activeWorkspaceProjectId ? (workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.title ?? '작업폴더 연결됨') : '작업폴더 연결'}</span>
+          <CaretDown size={12} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          data-testid="chat-execution-policy"
-          aria-expanded={policyOpen}
-          onClick={() => setPolicyOpen((open) => !open)}
-          className="shrink-0 rounded-lg border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/50 hover:text-text"
-          title="현재 채팅의 추론·작업 방식·승인 권한"
-        >
-          {workspaceBehaviorLabel(activeExecutionPolicy.workspace_behavior)}
-          {' · '}추론 {effectiveExecutionPolicy ? reasoningLabel(effectiveExecutionPolicy.reasoning) : reasoningLabel(activeExecutionPolicy.reasoning)}
-          {' · '}{approvalLabel(activeExecutionPolicy.approval)}
-        </button>
-        {policyOpen ? (
+        {policyOpen ? createPortal(
           <div
+            id={policyId}
+            ref={policyRef}
+            tabIndex={-1}
             role="dialog"
-            aria-label="채팅 실행 정책"
-            className="absolute right-12 top-9 z-50 w-72 rounded-2xl border border-line bg-panel p-4 shadow-xl"
+            aria-label={policyTarget === 'chat-workspace-select' ? '작업 폴더 연결' : policyTarget === 'chat-workspace-behavior' ? '작업 방식' : policyTarget === 'chat-reasoning-level' ? '추론 수준' : '작업 승인'}
+            data-testid="chat-policy-popover"
+            className="chat-policy-popover"
+            onKeyDown={(event) => {
+              if (event.key === 'Tab' && policyTarget !== 'chat-workspace-select') closePolicy();
+            }}
           >
-            <p className="text-sm font-semibold text-text">현재 채팅 실행 정책</p>
-            <p className="mt-1 text-[11px] leading-5 text-muted">변경값은 이 채팅에만 저장되며 실행 중인 작업에는 영향을 주지 않습니다.</p>
-            <label className="mt-4 block text-xs font-medium text-text">
-              추론 수준
-              <select
-                data-testid="chat-reasoning-level"
-                value={(() => {
-                  const options = reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' });
-                  const normalized = normalizeReasoningLevelForModel(
-                    activeExecutionPolicy.reasoning,
-                    skillMode === 'image' ? null : selectedModel,
-                  );
-                  return options.some((o) => o.value === normalized)
-                    ? normalized
-                    : (options[0]?.value ?? 'auto');
-                })()}
-                disabled={busy || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel)}
-                onChange={(event) => void setExecutionPolicy({
-                  reasoning: event.target.value as ReasoningLevel,
-                })}
-                className="mt-1.5 w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm font-semibold text-text shadow-sm outline-none focus:border-accent-dim"
-              >
-                {reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image' }).map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-              {skillMode === 'image' || modelOmitsReasoningEffort(selectedModel) ? (
-                <span className="mt-1 block text-[11px] text-muted">이미지 모델에서는 추론 수준을 쓰지 않습니다.</span>
-              ) : modelRequiresExplicitReasoningEffort(selectedModel) ? (
-                <span className="mt-1 block text-[11px] text-muted">이 모델은 추론 수준을 반드시 지정해야 합니다. 「자동」은 지원되지 않습니다.</span>
-              ) : null}
-            </label>
-            <label className="mt-3 block text-xs font-medium text-text">
-              작업 방식
-              <select
-                data-testid="chat-workspace-behavior"
-                value={activeExecutionPolicy.workspace_behavior ?? 'agent'}
-                disabled={busy}
-                onChange={(event) =>
-                  void setExecutionPolicy({
-                    workspace_behavior: event.target.value as WorkspaceBehavior,
-                  })
-                }
-                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
-              >
-                <option value="agent">Agent — 도구로 바로 실행</option>
-                <option value="plan">Plan — 계획만 (수정 전 확인)</option>
-                <option value="ask">Ask — 설명·질문 (도구 최소)</option>
-              </select>
-            </label>
-            <p className="mt-1 text-[11px] leading-5 text-muted">
-              Plan은 「작업 시 승인 요청」과 다릅니다. 위 항목은 에이전트 행동 방식, 아래는 위험 작업 승인입니다.
-            </p>
-            <label className="mt-3 block text-xs font-medium text-text">
-              작업 권한
-              <select
-                data-testid="chat-approval-level"
-                value={activeExecutionPolicy.approval}
-                disabled={busy}
-                onChange={(event) => {
-                  const approval = event.target.value as ApprovalLevel;
-                  void setExecutionPolicy({
-                    approval,
-                    autopilot: approval === 'autopilot' ? 'on' : approval === 'delegate' ? 'auto' : 'off',
-                  });
-                }}
-                className="mt-1.5 w-full rounded-xl border border-line bg-[#fafbf8] px-3 py-2 text-sm"
-              >
-                <option value="autopilot">Autopilot — 안전 범위 완전 위임</option>
-                <option value="delegate">나 대신 승인 — Luna가 위험 판단</option>
-                <option value="ask">작업 시 승인 요청</option>
-              </select>
-            </label>
-            <p className="mt-2 text-[11px] leading-5 text-muted">
-              외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 Luna에 위임하지 않고 사용자에게 확인합니다.
-            </p>
-            {effectiveExecutionPolicy ? (
-              <p className="mt-3 rounded-lg bg-ink px-3 py-2 text-[11px] text-muted">
-                최근 적용: 추론 {reasoningLabel(effectiveExecutionPolicy.reasoning)} · {approvalLabel(effectiveExecutionPolicy.approval)}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-text">{policyTarget === 'chat-workspace-select' ? '작업 폴더 연결' : policyTarget === 'chat-workspace-behavior' ? '작업 방식' : policyTarget === 'chat-reasoning-level' ? '추론 수준' : '작업 승인'}</p>
+              <button type="button" className="chat-setting-control chat-icon-control" aria-label="설정 닫기" onClick={closePolicy}><X size={16} aria-hidden="true" /></button>
+            </div>
+            <p className="mt-1 text-[11px] leading-5 text-muted">이 채팅에만 적용 · 다음 요청부터 사용</p>
+            {policySaving ? <p role="status" className="mt-2 text-xs text-muted">저장 중…</p> : null}
+            {policyError ? <p role="alert" className="mt-2 text-xs text-red-700">{policyError}</p> : null}
+            {busy ? <p className="mt-2 text-xs text-muted">응답 생성 중에는 변경할 수 없습니다.</p> : null}
+            {policyTarget === 'chat-workspace-select' ? (
+              <label className="mt-4 block text-xs font-medium text-text">
+                연결할 작업 폴더
+                <select data-testid="chat-workspace-select" value={activeWorkspaceProjectId ?? ''}
+                  disabled={busy || workspaceSaving}
+                  className="mt-1.5 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                  onChange={(event) => {
+                    setWorkspaceSaving(true);
+                    void setSessionWorkspaceProject(event.target.value || null)
+                      .catch((error) => flashPasteHint(error instanceof Error ? error.message : String(error)))
+                      .finally(() => setWorkspaceSaving(false));
+                  }}>
+                  <option value="">작업폴더 없이 대화</option>
+                  {activeWorkspaceProjectId && !workspaceOptions.some((w) => w.id === activeWorkspaceProjectId) ? <option value={activeWorkspaceProjectId}>현재 연결된 작업폴더 · 목록에 없음</option> : null}
+                  {workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.title}</option>)}
+                </select>
+                <span className="mt-2 block break-all text-[11px] leading-5 text-muted">{workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '등록된 작업 폴더의 파일 접근 범위를 연결합니다. 스킬은 자동 적용하지 않습니다.'}</span>
+              </label>
+            ) : policyTarget === 'chat-workspace-behavior' ? (
+              <PolicyChoices testId="chat-workspace-behavior" label="작업 방식 선택"
+                value={activeExecutionPolicy.workspace_behavior ?? 'agent'} disabled={busy || policySaving}
+                options={[
+                  { value: 'agent', label: 'Agent', description: '도구로 바로 실행' },
+                  { value: 'plan', label: 'Plan', description: '계획만 · 수정 전 확인' },
+                  { value: 'ask', label: 'Ask', description: '설명·질문 중심 · 도구 최소' },
+                ]} onSelect={(value) => void savePolicy({ workspace_behavior: value as WorkspaceBehavior })} />
+            ) : policyTarget === 'chat-reasoning-level' ? (<>
+              <PolicyChoices testId="chat-reasoning-level" label="추론 수준 선택"
+                value={normalizeReasoningLevelForModel(activeExecutionPolicy.reasoning, skillMode === 'image' ? null : selectedModel, selectedReasoningCapability)}
+                disabled={busy || policySaving || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel, selectedReasoningCapability)}
+                options={reasoningSelectOptionsForModel(selectedModel, { imageMode: skillMode === 'image', capability: selectedReasoningCapability })}
+                onSelect={(value) => void savePolicy({ reasoning: value as ReasoningLevel })} />
+              <p className="mt-2 text-[11px] leading-5 text-muted">
+                {skillMode === 'image' || modelOmitsReasoningEffort(selectedModel, selectedReasoningCapability)
+                  ? '이 모델에서는 추론 수준을 쓰지 않습니다.'
+                  : '자동은 앱이 요청 난이도와 모델 지원 범위를 보고 실제 단계를 선택합니다.'}
               </p>
-            ) : null}
+              {effectiveExecutionPolicy ? <p className="mt-2 text-[11px] text-muted">최근 실행의 추론: {reasoningLabel(effectiveExecutionPolicy.reasoning)}</p> : null}
+            </>) : (<>
+              <PolicyChoices testId="chat-approval-level" label="작업 승인 선택"
+                value={activeExecutionPolicy.approval} disabled={busy || policySaving}
+                options={[
+                  { value: 'autopilot', label: 'Autopilot', description: '안전 범위 완전 위임' },
+                  { value: 'delegate', label: '나 대신 승인', description: 'Luna가 위험 판단' },
+                  { value: 'ask', label: '작업 시 승인 요청', description: '승인이 필요한 작업은 직접 확인' },
+                ]} onSelect={(value) => void savePolicy({ approval: value as ApprovalLevel,
+                  autopilot: value === 'autopilot' ? 'on' : value === 'delegate' ? 'auto' : 'off' })} />
+              <p className="mt-2 text-[11px] leading-5 text-muted">외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 Luna에 위임하지 않고 사용자에게 확인합니다.</p>
+            </>)}
           </div>
-        ) : null}
+        , document.body) : null}
         <button
           type="button"
-          className="rounded-md p-1 text-muted hover:bg-panel hover:text-text disabled:opacity-40"
+          className="chat-setting-control chat-icon-control"
+          aria-label="모델 목록 새로고침"
           title="모델 목록 새로고침"
           disabled={pickerBusy}
           onClick={() => {
@@ -1102,14 +1300,14 @@ export function ChatPane() {
         <button
           type="button"
           aria-pressed={previewPaneOpen}
+          aria-label={previewPaneOpen ? 'Preview 닫기' : 'Preview 열기'}
           title={previewPaneOpen ? 'Preview 닫기' : 'Preview 열기'}
           onClick={() => setPreviewPaneOpen(!previewPaneOpen)}
-          className={`rounded-md p-1 ${
-            previewPaneOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-panel hover:text-text'
-          }`}
+          className="chat-setting-control chat-icon-control"
         >
           <Browser size={16} weight={previewPaneOpen ? 'bold' : 'regular'} />
         </button>
+        </div>
       </div>
       {apiError ? (
         <div className="border-b border-line bg-red-950/40 px-5 py-2 text-[12px] text-red-300">
@@ -1121,45 +1319,58 @@ export function ChatPane() {
       <div
         data-testid="skill-status-bar"
         data-active={Boolean(skillMode)}
-        className="flex flex-wrap items-center justify-between gap-3 border-b border-accent-dim bg-accent-dim px-5 py-3 text-white shadow-[inset_4px_0_0_0_#ffffff]"
+        className="chat-skill-status"
       >
-        <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 flex-1 items-center gap-3">
-          <span
-            aria-hidden="true"
-            className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-              skillMode ? 'bg-white/20 text-white' : 'border border-line bg-white text-muted'
-            }`}
-          >
-            {skillMode ? <CheckCircle size={18} weight="fill" /> : <PuzzlePiece size={18} weight="bold" />}
-          </span>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className={`text-[11px] font-bold tracking-[0.08em] ${skillMode ? 'text-white/85' : 'text-muted'}`}>
-              {skillMode ? '스킬 적용 중' : '스킬 미적용'}
-            </span>
-            <span className="min-w-0 break-all text-[15px] font-bold leading-snug">
-              {skillMode ? (skillLabel || skillMode) : '일반 대화'}
-            </span>
-          </div>
+        <div role="status" aria-live="polite" aria-atomic="true" className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <CheckCircle size={16} weight="fill" aria-hidden="true" className="shrink-0 text-accent-dim" />
+          <span className="text-muted">스킬</span>
+          <span className="min-w-0 break-all font-semibold">{skillLabel || skillMode}</span>
+          <span className="text-accent-dim">적용 중</span>
         </div>
+        <div className="flex items-center gap-1">
+        <button type="button" className="chat-setting-control" onClick={() => {
+          setSkillPickerOpen(true);
+        }}>변경</button>
         <button
           type="button"
           data-testid="skill-status-action"
-          className={`inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-bold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 ${
-            skillMode
-              ? 'border-white bg-white text-accent-dim hover:bg-panel focus-visible:outline-white'
-              : 'border-text/25 bg-white text-text hover:border-accent-dim hover:bg-panel focus-visible:outline-accent-dim'
-          }`}
-          onClick={() => skillMode ? setSkillMode(null) : setSkillPickerOpen(true)}
+          className="chat-setting-control"
+          onClick={() => {
+            setSkillMode(null);
+            skillButtonRef.current?.focus();
+          }}
         >
-          {skillMode ? <X size={14} weight="bold" aria-hidden="true" /> : <Plus size={14} weight="bold" aria-hidden="true" />}
-          {skillMode ? '적용 해제' : '스킬 선택'}
+          <X size={14} aria-hidden="true" /> 해제
         </button>
+        </div>
       </div>
       ) : null}
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto px-5 py-6"
+        tabIndex={0}
+        role="region"
+        aria-label="대화 이력"
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown"
+        className="min-h-0 flex-1 overflow-auto px-5 py-6 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        onClick={(event) => focusHistoryBackground(event.currentTarget, event.target)}
+        onWheel={() => { historyCursorRef.current = null; }}
+        onPointerDown={() => { historyCursorRef.current = null; }}
+        onBlur={() => { historyCursorRef.current = null; }}
+        onKeyDown={(event) => {
+          const scroller = event.currentTarget;
+          const viewportTop = scroller.getBoundingClientRect().top + scroller.clientTop;
+          const anchors = visibleChat.flatMap((turn) => {
+            const anchor = turnAnchorRefs.current.get(turn.id);
+            return anchor && (turn.role === 'user' || turn.role === 'assistant')
+              ? [{ id: turn.id, role: turn.role, top: anchor.getBoundingClientRect().top - viewportTop + scroller.scrollTop }]
+              : [];
+          });
+          historyCursorRef.current = navigateHistory(
+            event.nativeEvent, scroller, anchors, historyCursorRef.current, Boolean(menu),
+          );
+          if (event.nativeEvent.defaultPrevented) event.stopPropagation();
+        }}
         onContextMenu={openSessionMenu}
       >
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
@@ -1278,15 +1489,17 @@ export function ChatPane() {
                     ))}
                   </div>
                 ) : null}
+                {turn.role === 'assistant' && turn.toolActivity?.length ? (
+                  <ToolActivityLog rows={turn.toolActivity} live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id} />
+                ) : null}
                 {!turn.text || turn.text === '작업 중…'
                   ? busy && turn.role === 'assistant' && !turn.imageUrls?.length
                     ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
                     : ''
-                  : renderMessageText(turn.text)}
+                  : turn.role === 'assistant'
+                    ? <MessageMarkdown text={turn.text} onOpenUrl={openExternalUrl} copyText={async (text) => { await navigator.clipboard.writeText(text); return true; }} />
+                    : renderMessageText(turn.text)}
               </div>
-              {turn.role === 'assistant' && turn.toolActivity?.length ? (
-                <ToolActivityLog rows={turn.toolActivity} live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id} />
-              ) : null}
               {turn.role === 'assistant' && turn.applicationNotice ? (
                 <aside
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
@@ -1611,6 +1824,7 @@ export function ChatPane() {
                   aria-label="조직 스킬 선택"
                   aria-expanded={skillPickerOpen}
                   data-testid="organization-skill-button"
+                  ref={skillButtonRef}
                   onClick={() => setSkillPickerOpen((open) => !open)}
                   className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${
                     skillMode || skillPickerOpen
@@ -1654,6 +1868,8 @@ export function ChatPane() {
                   <div
                     className="absolute bottom-full left-0 z-50 mb-2 max-h-64 w-56 overflow-y-auto rounded-xl border border-line bg-panel p-2 shadow-xl"
                     data-testid="organization-skill-menu"
+                    ref={skillPickerRef}
+                    tabIndex={-1}
                   >
                     <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
                     {skillMode ? (
@@ -1664,6 +1880,7 @@ export function ChatPane() {
                         onClick={() => {
                           setSkillMode(null);
                           setSkillPickerOpen(false);
+                          skillButtonRef.current?.focus();
                         }}
                       >
                         <div className="font-medium">스킬 끄기</div>
@@ -1683,6 +1900,7 @@ export function ChatPane() {
                             setSkillMode(skill.mode, skill.label);
                           }
                           setSkillPickerOpen(false);
+                          skillButtonRef.current?.focus();
                         }}
                       >
                         <div className="flex items-center gap-2 font-semibold">
