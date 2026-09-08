@@ -29,6 +29,14 @@ const runLoopSource = readFileSync(
   new URL('../core/src/agent/agent-run-loop.ts', import.meta.url),
   'utf8',
 );
+const modelPickerSource = readFileSync(
+  new URL('../core/src/models/model-picker.ts', import.meta.url),
+  'utf8',
+);
+const workspaceReasoningSource = readFileSync(
+  new URL('../ui/workspace/src/lib/reasoning-levels.ts', import.meta.url),
+  'utf8',
+);
 
 assert.match(
   runTypesSource,
@@ -64,6 +72,12 @@ assert.doesNotMatch(
   'first code turn must not force tool_choice=required',
 );
 assert.doesNotMatch(stepLoopSource, /· 도구 재요청/, 'no prose-driven tool retry round trip');
+assert.match(modelPickerSource, /reasoning_capability:\s*modelReasoningCapability\(/);
+assert.doesNotMatch(
+  workspaceReasoningSource,
+  /deepseek\|perplexity\|sonar\|grok\|claude/,
+  'workspace UI must consume Core capability metadata instead of duplicating model-family rules',
+);
 
 const {
   loadHarnessPolicy,
@@ -84,6 +98,9 @@ const {
   buildChatCompletionBody,
   shouldFallbackToClientToolProtocol,
 } = await import('../core/dist/providers/openai-compatible.js');
+const {
+  modelReasoningCapability,
+} = await import('../core/dist/providers/reasoning-levels.js');
 const {
   DEFAULT_AGENT_READ_PARALLELISM,
   MAX_AGENT_READ_PARALLELISM,
@@ -228,13 +245,31 @@ function withEnv(patch, fn) {
 {
   assert.equal(
     resolveSessionReasoningEffort('auto', {}, { providerId: 'openai', modelId: 'gpt-5.6-sol' }),
-    null,
-    'auto omits effort so the provider/model owns its reasoning budget',
+    'medium',
+    'product auto resolves to a concrete safe default instead of wire auto/omit',
   );
   assert.equal(
     resolveSessionReasoningEffort('auto', {}, { providerId: 'openai', modelId: 'openai/gpt-astra' }),
+    'medium',
+    'GPT Astra auto must send an explicit app-selected effort',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort('auto', {}, {
+      providerId: 'anthropic',
+      modelId: 'anthropic.claude-fable-5.1',
+      userMessage: '이 변경의 회귀 원인을 분석하고 여러 파일을 리팩터링해줘',
+    }),
+    'high',
+    'Fable auto must be app-resolved and may increase for complex work',
+  );
+  assert.equal(
+    resolveSessionReasoningEffort('auto', {}, {
+      providerId: 'openai',
+      modelId: 'future-reasoner-9',
+      userMessage: '간단히 설명해줘',
+    }),
     'low',
-    'GPT Astra auto must send an explicit least-intrusive effort',
+    'unknown future models use the full fallback capability and concrete auto',
   );
   assert.equal(
     resolveSessionReasoningEffort('high', {}, { providerId: 'openai', modelId: 'openai/gpt-astra' }),
@@ -281,6 +316,15 @@ function withEnv(patch, fn) {
     ),
     'xhigh',
     'code-agent operator/session effort is normalized for Grok too',
+  );
+  assert.deepEqual(
+    modelReasoningCapability('future-reasoner-9'),
+    {
+      supported_efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      auto_behavior: 'app_resolved',
+      source: 'fallback',
+    },
+    'new models are represented by an explicit Core capability contract',
   );
 }
 

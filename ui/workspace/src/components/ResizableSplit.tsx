@@ -11,6 +11,7 @@ interface ResizableSplitProps {
   /** When true, `initial` applies to the second pane instead */
   reverse?: boolean;
   className?: string;
+  collapsedSecond?: boolean;
   first: ReactNode;
   second: ReactNode;
 }
@@ -22,6 +23,7 @@ export function ResizableSplit({
   max = 720,
   reverse = false,
   className = '',
+  collapsedSecond = false,
   first,
   second,
 }: ResizableSplitProps) {
@@ -37,7 +39,7 @@ export function ResizableSplit({
       const total = axis === 'horizontal' ? rect.width : rect.height;
       const raw = axis === 'horizontal' ? client - rect.left : client - rect.top;
       const next = reverse ? total - raw : raw;
-      setSize(Math.min(max, Math.max(min, next)));
+      setSize(Math.min(max, Math.max(min, Math.min(total - 120, next))));
     },
     [axis, min, max, reverse],
   );
@@ -51,17 +53,24 @@ export function ResizableSplit({
       dragging.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      delete document.body.dataset.panelResizing;
     };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    window.addEventListener('blur', onPointerUp);
     return () => {
+      onPointerUp();
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      window.removeEventListener('blur', onPointerUp);
     };
   }, [axis, onMove]);
 
   const startDrag = () => {
     dragging.current = true;
+    document.body.dataset.panelResizing = 'true';
     document.body.style.cursor = axis === 'horizontal' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
   };
@@ -95,19 +104,19 @@ export function ResizableSplit({
 
       <div
         role="separator"
-        aria-orientation={axis}
+        aria-orientation={axis === 'horizontal' ? 'vertical' : 'horizontal'}
+        aria-label={axis === 'horizontal' ? '패널 너비' : '터미널 높이'}
+        aria-valuemin={min} aria-valuemax={max}
+        style={{ display: collapsedSecond ? 'none' : undefined }}
         aria-valuenow={Math.round(size)}
         tabIndex={0}
-        onPointerDown={startDrag}
+        onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); startDrag(); }}
         onKeyDown={(e) => {
-          const step = e.shiftKey ? 40 : 16;
-          if (axis === 'horizontal') {
-            if (e.key === 'ArrowLeft') setSize((s) => Math.max(min, s - (reverse ? -step : step)));
-            if (e.key === 'ArrowRight') setSize((s) => Math.min(max, s + (reverse ? -step : step)));
-          } else {
-            if (e.key === 'ArrowUp') setSize((s) => Math.max(min, s - (reverse ? -step : step)));
-            if (e.key === 'ArrowDown') setSize((s) => Math.min(max, s + (reverse ? -step : step)));
-          }
+          const keys = axis === 'horizontal' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+          if (!keys.includes(e.key)) return;
+          e.preventDefault();
+          const step = (e.shiftKey ? 40 : 16) * (reverse ? -1 : 1) * (e.key === keys[0] ? -1 : 1);
+          setSize(s => Math.min(max, Math.max(min, s + step)));
         }}
         className={`group relative z-10 shrink-0 bg-line/40 transition hover:bg-accent ${
           axis === 'horizontal'
@@ -125,7 +134,7 @@ export function ResizableSplit({
         />
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden" style={secondStyle}>
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden" style={{ ...secondStyle, display: collapsedSecond ? 'none' : undefined, maxHeight: axis === 'vertical' ? '60%' : undefined }}>
         {second}
       </div>
     </div>

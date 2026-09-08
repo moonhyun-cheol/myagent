@@ -11,6 +11,12 @@ export const REASONING_EFFORT_LEVELS = [
 
 export type ReasoningEffortLevel = (typeof REASONING_EFFORT_LEVELS)[number];
 
+export interface ReasoningCapability {
+  supported_efforts: ReasoningEffortLevel[];
+  auto_behavior: 'app_resolved' | 'omit';
+  source: 'family' | 'fallback';
+}
+
 export const REASONING_LEVEL_LABELS: Record<'auto' | ReasoningEffortLevel, string> = {
   auto: '자동',
   minimal: '최소',
@@ -29,75 +35,37 @@ export function reasoningLevelLabel(value: string | null | undefined): string {
   return value;
 }
 
-export function modelOmitsReasoningEffort(modelId?: string | null): boolean {
+export function modelOmitsReasoningEffort(
+  modelId?: string | null,
+  capability?: ReasoningCapability,
+): boolean {
+  if (capability) return capability.auto_behavior === 'omit' && capability.supported_efforts.length === 0;
   const m = String(modelId || '').toLowerCase();
   if (!m) return false;
   return /gemini-3-pro-image|gemini.*-image|[-_/]image(?:-|$)|image-gen|imagen/i.test(m);
 }
 
-/**
- * Gateways that reject omitted reasoning ("Reasoning is mandatory").
- * Hide `자동` in the picker and persist an explicit default instead.
- */
-export function modelRequiresExplicitReasoningEffort(modelId?: string | null): boolean {
-  const m = String(modelId || '').toLowerCase();
-  if (!m) return false;
-  return /\bgpt[-_. ]?astra\b/.test(m);
-}
-
-function defaultExplicitReasoningEffort(modelId?: string | null): ReasoningEffortLevel {
-  const supported = modelSupportedReasoningLevels(modelId);
-  if (supported.includes('low')) return 'low';
-  return supported[0] ?? 'low';
-}
-
-/**
- * OpenAI-style reasoning models → full product ladder.
- * New gpt-<alias> names inherit detail without a per-model level count.
- */
-function isFullReasoningLadderModel(modelId?: string | null): boolean {
-  const m = String(modelId || '').toLowerCase();
-  if (!m) return false;
-  if (/deepseek|perplexity|sonar|grok|claude|anthropic|fable|mythos/.test(m)) return false;
-  if (/gpt-5|\bo[1-4](?:[-_.]|$)|codex/.test(m)) return true;
-  if (/\bgpt[-_. ](?![34]\b|[34][-_.]|4o\b)/.test(m)) return true;
-  return false;
-}
-
-export function modelSupportedReasoningLevels(modelId?: string | null): ReasoningEffortLevel[] {
-  const m = String(modelId || '').toLowerCase();
-  if (!m || modelOmitsReasoningEffort(m)) return [];
-
-  if (/deepseek/.test(m)) return ['low', 'high', 'max'];
-  if (/sonar-deep-research|perplexity/.test(m)) return ['low', 'medium', 'high'];
-  if (/grok/.test(m)) return ['low', 'medium', 'high', 'xhigh'];
-  if (/claude|anthropic|fable|mythos|opus|sonnet/.test(m)) {
-    if (/(?:opus-(?:4[-_.](?:5|6|7|8)|5)|sonnet-(?:4[-_.]6|5)|fable|mythos)/.test(m)) {
-      return ['low', 'medium', 'high', 'xhigh', 'max'];
-    }
-    return [];
-  }
-  if (isFullReasoningLadderModel(m)) {
-    return [...REASONING_EFFORT_LEVELS];
-  }
-  return ['low', 'medium', 'high'];
+export function modelSupportedReasoningLevels(
+  modelId?: string | null,
+  capability?: ReasoningCapability,
+): ReasoningEffortLevel[] {
+  if (capability) return [...capability.supported_efforts];
+  if (modelOmitsReasoningEffort(modelId)) return [];
+  // The Core picker is authoritative. Before it loads, do not truncate a new
+  // model to an invented three-level family.
+  return [...REASONING_EFFORT_LEVELS];
 }
 
 /** Keep persisted chat policy valid when the selected model family changes. */
 export function normalizeReasoningLevelForModel(
   value: 'auto' | ReasoningEffortLevel,
   modelId?: string | null,
+  capability?: ReasoningCapability,
 ): 'auto' | ReasoningEffortLevel {
-  if (value === 'auto') {
-    return modelRequiresExplicitReasoningEffort(modelId)
-      ? defaultExplicitReasoningEffort(modelId)
-      : 'auto';
-  }
-  const supported = modelSupportedReasoningLevels(modelId);
+  if (value === 'auto') return 'auto';
+  const supported = modelSupportedReasoningLevels(modelId, capability);
   if (!supported.length) {
-    return modelRequiresExplicitReasoningEffort(modelId)
-      ? defaultExplicitReasoningEffort(modelId)
-      : 'auto';
+    return 'auto';
   }
   if (supported.includes(value)) return value;
   const requestedIndex = REASONING_EFFORT_LEVELS.indexOf(value);
@@ -120,19 +88,16 @@ export const ALL_REASONING_SELECT_OPTIONS: Array<{ value: 'auto' | ReasoningEffo
 
 export function reasoningSelectOptionsForModel(
   modelId?: string | null,
-  opts?: { imageMode?: boolean },
+  opts?: { imageMode?: boolean; capability?: ReasoningCapability },
 ): Array<{ value: 'auto' | ReasoningEffortLevel; label: string }> {
-  if (opts?.imageMode || modelOmitsReasoningEffort(modelId)) {
+  if (opts?.imageMode || modelOmitsReasoningEffort(modelId, opts?.capability)) {
     return [{ value: 'auto', label: REASONING_LEVEL_LABELS.auto }];
   }
-  const supported = modelSupportedReasoningLevels(modelId);
+  const supported = modelSupportedReasoningLevels(modelId, opts?.capability);
   if (!supported.length && modelId) {
     return [{ value: 'auto', label: REASONING_LEVEL_LABELS.auto }];
   }
   const levels = supported.length ? supported : [...REASONING_EFFORT_LEVELS];
   const options = levels.map((value) => ({ value, label: REASONING_LEVEL_LABELS[value] }));
-  if (modelRequiresExplicitReasoningEffort(modelId)) {
-    return options;
-  }
   return [{ value: 'auto', label: REASONING_LEVEL_LABELS.auto }, ...options];
 }

@@ -67,6 +67,8 @@ const LEGACY_MODEL_PREF_KEY = 'cqr-workspace-model';
 const LEGACY_TERMINAL_OPEN_KEY = 'cqr-workspace-terminal-open';
 const LEGACY_PREVIEW_LAYOUT_KEY = 'cqr-workspace-preview-layout';
 const FALLBACK_MODEL_OPTIONS: PickerModel[] = [{ id: 'auto', label: '기본 (자동)' }];
+const reasoningCapabilityFor = (options: PickerModel[], modelId: string) =>
+  options.find((option) => option.id === modelId)?.reasoning_capability;
 let executionPolicySessionPromise: Promise<string> | null = null;
 const executionPolicySaveRevisions = new Map<string, number>();
 const executionPolicySaveQueues = new Map<string, Promise<unknown>>();
@@ -1333,9 +1335,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const previous = get().selectedModel;
       const sessionId = get().activeSessionId;
       set({ selectedModel });
+      const reasoningCapability = reasoningCapabilityFor(get().modelOptions, selectedModel);
       const normalizedReasoning = normalizeReasoningLevelForModel(
         get().activeExecutionPolicy.reasoning,
         selectedModel,
+        reasoningCapability,
       );
       if (!sessionId) {
         if (normalizedReasoning !== get().activeExecutionPolicy.reasoning) {
@@ -1668,7 +1672,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         selectedModel,
         activeExecutionPolicy: {
           ...policy,
-          reasoning: normalizeReasoningLevelForModel(policy.reasoning, selectedModel),
+          reasoning: normalizeReasoningLevelForModel(
+            policy.reasoning,
+            selectedModel,
+            reasoningCapabilityFor(get().modelOptions, selectedModel),
+          ),
           workspace_behavior: policy.workspace_behavior ?? 'agent',
         },
         effectiveExecutionPolicy: null,
@@ -1766,7 +1774,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           chat: currentLive?.chat ?? sessionMessagesToChat(messages),
           activeExecutionPolicy: {
             ...rawPolicy,
-            reasoning: normalizeReasoningLevelForModel(rawPolicy.reasoning, selectedModel),
+            reasoning: normalizeReasoningLevelForModel(
+              rawPolicy.reasoning,
+              selectedModel,
+              reasoningCapabilityFor(get().modelOptions, selectedModel),
+            ),
             workspace_behavior: rawPolicy.workspace_behavior ?? 'agent',
           },
           effectiveExecutionPolicy: currentLive?.effectiveExecutionPolicy ?? null,

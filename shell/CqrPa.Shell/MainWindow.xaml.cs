@@ -24,6 +24,16 @@ public partial class MainWindow : Window
     private readonly Thickness _restoredBorderThickness = new(1);
     private readonly WindowPlacementStore _windowPlacement;
     private CoreWebView2? _browserCore;
+    private Task? _browserInitialization;
+    private int _browserOpenVersion;
+    private ulong _browserNavigationId;
+    private bool _browserLoading;
+    private bool _browserRequested;
+    private bool _browserSurfaceAvailable;
+    private bool _browserNeedsReload;
+    private Rect _browserSurface;
+    private string _browserUrl = string.Empty;
+    private string _browserStatus = string.Empty;
     private Forms.NotifyIcon? _trayIcon;
     private Forms.ContextMenuStrip? _trayMenu;
     private bool _allowExit;
@@ -93,7 +103,19 @@ public partial class MainWindow : Window
     private async Task EnsureBrowserAsync()
     {
         if (_browserCore is not null) return;
+        try
+        {
+            await (_browserInitialization ??= InitializeBrowserAsync());
+        }
+        catch
+        {
+            _browserInitialization = null;
+            throw;
+        }
+    }
 
+    private async Task InitializeBrowserAsync()
+    {
         var userData = Path.Combine(_cqrRoot, "data", "in-app-browser-webview-user-data");
         Directory.CreateDirectory(userData);
         var env = await CoreWebView2Environment.CreateAsync(
@@ -107,7 +129,7 @@ public partial class MainWindow : Window
         _browserCore.Settings.AreBrowserAcceleratorKeysEnabled = false;
         _browserCore.Settings.IsStatusBarEnabled = false;
         _browserCore.NavigationStarting += OnBrowserNavigationStarting;
-        _browserCore.NavigationCompleted += (_, _) => UpdateBrowserState("탐색 완료");
+        _browserCore.NavigationCompleted += OnBrowserNavigationCompleted;
         _browserCore.HistoryChanged += (_, _) => UpdateBrowserState();
         _browserCore.NewWindowRequested += OnBrowserNewWindowRequested;
         _browserCore.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
@@ -119,7 +141,7 @@ public partial class MainWindow : Window
         BrowserWebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 0x0c, 0x0e, 0x12);
     }
 
-    private async Task OpenInAppBrowserAsync(string? rawUrl)
+    private async Task OpenInAppBrowserAsync(string? rawUrl, bool activate = true)
     {
         if (!TryNormalizeBrowserUri(rawUrl, out var uri))
         {
@@ -134,24 +156,88 @@ public partial class MainWindow : Window
             return;
         }
 
+        var openVersion = ++_browserOpenVersion;
+        _browserRequested = true;
+        _browserNeedsReload = false;
+        _browserUrl = uri.AbsoluteUri;
+        if (activate) WebView.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "inAppBrowser.activate", url = uri.AbsoluteUri }));
         try
         {
             await EnsureBrowserAsync();
-            InAppBrowserPanel.Visibility = Visibility.Visible;
-            BrowserAddressBox.Text = uri.AbsoluteUri;
-            _browserCore!.Navigate(uri.AbsoluteUri);
+            // A close or a newer open while initializing wins over this request.
+            if (openVersion != _browserOpenVersion) return;
+            ApplyBrowserSurface();
+            _browserNavigationId = 0; // Ignore the old completion even before the new Starting event.
+            _browserLoading = true;
             UpdateBrowserState("페이지를 여는 중입니다.");
+            _browserCore!.Navigate(uri.AbsoluteUri);
         }
         catch (Exception ex)
         {
+            if (openVersion != _browserOpenVersion) return;
+            _browserLoading = false;
             UpdateBrowserState($"브라우저를 열 수 없습니다: {ex.Message}");
         }
     }
 
+    private void SetBrowserSurface(JsonElement message)
+    {
+        static double Number(JsonElement root, string name) => root.TryGetProperty(name, out var value)
+            && value.TryGetDouble(out var number) && double.IsFinite(number) ? number : 0;
+        var vw = Number(message, "viewportWidth");
+        var vh = Number(message, "viewportHeight");
+        _browserSurfaceAvailable = message.TryGetProperty("visible", out var visible)
+            && visible.ValueKind == JsonValueKind.True && vw > 0 && vh > 0;
+        if (_browserSurfaceAvailable)
+        {
+            // Normalize CSS coordinates, not devicePixelRatio (which also includes Windows DPI).
+            var x = Math.Clamp(Number(message, "x") / vw, 0, 1);
+            var y = Math.Clamp(Number(message, "y") / vh, 0, 1);
+            var w = Math.Clamp(Number(message, "width") / vw, 0, 1 - x);
+            var h = Math.Clamp(Number(message, "height") / vh, 0, 1 - y);
+            _browserSurface = new Rect(x, y, w, h);
+            _browserSurfaceAvailable = w > 0 && h > 0;
+        }
+        ApplyBrowserSurface();
+        UpdateBrowserState();
+    }
+
+    private void ApplyBrowserSurface()
+    {
+        var visible = _browserRequested && _browserSurfaceAvailable && _browserCore is not null;
+        if (visible)
+        {
+            System.Windows.Controls.Canvas.SetLeft(InAppBrowserPanel, _browserSurface.X * BrowserLayout.ActualWidth);
+            System.Windows.Controls.Canvas.SetTop(InAppBrowserPanel, _browserSurface.Y * BrowserLayout.ActualHeight);
+            InAppBrowserPanel.Width = _browserSurface.Width * BrowserLayout.ActualWidth;
+            InAppBrowserPanel.Height = _browserSurface.Height * BrowserLayout.ActualHeight;
+        }
+        InAppBrowserPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        BrowserLayout.UpdateLayout();
+    }
+
+    private void OnBrowserLayoutSizeChanged(object sender, SizeChangedEventArgs e) => ApplyBrowserSurface();
+
+    private void ResumeInAppBrowser(string? url)
+    {
+        if (_browserCore is null && _browserInitialization is null) { _ = OpenInAppBrowserAsync(url, false); return; }
+        if (_browserNeedsReload || (TryNormalizeBrowserUri(url, out var requestedUri)
+            && requestedUri.AbsoluteUri != _browserUrl)) { _ = OpenInAppBrowserAsync(url, false); return; }
+        _browserRequested = true;
+        ApplyBrowserSurface();
+        if (_browserStatus == "닫힘") _browserStatus = string.Empty;
+        UpdateBrowserState();
+    }
+
     private void CloseInAppBrowser()
     {
-        InAppBrowserPanel.Visibility = Visibility.Collapsed;
-        PostBrowserState("닫힘");
+        ++_browserOpenVersion;
+        _browserRequested = false;
+        _browserNeedsReload = _browserLoading;
+        ApplyBrowserSurface();
+        _browserLoading = false;
+        _browserCore?.Stop();
+        UpdateBrowserState("닫힘");
     }
 
     private void OnWorkspaceNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -194,6 +280,15 @@ public partial class MainWindow : Window
                 case "inAppBrowser.navigate":
                     _ = OpenInAppBrowserAsync(url);
                     break;
+                case "inAppBrowser.getState":
+                    UpdateBrowserState();
+                    break;
+                case "inAppBrowser.surface":
+                    SetBrowserSurface(root);
+                    break;
+                case "inAppBrowser.resume":
+                    ResumeInAppBrowser(url);
+                    break;
                 case "inAppBrowser.close":
                     CloseInAppBrowser();
                     break;
@@ -204,7 +299,8 @@ public partial class MainWindow : Window
                     if (_browserCore?.CanGoForward == true) _browserCore.GoForward();
                     break;
                 case "inAppBrowser.reload":
-                    _browserCore?.Reload();
+                    if (_browserCore is null) _ = OpenInAppBrowserAsync(_browserUrl, false);
+                    else _browserCore.Reload();
                     break;
                 case "inAppBrowser.stop":
                     _browserCore?.Stop();
@@ -295,15 +391,38 @@ public partial class MainWindow : Window
 
     private void OnBrowserNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
+        // Navigate may queue this event after the user has already closed the panel.
+        if (!_browserRequested)
+        {
+            e.Cancel = true;
+            return;
+        }
+        _browserNavigationId = e.NavigationId;
         if (IsAllowedExternalUri(e.Uri))
         {
-            BrowserAddressBox.Text = e.Uri;
+            _browserLoading = true;
+            _browserUrl = e.Uri;
             UpdateBrowserState("페이지를 여는 중입니다.");
             return;
         }
 
         e.Cancel = true;
+        _browserLoading = false;
         UpdateBrowserState("http 또는 https 주소만 열 수 있습니다.");
+    }
+
+    private void OnBrowserNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        // Superseded or stopped/closed navigations must not overwrite current state.
+        if (e.NavigationId != _browserNavigationId || !_browserLoading) return;
+        _browserLoading = false;
+        if (!_browserRequested) return;
+        if (e.HttpStatusCode >= 400)
+            UpdateBrowserState($"페이지 응답 오류 (HTTP {e.HttpStatusCode})");
+        else if (!e.IsSuccess)
+            UpdateBrowserState($"페이지를 불러오지 못했습니다. ({e.WebErrorStatus})");
+        else
+            UpdateBrowserState("탐색 완료");
     }
 
     private void OnBrowserNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
@@ -317,29 +436,6 @@ public partial class MainWindow : Window
         _ = OpenInAppBrowserAsync(e.Uri);
     }
 
-    private void OnBrowserBackClick(object sender, RoutedEventArgs e)
-    {
-        if (_browserCore?.CanGoBack == true) _browserCore.GoBack();
-    }
-
-    private void OnBrowserForwardClick(object sender, RoutedEventArgs e)
-    {
-        if (_browserCore?.CanGoForward == true) _browserCore.GoForward();
-    }
-
-    private void OnBrowserReloadClick(object sender, RoutedEventArgs e) => _browserCore?.Reload();
-
-    private async void OnBrowserAddressKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter) return;
-        e.Handled = true;
-        await OpenInAppBrowserAsync(BrowserAddressBox.Text);
-    }
-
-    private void OnBrowserOpenExternalClick(object sender, RoutedEventArgs e) =>
-        OpenInDefaultBrowser(_browserCore?.Source ?? BrowserAddressBox.Text);
-
-    private void OnBrowserCloseClick(object sender, RoutedEventArgs e) => CloseInAppBrowser();
 
     private void OpenInDefaultBrowser(string? rawUrl)
     {
@@ -432,8 +528,8 @@ public partial class MainWindow : Window
 
     private void UpdateBrowserState(string? status = null)
     {
-        if (status is not null) BrowserStatusText.Text = status;
-        PostBrowserState(status ?? BrowserStatusText.Text);
+        if (status is not null) _browserStatus = status;
+        PostBrowserState(_browserStatus);
     }
 
     private void PostBrowserState(string status)
@@ -442,11 +538,12 @@ public partial class MainWindow : Window
         var state = JsonSerializer.Serialize(new
         {
             type = "inAppBrowser.state",
-            visible = InAppBrowserPanel.Visibility == Visibility.Visible,
-            url = _browserCore?.Source ?? string.Empty,
+            visible = _browserCore is not null && InAppBrowserPanel.IsVisible
+                && BrowserWebView.IsVisible && BrowserWebView.ActualWidth > 0 && BrowserWebView.ActualHeight > 0,
+            url = _browserLoading ? _browserUrl : _browserCore?.Source ?? _browserUrl,
             canGoBack = _browserCore?.CanGoBack ?? false,
             canGoForward = _browserCore?.CanGoForward ?? false,
-            loading = status == "페이지를 여는 중입니다.",
+            loading = _browserLoading,
             status,
         });
         WebView.CoreWebView2.PostWebMessageAsJson(state);

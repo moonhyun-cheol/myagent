@@ -6,6 +6,10 @@ import type { ResolvedModelRoute } from '../providers/types.js';
 import { listRemoteModelsDetailed, type RemoteModelInfo } from '../providers/openai-compatible.js';
 import type { ChatMode } from '../router/types.js';
 import {
+  modelReasoningCapability,
+  type ModelReasoningCapability,
+} from '../providers/reasoning-levels.js';
+import {
   buildModeHints,
   curateRemoteModels,
   defaultCompanyModelIds,
@@ -30,6 +34,7 @@ export interface ModelPickerOption {
   provider_id?: string;
   configured?: boolean;
   category?: string;
+  reasoning_capability?: ModelReasoningCapability;
 }
 
 export interface ModelPickerPayload {
@@ -107,6 +112,7 @@ function ollamaPickerOptions(
     access_mode: 'local',
     provider_id: providerId,
     configured: true,
+    reasoning_capability: modelReasoningCapability(model),
   }));
 }
 
@@ -264,6 +270,7 @@ export async function buildModelPicker(
             provider_id: def.id,
             configured: true,
             category: m.category,
+            reasoning_capability: modelReasoningCapability(m.id),
           });
         }
 
@@ -294,6 +301,7 @@ export async function buildModelPicker(
         access_mode: def.id === 'openai' ? 'byok' : 'managed',
         provider_id: def.id,
         configured: true,
+        reasoning_capability: modelReasoningCapability(model),
       });
     }
   } else {
@@ -317,6 +325,7 @@ export async function buildModelPicker(
         access_mode: def.id === 'openai' ? 'byok' : 'managed',
         provider_id: def.id,
         configured: true,
+        reasoning_capability: modelReasoningCapability(model),
       });
     }
   }
@@ -328,6 +337,7 @@ export async function buildModelPicker(
         label: `[로컬] ${m.filename}`,
         kind: 'local',
         access_mode: 'local',
+        reasoning_capability: modelReasoningCapability(m.id),
       });
     }
   }

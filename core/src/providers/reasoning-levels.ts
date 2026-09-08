@@ -19,6 +19,13 @@ export type ReasoningEffortLevel = (typeof REASONING_EFFORT_LEVELS)[number];
 
 export type ReasoningLevelWire = 'auto' | ReasoningEffortLevel;
 
+export interface ModelReasoningCapability {
+  supported_efforts: ReasoningEffortLevel[];
+  /** `app_resolved`: UI auto is converted to a concrete wire effort by Core. */
+  auto_behavior: 'app_resolved' | 'omit';
+  source: 'family' | 'fallback';
+}
+
 export const REASONING_LEVEL_SET = new Set<string>(['auto', ...REASONING_EFFORT_LEVELS]);
 
 export function isReasoningLevel(value: unknown): value is ReasoningLevelWire {
@@ -34,7 +41,8 @@ export function modelOmitsReasoningEffort(modelId?: string | null): boolean {
 
 /**
  * Gateways that reject omitted reasoning ("Reasoning is mandatory").
- * UI must not offer `auto`; wire layer substitutes the least intrusive budget.
+ * Direct agent calls without a session policy use this compatibility fallback.
+ * Session/UI `auto` is resolved by the general capability policy below.
  */
 export function modelRequiresExplicitReasoningEffort(modelId?: string | null): boolean {
   const m = String(modelId || '').toLowerCase();
@@ -84,7 +92,43 @@ export function modelSupportedReasoningLevels(modelId?: string | null): Reasonin
   if (isFullReasoningLadderModel(m)) {
     return [...REASONING_EFFORT_LEVELS];
   }
-  return ['low', 'medium', 'high'];
+  // Unknown/new remote models must not be silently reduced to three choices.
+  // Core exposes this fallback as low-confidence capability metadata and keeps
+  // `auto` safe by resolving it to one concrete value before the provider call.
+  return [...REASONING_EFFORT_LEVELS];
+}
+
+/** Single Core-owned capability contract consumed by both execution and the picker UI. */
+export function modelReasoningCapability(modelId?: string | null): ModelReasoningCapability {
+  const supported = modelSupportedReasoningLevels(modelId);
+  return {
+    supported_efforts: supported,
+    auto_behavior: supported.length ? 'app_resolved' : 'omit',
+    source: isKnownReasoningFamily(modelId) ? 'family' : 'fallback',
+  };
+}
+
+function isKnownReasoningFamily(modelId?: string | null): boolean {
+  const m = String(modelId || '').toLowerCase();
+  return /deepseek|perplexity|sonar|grok|claude|anthropic|fable|mythos|opus|sonnet|gpt-5|\bo[1-4](?:[-_.]|$)|codex|\bgpt[-_. ](?![34]\b|[34][-_.]|4o\b)/.test(m);
+}
+
+/** Resolve UI `auto` to one concrete, model-supported wire effort. */
+export function resolveAutomaticReasoningEffort(
+  userMessage: string | null | undefined,
+  supported: readonly ReasoningEffortLevel[],
+): ReasoningEffortLevel | null {
+  if (!supported.length) return null;
+  const text = String(userMessage ?? '').trim();
+  const complex = /(?:아키텍처|설계|리팩터|마이그레이션|원인\s*분석|디버깅|회귀|성능|보안|여러\s*파일|전체|복잡|architecture|refactor|migration|debug|regression|performance|security|multi[- ]file)/i.test(text);
+  const simple = text.length < 120
+    && /(?:번역|요약|설명|뜻|인사|간단|한\s*줄|translate|summari[sz]e|explain|hello|brief)/i.test(text);
+  const requested: ReasoningEffortLevel = complex || text.length >= 700
+    ? 'high'
+    : simple
+      ? 'low'
+      : 'medium';
+  return clampReasoningEffortToSupported(requested, supported);
 }
 
 export function clampReasoningEffortToSupported(

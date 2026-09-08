@@ -7,7 +7,9 @@ import {
   clampReasoningEffortToSupported,
   defaultExplicitReasoningEffort,
   modelRequiresExplicitReasoningEffort,
+  modelReasoningCapability,
   modelSupportedReasoningLevels,
+  resolveAutomaticReasoningEffort,
 } from './reasoning-levels.js';
 
 export type OwuiProtocolMode = 'text' | 'probe' | 'api';
@@ -148,7 +150,7 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 export function resolveSessionReasoningEffort(
   requested: string | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
-  opts?: { providerId?: string | null; modelId?: string | null },
+  opts?: { providerId?: string | null; modelId?: string | null; userMessage?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
   const level = String(requested ?? 'auto').trim().toLowerCase();
@@ -164,12 +166,11 @@ export function resolveSessionReasoningEffort(
     return normalizeReasoningEffortForModel(resolveReasoningEffort(env), opts?.modelId);
   }
   if (level !== 'auto') return normalizeReasoningEffortForModel(level, opts?.modelId);
-  // Auto leaves the budget to the selected provider/model — except aliases that
-  // reject omitted reasoning. Responses summary is assembled separately.
-  if (modelRequiresExplicitReasoningEffort(opts?.modelId)) {
-    return defaultExplicitReasoningEffort(opts?.modelId);
-  }
-  return null;
+  // Product `auto` is an app policy, not the provider wire value. Always choose
+  // one concrete supported effort for reasoning-capable models. This avoids the
+  // mandatory-reasoning failures seen on Astra/Fable-compatible gateways.
+  const capability = modelReasoningCapability(opts?.modelId);
+  return resolveAutomaticReasoningEffort(opts?.userMessage, capability.supported_efforts);
 }
 
 /** Fields to merge into ChatCompletionOptions for every LLM call. */

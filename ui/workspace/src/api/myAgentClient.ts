@@ -395,6 +395,11 @@ export interface PickerModel {
   label: string;
   access_mode?: 'auto' | 'managed' | 'byok' | 'local';
   provider_id?: string;
+  reasoning_capability?: {
+    supported_efforts: Array<Exclude<ReasoningLevel, 'auto'>>;
+    auto_behavior: 'app_resolved' | 'omit';
+    source: 'family' | 'fallback';
+  };
 }
 
 export async function fetchModelPicker(refreshRemote = false): Promise<{
@@ -421,11 +426,13 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
         name?: string;
         access_mode?: 'auto' | 'managed' | 'byok' | 'local';
         provider_id?: string;
+        reasoning_capability?: PickerModel['reasoning_capability'];
       }) => ({
         id: String(m.value ?? m.id ?? ''),
         label: String(m.label ?? m.name ?? m.value ?? m.id ?? ''),
         access_mode: m.access_mode,
         provider_id: m.provider_id,
+        reasoning_capability: m.reasoning_capability,
       }),
     )
     .filter((m: PickerModel) => m.id);

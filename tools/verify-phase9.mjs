@@ -22,13 +22,28 @@ const build = await import('node:child_process').then(({ spawnSync }) =>
 );
 if (build.status !== 0) process.exit(1);
 
-const port = 10294;
+const port = 0;
 const { createApiServer } = await import(
   pathToFileURL(path.join(root, 'core', 'dist', 'api-server.js')).href
 );
 const srv = await createApiServer(port);
-await new Promise((r) => srv.listen(port, '127.0.0.1', r));
-const base = `http://127.0.0.1:${port}`;
+await new Promise((resolve, reject) => {
+  srv.once('error', reject);
+  srv.listen(port, '127.0.0.1', resolve);
+});
+const base = `http://127.0.0.1:${srv.address().port}`;
+const providerOptions = (picker, id) => picker.options.filter(
+  (option) => option.kind === 'provider' && option.provider_id === id,
+);
+function assertOllamaOptions(picker) {
+  const options = providerOptions(picker, 'ollama');
+  if (!options.length || options.some((option) =>
+    !option.value.startsWith('provider:ollama@')
+    || !decodeURIComponent(option.value.slice('provider:ollama@'.length)).trim()
+    || option.access_mode !== 'local')) {
+    throw new Error('expected explicit local Ollama model picks');
+  }
+}
 
 try {
   await fetch(`${base}/providers/ollama/key`, {
@@ -55,12 +70,13 @@ try {
   // and must reappear once local_only turns the matrix off.
   const matrixOnly = loadCurateConfig().matrix_only === true;
   const picker0 = await fetch(`${base}/models/picker`).then((r) => r.json());
-  const ids0 = picker0.options.filter((o) => o.kind === 'provider').map((o) => o.value);
+  assertOllamaOptions(picker0);
+  const minimax0 = providerOptions(picker0, 'minimax');
   if (matrixOnly) {
-    if (ids0.includes('provider:minimax')) {
+    if (minimax0.length) {
       throw new Error('minimax should be hidden under matrix_only curation');
     }
-  } else if (!ids0.includes('provider:ollama') || !ids0.includes('provider:minimax')) {
+  } else if (!minimax0.length) {
     throw new Error('expected both ollama and minimax in picker');
   }
 
@@ -82,9 +98,8 @@ try {
   });
   const picker1 = await fetch(`${base}/models/picker`).then((r) => r.json());
   if (!picker1.local_only) throw new Error('local_only flag expected');
-  const ids1 = picker1.options.filter((o) => o.kind === 'provider').map((o) => o.value);
-  if (ids1.includes('provider:minimax')) throw new Error('minimax should be hidden in local_only');
-  if (!ids1.includes('provider:ollama')) throw new Error('ollama should remain');
+  if (providerOptions(picker1, 'minimax').length) throw new Error('minimax should be hidden in local_only');
+  assertOllamaOptions(picker1);
 
   const block = await fetch(`${base}/providers/openai/key`, {
     method: 'PUT',

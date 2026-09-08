@@ -23,9 +23,14 @@ const { createApiServer } = await import(
   pathToFileURL(path.join(root, 'core', 'dist', 'api-server.js')).href
 );
 
-const port = 10294;
-const srv = await createApiServer(port);
-await new Promise((r) => srv.listen(port, '127.0.0.1', r));
+const srv = await createApiServer(0);
+await new Promise((resolve, reject) => {
+  srv.once('error', reject);
+  srv.listen(0, '127.0.0.1', resolve);
+});
+const address = srv.address();
+if (!address || typeof address === 'string') throw new Error('model verification server has no TCP port');
+const port = address.port;
 
 try {
   const scan = await fetch(`http://127.0.0.1:${port}/models/scan`, { method: 'POST' });
@@ -39,9 +44,9 @@ try {
     process.exit(1);
   }
 
-  const llm = scanned.models.find((m) => m.kind === 'llm');
+  const llm = scanned.models.find((m) => m.kind === 'llm' && m.filename === 'test-tiny.gguf');
   if (!llm) {
-    console.error('no llm model');
+    console.error('scanned test-tiny.gguf model not found');
     process.exit(1);
   }
 
@@ -68,9 +73,26 @@ try {
     process.exit(1);
   }
 
+  // Bind the chat to a general (non-workspace) project so a configured global
+  // dev workspace cannot redirect this local-model smoke test into the agent plane.
+  const project = await fetch(`http://127.0.0.1:${port}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: `model-verify-${Date.now()}`, kind: 'project' }),
+  }).then((r) => r.json());
+  const testSessionId = `mtest-${process.pid}-${Date.now()}`;
+  const sessionResponse = await fetch(`http://127.0.0.1:${port}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: testSessionId, project_id: project.id }),
+  });
+  if (!sessionResponse.ok) {
+    console.error('create isolated model test session failed', sessionResponse.status, await sessionResponse.text());
+    process.exit(1);
+  }
   const chat = await fetch(`http://127.0.0.1:${port}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CQR-Session': 'mtest' },
+    headers: { 'Content-Type': 'application/json', 'X-CQR-Session': testSessionId },
     body: JSON.stringify({ message: 'hi', model: llm.id, attachments: [] }),
   });
   const chatData = await chat.json();

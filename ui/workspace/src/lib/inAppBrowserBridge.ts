@@ -24,6 +24,49 @@ export function isShellInAppBrowserAvailable(): boolean {
   return shellWebView() !== null;
 }
 
+export function closeInAppBrowser(): void {
+  shellWebView()?.postMessage({ type: 'inAppBrowser.close' });
+}
+
+export function resumeInAppBrowser(url: string): void {
+  shellWebView()?.postMessage({ type: 'inAppBrowser.resume', url });
+}
+
+export function subscribeInAppBrowserActivation(onActivate: (url: string) => void): () => void {
+  const host = shellWebView();
+  if (!host) return () => undefined;
+  const listener = (event: { data: unknown }) => {
+    const data = event.data as { type?: string; url?: string } | null;
+    if (data?.type === 'inAppBrowser.activate' && typeof data.url === 'string' && /^https?:\/\//i.test(data.url)) onActivate(data.url);
+  };
+  host.addEventListener('message', listener);
+  return () => host.removeEventListener('message', listener);
+}
+
+/** DOM owns layout; the shell displays the native page only in this reserved rectangle.
+ * Poll geometry while mounted to also catch sidebar transitions, CSS zoom, scrolling and portals.
+ * Messages are deduplicated. A modal or an overlapping menu hides the native HWND, never the dialog.
+ */
+export function trackInAppBrowserSurface(element: HTMLElement): () => void {
+  const host = shellWebView();
+  if (!host) return () => undefined;
+  let frame = 0;
+  let last = '';
+  const update = () => {
+    const r = element.getBoundingClientRect();
+    const modal = [...document.querySelectorAll('[aria-modal="true"], dialog[open]')].some(el => el.getClientRects().length > 0);
+    const points = [[r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + r.width / 2, r.top + r.height / 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]];
+    const visible = r.width > 4 && r.height > 4 && !document.hidden && !modal && !document.body.dataset.panelResizing
+      && points.every(([x, y]) => element.contains(document.elementFromPoint(x, y)));
+    const payload = JSON.stringify({ type: 'inAppBrowser.surface', visible,
+      x: r.x, y: r.y, width: r.width, height: r.height, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+    if (payload !== last) { host.postMessage(JSON.parse(payload)); last = payload; }
+    frame = requestAnimationFrame(update);
+  };
+  update();
+  return () => { cancelAnimationFrame(frame); host.postMessage({ type: 'inAppBrowser.surface', visible: false }); };
+}
+
 export function openInAppBrowser(url: string): boolean {
   const webview = shellWebView();
   if (!webview) return false;
@@ -88,5 +131,7 @@ export function subscribeInAppBrowserState(
   };
 
   webview.addEventListener('message', onMessage);
+  // Mounting Preview after a chat link opened the shell must recover its state.
+  webview.postMessage({ type: 'inAppBrowser.getState' });
   return () => webview.removeEventListener('message', onMessage);
 }

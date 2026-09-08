@@ -126,9 +126,10 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1">
-      <!-- The workspace WebView remains the CQRPA application surface. -->
-      <wv2:WebView2 x:Name="WebView" />
+    <Grid x:Name="BrowserLayout" Grid.Row="1" SizeChanged="OnBrowserLayoutSizeChanged">
+      <!-- Composition workspace has no competing child HWND. The native page occupies
+           only the reserved DOM slot, never an extra column or a duplicate toolbar. -->
+      <wv2:WebView2CompositionControl x:Name="WebView" />
 
       <Border x:Name="StartupOverlay"
               Background="#dde1de"
@@ -179,53 +180,11 @@
       </Border>
 
       <!-- External pages are isolated in a second WebView2 so navigation never replaces the workspace. -->
-      <Border x:Name="InAppBrowserPanel"
-              Visibility="Collapsed"
-              HorizontalAlignment="Right"
-              Width="560"
-              Background="#dde1de"
-              BorderBrush="#adb9b4"
-              BorderThickness="1,0,0,0"
-              Panel.ZIndex="10">
-        <Grid>
-          <Grid.RowDefinitions>
-            <RowDefinition Height="44" />
-            <RowDefinition Height="22" />
-            <RowDefinition Height="*" />
-          </Grid.RowDefinitions>
-
-          <Grid Grid.Row="0" Margin="10,7">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="30" />
-              <ColumnDefinition Width="30" />
-              <ColumnDefinition Width="30" />
-              <ColumnDefinition Width="*" />
-              <ColumnDefinition Width="30" />
-              <ColumnDefinition Width="30" />
-            </Grid.ColumnDefinitions>
-            <Button Grid.Column="0" Content="←" Click="OnBrowserBackClick" ToolTip="뒤로" />
-            <Button Grid.Column="1" Content="→" Click="OnBrowserForwardClick" ToolTip="앞으로" />
-            <Button Grid.Column="2" Content="↻" Click="OnBrowserReloadClick" ToolTip="새로고침" />
-            <TextBox x:Name="BrowserAddressBox"
-                     Grid.Column="3"
-                     Margin="7,0"
-                     VerticalContentAlignment="Center"
-                     KeyDown="OnBrowserAddressKeyDown"
-                     ToolTip="https:// 주소를 입력하세요" />
-            <Button Grid.Column="4" Content="↗" Click="OnBrowserOpenExternalClick" ToolTip="기본 브라우저에서 열기" />
-            <Button Grid.Column="5" Content="×" Click="OnBrowserCloseClick" ToolTip="인앱 브라우저 닫기" />
-          </Grid>
-
-          <TextBlock x:Name="BrowserStatusText"
-                     Grid.Row="1"
-                     Margin="12,0"
-                     Foreground="#4f5d57"
-                     FontSize="11"
-                     Text="외부 링크를 앱 안에서 안전하게 엽니다." />
-
-          <wv2:WebView2 x:Name="BrowserWebView" Grid.Row="2" />
-        </Grid>
-      </Border>
+      <Canvas ClipToBounds="True">
+        <Border x:Name="InAppBrowserPanel" Visibility="Collapsed" Background="#dde1de">
+          <wv2:WebView2 x:Name="BrowserWebView" />
+        </Border>
+      </Canvas>
     </Grid>
   </Grid>
 </Window>
