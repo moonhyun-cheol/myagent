@@ -6,16 +6,16 @@
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-07T07:41:57.995Z",
+    "published_at": "2026-09-08T05:50:16.962Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
       "release_tag": "update-43",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 267193888,
-      "sha256": "11f95ad79ff0b75027c2c4ad8118421d00d77f7ef4424dd2fdc1ee792ee92c75"
+      "size": 278953495,
+      "sha256": "861c4eb8fec8de7695d690af7a2afba6bfa8f457173db352360e4ac7eeb1dc3c"
     },
-    "payload_manifest_sha256": "9b964774b4ae39232c3e969078e40fc4a14677a8104b0df7b0c651c6339ccbc5",
-    "release_notes": "Update 43: CQR_PA feature port (tool activity logs, SQLite sessions, memory batch UI, ledger TODO sync, automation feed focus) plus skill/reasoning/browser visibility fixes. Astra requires explicit reasoning; Preview opens external sites in the shell WebView2."
+    "payload_manifest_sha256": "16708181e0d8c0bafe911f5a4ac1e16187146e8cbe7d6f57b198d3d6cd64058f",
+    "release_notes": "Update 43: CQR_PA feature port (tool activity, SQLite sessions, memory batch, ledger TODO, automation feed) plus per-execution cancel, collaborative Document workspace, safe chat Markdown, keyboard history navigation, install-root-only delta process stop, and skill/reasoning/browser visibility. Astra requires explicit reasoning; Preview opens sites in the shell WebView2."
   },
-  "signature": "n5pq6pFZcRF/zAwejXm631TsMYr6b6o8X5u1LNGX3flGH9JlEPcyZnufwASMTMFq0DHPvFQw4M7ETVhpR/KDpvrbX2bT0WLohkB2FFzF21uLBm+9coDmAcezghYvghR+WeUiFPLBgZ1Z+qS2bD/YFFMZbuJI2OytnxwZKHKem0VGnaNwPyymh4UTW1hsTuKAjwVysLPOpCNbe6N1EtP66wd86geqM6FVfBSEKiZVOhdUN6emrht4t1sJBUs2hzkr//Vf0Th9wqzFgoUTVTwS/F8/s1M67oZ0Xy45wdrUocHOih/eUZNCi4C51fwj8bCN9a8enebYrS7jWGaGqTAcSH3BP8tTpKLYJ+q6tmG5kJB1ErRWbsw4qNiJlbAaEILtwL84N+BqTMNIcBSTAqkKWceaEfavQID7LKbRVMD3BtwxdXEtQsFckJp0Ohl/YDIa2Yv53liUSS3zwVp62jWWLGz2Y4QApcIuTeV7jWeSOMMpKAYSmS2fnw2T/ioHHsBM"
+  "signature": "GFvXzZH+76TDuryN6lVUhpoTIbqlwIik0KFiHMrGwuw9ME/X2dImEVUkT4f2U+ResJThafRIqAOv9oHl0ausuPmnOwBgE4MOGhffO//piyJv3M80BwknmVyHtftVawNxWjd91oR/9JK9CZiu/ZDJ4RrkQ3zz9uhgdPGtTWcUrIJss15xImj2vFrWgqk0dBlNSxpOqRsKmZRD5X2O6tbfg6rs0Eck22xY7V4eR6JMGRrVxGgHv8nUxPqt2Qc2AJXOzMh6XFPawkcLPW2IcnfE4pj7x9K/37B052D/kjNkpu/K7/sr8KIIDlz//VTpPk86mel9tIfjuP7LB30tqYSmtE3WmCY56csblYLTZsFlQ/N37AGxO7Z+KoSj7mTmt/nq497U3JfYytX/rTGg5ETXgboLRjFWRtBGHSefDEi6UxKYHn6AVS1I1O3DytddEgg7gHYAKKx+mB5bzYXnO/4w67E39zgeJucTF2LOkyVCCat0qvzRgp24zGNeYCbn7SEe"
 }
