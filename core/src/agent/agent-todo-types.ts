@@ -2,6 +2,8 @@ import type { EvidenceProjectionForm, EvidenceSelector } from './agent-evidence-
 
 export type TodoStatus = 'pending' | 'doing' | 'done' | 'blocked';
 
+export type TodoAuthorship = 'model';
+
 export interface TodoItem {
   id: string;
   text: string;
@@ -9,6 +11,8 @@ export interface TodoItem {
   acceptance?: string;
   evidenceRefs: string[];
   nextAction?: string;
+  /** Only todo_update may create/update ledger items; always model-authored. */
+  authoredBy: TodoAuthorship;
 }
 
 /** The model can only request retention; deletion/discard is intentionally not expressible. */

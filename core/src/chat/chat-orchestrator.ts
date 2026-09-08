@@ -30,8 +30,7 @@ import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-sessi
 import { waitForToolApproval } from '../agent/tool-approval.js';
 import { reviewToolApproval } from '../agent/approval-auto-review.js';
 import { queueAutoErrorReport } from '../support/error-report-service.js';
-import { getUserMemoryStore } from '../memory/user-memory-store.js';
-import { resolveMemoryProjectId, resolveRequestedModelForSession } from './session-context.js';
+import { resolveRequestedModelForSession } from './session-context.js';
 import {
   applyChatInletFilter,
   applyChatOutletFilter,
@@ -559,7 +558,6 @@ export class ChatOrchestrator {
       { cqrRoot: this.cqrRoot },
     );
     rememberMessagePins(this.cqrRoot, sessionId, message);
-     this.autoCaptureMemory(sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,
@@ -1183,7 +1181,6 @@ export class ChatOrchestrator {
       { cqrRoot: this.cqrRoot },
     );
     rememberMessagePins(this.cqrRoot, sessionId, message);
-     this.autoCaptureMemory(sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,
@@ -1391,16 +1388,6 @@ export class ChatOrchestrator {
       ? `${resolved.route.reason}\n\n[첨부 컨텍스트]\n${ctx.slice(0, 800)}`
       : resolved.route.reason;
     return { content, model: resolved.display };
-  }
-
-  /** Auto-capture explicit "remember this" style user messages into user memory (알잘딱). */
-  private autoCaptureMemory(sessionId: string, message: string): void {
-    try {
-      const projectId = resolveMemoryProjectId(this.sessionStore, sessionId);
-      getUserMemoryStore(this.dataDir).autoCapture(message, projectId);
-    } catch {
-      // memory capture must never break the chat flow
-    }
   }
 
   private savePartialAssistant(

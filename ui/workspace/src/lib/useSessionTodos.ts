@@ -14,6 +14,7 @@ export function useSessionTodos(sessionId: string | null, busy: boolean) {
         const todos = await fetchSessionTodos(sessionId, controller.signal);
         if (!controller.signal.aborted) setView({ sessionId, items: todos.map((todo) => ({
           id: todo.id, label: todo.text, status: todo.status === 'doing' ? 'active' : todo.status,
+          authoredBy: todo.authoredBy === 'model' ? 'model' : undefined,
         })), error: null });
       } catch {
         if (!controller.signal.aborted) setView({ sessionId, items: [], error: 'TODO를 불러오지 못했습니다. 자동으로 재시도합니다.' });

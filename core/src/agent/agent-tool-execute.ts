@@ -100,6 +100,8 @@ import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
 import { assertChatRunWritable } from '../chat/chat-runs.js';
 import { throwIfAborted } from '../chat/abort.js';
 import type { SchedulerTaskInput } from '../scheduler/types.js';
+import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
+import type { MemoryScope } from '../memory/user-memory-store.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
   const base = cqrRoot && isPlaywrightAvailable(cqrRoot)
@@ -324,6 +326,43 @@ async function executeAgentToolInner(
         const ledger = mergeTodoLedgerUpdate(meta.todoLedger, update, meta.evidenceRecords ?? []);
         setSessionTodoLedger(ctx.cqrRoot, ctx.sessionId, ledger);
         return { label: 'todo ledger updated', output: JSON.stringify({ ok: true, todoLedger: ledger }) };
+      }
+      case 'memory_propose': {
+        if (!ctx?.cqrRoot || !ctx.sessionId) {
+          return { label: 'memory propose', output: 'ERROR: memory_propose requires a session context' };
+        }
+        const scopeRaw = String(args.scope ?? '').trim();
+        const scope: MemoryScope = scopeRaw === 'project' || scopeRaw === 'session' ? scopeRaw : 'global';
+        const text = String(args.text ?? '').trim();
+        const reason = String(args.reason ?? '').trim();
+        const projectId = typeof args.project_id === 'string' ? args.project_id.trim() : '';
+        try {
+          const store = getUserMemoryStore(path.join(ctx.cqrRoot, 'data'));
+          const entry = store.propose({
+            text,
+            scope,
+            project_id: scope === 'project' ? projectId || null : null,
+            session_id: scope === 'session' ? ctx.sessionId : null,
+            reason: reason || null,
+            source_session_id: ctx.sessionId,
+          });
+          return {
+            label: 'memory proposed',
+            output: JSON.stringify({
+              ok: true,
+              pending: true,
+              id: entry.id,
+              scope: entry.scope,
+              status: entry.status,
+              guidance: 'Candidate saved as pending. It will not enter prompts until the user approves it in 메모리 관리.',
+            }),
+          };
+        } catch (e: unknown) {
+          if (e instanceof UserMemoryStoreError) {
+            return { label: 'memory propose', output: JSON.stringify({ ok: false, error: e.code, message: e.message }) };
+          }
+          throw e;
+        }
       }
       case 'evidence_read': {
         if (!ctx?.evidenceStore) {

@@ -149,7 +149,7 @@
     "pack:personal:export": "node tools/personal-pack-export.mjs --export",
     "pack:personal:import": "node tools/personal-pack-export.mjs --import",
     "verify:lock-policy": "node tools/verify-lock-policy.mjs",
-    "verify:agent": "node tools/test-tool-loop-guard.mjs && node tools/verify-model-directed-runtime.mjs && node tools/verify-agent-grounding.mjs && node tools/verify-work-mode-loop.mjs && node tools/verify-workspace-behavior.mjs && node tools/verify-agent-profiles.mjs && node tools/verify-tool-facade.mjs && node tools/verify-agent-import-cycles.mjs && node tools/verify-perf-metrics.mjs && node tools/verify-harness-policy.mjs && node tools/verify-history-compress.mjs && node tools/verify-failure-plane.mjs && node tools/verify-capability-policy.mjs && node tools/verify-coding-iq.mjs && node tools/verify-session-continuity.mjs && node tools/verify-locked-constraints.mjs && node tools/verify-artifact-contract.mjs && node tools/verify-domain-registry.mjs && node tools/verify-skills.mjs && node tools/verify-personal-scheduler.mjs && node tools/verify-harness-goldens.mjs && node tools/verify-embedding-cold.mjs && node tools/verify-post-mutate-syntax.mjs && node tools/verify-diagnostics-ui-tsc.mjs && node tools/verify-agent-eval.mjs && node tools/lab/skill-tool-lab.mjs --level=1 --fail-on-skip",
+    "verify:agent": "node tools/test-tool-loop-guard.mjs && node tools/verify-model-directed-runtime.mjs && node tools/verify-agent-grounding.mjs && node tools/verify-work-mode-loop.mjs && node tools/verify-workspace-behavior.mjs && node tools/verify-agent-profiles.mjs && node tools/verify-tool-facade.mjs && node tools/verify-agent-import-cycles.mjs && node tools/verify-perf-metrics.mjs && node tools/verify-harness-policy.mjs && node tools/verify-history-compress.mjs && node tools/verify-failure-plane.mjs && node tools/verify-capability-policy.mjs && node tools/verify-coding-iq.mjs && node tools/verify-session-continuity.mjs && node tools/verify-locked-constraints.mjs && node tools/verify-artifact-contract.mjs && node tools/verify-domain-registry.mjs && node tools/verify-skills.mjs && node tools/verify-personal-scheduler.mjs && node tools/verify-harness-goldens.mjs && node tools/verify-embedding-cold.mjs && node tools/verify-post-mutate-syntax.mjs && node tools/verify-diagnostics-ui-tsc.mjs && node tools/verify-agent-eval.mjs && node tools/lab/skill-tool-lab.mjs --level=1 --fail-on-skip && node tools/verify-todo-ledger.mjs && node tools/verify-memory-todo-authorship.mjs",
     "sync:prompt-master": "node tools/sync-prompt-master.mjs",
     "sync:ui-facts": "node tools/sync-ui-facts.mjs",
     "sync:product-facts": "node tools/sync-product-facts.mjs",
@@ -204,6 +204,7 @@
     "lab:fix-daily": "node tools/lab/overnight-fix-cycle.mjs live-daily",
     "verify:evidence-store": "node tools/verify-evidence-store.mjs",
     "verify:todo-ledger": "node tools/verify-todo-ledger.mjs",
+    "verify:memory-todo-authorship": "node tools/verify-memory-todo-authorship.mjs",
     "verify:context-assembler": "node tools/verify-context-assembler.mjs",
     "verify:openai-reasoning-summary": "node tools/verify-openai-reasoning-summary.mjs"
   },

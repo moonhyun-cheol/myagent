@@ -1,6 +1,15 @@
 import { Brain, Plus, X } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { addUserMemory, batchUserMemory, listUserMemory, updateUserMemory, type UserMemoryEntry, type UserMemoryScope } from '../api/myAgentClient';
+import {
+  addUserMemory,
+  approveUserMemory,
+  batchUserMemory,
+  listUserMemory,
+  rejectUserMemory,
+  updateUserMemory,
+  type UserMemoryEntry,
+  type UserMemoryScope,
+} from '../api/myAgentClient';
 import { confirmDialog, getConfirmDialogPending } from '../lib/confirmDialog';
 
 const OPEN_EVENT = 'cqr:open-user-memory';
@@ -106,12 +115,20 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
 
   const visible = useMemo(() => entries.filter((e) =>
     (scope === 'all' || e.scope === scope)
-    && (status === 'all' || e.enabled === (status === 'enabled'))
+    && (status === 'all'
+      || (status === 'pending' ? e.status === 'pending'
+        : status === 'enabled' ? e.enabled && e.status !== 'pending' && e.status !== 'rejected'
+        : !e.enabled && e.status !== 'pending'))
     && (source === 'all' || e.source === source)
     && normalize(e.text).includes(normalize(query)))
-    .sort((a, b) => sort === 'text' ? a.text.localeCompare(b.text, 'ko')
-      : sort === 'created' ? b.created_at.localeCompare(a.created_at)
-      : sort === 'oldest' ? a.updated_at.localeCompare(b.updated_at) : b.updated_at.localeCompare(a.updated_at)),
+    .sort((a, b) => {
+      const pendingRank = (e: UserMemoryEntry) => (e.status === 'pending' ? 0 : 1);
+      const byPending = pendingRank(a) - pendingRank(b);
+      if (byPending) return byPending;
+      return sort === 'text' ? a.text.localeCompare(b.text, 'ko')
+        : sort === 'created' ? b.created_at.localeCompare(a.created_at)
+        : sort === 'oldest' ? a.updated_at.localeCompare(b.updated_at) : b.updated_at.localeCompare(a.updated_at);
+    }),
   [entries, scope, status, source, query, sort]);
   const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
@@ -168,8 +185,8 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
       <p className="px-3 py-2 text-[11px] text-muted">활성 상태는 저장 범위 전체에 적용됩니다. ‘이번 챗에서만 제외’ 설정이 아니며, 활성 메모리가 모든 응답에 전달되는 것은 아닙니다.</p>
       <div className="flex flex-wrap gap-2 border-b border-line px-3 pb-3">
         <input type="search" aria-label="메모리 검색" placeholder="메모리 검색…" className={`${control} min-w-40 flex-1`} value={query} onChange={(e) => { setQuery(e.target.value); filterChanged(); }} />
-        <select aria-label="활성 상태 필터" className={control} value={status} onChange={(e) => { setStatus(e.target.value); filterChanged(); }}><option value="all">모든 상태</option><option value="enabled">활성</option><option value="disabled">비활성</option></select>
-        <select aria-label="등록 방식 필터" className={control} value={source} onChange={(e) => { setSource(e.target.value); filterChanged(); }}><option value="all">모든 등록 방식</option><option value="user">직접 입력 / 편집</option><option value="auto">기존 자동 축적</option></select>
+        <select aria-label="활성 상태 필터" className={control} value={status} onChange={(e) => { setStatus(e.target.value); filterChanged(); }}><option value="all">모든 상태</option><option value="pending">승인 대기</option><option value="enabled">활성</option><option value="disabled">비활성</option></select>
+        <select aria-label="등록 방식 필터" className={control} value={source} onChange={(e) => { setSource(e.target.value); filterChanged(); }}><option value="all">모든 등록 방식</option><option value="user">직접 입력 / 편집</option><option value="auto">모델 제안</option></select>
         <select aria-label="메모리 정렬" className={control} value={sort} onChange={(e) => { setSort(e.target.value); setPage(0); }}><option value="updated">최근 수정순</option><option value="oldest">오래된 수정순</option><option value="created">최근 생성순</option><option value="text">본문순</option></select>
         <button className={control} disabled={locked} onClick={() => { void edit('new'); }}><Plus className="inline" size={12} /> 추가</button>
         <button className={control} disabled={locked || dirty} onClick={() => void reload()}>새로고침</button>
@@ -186,8 +203,12 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
           <ul className="min-h-0 flex-1 overflow-y-auto p-2">
             {!loading && !rows.length && <li className="p-5 text-sm text-muted">{error ? '목록을 불러오지 못했습니다. 새로고침으로 다시 시도하세요.' : entries.length ? '조건에 맞는 메모리가 없습니다.' : '저장된 메모리가 없습니다.'}</li>}
             {rows.map((entry) => <li key={entry.id} className={`mb-1 flex items-start gap-2 rounded border border-line p-2 ${editing && editing !== 'new' && editing.id === entry.id ? 'bg-ink' : ''}`}>
-              <input type="checkbox" className="mt-1" aria-label={`선택: ${entry.text}`} disabled={locked} checked={selected.has(entry.id)} onChange={(e) => setSelected((old) => { const next = new Set(old); if (e.target.checked) next.add(entry.id); else next.delete(entry.id); return next; })} />
-              <button className="min-w-0 flex-1 text-left" disabled={locked} onClick={() => void edit(entry)}><span className="line-clamp-2 break-words text-[12px]">{entry.text}</span><span className="mt-1 block text-[10px] text-muted">{labels[entry.scope]} · {entry.enabled ? '활성' : '비활성'} · {new Date(entry.updated_at).toLocaleDateString()}</span></button>
+              <input type="checkbox" className="mt-1" aria-label={`선택: ${entry.text}`} disabled={locked || entry.status === 'pending'} checked={selected.has(entry.id)} onChange={(e) => setSelected((old) => { const next = new Set(old); if (e.target.checked) next.add(entry.id); else next.delete(entry.id); return next; })} />
+              <button className="min-w-0 flex-1 text-left" disabled={locked} onClick={() => void edit(entry)}><span className="line-clamp-2 break-words text-[12px]">{entry.text}</span><span className="mt-1 block text-[10px] text-muted">{labels[entry.scope]} · {entry.status === 'pending' ? '승인 대기' : entry.enabled ? '활성' : '비활성'} · {new Date(entry.updated_at).toLocaleDateString()}</span>{entry.status === 'pending' && entry.reason ? <span className="mt-1 block text-[10px] text-muted">제안 이유: {entry.reason}</span> : null}</button>
+              {entry.status === 'pending' ? <div className="flex shrink-0 flex-col gap-1">
+                <button type="button" className={control} disabled={locked} onClick={() => void run(() => approveUserMemory(entry.id), '제안을 승인했습니다.')}>승인</button>
+                <button type="button" className={`${control} text-red-300`} disabled={locked} onClick={() => void run(() => rejectUserMemory(entry.id), '제안을 거절했습니다.')}>거절</button>
+              </div> : null}
             </li>)}
           </ul>
           <div className="flex items-center justify-center gap-3 border-t border-line p-2 text-xs"><button className={control} disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>이전</button><span>{currentPage + 1} / {pages}</span><button className={control} disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>다음</button></div>
@@ -195,11 +216,11 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
         <section aria-label="메모리 상세" className={`${editing ? 'flex' : 'hidden md:flex'} min-h-0 flex-1 flex-col overflow-y-auto border-line p-3 md:max-w-sm md:border-l`}>
           {!editing ? <p className="text-sm text-muted">목록에서 항목을 선택해 내용을 확인하거나 편집하세요. 체크박스는 일괄 작업 선택입니다.</p> : <>
             <h3 className="mb-3 text-sm font-semibold">{editing === 'new' ? '메모리 추가' : '메모리 상세 / 편집'}</h3>
-            {editing === 'new' ? <label className="mb-2 text-xs">저장 위치 <select aria-label="추가 저장 위치" className={control} disabled={busy} value={addScope} onChange={(e) => setAddScope(e.target.value as UserMemoryScope)}>{scopes.map((s) => <option key={s} value={s}>{labels[s]}</option>)}</select></label> : <div className="mb-3 break-all text-xs text-muted"><p>저장 위치: {labels[editing.scope]}</p><p>상태: {editing.enabled ? '활성' : '비활성'}</p><p>등록 방식: {editing.source === 'auto' ? '기존 자동 축적' : '직접 입력 / 편집'}</p><p>생성: {new Date(editing.created_at).toLocaleString()}</p><p>수정: {new Date(editing.updated_at).toLocaleString()}</p><p className="mt-2">추출 출처: 기록 없음</p></div>}
+            {editing === 'new' ? <label className="mb-2 text-xs">저장 위치 <select aria-label="추가 저장 위치" className={control} disabled={busy} value={addScope} onChange={(e) => setAddScope(e.target.value as UserMemoryScope)}>{scopes.map((s) => <option key={s} value={s}>{labels[s]}</option>)}</select></label> : <div className="mb-3 break-all text-xs text-muted"><p>저장 위치: {labels[editing.scope]}</p><p>상태: {editing.status === 'pending' ? '승인 대기' : editing.enabled ? '활성' : '비활성'}</p><p>등록 방식: {editing.source === 'auto' ? '모델 제안' : '직접 입력 / 편집'}</p>{editing.reason ? <p>제안 이유: {editing.reason}</p> : null}<p>생성: {new Date(editing.created_at).toLocaleString()}</p><p>수정: {new Date(editing.updated_at).toLocaleString()}</p>{editing.status === 'pending' ? <div className="mt-3 flex gap-2"><button className={control} disabled={locked} onClick={() => void run(() => approveUserMemory(editing.id, { text: text.trim() || undefined }), '제안을 승인했습니다.')}>승인</button><button className={`${control} text-red-300`} disabled={locked} onClick={() => void run(() => rejectUserMemory(editing.id), '제안을 거절했습니다.')}>거절</button></div> : null}</div>}
             <label htmlFor="memory-text" className="mb-1 text-xs">메모리 본문</label><textarea id="memory-text" className={`${control} min-h-40 resize-y`} disabled={busy} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
             <p className="mt-1 text-right text-[10px] text-muted">{text.length} / 500</p>
             {duplicate && <p role="alert" className="text-xs text-amber-300">같은 범위에 동일한 내용이 있습니다. 기존 항목을 확인하세요.</p>}
-            <div className="mt-3 flex gap-2"><button className={control} disabled={locked || !text.trim() || !!duplicate || (!dirty && editing !== 'new')} onClick={save}>저장</button><button className={control} disabled={busy} onClick={() => void edit(null)}>취소 / 목록</button></div>
+            <div className="mt-3 flex gap-2">{editing !== 'new' && editing.status === 'pending' ? null : <button className={control} disabled={locked || !text.trim() || !!duplicate || (!dirty && editing !== 'new')} onClick={save}>저장</button>}<button className={control} disabled={busy} onClick={() => void edit(null)}>취소 / 목록</button></div>
             <p className="mt-4 text-[11px] text-muted">범위 이동·활성 변경·삭제는 목록의 체크박스로 선택한 뒤 하단에서 적용합니다. 의미상 충돌은 본문을 직접 검토하세요.</p>
           </>}
         </section>

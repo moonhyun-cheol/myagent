@@ -2154,6 +2154,22 @@ export async function dispatchApiRequest(
             const body = JSON.parse(await readBody(req));
             return sendJson(res, 200, { changed: memoryStore.batch(body) });
           }
+          const memoryActionMatch = url.pathname.match(/^\/memory\/([^/]+)\/(approve|reject)$/);
+          if (memoryActionMatch && method === 'POST') {
+            license.assertWritable();
+            const memoryId = decodeURIComponent(memoryActionMatch[1]);
+            const action = memoryActionMatch[2];
+            if (action === 'approve') {
+              const raw = await readBody(req);
+              const body = (raw.trim() ? JSON.parse(raw) : {}) as { text?: string };
+              const entry = memoryStore.approve(memoryId, { text: body.text });
+              if (!entry) return sendJson(res, 404, { error: 'NOT_FOUND' });
+              return sendJson(res, 200, entry);
+            }
+            const entry = memoryStore.reject(memoryId);
+            if (!entry) return sendJson(res, 404, { error: 'NOT_FOUND' });
+            return sendJson(res, 200, entry);
+          }
           const memoryMatch = url.pathname.match(/^\/memory\/([^/]+)$/);
           if (memoryMatch) {
             const memoryId = decodeURIComponent(memoryMatch[1]);

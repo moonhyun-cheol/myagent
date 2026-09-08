@@ -29,6 +29,7 @@ function normalizeTodo(raw: Partial<TodoItem>): TodoItem | null {
     text: body,
     status,
     evidenceRefs,
+    authoredBy: 'model',
     ...(acceptance ? { acceptance } : {}),
     ...(nextAction ? { nextAction } : {}),
   };

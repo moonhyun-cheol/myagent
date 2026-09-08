@@ -96,7 +96,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     type: 'function',
     function: {
       name: 'todo_update',
-      description: 'Update the active task TODO ledger and declare only evidence that should remain prominent. Omitted evidence is retained by the runtime as a retrievable reference; there is no delete/drop operation.',
+      description: 'Update the active task TODO ledger and declare only evidence that should remain prominent. Omitted evidence is retained by the runtime as a retrievable reference; there is no delete/drop operation. Items are model-authored; never invent TODOs from numbered lists in prose.',
       parameters: {
         type: 'object',
         properties: {
@@ -142,6 +142,24 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
           },
         },
         required: ['todos', 'retainEvidence', 'workingNotes'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'memory_propose',
+      description:
+        'Propose a durable user-memory candidate for later human approval. Does not inject into prompts until approved. Prefer project/session scope when the fact is scoped. Do not propose secrets, quotes of others, or negated statements as facts.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Candidate memory text (<=500 chars)' },
+          scope: { type: 'string', enum: ['global', 'project', 'session'] },
+          project_id: { type: 'string', description: 'Required when scope is project' },
+          reason: { type: 'string', description: 'Why this should be remembered' },
+        },
+        required: ['text', 'scope'],
       },
     },
   },

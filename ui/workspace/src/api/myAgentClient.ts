@@ -676,8 +676,12 @@ export interface UserMemoryEntry {
   text: string;
   source: 'user' | 'auto';
   enabled: boolean;
+  status?: 'active' | 'pending' | 'rejected';
+  reason?: string | null;
+  source_session_id?: string | null;
   created_at: string;
   updated_at: string;
+  reviewed_at?: string | null;
 }
 
 export async function listUserMemory(
@@ -746,6 +750,24 @@ export async function deleteUserMemory(id: string): Promise<void> {
   if (!res.ok) throw new Error(data.message || data.error || `메모리 삭제 실패 (${res.status})`);
 }
 
+export async function approveUserMemory(id: string, patch: { text?: string } = {}): Promise<UserMemoryEntry> {
+  const res = await fetch(`/memory/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 승인 실패 (${res.status})`);
+  return data as UserMemoryEntry;
+}
+
+export async function rejectUserMemory(id: string): Promise<UserMemoryEntry> {
+  const res = await fetch(`/memory/${encodeURIComponent(id)}/reject`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 거절 실패 (${res.status})`);
+  return data as UserMemoryEntry;
+}
+
 export async function updateProjectScopeSettings(
   id: string,
   patch: { preferred_model?: string | null; allowed_paths?: string[] },
@@ -808,6 +830,7 @@ export interface SessionTodoItem {
   id: string;
   text: string;
   status: 'pending' | 'doing' | 'done' | 'blocked';
+  authoredBy?: 'model';
 }
 
 export async function fetchSessionTodos(id: string, signal?: AbortSignal): Promise<SessionTodoItem[]> {
