@@ -63,6 +63,8 @@ runtime/sd-cpp/
 runtime/ffmpeg/**
 shell/**/obj/
 shell/**/bin/
+tools/lab/**/obj/
+tools/lab/**/bin/
 test-results/
 playwright-report/
 tools/cache/
@@ -125,6 +127,7 @@ tsconfig.tsbuildinfo
 .cqr-pa/
 
 
-# CQR_PA port scratch specs ? do not keep in product tree
+# CQR_PA port scratch specs — do not keep in product tree
 patch-candidates/
+.my_agent_remote/
 
