@@ -69,8 +69,8 @@ assert.match(runLoop, /formatActiveTaskSystemNote\(activeTask\)/);
 assert.doesNotMatch(runLoop, /const finalContent = stripToolMimeticNoise/);
 assert.match(toolDefinitions, /name: 'active_task'/);
 assert.match(runMeta, /The runtime persists and reinjects[\s\S]*never infers it from user prose/);
-assert.match(llmStep, /답변 구조와 포함할 정보는 직접 판단하고/);
-assert.match(llmStep, /로컬 런타임이 이를 작업 보고서로 재작성하지 않았습니다/);
+assert.match(llmStep, /답변 구조와 포함할 정보는 직접 판단하고, 작업 보고서·변경 경로·진단·다음 조치 형식을 강제하지 마세요/);
+assert.match(llmStep, /도구는 MY Agent가 로컬에서 실행합니다/);
 assert.doesNotMatch(llmStep, /파일 변경 완료 —|파일은 있습니다|경로·변경·다음 조치만/);
 for (const source of [autopilot, planner]) {
   assert.doesNotMatch(source, /short Korean summary/);
@@ -98,28 +98,27 @@ assert.doesNotMatch(orchestrator, /RouterService|evaluateSpecializedModeFit|mess
 assert.doesNotMatch(orchestrator, /preserveRecentToolFailureContext/);
 assert.doesNotMatch(orchestrator, /resolveUnifiedIntent|intent-clarify/);
 assert.match(orchestrator, /if \(explicitMode\)/);
-assert.match(orchestrator, /peekAutomatonIntent/);
+assert.match(orchestrator, /resolveSlashRoute\(message, this\.cqrRoot\)/);
+assert.doesNotMatch(orchestrator, /peekAutomatonIntent/);
 assert.match(automatonIntent, /getSlashAutomatonPatterns/);
 assert.doesNotMatch(automatonIntent, /chatCompletion|scoreToolsBySimilarity|resolveAutomatonIntent|intent_phrases|intent_patterns/);
 assert.match(orchestrator, /routing\.mode === 'web_dev' && !workspaceAgentAvailable/);
 assert.doesNotMatch(workspaceAgent, /looksLikeToolTask|messagePrefersBrandSkillOverCode|looksLikeAcceptanceReviewTask|requiresLiveFsCapability|requiresShellNetCapability/);
-assert.match(workspaceAgent, /return Boolean\(sessionRoot \|\| \(scope === 'standalone' && hasDevWorkspace\(configPath\)\)\)/);
+assert.match(workspaceAgent, /sessionRoot \|\| \(scope === 'standalone' && hasDevWorkspace\(configPath\)\)/);
 assert.doesNotMatch(workspaceAgent, /previousLockedRoot|editorContext: req\.editor_context|setSessionLockedTarget/);
 // Agent plane (R-301/RC-013) ≠ route rewrite: workspace tools keep routing.mode.
 const skillFlow = read('core/src/skills/chat-skill-flow.ts');
 assert.match(skillFlow, /export function resolveAgentSkillMode/);
-assert.match(workspaceAgent, /resolveAgentSkillMode\(rawRouting\)/);
 assert.match(workspaceAgent, /preserveWorkspaceAgentRouting/);
+assert.match(workspaceAgent, /resolveLlmSkillMode\(routing\.mode\)/);
 assert.doesNotMatch(workspaceAgent, /mode:\s*'web_dev'/);
 assert.doesNotMatch(workspaceAgent, /matched_tool === 'greeting' \? 'web_dev'/);
-assert.match(workspaceAgent, /agentPromptProfile:\s*rawRouting\.mode === 'web_dev' \? 'coding' : 'general'/);
-assert.doesNotMatch(workspaceAgent, /resolveLlmSkillMode\(routing\.mode\)/);
+assert.doesNotMatch(workspaceAgent, /agentPromptProfile/);
 assert.doesNotMatch(
   workspaceAgent,
   /if \(!skillMode && routing\.mode === 'web_dev'\)/,
 );
-assert.match(runHelpers, /agentPromptProfile !== 'general'/);
-assert.match(runHelpers, /Do not force a completion-report, review table, or paths footer/);
+assert.doesNotMatch(runHelpers, /agentPromptProfile/);
 const modelPicker = read('core/src/models/model-picker.ts');
 assert.doesNotMatch(modelPicker, /effectiveAutoModelMode|hasDevWorkspace/);
 assert.doesNotMatch(orchestrator, /effectiveAutoModelMode/);
@@ -127,7 +126,6 @@ assert.doesNotMatch(orchestrator, /promoteWorkspaceAgentRouting/);
 assert.match(orchestrator, /preserveWorkspaceAgentRouting\(routing\)/);
 assert.match(orchestrator, /mode: routing\.mode/);
 assert.match(orchestrator, /statusLabelForMode\(routing\.mode\)/);
-assert.doesNotMatch(orchestrator, /코드 에이전트 · 도구 실행 중/);
 const webDevSkill = read('core/config/defaults/skills/web-dev.md');
 assert.doesNotMatch(webDevSkill, /Exit Gate/);
 assert.doesNotMatch(webDevSkill, /실행계획:/);
@@ -201,12 +199,13 @@ for (const profile of ['orient', 'execute', 'repair', 'verify', 'final']) {
     allTools.map((tool) => tool.function.name),
     `${profile} must expose every runtime tool name`,
   );
-  assert.deepEqual(
-    compiled.messages,
-    sourceMessages,
-    `${profile} must not inject a synthetic phase/user message`,
-  );
+  assert.equal(compiled.messages.length, sourceMessages.length + 1, `${profile} appends ephemeral profile tail`);
+  assert.equal(compiled.messages.at(-1)?.ephemeral, true, `${profile} profile tail is ephemeral`);
+  assert.match(String(compiled.messages.at(-1)?.content ?? ''), /Native context profile/);
+  assert.deepEqual(compiled.messages.slice(0, -1), sourceMessages, `${profile} keeps durable messages intact`);
 }
-assert.doesNotMatch(contextProfile, /Native context profile|profileTailNote|phaseInstruction/);
+assert.match(contextProfile, /profileTailNote/);
+assert.match(contextProfile, /Native context profile/);
+assert.match(contextProfile, /ephemeral:\s*true/);
 
 console.log('model-directed runtime contract: PASS');
