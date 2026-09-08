@@ -8,6 +8,8 @@ export interface BrowserServiceOptions {
   cqrRoot: string;
   headless?: boolean;
   allowLocalhost?: boolean;
+  /** Parent/stop-button signal; aborts in-flight navigation/screenshot immediately. */
+  signal?: AbortSignal;
 }
 
 export interface BrowserScreenshotResult {
@@ -102,6 +104,7 @@ export async function browserScreenshot(
       cqrRoot: opts.cqrRoot,
       headless: opts.headless !== false,
       urlGuard: { allowLocalhost: opts.allowLocalhost === true },
+      signal: opts.signal,
     });
     const nav = await session.navigate(url);
     const outDir = browserOutputDir(opts.cqrRoot, opts.sessionId);
@@ -137,6 +140,7 @@ export async function browserNavigate(
       cqrRoot: opts.cqrRoot,
       headless: opts.headless !== false,
       urlGuard: { allowLocalhost: opts.allowLocalhost === true },
+      signal: opts.signal,
     });
     const nav = await session.navigate(url);
     return { ok: true, title: nav.title, url: nav.url, excerpt: nav.excerpt };
@@ -161,6 +165,7 @@ export async function browserFetchPageText(
       cqrRoot: opts.cqrRoot,
       headless: opts.headless !== false,
       urlGuard: { allowLocalhost: opts.allowLocalhost === true },
+      signal: opts.signal,
     });
     const nav = await session.navigate(url);
     return { ok: true, url: nav.url, title: nav.title, text: nav.excerpt };

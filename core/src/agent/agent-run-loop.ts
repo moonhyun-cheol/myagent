@@ -611,6 +611,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         cqrRoot: opts.cqrRoot,
         headless: opts.playwrightHeadless !== false,
         urlGuard: { allowLocalhost: opts.playwrightAllowLocalhost === true },
+        signal: opts.signal,
       });
     } catch {
       browserSession = null;
@@ -815,9 +816,11 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     throw e;
   } finally {
     // Belt-and-suspenders: AbortSignal may race close; kill long run_terminal jobs.
+    // Per-job ids are `agent_<sessionId>_<toolCallId>`, so cancel the whole
+    // session by prefix (an exact `agent_<sessionId>` match never hits).
     try {
-      const { cancelTerminalJob } = await import('./run-terminal.js');
-      if (opts.sessionId) cancelTerminalJob(`agent_${opts.sessionId}`);
+      const { cancelTerminalJobsForSession } = await import('./run-terminal.js');
+      if (opts.sessionId) cancelTerminalJobsForSession(opts.sessionId);
     } catch {
       /* ignore */
     }

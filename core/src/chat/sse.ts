@@ -69,6 +69,7 @@ export function sseEvent(res: ServerResponse, payload: unknown): void {
     if (typeof event.text === 'string') {
       if (event.type === 'token') run.partial = (run.partial + event.text).slice(-200_000);
       if (event.type === 'content_replace') run.partial = event.text.slice(-200_000);
+      if (event.type === 'token' || event.type === 'content_replace') run.checkpoint?.();
     }
     payload = { ...payload, runId: run.runId };
   }

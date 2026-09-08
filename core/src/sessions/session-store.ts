@@ -229,6 +229,7 @@ export class SessionStore {
     rows.set(row.id, { ...row });
     if (rows.size > 40) rows.delete(rows.keys().next().value!);
     this.pendingToolActivity.set(safe, rows);
+    currentChatRun()?.checkpoint?.(true);
   }
 
   /** Append an SSE `thought` delta without feeding it back into future model context. */
@@ -242,6 +243,52 @@ export class SessionStore {
       ? combined
       : `${TRUNCATED_THOUGHT_PREFIX}${combined.slice(-(MAX_ASSISTANT_THOUGHT_CHARS - TRUNCATED_THOUGHT_PREFIX.length))}`;
     this.pendingAssistantThought.set(safe, bounded);
+    currentChatRun()?.checkpoint?.();
+  }
+
+  private trackAssistantDraft(run: ChatRun, user: SessionMessage): void {
+    let lastSaved = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checkpointFailure: unknown;
+    run.checkpoint = (force = false) => {
+      if (checkpointFailure) throw checkpointFailure;
+      const now = Date.now();
+      if (!force && now - lastSaved < 1000) {
+        if (!timer) {
+          timer = setTimeout(() => {
+            timer = undefined;
+            if (run.controller.signal.aborted) return;
+            try { run.checkpoint?.(true); }
+            catch (error) {
+              checkpointFailure = error;
+              console.error('SESSION_DRAFT_CHECKPOINT_FAILED', error);
+            }
+          }, 1000 - (now - lastSaved));
+          timer.unref();
+        }
+        return;
+      }
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      const thought = this.pendingAssistantThought.get(run.sessionId);
+      const activities = this.pendingToolActivity.get(run.sessionId);
+      this.database.checkpointDraft(run.sessionId, run.runId, {
+        role: 'assistant', content: run.partial, at: new Date(now).toISOString(),
+        run_id: run.runId, reply_to_run_id: run.runId, mode: user.mode,
+        ...(thought ? { reasoning: { version: 1, format: 'public_summary', content: thought } } : {}),
+        ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
+      });
+      lastSaved = now;
+    };
+    run.finalizePersistence = () => {
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      try {
+        run.checkpoint?.(true);
+        this.database.finishDraft(run.sessionId, run.runId);
+      } finally {
+        this.pendingAssistantThought.delete(run.sessionId);
+        this.pendingToolActivity.delete(run.sessionId);
+      }
+    };
   }
 
   append(id: string, message: SessionMessage): SessionRecord {
@@ -258,11 +305,9 @@ export class SessionStore {
     let storedMessage = message;
     if (message.role === 'assistant') {
       const pendingThought = this.pendingAssistantThought.get(rec.id);
-      this.pendingAssistantThought.delete(rec.id);
       const reasoningContent = message.reasoning?.content || message.thought || pendingThought;
       const { thought: _legacyThought, ...normalizedMessage } = message;
       const activities = this.pendingToolActivity.get(rec.id);
-      this.pendingToolActivity.delete(rec.id);
       if (activities?.size) normalizedMessage.tool_activity = [...activities.values()];
       storedMessage = reasoningContent?.trim()
         ? {
@@ -282,6 +327,11 @@ export class SessionStore {
     }
     rec.updated_at = new Date().toISOString();
     this.database.append(rec, storedMessage);
+    if (storedMessage.role === 'assistant') {
+      this.pendingAssistantThought.delete(rec.id);
+      this.pendingToolActivity.delete(rec.id);
+    }
+    if (run && storedMessage.role === 'user') this.trackAssistantDraft(run, storedMessage);
     if (rec.project_id) this.onProjectActivity?.(rec.project_id);
     return rec;
   }
@@ -313,7 +363,6 @@ export class SessionStore {
       for (const message of replies) { message.status = 'stopped'; message.model_exclude = true; }
     } else {
       const activities = this.pendingToolActivity.get(rec.id);
-      this.pendingToolActivity.delete(rec.id);
       rec.messages.push({
         role: 'assistant',
         content: run.partial.trim() || '(중지됨)',
@@ -326,11 +375,12 @@ export class SessionStore {
         ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
       });
     }
-    this.pendingAssistantThought.delete(rec.id);
     delete rec.responses_state;
     delete rec.responses_states;
     rec.updated_at = new Date().toISOString();
     this.save(rec);
+    this.pendingAssistantThought.delete(rec.id);
+    this.pendingToolActivity.delete(rec.id);
   }
 
   delete(id: string): boolean {

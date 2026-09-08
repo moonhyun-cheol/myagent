@@ -11,6 +11,15 @@ const NAVIGATION_TIMEOUT_MS = 20_000;
 const ACTION_TIMEOUT_MS = 30_000;
 const BODY_EXCERPT_MAX = 4000;
 
+/** Thrown when an in-flight browser action is interrupted by the stop button / parent abort. */
+export class BrowserAbortError extends Error {
+  readonly code = 'BROWSER_ABORTED';
+  constructor(message = 'Browser action aborted by user stop') {
+    super(message);
+    this.name = 'BrowserAbortError';
+  }
+}
+
 type PwPage = {
   goto(url: string, opts: { waitUntil: string; timeout: number }): Promise<unknown>;
   title(): Promise<string>;
@@ -34,6 +43,8 @@ export interface PlaywrightSessionOptions {
   cqrRoot: string;
   headless?: boolean;
   urlGuard?: UrlGuardOptions;
+  /** Parent/stop-button signal; when it aborts, in-flight actions reject and the session closes. */
+  signal?: AbortSignal;
 }
 
 export class PlaywrightSession {
@@ -41,13 +52,49 @@ export class PlaywrightSession {
   private page: PwPage | null = null;
   private readonly headless: boolean;
   private readonly urlGuard: UrlGuardOptions;
+  private readonly signal?: AbortSignal;
 
   constructor(
     private readonly cqrRoot: string,
-    opts?: Pick<PlaywrightSessionOptions, 'headless' | 'urlGuard'>,
+    opts?: Pick<PlaywrightSessionOptions, 'headless' | 'urlGuard' | 'signal'>,
   ) {
     this.headless = opts?.headless !== false;
     this.urlGuard = opts?.urlGuard ?? {};
+    this.signal = opts?.signal;
+  }
+
+  /**
+   * Race a playwright operation against the abort signal. On abort we close the
+   * session, which forces the pending playwright promise to reject ("Target closed"),
+   * and we surface a BrowserAbortError immediately instead of waiting for the
+   * 20s/30s playwright timeout.
+   */
+  private raceAbort<T>(op: Promise<T>): Promise<T> {
+    const signal = this.signal;
+    if (!signal) return op;
+    if (signal.aborted) {
+      void this.close();
+      // Swallow the eventual rejection of the abandoned op so it is not unhandled.
+      void op.catch(() => {});
+      return Promise.reject(new BrowserAbortError());
+    }
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        void this.close();
+        reject(new BrowserAbortError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      op.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        },
+      );
+    });
   }
 
   static async open(opts: PlaywrightSessionOptions): Promise<PlaywrightSession> {
@@ -84,18 +131,22 @@ export class PlaywrightSession {
   async navigate(url: string): Promise<{ title: string; url: string; excerpt: string }> {
     const parsed = assertAllowedBrowserUrl(url, this.urlGuard);
     const page = await this.ensureBrowser();
-    await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
-    const title = await page.title();
-    const bodyText = String(
-      await page.evaluate(() => {
-        return document.body?.innerText ?? '';
-      }),
+    return this.raceAbort(
+      (async () => {
+        await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+        const title = await page.title();
+        const bodyText = String(
+          await page.evaluate(() => {
+            return document.body?.innerText ?? '';
+          }),
+        );
+        const excerpt =
+          bodyText.length > BODY_EXCERPT_MAX
+            ? `${bodyText.slice(0, BODY_EXCERPT_MAX)}\n… (${bodyText.length} chars total)`
+            : bodyText;
+        return { title, url: page.url(), excerpt };
+      })(),
     );
-    const excerpt =
-      bodyText.length > BODY_EXCERPT_MAX
-        ? `${bodyText.slice(0, BODY_EXCERPT_MAX)}\n… (${bodyText.length} chars total)`
-        : bodyText;
-    return { title, url: page.url(), excerpt };
   }
 
   async screenshot(
@@ -108,7 +159,7 @@ export class PlaywrightSession {
     const targetRel = relPath?.trim() || defaultScreenshotRel(sessionId);
     const abs = resolveScreenshotPath(workspaceRoot, targetRel, sessionId, this.cqrRoot, guard);
     mkdirSync(path.dirname(abs), { recursive: true });
-    await page.screenshot({ path: abs, fullPage: true, timeout: ACTION_TIMEOUT_MS });
+    await this.raceAbort(page.screenshot({ path: abs, fullPage: true, timeout: ACTION_TIMEOUT_MS }));
     const posixAbs = abs.replace(/\\/g, '/');
     if (posixAbs.includes('/.playwright/') || posixAbs.endsWith('/.playwright')) {
       ensurePlaywrightGitignore(workspaceRoot);
@@ -122,23 +173,23 @@ export class PlaywrightSession {
 
   async click(selector: string): Promise<string> {
     const page = await this.ensureBrowser();
-    await page.click(selector, { timeout: ACTION_TIMEOUT_MS });
+    await this.raceAbort(page.click(selector, { timeout: ACTION_TIMEOUT_MS }));
     return `Clicked selector: ${selector}`;
   }
 
   async fill(selector: string, value: string): Promise<string> {
     const page = await this.ensureBrowser();
-    await page.fill(selector, value, { timeout: ACTION_TIMEOUT_MS });
+    await this.raceAbort(page.fill(selector, value, { timeout: ACTION_TIMEOUT_MS }));
     return `Filled selector: ${selector}`;
   }
 
   async evaluate(expression: string): Promise<string> {
     const page = await this.ensureBrowser();
-    const result = await page.evaluate(async ({ expr }) => {
+    const result = await this.raceAbort(page.evaluate(async ({ expr }) => {
       // eslint-disable-next-line no-eval
       const v = eval(expr);
       return v instanceof Promise ? await v : v;
-    }, { expr: expression });
+    }, { expr: expression }));
     if (typeof result === 'string') return result;
     try {
       return JSON.stringify(result, null, 2);

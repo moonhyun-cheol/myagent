@@ -298,6 +298,7 @@ export async function runWorkspaceCodeAgent(opts: {
   const reasoningEffort = resolveSessionReasoningEffort(requestedPolicy.reasoning, process.env, {
     providerId: provider.providerId,
     modelId: provider.modelId,
+    userMessage: message,
   });
   const activities = new Map<string, import('../../agent/tool-activity.js').ToolActivity>();
   callbacks?.onExecutionPolicy?.({

@@ -1137,6 +1137,7 @@ export class ChatOrchestrator {
       ? resolveSessionReasoningEffort(requestedExecutionPolicy.reasoning, process.env, {
           providerId: generalProviderId,
           modelId: generalModelId,
+          userMessage: message,
         })
       : null;
     sseEvent(res, {

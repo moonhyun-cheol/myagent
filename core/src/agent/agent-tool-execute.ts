@@ -94,6 +94,7 @@ import {
   readWorkspaceFileThroughCache,
 } from './agent-read-through-cache.js';
 import { createToolActivity } from './tool-activity.js';
+import { registerToolExecution } from './tool-execution-cancel.js';
 import { randomUUID } from 'node:crypto';
 import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
 import { assertChatRunWritable } from '../chat/chat-runs.js';
@@ -130,17 +131,31 @@ export async function executeAgentTool(
   assertChatRunWritable();
   throwIfAborted(ctx?.signal);
   const normalized = normalizeToolCall(call);
-  const activity = createToolActivity(randomUUID(), normalized.function.name,
-    parseToolArgs(normalized.function.arguments), ctx?.onToolActivity);
+  const id = randomUUID();
+  const cancellable = ['run_terminal', 'run_tests', 'run_diagnostics'].includes(normalized.function.name) && !!ctx?.sessionId;
+  const activity = createToolActivity(id, normalized.function.name,
+    parseToolArgs(normalized.function.arguments), ctx?.onToolActivity, cancellable ? ctx?.sessionId : undefined);
+  const execution = cancellable ? registerToolExecution(id, ctx!.sessionId!, ctx?.signal, () => activity.requestCancel()) : undefined;
+  const signal = execution?.signal ?? ctx?.signal;
   try {
     const result = await executeAgentToolInner(workspaceRoot, normalized, guard, {
-      ...ctx, onOutput: (stream, chunk) => activity.output(stream, chunk),
+      ...ctx, signal, onOutput: (stream, chunk) => activity.output(stream, chunk),
     });
-    activity.finish(result.output, ctx?.signal?.aborted);
+    activity.finish(result.output, signal?.aborted);
+    if (execution?.signal.aborted && !ctx?.signal?.aborted) {
+      let raw: Record<string, unknown> = {};
+      try { raw = JSON.parse(result.output); } catch { /* retain plain output below */ }
+      return { ...result, output: JSON.stringify({ ...raw, ok: false, cancelled: true, reason: 'user_cancelled_subtask',
+        result: result.output, guidance: raw.termination_unconfirmed
+          ? 'Termination could not be confirmed. Do not retry or start conflicting work. Tell the user and investigate safely.'
+          : 'Only this execution was stopped by the user. Continue the chat using this result. Do not repeat the same command without user approval. Existing side effects are not rolled back.' }) };
+    }
     return result;
   } catch (error) {
-    activity.finish('ERROR: execution failed', ctx?.signal?.aborted);
+    activity.finish('ERROR: execution failed', signal?.aborted);
     throw error;
+  } finally {
+    execution?.dispose();
   }
 }
 

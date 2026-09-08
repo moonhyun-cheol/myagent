@@ -9,6 +9,32 @@ const duration = (ms: number) => {
 /** Execution evidence only; deliberately separate from model reasoning. */
 export function ToolActivityLog({ rows, live }: { rows: ToolActivity[]; live: boolean }) {
   const [now, setNow] = useState(Date.now);
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const cancel = async (row: ToolActivity) => {
+    if (pending[row.id] || row.cancelRequested) return;
+    setPending(old => ({ ...old, [row.id]: true }));
+    setErrors(old => ({ ...old, [row.id]: '' }));
+    try {
+      const response = await fetch('/fs/tool-execution/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: row.id, session_id: row.cancelSessionId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(response.status === 409 ? '이미 종료되었거나 취소할 수 없는 실행입니다.' : '중지 요청 실패. 다시 시도하세요.');
+    } catch (error) {
+      setPending(old => ({ ...old, [row.id]: false }));
+      setErrors(old => ({ ...old, [row.id]: error instanceof Error ? error.message : '중지 요청 실패' }));
+    }
+  };
+  const cancelButton = (row: ToolActivity) => live && row.state === 'running' && row.cancelSessionId ? (
+    <button type="button" className="ml-2 rounded border border-line px-2 py-1 text-amber-200"
+      disabled={pending[row.id] || row.cancelRequested}
+      aria-label={`${row.tool} 하위 실행 중지`}
+      onClick={event => { event.preventDefault(); event.stopPropagation(); void cancel(row); }}>
+      {pending[row.id] || row.cancelRequested ? '중지 요청 중…' : '실행 중지'}
+    </button>
+  ) : null;
   const running = live && rows.some((row) => row.state === 'running');
   useEffect(() => {
     if (!running) return;
@@ -19,8 +45,8 @@ export function ToolActivityLog({ rows, live }: { rows: ToolActivity[]; live: bo
   if (!rows.length) return null;
   const latest = [...rows].reverse().find((row) => row.state === 'running') ?? rows[rows.length - 1];
   const label = (row: ToolActivity) => row.state === 'running'
-    ? live ? '실행 중' : '연결 종료 · 완료 상태 미수신'
-    : ({ success: '완료', failed: '실패', cancelled: '취소' } as const)[row.state];
+    ? live ? row.cancelRequested ? '중지 요청 중' : '실행 중' : '연결 종료 · 완료 상태 미수신'
+    : ({ success: '완료', failed: '실패', cancelled: '사용자/실행 취소' } as const)[row.state];
   const elapsed = (row: ToolActivity) => duration((row.finishedAt ?? (live ? now : row.updatedAt)) - row.startedAt);
   const lastLine = latest.output.trim().split(/\r?\n/).filter(Boolean).at(-1);
   return (
@@ -30,16 +56,20 @@ export function ToolActivityLog({ rows, live }: { rows: ToolActivity[]; live: bo
         {running ? <span className="ml-2">{latest.lastOutputAt
           ? `최근 출력 ${duration(now - latest.lastOutputAt)} 전`
           : '출력 대기'}</span> : null}
+        {cancelButton(latest)}
+        {errors[latest.id] ? <span role="alert" className="block text-red-300">{errors[latest.id]}</span> : null}
         {lastLine ? <span className="mt-1 block truncate font-mono">{lastLine.slice(-180)}</span> : null}
       </summary>
-      <div className="max-h-80 overflow-auto border-t border-line p-3" aria-label="실행 내역">
+      <div className="border-t border-line p-3" aria-label="실행 내역">
         <p className="mb-2 text-muted">최근 40개 작업 · 작업별 최근 12,000자 · 주요 비밀값 마스킹</p>
         {rows.map((row) => (
           <section key={row.id} className="mb-3 min-w-0" data-tool-state={row.state}>
             <div className={row.state === 'failed' ? 'text-red-300' : 'text-text'}>
               {row.tool} · {label(row)} · {elapsed(row)}
               {row.exitCode !== undefined ? ` · 종료 코드 ${row.exitCode ?? '없음'}` : ''}
+              {cancelButton(row)}
             </div>
+            {errors[row.id] ? <p role="alert" className="text-red-300">{errors[row.id]}</p> : null}
             {row.target ? <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-muted">{row.target}</pre> : null}
             {row.output ? <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-text/90">{row.output}</pre>
               : <p className="mt-1 text-muted">{row.state === 'running' && live ? '출력 대기 중…' : '출력 없음'}</p>}

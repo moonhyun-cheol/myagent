@@ -63,6 +63,8 @@ export interface ToolActivity {
   tool: string;
   target: string;
   state: 'running' | 'success' | 'failed' | 'cancelled';
+  cancelSessionId?: string;
+  cancelRequested?: boolean;
   startedAt: number;
   updatedAt: number;
   finishedAt?: number;

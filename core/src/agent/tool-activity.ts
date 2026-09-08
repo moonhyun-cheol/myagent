@@ -5,6 +5,8 @@ export interface ToolActivity {
   tool: string;
   target: string;
   state: 'running' | 'success' | 'failed' | 'cancelled';
+  cancelSessionId?: string;
+  cancelRequested?: boolean;
   startedAt: number;
   updatedAt: number;
   finishedAt?: number;
@@ -37,11 +39,12 @@ export function redactActivity(text: string): string {
 export function createToolActivity(
   id: string, tool: string, args: Record<string, unknown>,
   emit?: (row: ToolActivity) => void,
+  cancelSessionId?: string,
 ) {
   const target = ['command', 'path', 'query', 'url'].map((key) => args[key]).find((v) => typeof v === 'string') ?? '';
   const row: ToolActivity = {
     id, tool, target: redactActivity(String(target)).slice(0, 600), state: 'running',
-    startedAt: Date.now(), updatedAt: Date.now(), output: '', truncated: false,
+    startedAt: Date.now(), updatedAt: Date.now(), output: '', truncated: false, cancelSessionId,
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
@@ -66,6 +69,12 @@ export function createToolActivity(
   };
   publish();
   return {
+    requestCancel() {
+      if (closed) return;
+      row.cancelRequested = true;
+      if (timer) clearTimeout(timer);
+      publish();
+    },
     output(stream: 'stdout' | 'stderr', chunk: string) {
       if (closed) return;
       row.lastOutputAt = Date.now();
@@ -91,7 +100,8 @@ export function createToolActivity(
       }
       let result: Record<string, unknown> = {};
       try { result = JSON.parse(output); } catch { /* plain-text tool result */ }
-      row.state = cancelled || result.cancelled === true ? 'cancelled'
+      row.state = result.termination_unconfirmed === true ? 'failed'
+        : cancelled || result.cancelled === true ? 'cancelled'
         : !agentToolOutputOk(output) || result.skipped === true ? 'failed' : 'success';
       if (typeof result.exit_code === 'number' || result.exit_code === null) row.exitCode = result.exit_code;
       row.finishedAt = Date.now();

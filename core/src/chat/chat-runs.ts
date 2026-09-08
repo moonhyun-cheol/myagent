@@ -9,6 +9,9 @@ export interface ChatRun {
   controller: AbortController;
   partial: string;
   updatedAt: number;
+  /** Storage hooks installed only after the user message commits. */
+  checkpoint?: (force?: boolean) => void;
+  finalizePersistence?: () => void;
 }
 
 const context = new AsyncLocalStorage<ChatRun>();
@@ -101,13 +104,24 @@ export async function executeChatRun<T>(
     signal?.removeEventListener('abort', abort);
     // Keep admission locked until execution AND stopped-record persistence finish.
     // This callback is deliberately outside the cancelled async context.
-    if (run.controller.signal.aborted) onStopped(run);
-    run.state = run.controller.signal.aborted ? 'stopped' : failed ? 'failed' : 'completed';
-    run.updatedAt = Date.now();
-    run.partial = '';
-    if (active.get(run.sessionId) === run) {
-      active.delete(run.sessionId);
-      endActiveWork(workKey(run.sessionId));
+    try {
+      try {
+        if (run.controller.signal.aborted) onStopped(run);
+      } finally { run.finalizePersistence?.(); }
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      // A disk error must propagate, but must not permanently lock chat admission.
+      run.state = run.controller.signal.aborted ? 'stopped' : failed ? 'failed' : 'completed';
+      run.updatedAt = Date.now();
+      run.partial = '';
+      delete run.checkpoint;
+      delete run.finalizePersistence;
+      if (active.get(run.sessionId) === run) {
+        active.delete(run.sessionId);
+        endActiveWork(workKey(run.sessionId));
+      }
     }
   }
 }

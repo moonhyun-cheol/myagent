@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath, resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
@@ -13,6 +13,8 @@ export interface RunTerminalResult {
   cwd: string;
   /** Set when aborted via AbortSignal / job cancel. */
   cancelled?: boolean;
+  /** Set when a stop was requested but the process-tree kill could not be confirmed. */
+  termination_unconfirmed?: boolean;
 }
 
 /** Active long-running terminal children (agent + UI) for cancel. */
@@ -21,22 +23,71 @@ const activeJobs = new Map<
   {
     child: ChildProcessWithoutNullStreams;
     markCancelled: () => void;
+    terminate: () => void;
     command: string;
     startedAt: number;
   }
 >();
 
+/**
+ * Kill a spawned child AND its descendant process tree.
+ * `child.kill()` only signals the direct child (e.g. powershell.exe); the real
+ * work (npm/node/vite/tsc/git/python) runs as grandchildren that survive as
+ * orphans. On Windows we use `taskkill /T /F`; on POSIX we signal the process
+ * group (requires the child to be spawned detached). Always falls back to
+ * `child.kill()`.
+ */
+export function killProcessTree(child: ChildProcess | null | undefined): void {
+  if (!child) return;
+  const pid = child.pid;
+  if (pid && process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 5000 });
+      return;
+    } catch {
+      /* fall through to direct kill */
+    }
+  } else if (pid && process.platform !== 'win32') {
+    try {
+      process.kill(-pid, 'SIGKILL');
+      return;
+    } catch {
+      /* fall through to direct kill */
+    }
+  }
+  try {
+    child.kill();
+  } catch {
+    /* ignore */
+  }
+}
+
 export function cancelTerminalJob(jobId: string): boolean {
   const row = activeJobs.get(jobId);
   if (!row) return false;
   row.markCancelled();
-  try {
-    row.child.kill();
-  } catch {
-    /* ignore */
-  }
+  row.terminate();
   // Keep until close so finish can read cancelled; re-list hides after delete in finish.
   return true;
+}
+
+/**
+ * Cancel EVERY active terminal job belonging to one agent session.
+ * The stop button must kill the whole session, but per-job ids carry a
+ * `_<toolCallId>` suffix (`agent_<sessionId>_<id>`), so an exact-match cancel
+ * on `agent_<sessionId>` never hits anything. Match by prefix instead.
+ */
+export function cancelTerminalJobsForSession(sessionId: string): number {
+  const sid = String(sessionId || '').trim();
+  if (!sid) return 0;
+  const prefix = `agent_${sid}`;
+  let cancelled = 0;
+  for (const id of [...activeJobs.keys()]) {
+    if (id === prefix || id.startsWith(`${prefix}_`)) {
+      if (cancelTerminalJob(id)) cancelled += 1;
+    }
+  }
+  return cancelled;
 }
 
 export function listActiveTerminalJobIds(): string[] {
@@ -300,6 +351,9 @@ export function runTerminalCommandAsync(
     let settled = false;
     let timedOut = false;
     let cancelled = false;
+    let stopping = false;
+    let stopTimer: ReturnType<typeof setTimeout> | undefined;
+    let terminationUnconfirmed = false;
 
     const child = spawn(
       'powershell.exe',
@@ -312,6 +366,7 @@ export function runTerminalCommandAsync(
     ) as ChildProcessWithoutNullStreams;
     activeJobs.set(jobId, {
       child,
+      terminate: () => terminate(),
       command: effectiveCommand.slice(0, 500),
       startedAt: Date.now(),
       markCancelled: () => {
@@ -324,6 +379,7 @@ export function runTerminalCommandAsync(
       settled = true;
       activeJobs.delete(jobId);
       clearTimeout(timer);
+      if (stopTimer) clearTimeout(stopTimer);
       opts?.signal?.removeEventListener('abort', onAbort);
       const combined = [stdoutRaw, stderrRaw, errMsg].filter(Boolean).join('\n');
       const { text: combinedOut, truncated } = truncateOutput(combined);
@@ -336,26 +392,38 @@ export function runTerminalCommandAsync(
         command: effectiveCommand,
         cwd,
         cancelled: cancelled || undefined,
+        termination_unconfirmed: terminationUnconfirmed || undefined,
       });
     };
 
+    const terminate = () => {
+      if (stopping || settled) return;
+      stopping = true;
+      // Watchdog: if the tree does not close after a stop request, report it as
+      // unconfirmed so the agent never assumes the work actually stopped.
+      stopTimer = setTimeout(() => {
+        terminationUnconfirmed = true;
+        finish(null, 'ERROR: termination unconfirmed; execution may still be running. Do not retry or start conflicting work.');
+      }, 5000);
+      // Kill the full child process tree, not just the powershell shell owner.
+      if (process.platform === 'win32' && child.pid) {
+        const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+        killer.on('error', () => { /* watchdog reports unconfirmed termination */ });
+      } else if (child.pid && process.platform !== 'win32') {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill(); } catch { /* watchdog reports unconfirmed termination */ } }
+      } else {
+        try { child.kill(); } catch { /* watchdog reports unconfirmed termination */ }
+      }
+    };
     const onAbort = () => {
       cancelled = true;
-      try {
-        child.kill();
-      } catch {
-        /* ignore */
-      }
+      terminate();
     };
     opts?.signal?.addEventListener('abort', onAbort, { once: true });
 
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        child.kill();
-      } catch {
-        /* ignore */
-      }
+      terminate();
     }, timeoutMs);
 
     child.stdout.setEncoding('utf8');

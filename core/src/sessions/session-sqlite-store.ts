@@ -1,10 +1,17 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
 import type { SessionMessage, SessionRecord, SessionSummary } from './types.js';
 
 type Row = { body: string; seq: number };
+type DraftRow = { session_id: string; run_id: string; owner_pid: number; body: string };
+
+function processIsAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
 export interface MessagePage {
   messages: SessionMessage[];
   /** Exclusive sequence cursor, scoped to this session. */
@@ -22,9 +29,10 @@ export class SessionSqliteStore {
     mkdirSync(dir, { recursive: true });
     this.withDb((db) => {
       const version = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
-      if (version > 1) throw new Error('SESSION_DATABASE_VERSION_UNSUPPORTED');
-      db.exec(`
-        PRAGMA journal_mode = WAL;
+      if (version > 2) throw new Error('SESSION_DATABASE_VERSION_UNSUPPORTED');
+      if (version > 0 && version < 2) this.backup(db, `before-v${version}-to-v2-${randomUUID()}`);
+      db.exec('PRAGMA journal_mode = WAL;');
+      this.transaction(db, () => db.exec(`
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, body TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS messages (
           session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -32,8 +40,13 @@ export class SessionSqliteStore {
           PRIMARY KEY (session_id, seq)
         );
         CREATE TABLE IF NOT EXISTS legacy_imports (filename TEXT PRIMARY KEY);
-        PRAGMA user_version = 1;
-      `);
+        CREATE TABLE IF NOT EXISTS assistant_drafts (
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL, owner_pid INTEGER NOT NULL, body TEXT NOT NULL,
+          PRIMARY KEY (session_id, run_id)
+        );
+        PRAGMA user_version = 2;
+      `));
       // Fail closed: a corrupt source must not silently disappear from the live set (or GC).
       // Each file and its marker commit together; a restart resumes without duplicates.
       for (const filename of readdirSync(dir).filter((name) => name.endsWith('.json'))) {
@@ -53,7 +66,38 @@ export class SessionSqliteStore {
           }
         });
       }
+      this.backup(db, `daily-${new Date().toISOString().slice(0, 10)}`);
+      this.transaction(db, () => {
+        const drafts = db.prepare('SELECT * FROM assistant_drafts').all() as unknown as DraftRow[];
+        for (const draft of drafts) {
+          // A second store/process must never recover a still-running owner's work.
+          if (!processIsAlive(draft.owner_pid)) this.recoverDraft(db, draft);
+        }
+      });
     });
+  }
+
+  /** Consistent WAL-aware snapshot; never copy only the live .sqlite file. Fail closed on backup errors. */
+  private backup(db: DatabaseSync, label: string): void {
+    const dir = path.join(this.dir, 'backups');
+    const target = path.join(dir, `sessions-${label}.sqlite`);
+    assertWritablePath(target, this.root);
+    mkdirSync(dir, { recursive: true });
+    if (existsSync(target)) return;
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      db.prepare('VACUUM INTO ?').run(temporary);
+      const snapshot = new DatabaseSync(temporary, { readOnly: true });
+      try {
+        if ((snapshot.prepare('PRAGMA quick_check').get() as { quick_check: string }).quick_check !== 'ok') {
+          throw new Error('SESSION_BACKUP_INTEGRITY_FAILED');
+        }
+      } finally { snapshot.close(); }
+      renameSync(temporary, target);
+    } finally { rmSync(temporary, { force: true }); }
+    // Daily snapshots rotate only after a verified replacement. Migration backups are retained.
+    const daily = readdirSync(dir).filter((name) => /^sessions-daily-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)).sort().reverse();
+    for (const name of daily.slice(7)) rmSync(path.join(dir, name));
   }
 
   // Operation-scoped handles avoid leaked locks and allow offline backup after shutdown.
@@ -64,6 +108,23 @@ export class SessionSqliteStore {
       db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = FULL;');
       return run(db);
     } finally { db.close(); }
+  }
+
+  // Pure reads open read-only so they take no write lock and never mutate/spawn
+  // WAL sidecars. Some WAL states (no -shm yet / recovery needed) reject a
+  // read-only open or query; these reads are idempotent, so fall back to the
+  // writable handle rather than fail a load/list/page spuriously.
+  private withDbReadOnly<T>(run: (db: DatabaseSync) => T): T {
+    let db: DatabaseSync | null = null;
+    try {
+      db = new DatabaseSync(this.databasePath, { readOnly: true });
+      try { db.exec('PRAGMA busy_timeout = 5000;'); } catch { /* read-only may reject some pragmas */ }
+      return run(db);
+    } catch {
+      return this.withDb(run);
+    } finally {
+      try { db?.close(); } catch { /* ignore */ }
+    }
   }
 
   private transaction<T>(db: DatabaseSync, run: () => T): T {
@@ -88,7 +149,16 @@ export class SessionSqliteStore {
   }
 
   save(rec: SessionRecord): void {
-    this.withDb((db) => this.transaction(db, () => this.saveRecord(db, rec)));
+    this.withDb((db) => this.transaction(db, () => {
+      this.saveRecord(db, rec);
+      const drafts = db.prepare('SELECT run_id FROM assistant_drafts WHERE session_id = ?').all(rec.id) as { run_id: string }[];
+      for (const { run_id } of drafts) {
+        if (!rec.messages.some((m) => m.role === 'user' && m.run_id === run_id)
+          || rec.messages.some((m) => m.role === 'assistant' && m.run_id === run_id)) {
+          db.prepare('DELETE FROM assistant_drafts WHERE session_id = ? AND run_id = ?').run(rec.id, run_id);
+        }
+      }
+    }));
   }
 
   append(rec: SessionRecord, message: SessionMessage): void {
@@ -99,11 +169,63 @@ export class SessionSqliteStore {
       db.prepare(`INSERT INTO messages(session_id, seq, body)
         SELECT ?, COALESCE(MAX(seq), 0) + 1, ? FROM messages WHERE session_id = ?`)
         .run(rec.id, JSON.stringify(message), rec.id);
+      if (message.run_id) {
+        if (message.role === 'user') {
+          const draft: SessionMessage = { role: 'assistant', content: '', at: message.at,
+            run_id: message.run_id, reply_to_run_id: message.run_id, mode: message.mode };
+          db.prepare('INSERT OR IGNORE INTO assistant_drafts(session_id, run_id, owner_pid, body) VALUES (?, ?, ?, ?)')
+            .run(rec.id, message.run_id, process.pid, JSON.stringify(draft));
+        } else {
+          db.prepare('DELETE FROM assistant_drafts WHERE session_id = ? AND run_id = ?').run(rec.id, message.run_id);
+        }
+      }
     }));
   }
 
+  checkpointDraft(id: string, runId: string, message: SessionMessage): void {
+    // UPDATE only: a delayed token cannot resurrect a completed/deleted/undone turn.
+    this.withDb((db) => {
+      db.prepare('UPDATE assistant_drafts SET body = ? WHERE session_id = ? AND run_id = ? AND owner_pid = ?')
+        .run(JSON.stringify(message), id, runId, process.pid);
+    });
+  }
+
+  finishDraft(id: string, runId: string): void {
+    this.withDb((db) => this.transaction(db, () => {
+      const draft = db.prepare('SELECT * FROM assistant_drafts WHERE session_id = ? AND run_id = ? AND owner_pid = ?')
+        .get(id, runId, process.pid) as DraftRow | undefined;
+      if (draft) this.recoverDraft(db, draft);
+    }));
+  }
+
+  private recoverDraft(db: DatabaseSync, draft: DraftRow): void {
+    const row = db.prepare('SELECT body FROM sessions WHERE id = ?').get(draft.session_id) as { body: string } | undefined;
+    if (row) {
+      const messages = (db.prepare('SELECT body FROM messages WHERE session_id = ? ORDER BY seq').all(draft.session_id) as unknown as Row[])
+        .map((m) => JSON.parse(m.body) as SessionMessage);
+      if (messages.some((m) => m.role === 'user' && m.run_id === draft.run_id)
+        && !messages.some((m) => m.role === 'assistant' && m.run_id === draft.run_id)) {
+        const partial = JSON.parse(draft.body) as SessionMessage;
+        const recovered: SessionMessage = { ...partial, role: 'assistant', status: 'stopped', model_exclude: true,
+          content: partial.content.trim() || '(응답 중단 — 저장된 본문 없음)',
+          ...(partial.tool_activity ? { tool_activity: partial.tool_activity.map((activity) => activity.state === 'running'
+            ? { ...activity, state: 'cancelled' as const, updatedAt: Date.now(), finishedAt: Date.now(),
+                output: `${activity.output}\n[실행 기록 중단: 실제 작업 결과는 별도 확인이 필요합니다.]`.slice(-12_000) }
+            : activity) } : {}),
+          application_notice: { kind: 'failure', title: '중단된 응답 복구',
+            message: '응답이 완료되지 않아 마지막 저장 내용을 복구했습니다. 도구 작업은 자동 재실행하지 않습니다.' } };
+        const rec = { ...JSON.parse(row.body), messages: [...messages, recovered] } as SessionRecord;
+        delete rec.responses_state;
+        delete rec.responses_states;
+        rec.updated_at = new Date().toISOString();
+        this.saveRecord(db, rec);
+      }
+    }
+    db.prepare('DELETE FROM assistant_drafts WHERE session_id = ? AND run_id = ?').run(draft.session_id, draft.run_id);
+  }
+
   load(id: string): SessionRecord | null {
-    return this.withDb((db) => {
+    return this.withDbReadOnly((db) => {
       // A read transaction keeps metadata and message rows from different commits apart.
       db.exec('BEGIN');
       try {
@@ -116,7 +238,7 @@ export class SessionSqliteStore {
   }
 
   list(): SessionSummary[] {
-    return this.withDb((db) => {
+    return this.withDbReadOnly((db) => {
       const rows = db.prepare(`SELECT s.body, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS count
         FROM sessions s`).all() as unknown as { body: string; count: number }[];
       return rows.map((row) => {
@@ -141,7 +263,7 @@ export class SessionSqliteStore {
       || (before !== undefined && (!Number.isSafeInteger(before) || before < 1))) {
       throw new Error('INVALID_MESSAGE_PAGE');
     }
-    return this.withDb((db) => {
+    return this.withDbReadOnly((db) => {
       db.exec('BEGIN');
       try {
         if (!db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(id)) return null;
@@ -157,7 +279,7 @@ export class SessionSqliteStore {
 
   recent(id: string, limit: number): SessionMessage[] {
     if (!Number.isSafeInteger(limit) || limit <= 0) return [];
-    return this.withDb((db) => {
+    return this.withDbReadOnly((db) => {
       const rows = db.prepare('SELECT body FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
         .all(id, limit) as unknown as Row[];
       return rows.reverse().map((row) => JSON.parse(row.body) as SessionMessage);

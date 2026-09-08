@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
-import { runTerminalCommandAsync, type RunTerminalResult } from './run-terminal.js';
+import { runTerminalCommandAsync, killProcessTree, type RunTerminalResult } from './run-terminal.js';
 import { detectTestRunner, resolvePytestCandidates, runWorkspaceTests } from './run-tests.js';
 import { detectDiagnostics, runWorkspaceDiagnostics } from './run-diagnostics.js';
 
@@ -19,7 +19,7 @@ async function runPython(workspaceRoot: string, file: string, args: string[], op
   return new Promise((resolve) => {
     let stdout = '', stderr = '', truncated = false, settled = false, timedOut = false;
     const child = spawn(file, args, { cwd, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    const stop = () => { child.kill(); };
+    const stop = () => { killProcessTree(child); };
     const timer = setTimeout(() => { timedOut = true; stop(); }, opts.timeoutMs ?? 180_000);
     opts.signal?.addEventListener('abort', stop, { once: true });
     const finish = (code: number | null, error?: string) => {

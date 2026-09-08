@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { assertWritablePath } from '../../security/path-guard.js';
 import type { EmbeddingChunkRecord, EmbeddingEngine, EmbeddingIndexFile } from './agent-embedding-index.js';
 
 export type EmbeddingStoreKind = 'sqlite' | 'json';
@@ -55,8 +56,14 @@ export function decodeEmbeddingVector(buf: Buffer, dim: number): number[] {
 function openDb(dbPath: string): DatabaseSync {
   mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
+  // Concurrency hygiene (mirror of session-sqlite-store): WAL for reader/writer
+  // overlap, busy_timeout so a concurrent build/load waits instead of throwing
+  // SQLITE_BUSY (which load would otherwise swallow as "no index" -> full rebuild).
+  // Embeddings are regenerable, so synchronous=NORMAL is sufficient (FULL not needed).
   db.exec(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
+    PRAGMA synchronous = NORMAL;
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -75,6 +82,20 @@ function openDb(dbPath: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);
   `);
+  return db;
+}
+
+// Read-only handle for load(): must not mutate schema or spawn WAL sidecars.
+// Only busy_timeout is set so a concurrent writer's lock is waited on rather
+// than surfacing SQLITE_BUSY. Some WAL recovery states reject a read-only
+// open; the caller falls back to a writable handle in that case.
+function openDbReadOnly(dbPath: string): DatabaseSync {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    db.exec('PRAGMA busy_timeout = 5000;');
+  } catch {
+    /* read-only connections may reject some pragmas; safe to ignore */
+  }
   return db;
 }
 
@@ -98,10 +119,17 @@ export function loadEmbeddingIndexFromSqlite(
   opts?: { expectDim?: number; expectVersion?: number },
 ): EmbeddingIndexFile | null {
   const dbPath = embeddingSqlitePath(cqrRoot, workspaceRoot, kind);
+  assertWritablePath(dbPath, cqrRoot);
   if (!existsSync(dbPath)) return null;
   let db: DatabaseSync | null = null;
   try {
-    db = openDb(dbPath);
+    try {
+      db = openDbReadOnly(dbPath);
+    } catch {
+      // WAL recovery / shm creation can require a writable handle. Fall back so
+      // a transient read-only rejection does not trigger a needless full rebuild.
+      db = openDb(dbPath);
+    }
     if (metaGet(db, 'schema') !== SCHEMA_VERSION) return null;
     const version = Number(metaGet(db, 'version') ?? '');
     if (opts?.expectVersion != null && version !== opts.expectVersion) return null;
@@ -152,7 +180,16 @@ export function loadEmbeddingIndexFromSqlite(
       model,
       chunks,
     };
-  } catch {
+  } catch (e) {
+    // Reaching here means a genuine open/read failure (disk error, partial
+    // write, corrupt db) rather than a schema/version mismatch (those are
+    // early returns above). Surface it instead of masquerading as "no index",
+    // so a repeated failure is diagnosable rather than an endless silent rebuild.
+    console.warn(
+      `[embedding-sqlite] failed to read index at ${dbPath}; treating as absent and rebuilding: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
     return null;
   } finally {
     try {
@@ -169,9 +206,12 @@ export function saveEmbeddingIndexToSqlite(
   kind: 'local' | 'cloud',
 ): string {
   const dbPath = embeddingSqlitePath(cqrRoot, index.workspace, kind);
+  assertWritablePath(dbPath, cqrRoot);
   const db = openDb(dbPath);
   try {
-    db.exec('BEGIN');
+    // IMMEDIATE: acquire the write lock up front to avoid a deferred->write lock
+    // upgrade deadlock/BUSY when two builds race.
+    db.exec('BEGIN IMMEDIATE');
     db.exec('DELETE FROM chunks');
     metaSet(db, 'schema', SCHEMA_VERSION);
     metaSet(db, 'version', String(index.version));
@@ -203,6 +243,13 @@ export function saveEmbeddingIndexToSqlite(
       );
     }
     db.exec('COMMIT');
+    // Fold the WAL back into the main db so the -wal sidecar does not grow
+    // unbounded across repeated rebuilds (each rebuild rewrites every chunk).
+    try {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch {
+      /* checkpoint is best-effort disk hygiene; never fail the save */
+    }
     return dbPath;
   } catch (e) {
     try {
