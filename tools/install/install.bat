@@ -24,7 +24,7 @@ echo %~dp0| findstr /I /C:"\\tsclient\\" >nul && set "NEED_LOCAL=1"
 for /f "tokens=2 delims==" %%A in ('wmic logicaldisk where "DeviceID='%~d0'" get DriveType /value 2^>nul') do (
   if "%%A"=="4" set "NEED_LOCAL=1"
 )
-REM wmic is missing on some Windows 11 PCs; catch mapped drives (Z: -> \\nas\...) anyway.
+REM wmic is missing on some Windows 11 PCs; catch mapped drives with a network DisplayRoot too.
 if not defined NEED_LOCAL (
   set "CQR_DP0=%~dp0"
   set "CQR_D0=%~d0"
