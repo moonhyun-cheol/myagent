@@ -12,12 +12,15 @@ import { hasNasWriteConsent, buildNasWriteConsent } from '../security/nas-write-
 import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
 import {
   cancelTerminalJob,
+  cancelTerminalJobsForSession,
   listActiveTerminalJobIds,
   listActiveTerminalJobs,
   runTerminalCommand,
   runTerminalCommandAsync,
 } from '../agent/run-terminal.js';
 import { rollbackWorkspaceCheckpoint, previewCheckpointDiff } from '../agent/agent-checkpoint.js';
+import { documentRoute } from '../documents/document-route.js';
+import { cleanupSessionDocuments } from '../documents/document-store.js';
 import {
   formatUserMcpServersJson,
   loadUserMcpConfig,
@@ -997,6 +1000,22 @@ export async function dispatchApiRequest(
         }
       }
 
+      if (method === 'POST' && url.pathname === '/fs/tool-execution/cancel') {
+        license.assertFeature('chat');
+        let cancelBody: { id?: string; session_id?: string };
+        try {
+          cancelBody = JSON.parse(await readBody(req)) as { id?: string; session_id?: string };
+        } catch {
+          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
+        }
+        if (!cancelBody || typeof cancelBody.id !== 'string' || typeof cancelBody.session_id !== 'string') {
+          return sendJson(res, 400, { error: 'INVALID_CANCEL_TARGET' });
+        }
+        const { cancelToolExecution } = await import('../agent/tool-execution-cancel.js');
+        const accepted = cancelToolExecution(cancelBody.id, cancelBody.session_id);
+        return sendJson(res, accepted ? 202 : 409, { ok: accepted, requested: accepted });
+      }
+
       if (method === 'POST' && url.pathname === '/fs/run-terminal/cancel') {
         license.assertFeature('chat');
         let body: { job_id?: string; session_id?: string };
@@ -1009,7 +1028,9 @@ export async function dispatchApiRequest(
         const sessionId = String(body.session_id ?? '').trim();
         let cancelled = false;
         if (jobId) cancelled = cancelTerminalJob(jobId) || cancelled;
-        if (sessionId) cancelled = cancelTerminalJob(`agent_${sessionId}`) || cancelled;
+        // Stop button = whole session: job ids are `agent_<sessionId>_<toolCallId>`,
+        // so exact-match on `agent_<sessionId>` never hits. Cancel by session prefix.
+        if (sessionId) cancelled = cancelTerminalJobsForSession(sessionId) > 0 || cancelled;
         return sendJson(res, 200, {
           ok: true,
           cancelled,
@@ -1025,6 +1046,23 @@ export async function dispatchApiRequest(
           active: listActiveTerminalJobIds(),
           jobs: listActiveTerminalJobs(),
         });
+      }
+
+      if (url.pathname === '/workspace/documents' || url.pathname.startsWith('/workspace/documents/')) {
+        license.assertFeature('chat');
+        await documentRoute(
+          req,
+          res,
+          url,
+          method,
+          (id) => Boolean(sessionStore.load(id)),
+          undefined,
+          {
+            projectForSession: (id) => sessionStore.list().find((s) => s.id === id)?.project_id ?? null,
+            sessions: () => sessionStore.list().map((s) => ({ id: s.id, title: s.title })),
+          },
+        );
+        return;
       }
 
       if (method === 'POST' && url.pathname === '/workspace/checkpoint/rollback') {
@@ -2789,6 +2827,13 @@ export async function dispatchApiRequest(
           license.assertWritable();
           license.assertFeature('chat');
           const ok = sessionStore.delete(sid);
+          if (ok) {
+            try {
+              cleanupSessionDocuments(sid);
+            } catch {
+              // Document cleanup is best-effort; session deletion already succeeded.
+            }
+          }
           return sendJson(res, ok ? 200 : 404, { ok });
         }
       }

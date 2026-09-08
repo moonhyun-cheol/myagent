@@ -1,11 +1,12 @@
 import {
   CheckSquareOffset,
   ClockCounterClockwise,
+  FileText,
   FolderOpen,
   type Icon,
 } from '@phosphor-icons/react';
 
-export type WorkspaceObjectTabId = 'recent' | 'files' | 'todo';
+export type WorkspaceObjectTabId = 'recent' | 'files' | 'todo' | 'documents';
 
 export interface WorkspaceObjectTabDefinition {
   id: WorkspaceObjectTabId;
@@ -16,6 +17,12 @@ export interface WorkspaceObjectTabDefinition {
 
 /** 작업 오브젝트 패널의 상위 탭은 이 레지스트리에서만 추가·정렬한다. */
 export const WORKSPACE_OBJECT_TABS: readonly WorkspaceObjectTabDefinition[] = [
+  {
+    id: 'documents',
+    label: '문서',
+    description: '이 챗의 문서를 렌더링 상태에서 편집하고 에이전트와 검토합니다.',
+    icon: FileText,
+  },
   {
     id: 'recent',
     label: '최근 작업물',

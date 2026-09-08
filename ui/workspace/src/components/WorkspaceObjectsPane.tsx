@@ -14,6 +14,7 @@ import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociatio
 import type { WorkspaceAsset } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { AssetExplorer } from './AssetExplorer';
+import { DocumentPane } from './DocumentPane';
 import {
   getWorkspaceObjectTab,
   WORKSPACE_OBJECT_TABS,
@@ -137,6 +138,8 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
           </section>
           <section><div className="flex items-center justify-between px-3 py-2.5"><div className="flex items-center gap-1.5"><ImageIcon size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">변경·생성 파일</h3></div><span className="text-[10px] text-muted">{workAssets.length}</span></div>{workAssets.length === 0 ? <EmptyState>아직 이 세션의 결과물이 없습니다.</EmptyState> : workAssets.map((asset) => <RecentAsset key={asset.id} asset={asset} showDownloadAction={showDownloadActions} />)}</section>
         </> : null}
+
+        {activeTab === 'documents' ? <DocumentPane /> : null}
 
         {activeTab === 'files' ? (filesRoot ? <AssetExplorer /> : <EmptyState>파일을 보려면 작업 폴더를 연결하세요.</EmptyState>) : null}
 
