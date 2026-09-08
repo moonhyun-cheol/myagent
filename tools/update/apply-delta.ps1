@@ -45,17 +45,15 @@ if (-not (Test-Path $ZipPath)) {
 
 function Get-MyAgentPidsUnderRoot {
   param([string]$InstallRoot)
+  # Only a proven executable path beneath this installation can be stopped.
+  # Include the directory boundary; unknown paths fail closed.
+  $prefix = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
   $pids = @()
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.Name -ieq 'MYAgent.exe'
   } | ForEach-Object {
-    $cmd = [string]$_.CommandLine
     $exe = [string]$_.ExecutablePath
-    $hit =
-      ($exe -and $exe.StartsWith($InstallRoot, [StringComparison]::OrdinalIgnoreCase)) -or
-      ($cmd -and $cmd.IndexOf($InstallRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0)
-    if ($hit -or (-not $exe -and -not $cmd)) {
-      # No path info: still stop - delta cannot replace WebView2Loader while MY Agent holds it.
+    if ($exe -and $exe.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
       $pids += $_.ProcessId
     }
   }
@@ -64,14 +62,7 @@ function Get-MyAgentPidsUnderRoot {
 
 function Stop-MyAgentForDelta {
   param([string]$InstallRoot)
-  $pids = Get-MyAgentPidsUnderRoot -InstallRoot $InstallRoot
-  if (-not $pids.Count) {
-    # Fallback: either legacy or product entry process (path often blank under some hosts)
-    $pids = @(
-      Get-Process -Name 'MYAgent' -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty Id
-    )
-  }
+  $pids = @(Get-MyAgentPidsUnderRoot -InstallRoot $InstallRoot)
   if (-not $pids.Count) { return $false }
   Write-Host ("Stopping MYAgent.exe (pid {0}) so the application can be updated..." -f ($pids -join ', '))
   foreach ($procId in $pids) {

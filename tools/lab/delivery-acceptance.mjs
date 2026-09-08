@@ -340,6 +340,7 @@ async function main() {
   // Static / offline suite
   const suite = [
     { script: 'verify-delta-apply.mjs', id: 'delta_apply_script' },
+    { script: 'verify-delta-process-scope.mjs', id: 'delta_process_scope' },
     { script: 'verify-harness-goldens.mjs', id: 'harness_goldens' },
     { script: 'verify-embedding-cold.mjs', id: 'embedding_cold' },
     { script: 'verify-skills.mjs', id: 'skills' },

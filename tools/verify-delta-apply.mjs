@@ -18,6 +18,18 @@ assert.ok(existsSync(publishDelta), 'publish-delta.mjs missing');
 
 const ps1 = readFileSync(applyPs1, 'utf8');
 assert.match(ps1, /Stop-MyAgentForDelta/, 'must stop MYAgent before bin replace');
+assert.match(ps1, /Get-MyAgentPidsUnderRoot/, 'must resolve PIDs under the install root');
+assert.match(ps1, /DirectorySeparatorChar/, 'must use a directory-boundary prefix');
+assert.doesNotMatch(
+  ps1,
+  /Get-Process\s+-Name\s+['"]MYAgent['"]/,
+  'must not fall back to unscoped Get-Process -Name MYAgent',
+);
+assert.doesNotMatch(
+  ps1,
+  /CommandLine/,
+  'must not treat CommandLine as an install-root hit',
+);
 assert.match(ps1, /robocopy/i, 'must prefer robocopy overwrite over wipe');
 assert.match(ps1, /\$failed/, 'must collect per-item failures');
 assert.doesNotMatch(
