@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-07T07:41:37.175Z",
+  "generated_at": "2026-09-08T05:14:54.856Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -56,7 +56,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 104,
+    "route_count": 115,
     "routes": [
       {
         "method": "GET",
@@ -274,6 +274,11 @@
         "match": "exact"
       },
       {
+        "method": "POST",
+        "path": "/fs/tool-execution/cancel",
+        "match": "exact"
+      },
+      {
         "method": "GET",
         "path": "/fs/workspace-file",
         "match": "exact"
@@ -342,6 +347,26 @@
         "method": "POST",
         "path": "/memory",
         "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/memory",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/memory/",
+        "match": "prefix"
+      },
+      {
+        "method": "POST",
+        "path": "/memory/",
+        "match": "prefix"
+      },
+      {
+        "method": "PUT",
+        "path": "/memory/",
+        "match": "prefix"
       },
       {
         "method": "POST",
@@ -577,6 +602,36 @@
         "method": "POST",
         "path": "/workspace/checkpoint/rollback",
         "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace/documents",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/workspace/documents",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/workspace/documents",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace/documents/",
+        "match": "prefix"
+      },
+      {
+        "method": "POST",
+        "path": "/workspace/documents/",
+        "match": "prefix"
+      },
+      {
+        "method": "PUT",
+        "path": "/workspace/documents/",
+        "match": "prefix"
       }
     ]
   }

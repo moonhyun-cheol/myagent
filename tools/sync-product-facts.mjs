@@ -60,6 +60,15 @@ for (const m of dispatch.matchAll(
     addRoute(method, p[1], 'prefix');
   }
 }
+// Pathname-only families: method is decided inside the route module (documents).
+for (const m of dispatch.matchAll(
+  /url\.pathname === '([^']+)' \|\| url\.pathname\.startsWith\('([^']+)'\)/g,
+)) {
+  for (const method of ['GET', 'POST', 'PUT']) {
+    addRoute(method, m[1], 'exact');
+    addRoute(method, m[2], 'prefix');
+  }
+}
 
 routes.sort((a, b) => a.path.localeCompare(b.path) || a.method.localeCompare(b.method));
 

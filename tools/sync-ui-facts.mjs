@@ -77,6 +77,22 @@ const facts = {
       'ui/workspace/src/store/workspaceStore.ts',
       'core/config/defaults/document-scratch.json',
     ],
+    collaborative_document: [
+      'ui/workspace/src/components/DocumentPane.tsx',
+      'ui/workspace/src/components/DocumentPortability.tsx',
+      'ui/workspace/src/lib/documentMarkdown.ts',
+      'ui/workspace/src/lib/documentNotes.ts',
+      'core/src/documents/document-store.ts',
+      'core/src/documents/document-route.ts',
+    ],
+    chat_markdown: [
+      'ui/workspace/src/components/MessageMarkdown.tsx',
+      'ui/workspace/src/components/ChatPane.tsx',
+    ],
+    chat_history_navigation: [
+      'ui/workspace/src/lib/chatHistoryNavigation.ts',
+      'ui/workspace/src/components/ChatPane.tsx',
+    ],
   },
   work_kit_launcher: {
     shell: existsSync(path.join(root, 'shell/WorkKitLauncher/MainWindow.xaml'))

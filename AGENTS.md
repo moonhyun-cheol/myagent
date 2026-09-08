@@ -36,7 +36,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 - **Document AI memo (R-620):** Preview「문서」→ 선택 → AI에게 묻기. Answer stays in floating AI memo (draggable; collapse → red corner reopen). **Not** ChatPane bubbles. Call uses ask + `uiHidden` / `documentMemo.ts`.
 - **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
 - **Sidebar / skills (update 38):** resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
-- **Update 43:** CQR_PA feature port (tool activity, SQLite sessions, memory batch, ledger TODO, automation feed focus); skill/reasoning/browser visibility; Astra explicit reasoning.
+- **Update 43:** CQR_PA feature port (tool activity, SQLite sessions, memory batch, ledger TODO, automation feed focus); per-execution subtask cancellation; additive collaborative Document workspace; safe message Markdown; chat-history keyboard navigation; skill/reasoning/browser visibility; Astra explicit reasoning. Delta apply stops only `MYAgent.exe` whose executable path is under that install root.
 - **Update 42:** Organization Features; idle gate `session_busy`/`workspace_busy`; Automaton progress-only status text.
 - **Update 41:** strip debug telemetry; model-aware Responses summary; sidebar N/D shortcuts; auto follows visible default provider; tools-plane cleanup.
 - **Sidebar tree icons (update 39):** 개인 작업=`ChatTeardropText`, 워크스페이스=`HardDrives`, 프로젝트=`TreeStructure`, 하위 폴더=`FolderSimple`.
@@ -53,6 +53,8 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 7. **Index first** — repo map / search before guessing paths.
 8. **No rulebook in product tree** — no `rulebook/` folder, no delta zip rulebook (ADR-RE-008).
 9. **Document memo ≠ chat** — memo Q&A must not appear as chat bubbles (R-620).
+10. **Chat rendering/navigation** — user/assistant text uses safe Markdown; message action payloads remain exact source text. Background keyboard navigation must ignore composer inputs, buttons, links, and other editable controls.
+11. **Per-execution cancel** — stop buttons cover `run_terminal`/`run_tests`/`run_diagnostics` only. A cancel must not abort the parent chat or sibling executions. File side effects are not rolled back.
 
 Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wins** (ADR-RE-002).
 
@@ -63,5 +65,7 @@ Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wi
 - Evidence/TODO: `agent-evidence-store.ts`, `agent-todo-ledger.ts`, `agent-context-assembler.ts`, `agent-continuation-snapshot.ts`
 - Tools: `core/src/agent/agent-tool-definitions.ts`, `apply-patch.ts`
 - Document AI memo: `ui/workspace/src/components/MarkdownDocument.tsx`, `lib/documentMemo.ts`
+- Collaborative Document workspace: `ui/workspace/src/components/DocumentPane.tsx`, `core/src/documents/`
+- Chat Markdown/navigation: `ui/workspace/src/components/MessageMarkdown.tsx`, `lib/chatHistoryNavigation.ts`
 - Shell updates: `shell/CqrPa.Shell/UpdatePollingService.cs`, `WorkEnvironmentUpdatePollingService.cs`
 - Update gate: `core/src/system/update-gate.ts`

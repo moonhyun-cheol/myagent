@@ -70,15 +70,12 @@ try {
     process.exit(1);
   }
 
-  const ro = await fetch(`http://127.0.0.1:${port}/attachments`, {
-    method: 'POST',
-    headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-    body,
-  });
+  // License files are retired: removing the legacy file must not put a new server
+  // into a read-only mode. Product access remains fully writable.
   if (existsSync(lic)) unlinkSync(lic);
   const srv2 = await createApiServer(10295);
   await new Promise((r) => srv2.listen(10295, '127.0.0.1', r));
-  const ro2 = await fetch('http://127.0.0.1:10295/attachments', {
+  const licenseFree = await fetch('http://127.0.0.1:10295/attachments', {
     method: 'POST',
     headers: {
       'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -87,8 +84,8 @@ try {
     body,
   });
   srv2.close();
-  if (ro2.status !== 403) {
-    console.error('read-only upload should 403, got', ro2.status);
+  if (licenseFree.status !== 201) {
+    console.error('license-free upload should 201, got', licenseFree.status);
     process.exit(1);
   }
 
