@@ -1010,7 +1010,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         if (
           state.mutatedPathsThisRun.size > 0
           && (
-            execCall.function.name === 'run_tests'
+            execCall.function.name === 'read_file'
+            || execCall.function.name === 'git_diff'
+            || execCall.function.name === 'run_diagnostics'
+            || execCall.function.name === 'run_tests'
             || execCall.function.name === 'run_terminal'
             || execCall.function.name.startsWith('browser_')
           )

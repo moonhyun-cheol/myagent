@@ -77,7 +77,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'active_task',
       description:
-        'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus a successful model-requested Acceptance tool (tests/terminal/browser), and cancel/replace when the user changes direction. Automatic TypeScript diagnostics do not complete a task. Never infer a task from keywords.',
+        'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus successful model-requested outcome-relevant verification, and cancel/replace when the user changes direction. Verification may be content review, diagnostics, targeted tests, terminal execution, or browser checks as appropriate. Never infer a task from keywords.',
       parameters: {
         type: 'object',
         properties: {

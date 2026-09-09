@@ -160,24 +160,37 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
 }
 
 function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFeedItem; highlighted?: boolean }) {
-  const error = item.kind === 'error';
+  const outcome = item.outcome ?? (item.kind === 'error' ? 'failed' : 'success');
+  const error = item.kind === 'error' || outcome === 'failed' || outcome === 'blocked';
+  const warning = outcome === 'warning';
   const status = item.kind === 'status';
+  const label = item.kind === 'error'
+    ? '실행 오류'
+    : outcome === 'blocked'
+      ? '조치 필요 · 차단됨'
+      : outcome === 'failed'
+        ? '결과상 실패'
+        : warning
+          ? '확인 필요'
+          : status
+            ? '진행 알림'
+            : '정상 완료';
   return (
     <article
       data-feed-item-id={item.id}
       tabIndex={highlighted ? -1 : undefined}
-      className={`rounded-2xl border bg-white/80 p-5 shadow-sm outline-none transition ${highlighted ? 'border-accent ring-2 ring-accent/35' : error ? 'border-red-200' : 'border-line'}`}
+      className={`rounded-2xl border bg-white/80 p-5 shadow-sm outline-none transition ${highlighted ? 'border-accent ring-2 ring-accent/35' : error ? 'border-red-200' : warning ? 'border-amber-200' : 'border-line'}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${error ? 'bg-red-600' : status ? 'bg-sky-600' : 'bg-emerald-600'}`}>
-            {error ? <WarningCircle size={17} weight="fill" /> : status ? <Clock size={17} weight="bold" /> : <CheckCircle size={17} weight="fill" />}
+          <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${error ? 'bg-red-600' : warning ? 'bg-amber-500' : status ? 'bg-sky-600' : 'bg-emerald-600'}`}>
+            {error || warning ? <WarningCircle size={17} weight="fill" /> : status ? <Clock size={17} weight="bold" /> : <CheckCircle size={17} weight="fill" />}
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-text">{item.title}</h3>
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${error ? 'bg-red-100 text-red-700' : status ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                {error ? '실행 오류' : status ? '진행 알림' : '실행 완료'}
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${error ? 'bg-red-100 text-red-700' : warning ? 'bg-amber-100 text-amber-800' : status ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {label}
               </span>
             </div>
             <time className="mt-1 block text-[11px] text-muted">{formatFeedTime(item.created_at)}</time>
@@ -185,6 +198,15 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
         </div>
       </div>
       <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-text/90">{item.message}</p>
+      {error && item.kind !== 'error' ? (
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-5 text-red-700">
+          실행은 종료됐지만 요청한 결과는 달성되지 않았습니다. 위 실패·차단 사유를 확인한 뒤 권한, 입력 또는 실행 조건을 보완해 다시 실행하세요.
+        </p>
+      ) : warning ? (
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
+          실행은 종료됐지만 일부 결과에 확인이 필요합니다. 내용을 검토한 뒤 누락된 조건을 보완해 다시 실행하세요.
+        </p>
+      ) : null}
       {item.attachments.filter(isDownloadable).length > 0 ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {item.attachments.filter(isDownloadable).map((attachment) => (

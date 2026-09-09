@@ -2,6 +2,7 @@ export type SchedulerTriggerType = 'time' | 'sequence' | 'on_action' | 'conditio
 export type SchedulerMisfirePolicy = 'skip' | 'run_once';
 export type SchedulerRunSource = 'scheduled' | 'manual' | 'action';
 export type SchedulerRunStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SchedulerContentOutcome = 'success' | 'warning' | 'failed' | 'blocked';
 
 export interface SchedulerTrigger {
   type: SchedulerTriggerType;
@@ -36,6 +37,7 @@ export interface SchedulerRun {
   task_id: string;
   source: SchedulerRunSource;
   status: SchedulerRunStatus;
+  outcome?: SchedulerContentOutcome | null;
   started_at: string | null;
   finished_at: string | null;
   result_text: string | null;
@@ -55,6 +57,7 @@ export interface SchedulerFeedItem {
   run_id: string | null;
   task_id: string;
   kind: 'result' | 'error' | 'status';
+  outcome?: SchedulerContentOutcome;
   title: string;
   message: string;
   attachments: SchedulerFeedAttachment[];

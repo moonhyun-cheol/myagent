@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { PersonalSchedulerStore } from './personal-scheduler-store.js';
 import type {
   PersonalSchedulerTask,
+  SchedulerContentOutcome,
   SchedulerFeedAttachment,
   SchedulerFeedItem,
   SchedulerRun,
@@ -13,6 +14,21 @@ import type {
   SchedulerWeeklyQueue,
   SchedulerWeeklyQueueItem,
 } from './types.js';
+
+const CONTENT_OUTCOME_PATTERNS: Array<{ outcome: Exclude<SchedulerContentOutcome, 'success'>; pattern: RegExp }> = [
+  { outcome: 'blocked', pattern: /(?:^|\b)(?:blocked|blocker|permission denied|access denied|approval required|login required|captcha)(?:\b|$)|(?:차단|권한(?:이|을)?\s*(?:없|필요)|승인(?:이|을)?\s*필요|로그인(?:이|을)?\s*필요)/iu },
+  { outcome: 'failed', pattern: /(?:^|\b)(?:failed|failure|error|unsuccessful|could not|unable to|timed out)(?:\b|$)|(?:실패|오류|완료하지 못|수행하지 못|처리하지 못|찾지 못|시간 초과)/iu },
+  { outcome: 'warning', pattern: /(?:^|\b)(?:warning|partial(?:ly)?|incomplete|skipped)(?:\b|$)|(?:주의|경고|부분 완료|일부.*(?:건너|누락|미완료)|누락.*확인)/iu },
+];
+
+export function classifySchedulerContentOutcome(content: string): SchedulerContentOutcome {
+  const normalized = String(content ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'warning';
+  for (const candidate of CONTENT_OUTCOME_PATTERNS) {
+    if (candidate.pattern.test(normalized)) return candidate.outcome;
+  }
+  return 'success';
+}
 
 function isValidDate(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
@@ -213,6 +229,7 @@ export class PersonalSchedulerService {
   markRunning(runId: string): void { this.store.markRunRunning(runId); }
 
   completeRun(runId: string, task: PersonalSchedulerTask, content: string, attachments: SchedulerFeedAttachment[] = []): void {
+    const outcome = classifySchedulerContentOutcome(content);
     const runArtifactDirectory = path.join(this.artifactRoot, runId);
     mkdirSync(runArtifactDirectory, { recursive: true });
     const resultFile = path.join(runArtifactDirectory, 'result.md');
@@ -223,11 +240,12 @@ export class PersonalSchedulerService {
       mime: 'text/markdown',
       size: Buffer.byteLength(content, 'utf8'),
     };
-    this.store.completeRun(runId, content);
+    this.store.completeRun(runId, content, outcome);
     this.store.addFeedItem({
       run_id: runId,
       task_id: task.id,
       kind: 'result',
+      outcome,
       title: task.name,
       message: content,
       attachments: [...attachments, resultAttachment],

@@ -21,7 +21,7 @@ export function formatCodingSpineSystemNote(opts?: {
   }
   if (opts?.autopilot) {
     lines.push(
-      'Autopilot ON: finish THIS run — no 「다음 조치」. discover→mutate→verify→repair, then answer in the model-chosen form.',
+      'Autopilot ON: complete discovery, modification, and risk-proportionate verification in this run when practical; repair failures caused by the change.',
       'Open Exit Gate: close THAT gate only. Honor ASK/PLAN + do-not-touch.',
     );
   } else {

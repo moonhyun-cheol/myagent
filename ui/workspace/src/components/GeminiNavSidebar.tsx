@@ -273,9 +273,9 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
           <AutomationFeedMessage
             key={item.id}
             time={formatFeedTime(item.created_at)}
-            label={item.kind === 'error' ? '실행 오류' : item.kind === 'status' ? '진행 알림' : '실행 완료'}
+            label={item.kind === 'error' ? '실행 오류' : item.outcome === 'blocked' ? '조치 필요 · 차단됨' : item.outcome === 'failed' ? '결과상 실패' : item.outcome === 'warning' ? '확인 필요' : item.kind === 'status' ? '진행 알림' : '정상 완료'}
             title={item.title}
-            error={item.kind === 'error'}
+            tone={item.kind === 'error' || item.outcome === 'failed' || item.outcome === 'blocked' ? 'error' : item.outcome === 'warning' ? 'warning' : 'success'}
             onOpen={() => onOpenFeed(item.id)}
           />
         ))}
@@ -294,13 +294,13 @@ function AutomationFeedMessage({
   time,
   label,
   title,
-  error = false,
+  tone = 'success',
   onOpen,
 }: {
   time: string;
   label: string;
   title: string;
-  error?: boolean;
+  tone?: 'success' | 'warning' | 'error';
   onOpen: () => void;
 }) {
   return (
@@ -311,8 +311,8 @@ function AutomationFeedMessage({
       aria-label={`${title} 뉴스피드에서 보기`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${error ? 'bg-red-600' : 'bg-emerald-600'}`}>
-          {error ? <Clock size={11} /> : <CheckCircle size={11} weight="fill" />}
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${tone === 'error' ? 'bg-red-600' : tone === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+          {tone === 'success' ? <CheckCircle size={11} weight="fill" /> : <Clock size={11} />}
           {label}
         </span>
         <time className="text-[9px] text-muted">{time}</time>

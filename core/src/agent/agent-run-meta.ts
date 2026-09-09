@@ -485,8 +485,8 @@ export function formatActiveTaskSystemNote(task: SessionActiveTask): string {
     task.relatedPaths?.length ? `RELATED_PATHS: ${task.relatedPaths.join(', ')}` : '',
     'Reconcile this task with the latest user request. The latest explicit correction wins.',
     'Use active_task to replace, block, complete, or cancel it. Do not silently forget it.',
-    'Completion is accepted only after this run has disk mutation plus a successful model-requested Acceptance tool.',
-    'Automatic TypeScript diagnostics are internal repair evidence and never complete this task.',
+    'Completion is accepted only after this run has disk mutation plus successful model-requested outcome-relevant verification.',
+    'Choose the narrowest sufficient verification for the change: content review, diagnostics, targeted tests, terminal execution, or browser checks.',
   ].filter(Boolean).join('\n');
 }
 

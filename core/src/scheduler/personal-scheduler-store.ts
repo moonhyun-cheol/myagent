@@ -265,7 +265,7 @@ export class PersonalSchedulerStore {
   createRun(taskId: string, source: SchedulerRunSource): SchedulerRun {
     const run: SchedulerRun = {
       id: randomUUID(), task_id: taskId, source, status: 'queued',
-      started_at: null, finished_at: null, result_text: null, error: null, created_at: timestamp(),
+      outcome: null, started_at: null, finished_at: null, result_text: null, error: null, created_at: timestamp(),
     };
     this.runs.runs.push(run);
     this.saveRuns();
@@ -294,10 +294,11 @@ export class PersonalSchedulerStore {
     this.saveRuns();
   }
 
-  completeRun(id: string, resultText: string): void {
+  completeRun(id: string, resultText: string, outcome: SchedulerRun['outcome'] = 'success'): void {
     const run = this.runs.runs.find((candidate) => candidate.id === id);
     if (!run) return;
     run.status = 'succeeded';
+    run.outcome = outcome;
     run.result_text = resultText;
     run.error = null;
     run.finished_at = timestamp();
@@ -308,6 +309,7 @@ export class PersonalSchedulerStore {
     const run = this.runs.runs.find((candidate) => candidate.id === id);
     if (!run) return;
     run.status = 'failed';
+    run.outcome = 'failed';
     run.error = error;
     run.finished_at = timestamp();
     this.saveRuns();

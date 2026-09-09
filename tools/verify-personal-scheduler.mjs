@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   PersonalSchedulerService,
+  classifySchedulerContentOutcome,
   computeNextRun,
   isoWeekKey,
 } from '../core/dist/scheduler/personal-scheduler-service.js';
@@ -45,6 +46,10 @@ try {
   assert.equal(schedulerDefaults.executionPolicy.reasoning, 'auto');
   saveUserOverrides(schedulerConfigPath, { scheduler_default_model: 'provider:openai@gpt-test' }, root);
   assert.equal(resolveSchedulerExecutionConfig(loadUserOverrides(schedulerConfigPath)).model, 'provider:openai@gpt-test');
+  assert.equal(classifySchedulerContentOutcome('Everything completed successfully.'), 'success');
+  assert.equal(classifySchedulerContentOutcome('실행은 끝났지만 파일 생성에 실패했습니다.'), 'failed');
+  assert.equal(classifySchedulerContentOutcome('로그인이 필요해 작업이 차단되었습니다.'), 'blocked');
+  assert.equal(classifySchedulerContentOutcome('일부 항목은 누락되어 확인이 필요합니다.'), 'warning');
 
   const firstIsoWeekday = computeNextRun([{
     type: 'time',
@@ -129,6 +134,13 @@ try {
   const generatedResultPath = path.join(root, 'data', 'outputs', 'automations', manualRun.id, 'result.md');
   assert.equal(existsSync(generatedResultPath), true);
   assert.equal(readFileSync(generatedResultPath, 'utf8'), 'result:Weekly research');
+  assert.equal(service.listRuns().find((run) => run.id === manualRun.id)?.outcome, 'success');
+  assert.equal(service.listFeed()[0].outcome, 'success');
+  const contentFailureRun = service.createRun(manual.id, 'manual');
+  service.completeRun(contentFailureRun.id, manual, '자료 접근 권한이 없어 작업이 차단되었습니다.');
+  assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.status, 'succeeded');
+  assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.outcome, 'blocked');
+  assert.equal(service.listFeed()[0].outcome, 'blocked');
   const schedulerRoot = path.join(root, 'data', 'scheduler');
   const taskPath = path.join(schedulerRoot, 'tasks', `${manual.id}.json`);
   assert.equal(existsSync(taskPath), true);

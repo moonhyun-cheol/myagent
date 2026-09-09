@@ -301,6 +301,7 @@ export interface AutomationFeedAttachment {
 export interface AutomationFeedItem {
   id: string;
   kind: 'result' | 'error' | 'status';
+  outcome?: 'success' | 'warning' | 'failed' | 'blocked';
   title: string;
   message: string;
   attachments: AutomationFeedAttachment[];

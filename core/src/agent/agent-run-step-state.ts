@@ -103,7 +103,7 @@ export interface AgentRunStepState {
   approxMutationLines: number;
   /** Last system-recorded diagnostics/tests witness (machine flag). */
   verifyWitness: import('./agent-claim-gates.js').VerifyWitness | null;
-  /** Successful model-requested Acceptance tool after a workspace mutation. */
+  /** Successful model-requested outcome-relevant verification after a workspace mutation. */
   explicitAcceptanceOk: boolean;
   sessionMutatedPaths: string[];
   toolsUsedThisRun: Set<string>;

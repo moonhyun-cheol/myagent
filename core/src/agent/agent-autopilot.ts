@@ -57,7 +57,7 @@ export function shouldOrInContinuityAutopilot(opts: {
 export function formatAutopilotSystemNote(): string {
   return [
     '## Autopilot ON',
-    'Finish in THIS run — no 「다음 조치」 pause. discover→mutate→verify→repair, then answer in the model-chosen form.',
+    'Complete discovery, modification, and risk-proportionate verification in this run when practical; repair failures caused by the change.',
     'Honor do-not-touch constraints and the latest user request. No invented URLs.',
   ].join('\n');
 }
