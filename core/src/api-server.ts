@@ -28,7 +28,7 @@ import {
   registerPersonalSchedulerRuntime,
   unregisterPersonalSchedulerRuntime,
 } from './scheduler/runtime-registry.js';
-import { startVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
+import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
 
 function resolveWorkKitLauncherUiDir(cqrRoot: string): string | null {
   const candidates = [
@@ -229,7 +229,7 @@ export async function createApiServer(port: number) {
     personalSchedulerRuntime.start();
   });
   server.once('close', () => {
-    startVisibleBrowserBridge(port).stop();
+    getVisibleBrowserBridge()?.stop();
     unregisterPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
     void personalSchedulerRuntime.shutdown().finally(() => personalScheduler.close());
   });

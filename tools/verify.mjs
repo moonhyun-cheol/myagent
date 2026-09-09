@@ -51,6 +51,7 @@ const steps = [
   ['phase9', () => runTool('verify-phase9.mjs', verifyEnv)],
   ['phase10', () => runTool('verify-phase10.mjs', verifyEnv)],
   ['playwright', () => runTool('verify-playwright.mjs', verifyEnv)],
+  ['visible-browser', () => runTool('verify-visible-browser-bridge.mjs', verifyEnv)],
 ];
 
 for (const [name, fn] of steps) {
