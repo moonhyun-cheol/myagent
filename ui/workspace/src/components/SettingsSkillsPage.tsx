@@ -275,11 +275,11 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
         {organization.length > 0 ? (
           <div
             data-testid="organization-skill-chips"
-            className="mt-4 overflow-hidden rounded-xl border-2 border-line bg-white shadow-sm"
+            className="mt-4 overflow-hidden rounded-xl border-2 border-line bg-panel shadow-sm"
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-panel-2 px-4 py-3">
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-white text-accent-dim">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-panel text-accent-dim">
                   <PuzzlePiece size={16} weight="bold" aria-hidden="true" />
                 </span>
                 <p className="text-sm font-bold text-text">
@@ -292,7 +292,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
               <p
                 role="status"
                 className={`rounded-md px-2.5 py-1 text-xs font-bold ${
-                  skillMode ? 'bg-accent-dim text-white' : 'border border-line bg-white text-text'
+                  skillMode ? 'bg-accent-dim text-white' : 'border border-line bg-panel text-text'
                 }`}
               >
                 {skillMode ? `현재 대화: ${skillLabel || skillMode} 적용 중` : '현재 대화: 스킬 미적용'}
@@ -315,7 +315,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
                     <span
                       aria-hidden="true"
                       className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-                        active ? 'bg-white/20 text-white' : 'bg-white text-muted'
+                        active ? 'bg-white/20 text-white' : 'bg-panel-2 text-muted'
                       }`}
                     >
                       {active ? <CheckCircle size={16} weight="fill" /> : <PuzzlePiece size={15} weight="bold" />}

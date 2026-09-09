@@ -55,7 +55,7 @@ export function SchedulerSurface() {
           <h1 className="mt-1 text-xl font-semibold text-text">자동화</h1>
           <p className="mt-1 text-sm text-muted">시간이나 동작 조건에 맞춰 개인화된 채팅 작업을 실행합니다.</p>
           {readOnlyNotice ? (
-            <p role="status" className="mt-2 text-xs font-medium text-amber-800">{readOnlyNotice}</p>
+            <p role="status" className="mt-2 text-xs font-medium text-warning">{readOnlyNotice}</p>
           ) : null}
         </div>
         <button
@@ -254,8 +254,8 @@ function ScheduleDashboard({
         />
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_8px_28px_rgba(23,33,29,0.08)]">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-white px-5 py-4">
+      <section className="overflow-hidden rounded-2xl border border-line bg-[var(--surface-raised)] shadow-[0_8px_28px_rgba(23,33,29,0.08)]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-[var(--surface-raised)] px-5 py-4">
           <div>
             <h2 className="text-[15px] font-bold text-text">자동화 작업</h2>
             <p className="mt-1 text-xs leading-5 text-muted">작업 설명과 실행 조건을 확인하고, 결과는 작업 뉴스피드로 받습니다.</p>
@@ -295,7 +295,7 @@ function ScheduleDashboard({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-line bg-white/70 px-5 py-4 shadow-[0_4px_18px_rgba(23,33,29,0.05)]">
+      <section className="rounded-2xl border border-line bg-[var(--surface-raised)] px-5 py-4 shadow-[0_4px_18px_rgba(23,33,29,0.05)]">
         <div className="flex items-start gap-2.5">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white shadow-sm">
             <Lightning size={16} weight="fill" />
@@ -333,19 +333,19 @@ function SummaryCard({
   const toneClass = tone === 'accent'
     ? 'text-accent-dim'
     : tone === 'blue'
-      ? 'text-sky-700'
+      ? 'text-info'
       : tone === 'amber'
-        ? 'text-amber-700'
-        : 'text-emerald-700';
+        ? 'text-warning'
+        : 'text-success';
   const edgeClass = tone === 'accent'
     ? 'border-l-accent'
     : tone === 'blue'
-      ? 'border-l-sky-600'
+      ? 'border-l-info'
       : tone === 'amber'
-        ? 'border-l-amber-500'
-        : 'border-l-emerald-600';
+        ? 'border-l-warning'
+        : 'border-l-success';
   return (
-    <div className={`rounded-xl border border-line border-l-4 bg-white/85 px-5 py-4 shadow-[0_4px_16px_rgba(23,33,29,0.06)] ${edgeClass}`}>
+    <div className={`rounded-xl border border-line border-l-4 bg-[var(--surface-raised)] px-5 py-4 shadow-[0_4px_16px_rgba(23,33,29,0.06)] ${edgeClass}`}>
       <p className="text-[11px] font-bold tracking-[0.06em] text-muted">{label}</p>
       <div className="mt-1.5 flex items-baseline gap-2.5">
         <span className={`text-2xl font-bold ${toneClass}`}>{value}</span>
@@ -446,10 +446,10 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
   };
 
   return (
-    <article className="group grid gap-4 px-5 py-4 transition odd:bg-white/30 even:bg-panel/55 hover:bg-accent/5 md:grid-cols-[minmax(230px,1.45fr)_minmax(190px,1fr)_minmax(180px,0.9fr)_130px_32px] md:items-center md:gap-5">
+    <article className="group grid gap-4 px-5 py-4 transition odd:bg-panel-2/35 even:bg-panel/55 hover:bg-accent/5 md:grid-cols-[minmax(230px,1.45fr)_minmax(190px,1fr)_minmax(180px,0.9fr)_130px_32px] md:items-center md:gap-5">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 shrink-0 rounded-full ring-4 ring-white ${row.statusTone === 'green' ? 'bg-emerald-600' : row.statusTone === 'amber' ? 'bg-amber-500' : 'bg-sky-600'}`} />
+          <span className={`h-2 w-2 shrink-0 rounded-full ring-4 ring-[var(--surface-raised)] ${row.statusTone === 'green' ? 'bg-emerald-600' : row.statusTone === 'amber' ? 'bg-amber-500' : 'bg-sky-600'}`} />
           <h3 className="truncate text-sm font-bold text-text">{row.name}</h3>
         </div>
         <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{row.description}</p>
@@ -475,7 +475,7 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
       >
         <button
           type="button"
-          className="rounded-lg border border-transparent p-1.5 text-muted transition hover:border-line hover:bg-white hover:text-text"
+          className="rounded-lg border border-transparent p-1.5 text-muted transition hover:border-line hover:bg-hover hover:text-text"
           aria-label={`${row.name} 처리 메뉴`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
@@ -484,7 +484,7 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
           <DotsThree size={17} weight="bold" />
         </button>
         {menuOpen ? (
-          <div role="menu" className="absolute bottom-9 right-0 z-50 w-40 rounded-xl border border-line bg-white p-1.5 shadow-[0_12px_32px_rgba(23,33,29,0.16)]">
+          <div role="menu" className="absolute bottom-9 right-0 z-50 w-40 rounded-xl border border-line bg-[var(--surface-raised)] p-1.5 shadow-[0_12px_32px_rgba(23,33,29,0.16)]">
             <button
               type="button"
               role="menuitem"
@@ -509,7 +509,7 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
               type="button"
               role="menuitem"
               disabled={busy}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-wait disabled:opacity-60"
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-red-700 transition hover:bg-danger/10 disabled:cursor-wait disabled:opacity-60"
               onClick={() => { void removeTask(); }}
             >
               <Trash size={14} />
@@ -801,8 +801,8 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <section className="overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_8px_28px_rgba(23,33,29,0.08)]">
-        <div className="border-b border-line bg-white px-5 py-4">
+      <section className="overflow-hidden rounded-2xl border border-line bg-[var(--surface-raised)] shadow-[0_8px_28px_rgba(23,33,29,0.08)]">
+        <div className="border-b border-line bg-[var(--surface-raised)] px-5 py-4">
           <h2 className="text-[15px] font-bold text-text">실행 기록</h2>
           <p className="mt-1 text-xs leading-5 text-muted">최근 자동화 실행 결과입니다. 상세 결과는 작업 뉴스피드에서 확인하세요.</p>
         </div>
@@ -827,7 +827,7 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
             return (
               <article
                 key={run.id}
-                className="grid gap-3 px-5 py-4 odd:bg-white/30 even:bg-panel/55 md:grid-cols-[minmax(180px,1.2fr)_100px_120px_minmax(160px,1fr)_minmax(180px,1fr)] md:items-center md:gap-4"
+                className="grid gap-3 px-5 py-4 odd:bg-panel-2/35 even:bg-panel/55 md:grid-cols-[minmax(180px,1.2fr)_100px_120px_minmax(160px,1fr)_minmax(180px,1fr)] md:items-center md:gap-4"
               >
                 <div className="min-w-0">
                   <h3 className="truncate text-sm font-bold text-text">{taskNames[run.task_id] ?? run.task_id}</h3>

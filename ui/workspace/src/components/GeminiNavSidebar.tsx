@@ -12,7 +12,6 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import automationSchedulerImage from '../assets/auto_scheduler.png';
 import {
   listAutomationFeed,
   listProviders,
@@ -118,7 +117,6 @@ export function GeminiNavSidebar({
           />
           <DockIcon
             icon={CalendarBlank}
-            imageSrc={automationSchedulerImage}
             label="자동화"
             active={activeSurface === 'scheduler'}
             badgeCount={automationUnreadCount}
@@ -141,7 +139,7 @@ export function GeminiNavSidebar({
               <div className="flex min-w-0 items-center gap-2">
                 {activeSurface === 'chat'
                   ? <Notebook size={15} className="shrink-0 text-accent" />
-                  : <img src={automationSchedulerImage} alt="" className="h-[15px] w-[15px] rounded-sm object-cover" />}
+                  : <CalendarBlank size={15} className="shrink-0 text-accent" />}
                 <p className="truncate text-sm font-semibold text-text">
                   {activeSurface === 'chat' ? '탐색' : '자동화'}
                 </p>
@@ -323,9 +321,8 @@ function AutomationFeedMessage({
   );
 }
 
-function DockIcon({ icon: IconComponent, imageSrc, label, active, badgeCount = 0, onClick }: {
+function DockIcon({ icon: IconComponent, label, active, badgeCount = 0, onClick }: {
   icon: Icon;
-  imageSrc?: string;
   label: string;
   active?: boolean;
   badgeCount?: number;
@@ -340,11 +337,7 @@ function DockIcon({ icon: IconComponent, imageSrc, label, active, badgeCount = 0
       onClick={onClick}
       className={`relative rounded-lg p-1.5 transition ${active ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-ink hover:text-text'}`}
     >
-      {imageSrc ? (
-        <img src={imageSrc} alt="" className="h-4 w-4 object-contain" />
-      ) : (
-        <IconComponent size={16} weight={active ? 'bold' : 'regular'} />
-      )}
+      <IconComponent size={16} weight={active ? 'bold' : 'regular'} />
       {badgeCount > 0 ? (
         <span className="absolute -right-1.5 -top-1.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
           {badgeCount > 99 ? '99+' : badgeCount}

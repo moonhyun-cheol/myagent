@@ -1628,7 +1628,7 @@ export function ChatPane() {
                 {pendingAttachments.map((a) => (
                   <div
                     key={a.id}
-                    className="group relative flex items-center gap-2 rounded-xl border border-line bg-panel-2 px-2 py-1.5"
+                    className="group relative flex items-center gap-2 overflow-hidden rounded-xl border border-line bg-panel-2 px-2 py-1.5"
                   >
                     {isImageAttachment(a.mime, a.name) ? (
                       <button type="button" aria-label={`${a.name} 크게 보기`}
