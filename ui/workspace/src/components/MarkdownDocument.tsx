@@ -122,8 +122,11 @@ export function MarkdownDocument() {
     tabId?: string;
   } | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [morePos, setMorePos] = useState<{ top: number; left: number } | null>(null);
   const [dumpPreview, setDumpPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const memosRef = useRef<DocumentMemo[]>([]);
@@ -151,6 +154,52 @@ export function MarkdownDocument() {
   const openMemos = memos.filter((m) => m.open);
   const closedMemoCount = memos.filter((m) => !m.open).length;
   const diskConflict = /디스크에서 변경됨/.test(documentStatus || '');
+
+  const closeMoreMenu = useCallback(() => {
+    setMoreOpen(false);
+    setMorePos(null);
+  }, []);
+
+  const toggleMoreMenu = useCallback(() => {
+    if (moreOpen) {
+      closeMoreMenu();
+      return;
+    }
+    const rect = moreButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 208;
+    setMorePos({
+      top: Math.min(rect.bottom + 4, Math.max(8, window.innerHeight - 8)),
+      left: Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8)),
+    });
+    setMoreOpen(true);
+  }, [closeMoreMenu, moreOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (moreButtonRef.current?.contains(target) || moreMenuRef.current?.contains(target)) return;
+      closeMoreMenu();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMoreMenu();
+        moreButtonRef.current?.focus();
+      }
+    };
+    const onReposition = () => closeMoreMenu();
+    window.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [closeMoreMenu, moreOpen]);
 
   useEffect(() => {
     if (mode !== 'document') return;
@@ -764,62 +813,77 @@ export function MarkdownDocument() {
         >
           {activeDocument?.source === 'workspace' && activeDocument.path ? '저장' : '프로젝트에 저장…'}
         </button>
-        <div className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setMoreOpen(false); }}
-          onKeyDown={event => { if (event.key === 'Escape') { setMoreOpen(false); event.currentTarget.querySelector('button')?.focus(); } }}>
+        <div className="relative">
           <button
+            ref={moreButtonRef}
             type="button"
             className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-            onClick={() => setMoreOpen((v) => !v)}
-            aria-expanded={moreOpen} aria-controls="document-more-actions"
+            onClick={toggleMoreMenu}
+            aria-expanded={moreOpen}
+            aria-controls="document-more-actions"
+            aria-haspopup="menu"
           >
             더보기
           </button>
-          {moreOpen ? (
-            <div id="document-more-actions" className="absolute right-0 top-full z-20 mt-1 w-52 max-w-[85vw] rounded-lg border border-line bg-panel py-1 shadow-lg">
-              <p className="break-all px-3 py-2 text-xs text-muted">{sourceLabel} · {pathLabelTitle}</p>
-              <button type="button" disabled={!hasDump} className="block w-full px-3 py-2 text-left text-xs disabled:opacity-40"
-                onClick={() => { setMoreOpen(false); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
-                onClick={() => {
-                  setMoreOpen(false);
-                  void openSaveModal('saveAs');
-                }}
-              >
-                다른 이름으로 저장…
-              </button>
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
-                onClick={() => void handleSaveScratch()}
-              >
-                세션 임시본으로 저장
-              </button>
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
-                onClick={() => {
-                  setMoreOpen(false);
-                  void openSaveModal('rename');
-                }}
-              >
-                이름 변경…
-              </button>
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                disabled={!activeDocument?.path}
-                onClick={() => {
-                  setMoreOpen(false);
-                  if (activeDocument?.path) void navigator.clipboard.writeText(activeDocument.path);
-                }}
-              >
-                경로 복사
-              </button>
-            </div>
-          ) : null}
+          {moreOpen && morePos
+            ? createPortal(
+                <div
+                  ref={moreMenuRef}
+                  id="document-more-actions"
+                  role="menu"
+                  style={{ top: morePos.top, left: morePos.left }}
+                  className="fixed z-[420] w-52 max-w-[min(13rem,calc(100vw-16px))] rounded-lg border border-line bg-panel py-1 shadow-lg"
+                >
+                  <p className="break-all px-3 py-2 text-xs text-muted">{sourceLabel} · {pathLabelTitle}</p>
+                  <button type="button" role="menuitem" disabled={!hasDump} className="block w-full px-3 py-2 text-left text-xs disabled:opacity-40"
+                    onClick={() => { closeMoreMenu(); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                    onClick={() => {
+                      closeMoreMenu();
+                      void openSaveModal('saveAs');
+                    }}
+                  >
+                    다른 이름으로 저장…
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                    onClick={() => { closeMoreMenu(); void handleSaveScratch(); }}
+                  >
+                    세션 임시본으로 저장
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                    disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
+                    onClick={() => {
+                      closeMoreMenu();
+                      void openSaveModal('rename');
+                    }}
+                  >
+                    이름 변경…
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                    disabled={!activeDocument?.path}
+                    onClick={() => {
+                      closeMoreMenu();
+                      if (activeDocument?.path) void navigator.clipboard.writeText(activeDocument.path);
+                    }}
+                  >
+                    경로 복사
+                  </button>
+                </div>,
+                document.body,
+              )
+            : null}
         </div>
 
         {diskConflict && activeDocument ? (
