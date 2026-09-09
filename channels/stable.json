@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 45,
+    "update_sequence": 46,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-09T04:33:44.929Z",
+    "published_at": "2026-09-09T06:03:43.466Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-45",
+      "release_tag": "update-46",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 278957530,
-      "sha256": "a58517c6e191c84642e9f1a6928529ba821814284e41b1f54d7384205b5bb945"
+      "size": 278988179,
+      "sha256": "d15cf51631cffff8caef4307317c9c9971a43abe2bafa1c6a02d20e085a741ed"
     },
-    "payload_manifest_sha256": "483b8e19328a97663193f91b121e77406f91cb67e39eb3d835117473ba9cabc7",
-    "release_notes": "Update 45: automation content outcomes (success/warning/failed/blocked) on feed UI, plus General Work Principles and risk-proportionate agent verification."
+    "payload_manifest_sha256": "cde86165cde3a688c0eeaca27c5505f66e0948d5cf7ac12165ef15024f7ad07f",
+    "release_notes": ""
   },
-  "signature": "aLSpc1l0GEUTDfJYTlgauoymxMTPB+AcCrBmE3dkdUikyHfu+pzfcJHtNTSFDc5ZGswst67RfHn+fLaulm9AxF3DP8jit7avKn7YvP4HtnfyVa7VMiYatqrnQSul0O3LXMAxOLN3256LrVvg4p/Gtm2FeWzS2orc+9p+rr14e1J4gfemdzOWXfVag2RzmwBe5IgPl5hk+XuTRLJ0oQLsXnuOEibLtYfMmZYHgJnaO0m7TY9s0wc7GP2ATiK89MjuL9GX1dNCtR1ZCC0x+oro1EXiN3qzOqOV8sSuzBghHU4Zmzbjt8mXi+jglOl3HYqc+RgS17a/36BKOJPoIAMCEvXUPcFml+GSR57yOHZpQNiiQUiYoE7MZsAAUmLa4gzstipHL/mmkj7/L5t+orShokOl8jjUajNTPwebvdXodJPbxbrPD1hcM8V5h+4KI7Tv1ETaUzBtnBi0xjMOYlCKpyDKvGty9qG761+I0KX62vvqHU0HPjgvz1qTwZKPXDJo"
+  "signature": "Ju7uHMqpNzfGSHQ/QyaTr616nGdobZqaDc368pcDurV/dFIHtQimxp7Jm/1i9DWHbkKPOqNU2hbKKTi9sQxMAV3rs4WbvF4Uu14YS+DeaX1ozkynWCeB7CPM0DbyLVu9i15ys4qpA3P/iLQgH8mHwYJtFp966lWT2MxSzgsppwqr+h2DEetR9zwFt96HJRMfSxtLWovHnN7HhJZEC8/Mzzkp/yUOxLT6JdI2cyzGTDeieamlnxKwwt/9SNnBinPuGmByY1CEt7hp9Mop1VF/e+pQZPqitp7/0YfmNeDrbs4tJRfMDt9FpUmjCj7PqtBrCVE4N0roR+vks5ggj7ggMYHLlmEoWG5QXl8g9mMovg2eH8Gnwx8krrSwXpJB7RICxG39BzjV7grOiN8nvVjggraYVXHDJD6UKwH88dGSlp2inujWGpBjC30vjxpfdxDY6y8WtKpneL7FL/GUDgT+gRp3Eou1haNyAjPUrBenkUSWGgdxJ4I7g1KLh2dlrmk1"
 }
