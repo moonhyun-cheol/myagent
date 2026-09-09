@@ -25,24 +25,24 @@
 :root { color-scheme: light; --surface-raised: #ffffff; --surface-terminal: #e8eeeb; --focus-ring: #086b60; }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --color-ink: #141c19;
-  --color-panel: #1c2722;
-  --color-panel-2: #2b3b33;
-  --color-hover: #2b3b33;
-  --color-line: #50655a;
-  --color-muted: #b0c2b8;
-  --color-text: #e5eee9;
-  --color-accent: #6cdbc8;
-  --color-accent-dim: #6cdbc8;
-  --color-on-accent: #092d27;
-  --color-selected: #23473e;
-  --color-danger: #ffadba;
+  --color-ink: #15171a;
+  --color-panel: #1d2024;
+  --color-panel-2: #292d33;
+  --color-hover: #30353c;
+  --color-line: #484c52;
+  --color-muted: #aeb4bd;
+  --color-text: #eceff3;
+  --color-accent: #5fc2b3;
+  --color-accent-dim: #70cbbd;
+  --color-on-accent: #102824;
+  --color-selected: #263a38;
+  --color-danger: #ffadb9;
   --color-warning: #f4cc85;
   --color-success: #92dfb2;
-  --color-info: #a0ccff;
-  --surface-raised: #293930;
-  --surface-terminal: #111a16;
-  --focus-ring: #6cdbc8;
+  --color-info: #9dc9ff;
+  --surface-raised: #24282d;
+  --surface-terminal: #101215;
+  --focus-ring: #70cbbd;
 }
 .model-manager-light { color-scheme: inherit; }
 

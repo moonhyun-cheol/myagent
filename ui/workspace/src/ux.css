@@ -26,7 +26,6 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 .document-reading { background: var(--color-panel); }
 .document-reading .message-markdown { max-width: 80ch; margin-inline: auto; }
 .chat-composer { background: var(--surface-raised); border-color: var(--color-line); box-shadow: 0 2px 12px #00000012; }
-.chat-composer:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 2px var(--focus-ring); }
 .chat-composer button { min-height: 32px; min-width: 32px; }
 .chat-composer textarea { min-height: 88px; line-height: 1.6; }
 [data-work-panel-layout] { container-type: inline-size; }
