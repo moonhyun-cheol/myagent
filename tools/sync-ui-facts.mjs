@@ -35,7 +35,8 @@ const confirmModalRel = 'ui/workspace/src/components/ConfirmModal.tsx';
 const confirmLibRel = 'ui/workspace/src/lib/confirmDialog.ts';
 const chatPaneRel = 'ui/workspace/src/components/ChatPane.tsx';
 
-const titleBarBg = firstMatch(mainWin, /<!-- Custom title bar[\s\S]*?Background="(#[0-9A-Fa-f]{3,8})"/)
+const titleBarBg = firstMatch(mainWin, /x:Key="ShellTitleBarBrush"\s+Color="(#[0-9A-Fa-f]{3,8})"/)
+  || firstMatch(mainWin, /<!-- Custom title bar[\s\S]*?Background="(#[0-9A-Fa-f]{3,8})"/)
   || firstMatch(mainWin, /Grid\.Row="0"[\s\S]*?Background="(#[0-9A-Fa-f]{3,8})"/);
 const accent = firstMatch(mainWin, /Background="(#2dd4bf|#[0-9A-Fa-f]{6})"\s+Margin="0,0,10/);
 const captionText = firstMatch(mainWin, /TextBlock\s+Text="([^"]+)"/);

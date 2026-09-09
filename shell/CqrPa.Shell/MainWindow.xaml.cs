@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private Forms.ContextMenuStrip? _trayMenu;
     private bool _allowExit;
     private bool _minimizeToTrayOnClose = LoadMinimizeToTrayPreference();
+    private bool _shellDark;
 
     private bool _workspaceLoading;
 
@@ -52,6 +53,8 @@ public partial class MainWindow : Window
         _port = port;
         _api = api;
         InitializeComponent();
+        var cachedTheme = LoadShellThemePreference();
+        ApplyShellTheme(cachedTheme.Preference, cachedTheme.Dark, persist: false);
         _windowPlacement = new WindowPlacementStore(
             this,
             () => MaximizeWorkArea.IsWorkAreaFilled,
@@ -59,7 +62,7 @@ public partial class MainWindow : Window
         TrySetWindowIcon();
         SourceInitialized += (_, _) =>
         {
-            DarkTitleBar.TryEnable(this);
+            DarkTitleBar.TryApply(this, _shellDark);
             MaximizeWorkArea.Hook(this);
 
             // Restore before the first frame is rendered. Deferring this work lets the
@@ -138,7 +141,7 @@ public partial class MainWindow : Window
             e.Cancel = true;
             UpdateBrowserState("다운로드는 인앱 브라우저에서 차단됩니다.");
         };
-        BrowserWebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 0x0c, 0x0e, 0x12);
+        BrowserWebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
     }
 
     private async Task OpenInAppBrowserAsync(string? rawUrl, bool activate = true)
@@ -314,6 +317,22 @@ public partial class MainWindow : Window
                         && minimizeProperty.GetBoolean();
                     SetMinimizeToTrayOnClose(minimizeToTray);
                     break;
+                case "app.theme.set":
+                {
+                    var themePreference = root.TryGetProperty("preference", out var preferenceProperty)
+                        ? preferenceProperty.GetString()
+                        : null;
+                    var resolvedTheme = root.TryGetProperty("resolved", out var resolvedProperty)
+                        ? resolvedProperty.GetString()
+                        : null;
+                    if (themePreference is "system" or "light" or "dark"
+                        && resolvedTheme is "light" or "dark"
+                        && (themePreference == "system" || themePreference == resolvedTheme))
+                    {
+                        ApplyShellTheme(themePreference, resolvedTheme == "dark", persist: true);
+                    }
+                    break;
+                }
                 case "app.notification.show":
                     ShowSystemNotification(root);
                     break;
@@ -376,6 +395,8 @@ public partial class MainWindow : Window
             Owner = this,
         };
         var webView = new WebView2();
+        preview.Background = Brush(_shellDark ? "#15171a" : "#dde1de");
+        preview.SourceInitialized += (_, _) => DarkTitleBar.TryApply(preview, _shellDark);
         preview.Content = webView;
         preview.Show();
 
@@ -383,6 +404,7 @@ public partial class MainWindow : Window
         Directory.CreateDirectory(userData);
         var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
         await webView.EnsureCoreWebView2Async(env);
+        webView.DefaultBackgroundColor = WorkspaceBackgroundColor();
         webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
         webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
         webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
@@ -551,6 +573,7 @@ public partial class MainWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        StartVisibleBrowserAutomation();
         await LoadWorkspaceAsync();
     }
 
@@ -588,7 +611,7 @@ public partial class MainWindow : Window
                 initializedCore.NavigationStarting += OnWorkspaceNavigationStarting;
                 initializedCore.NavigationCompleted += OnWorkspaceNavigationCompleted;
                 initializedCore.NewWindowRequested += OnWorkspaceNewWindowRequested;
-                WebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 0x0c, 0x0e, 0x12);
+                WebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
                 WebView.AllowExternalDrop = true;
             }
             StartupStatusText.Text = "작업 화면을 불러오는 중…";
@@ -676,6 +699,85 @@ public partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "MYAgent",
         "shell-settings.json");
+
+    private static string ShellThemePreferencePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MYAgent",
+        "shell-theme.json");
+
+    private static (string Preference, bool Dark) LoadShellThemePreference()
+    {
+        var preference = "system";
+        try
+        {
+            if (File.Exists(ShellThemePreferencePath))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(ShellThemePreferencePath));
+                if (document.RootElement.TryGetProperty("preference", out var value))
+                {
+                    var stored = value.GetString();
+                    if (stored is "system" or "light" or "dark") preference = stored;
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to the system preference.
+        }
+
+        return (preference, preference == "dark" || (preference == "system" && IsSystemDarkTheme()));
+    }
+
+    private static bool IsSystemDarkTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ApplyShellTheme(string preference, bool dark, bool persist)
+    {
+        _shellDark = dark;
+        var colors = dark
+            ? new[] { "#15171a", "#1d2024", "#484c52", "#eceff3", "#aeb4bd", "#30353c", "#3a4048", "#263a38", "#70cbbd", "#484c52" }
+            : new[] { "#dde1de", "#f4f5f2", "#adb9b4", "#17211d", "#4f5d57", "#d3dad6", "#c2cbc6", "#d8ebe7", "#0b7068", "#adb9b4" };
+        var keys = new[] { "ShellWindowBrush", "ShellTitleBarBrush", "ShellBorderBrush", "ShellTextBrush", "ShellMutedTextBrush", "ShellHoverBrush", "ShellPressedBrush", "ShellAccentSoftBrush", "ShellAccentTextBrush", "ShellProgressTrackBrush" };
+        for (var index = 0; index < keys.Length; index++) Resources[keys[index]] = Brush(colors[index]);
+
+        var background = Brush(colors[0]);
+        foreach (Window window in Application.Current.Windows)
+        {
+            window.Background = background;
+            DarkTitleBar.TryApply(window, dark);
+        }
+        WebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
+        BrowserWebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
+
+        if (!persist) return;
+        try
+        {
+            var directory = Path.GetDirectoryName(ShellThemePreferencePath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            File.WriteAllText(ShellThemePreferencePath, JsonSerializer.Serialize(new { preference }));
+        }
+        catch
+        {
+            // The live shell still matches the workspace for this run.
+        }
+    }
+
+    private static System.Windows.Media.SolidColorBrush Brush(string color) =>
+        new((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(color));
+
+    private System.Drawing.Color WorkspaceBackgroundColor() => _shellDark
+        ? System.Drawing.Color.FromArgb(255, 0x15, 0x17, 0x1a)
+        : System.Drawing.Color.FromArgb(255, 0xdd, 0xe1, 0xde);
 
     private static bool LoadMinimizeToTrayPreference()
     {

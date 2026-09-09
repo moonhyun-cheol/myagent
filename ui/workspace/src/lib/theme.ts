@@ -11,10 +11,18 @@ let preference = load();
 const media = window.matchMedia('(prefers-color-scheme: dark)');
 let snapshot = { preference, resolved: preference === 'system' ? (media.matches ? 'dark' : 'light') : preference };
 
+function syncShellTheme(resolved: 'light' | 'dark') {
+  const webview = (window as unknown as {
+    chrome?: { webview?: { postMessage: (message: unknown) => void } };
+  }).chrome?.webview;
+  webview?.postMessage({ type: 'app.theme.set', preference, resolved });
+}
+
 function apply() {
-  const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+  const resolved: 'light' | 'dark' = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
+  syncShellTheme(resolved);
   if (snapshot.preference === preference && snapshot.resolved === resolved) return;
   snapshot = { preference, resolved };
   listeners.forEach(listener => listener());

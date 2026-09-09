@@ -169,8 +169,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
         className="relative flex h-[min(820px,90vh)] w-full max-w-6xl overflow-hidden rounded-2xl border border-line bg-panel text-text shadow-[0_28px_90px_rgba(0,0,0,0.28)]"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-[#e7eae7]">
-          <div className="sticky top-0 z-10 bg-[#e7eae7] p-4 pb-3">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-ink">
+          <div className="sticky top-0 z-10 bg-ink p-4 pb-3">
             <div className="mb-4 flex items-center gap-2 px-2 py-1">
               <GearSix size={20} className="text-accent" />
               <span className="text-lg font-semibold">설정</span>

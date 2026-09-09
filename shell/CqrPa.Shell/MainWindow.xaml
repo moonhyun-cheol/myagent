@@ -6,8 +6,8 @@
         Title="MY Agent"
         Width="1100" Height="780"
         MinWidth="640" MinHeight="480"
-        Background="#dde1de"
-        BorderBrush="#adb9b4"
+        Background="{DynamicResource ShellWindowBrush}"
+        BorderBrush="{DynamicResource ShellBorderBrush}"
         BorderThickness="1"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -22,12 +22,24 @@
   </shell:WindowChrome.WindowChrome>
 
   <Window.Resources>
+    <!-- Light defaults are replaced at runtime when the workspace resolves to dark. -->
+    <SolidColorBrush x:Key="ShellWindowBrush" Color="#dde1de" />
+    <SolidColorBrush x:Key="ShellTitleBarBrush" Color="#f4f5f2" />
+    <SolidColorBrush x:Key="ShellBorderBrush" Color="#adb9b4" />
+    <SolidColorBrush x:Key="ShellTextBrush" Color="#17211d" />
+    <SolidColorBrush x:Key="ShellMutedTextBrush" Color="#4f5d57" />
+    <SolidColorBrush x:Key="ShellHoverBrush" Color="#d3dad6" />
+    <SolidColorBrush x:Key="ShellPressedBrush" Color="#c2cbc6" />
+    <SolidColorBrush x:Key="ShellAccentSoftBrush" Color="#d8ebe7" />
+    <SolidColorBrush x:Key="ShellAccentTextBrush" Color="#0b7068" />
+    <SolidColorBrush x:Key="ShellProgressTrackBrush" Color="#adb9b4" />
+
     <Style x:Key="CaptionBtn" TargetType="Button">
       <Setter Property="Width" Value="46" />
       <Setter Property="Height" Value="36" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="Foreground" Value="#17211d" />
+      <Setter Property="Foreground" Value="{DynamicResource ShellTextBrush}" />
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
       <Setter Property="Cursor" Value="Hand" />
@@ -39,15 +51,20 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#d3dad6" />
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ShellHoverBrush}" />
               </Trigger>
               <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="Bd" Property="Background" Value="#c2cbc6" />
+                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ShellPressedBrush}" />
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+    <Style x:Key="StartupRetryBtn" TargetType="Button">
+      <Setter Property="Background" Value="{DynamicResource ShellTitleBarBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ShellTextBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource ShellBorderBrush}" />
     </Style>
     <Style x:Key="CaptionCloseBtn" TargetType="Button" BasedOn="{StaticResource CaptionBtn}">
       <Setter Property="Template">
@@ -84,8 +101,8 @@
          Do NOT set IsHitTestVisibleInChrome on this Border: WindowChrome needs the
          caption strip for DragMove. Only the min/max/close buttons opt into chrome hits. -->
     <Border Grid.Row="0"
-            Background="#f4f5f2"
-            BorderBrush="#adb9b4"
+            Background="{DynamicResource ShellTitleBarBrush}"
+            BorderBrush="{DynamicResource ShellBorderBrush}"
             BorderThickness="0,0,0,1">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -101,7 +118,7 @@
           <TextBlock Text="MY Agent"
                      FontSize="12.5"
                      FontWeight="SemiBold"
-                     Foreground="#17211d"
+                     Foreground="{DynamicResource ShellTextBrush}"
                      VerticalAlignment="Center" />
         </StackPanel>
 
@@ -132,7 +149,7 @@
       <wv2:WebView2CompositionControl x:Name="WebView" />
 
       <Border x:Name="StartupOverlay"
-              Background="#dde1de"
+              Background="{DynamicResource ShellWindowBrush}"
               Panel.ZIndex="20">
         <StackPanel Width="340"
                     HorizontalAlignment="Center"
@@ -140,7 +157,7 @@
           <Border Width="52" Height="52"
                   HorizontalAlignment="Center"
                   CornerRadius="16"
-                  Background="#d8ebe7"
+                  Background="{DynamicResource ShellAccentSoftBrush}"
                   BorderBrush="#0f8f83"
                   BorderThickness="1">
             <TextBlock Text="C"
@@ -148,26 +165,26 @@
                        VerticalAlignment="Center"
                        FontSize="28"
                        FontWeight="Bold"
-                       Foreground="#0b7068" />
+                       Foreground="{DynamicResource ShellAccentTextBrush}" />
           </Border>
           <TextBlock Text="MY Agent를 준비하고 있습니다"
                      Margin="0,18,0,6"
                      TextAlignment="Center"
                      FontSize="18"
                      FontWeight="SemiBold"
-                     Foreground="#17211d" />
+                     Foreground="{DynamicResource ShellTextBrush}" />
           <TextBlock x:Name="StartupStatusText"
                      Text="로컬 서비스를 시작하는 중…"
                      TextAlignment="Center"
                      TextWrapping="Wrap"
                      FontSize="12"
-                     Foreground="#4f5d57" />
+                     Foreground="{DynamicResource ShellMutedTextBrush}" />
           <ProgressBar x:Name="StartupProgress"
                        Margin="48,18,48,0"
                        Height="3"
                        IsIndeterminate="True"
                        Foreground="#0f8f83"
-                       Background="#adb9b4" />
+                       Background="{DynamicResource ShellProgressTrackBrush}" />
           <Button x:Name="StartupRetryButton"
                   Visibility="Collapsed"
                   Content="다시 시도"
@@ -175,13 +192,14 @@
                   Margin="0,18,0,0"
                   Padding="10,6"
                   HorizontalAlignment="Center"
+                  Style="{StaticResource StartupRetryBtn}"
                   Click="OnStartupRetryClick" />
         </StackPanel>
       </Border>
 
       <!-- External pages are isolated in a second WebView2 so navigation never replaces the workspace. -->
       <Canvas ClipToBounds="True">
-        <Border x:Name="InAppBrowserPanel" Visibility="Collapsed" Background="#dde1de">
+        <Border x:Name="InAppBrowserPanel" Visibility="Collapsed" Background="{DynamicResource ShellWindowBrush}">
           <wv2:WebView2 x:Name="BrowserWebView" />
         </Border>
       </Canvas>

@@ -155,6 +155,15 @@ body {
   cursor: pointer;
 }
 .chat-model-caret { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.chat-model-select option,
+.chat-model-select optgroup {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+.chat-model-select option:checked {
+  background: var(--color-selected);
+  color: var(--color-text);
+}
 .chat-policy-controls, .chat-context-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .chat-context-controls { margin-left: auto; }
 .chat-setting-control {

@@ -81,6 +81,21 @@ export async function runL3(opts = {}) {
     note: shellCase.reason,
   });
 
+  const themePost = fileHas('ui/workspace/src/lib/theme.ts', "type: 'app.theme.set'");
+  const themeHandler = fileHas('shell/CqrPa.Shell/MainWindow.xaml.cs', 'case "app.theme.set"');
+  const dynamicChrome = fileHas('shell/CqrPa.Shell/MainWindow.xaml', 'ShellTitleBarBrush');
+  const darkDwm = fileHas('shell/CqrPa.Shell/DarkTitleBar.cs', 'TryApply(Window window, bool dark)');
+  const shellThemeOk = themePost.ok && themeHandler.ok && dynamicChrome.ok && darkDwm.ok;
+  rows.push({
+    id: 'shell.resolved_theme_bridge',
+    ok: shellThemeOk,
+    tag: shellThemeOk ? 'green' : 'red',
+    path: themeHandler.path,
+    acceptance: 'resolved workspace theme → WPF palette + DWM frame',
+    layer: 'L3',
+    note: shellThemeOk ? undefined : 'theme bridge, dynamic chrome, or DWM application is missing',
+  });
+
   const navStart = fileHas('shell/CqrPa.Shell/MainWindow.xaml.cs', 'NavigationStarting');
   rows.push({
     id: 'shell.NavigationStarting_inApp',
