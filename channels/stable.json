@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 44,
+    "update_sequence": 45,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-09T03:22:27.075Z",
+    "published_at": "2026-09-09T04:33:44.929Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-44",
+      "release_tag": "update-45",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 278955842,
-      "sha256": "625e62dfa6a2f0547ee9720b6b17d16a49ccf3b36ba5362eb91352b8056b5cb9"
+      "size": 278957530,
+      "sha256": "a58517c6e191c84642e9f1a6928529ba821814284e41b1f54d7384205b5bb945"
     },
-    "payload_manifest_sha256": "9bc7a0317228c2d83caa76c76d8d3508bc568ddaccdf9329b0a209d82770205a",
-    "release_notes": "Update 44: neutral charcoal dark theme, removed composer focus border, document toolbar overflow fix, and update 43 UX improvements."
+    "payload_manifest_sha256": "483b8e19328a97663193f91b121e77406f91cb67e39eb3d835117473ba9cabc7",
+    "release_notes": "Update 45: automation content outcomes (success/warning/failed/blocked) on feed UI, plus General Work Principles and risk-proportionate agent verification."
   },
-  "signature": "Y+vrsm8bxorI//4TVvxdqE4UdcmiMYymVGeCAAU0EVYfmmUf7XjnzilKDfUjQrQ2sdNwCB/BfCrJBxOxJC4+xMlF8qq+C3GVVKJS3hH0cvA1ou3qK7vIlFrqtPqhfkVwFjONE7aLSONJl3elaHYw7PkFvi58s0QEApGcPVUt96c6TAZfRFBRmQFiRRe9ubZy2fgisOYwN89W9kuXC64rJ1Fo8kM/8dkSc58ot4IC2Z53O73VcYZBJlyawk4a44KLpO2vh3/wgZQzG5ORwzBsaAKm85ah0KMtMREXhcrfkzcX1TSOzOaY45Q7OAbQptAaJFaU+nsIlgfQrwkIUeO39dkibkZLJuhH3L0wNhmi+W6We0OVbu1uCPowQeLrmS250CM75w6XVZ48ohYWxBTVN5IbYxt0c33pV6P1Qi93gM0bBjhAfU8xO/7uC4VOyF3vVZvvfR17thumkaQZIWEy9Lhe5dZz9++AAEryVvoRzeylw1EthGzYaAuKzrFdZ2Sn"
+  "signature": "aLSpc1l0GEUTDfJYTlgauoymxMTPB+AcCrBmE3dkdUikyHfu+pzfcJHtNTSFDc5ZGswst67RfHn+fLaulm9AxF3DP8jit7avKn7YvP4HtnfyVa7VMiYatqrnQSul0O3LXMAxOLN3256LrVvg4p/Gtm2FeWzS2orc+9p+rr14e1J4gfemdzOWXfVag2RzmwBe5IgPl5hk+XuTRLJ0oQLsXnuOEibLtYfMmZYHgJnaO0m7TY9s0wc7GP2ATiK89MjuL9GX1dNCtR1ZCC0x+oro1EXiN3qzOqOV8sSuzBghHU4Zmzbjt8mXi+jglOl3HYqc+RgS17a/36BKOJPoIAMCEvXUPcFml+GSR57yOHZpQNiiQUiYoE7MZsAAUmLa4gzstipHL/mmkj7/L5t+orShokOl8jjUajNTPwebvdXodJPbxbrPD1hcM8V5h+4KI7Tv1ETaUzBtnBi0xjMOYlCKpyDKvGty9qG761+I0KX62vvqHU0HPjgvz1qTwZKPXDJo"
 }
