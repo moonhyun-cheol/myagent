@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 43,
+    "update_sequence": 44,
     "minimum_supported_sequence": 1,
     "version": "1.1.4",
     "channel": "stable",
-    "published_at": "2026-09-08T05:50:16.962Z",
+    "published_at": "2026-09-09T03:22:27.075Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-43",
+      "release_tag": "update-44",
       "name": "MYAgent-v1.1.4-delta.zip",
-      "size": 278953495,
-      "sha256": "861c4eb8fec8de7695d690af7a2afba6bfa8f457173db352360e4ac7eeb1dc3c"
+      "size": 278955842,
+      "sha256": "625e62dfa6a2f0547ee9720b6b17d16a49ccf3b36ba5362eb91352b8056b5cb9"
     },
-    "payload_manifest_sha256": "16708181e0d8c0bafe911f5a4ac1e16187146e8cbe7d6f57b198d3d6cd64058f",
-    "release_notes": "Update 43: CQR_PA feature port (tool activity, SQLite sessions, memory batch, ledger TODO, automation feed) plus per-execution cancel, collaborative Document workspace, safe chat Markdown, keyboard history navigation, install-root-only delta process stop, and skill/reasoning/browser visibility. Astra requires explicit reasoning; Preview opens sites in the shell WebView2."
+    "payload_manifest_sha256": "9bc7a0317228c2d83caa76c76d8d3508bc568ddaccdf9329b0a209d82770205a",
+    "release_notes": "Update 44: neutral charcoal dark theme, removed composer focus border, document toolbar overflow fix, and update 43 UX improvements."
   },
-  "signature": "GFvXzZH+76TDuryN6lVUhpoTIbqlwIik0KFiHMrGwuw9ME/X2dImEVUkT4f2U+ResJThafRIqAOv9oHl0ausuPmnOwBgE4MOGhffO//piyJv3M80BwknmVyHtftVawNxWjd91oR/9JK9CZiu/ZDJ4RrkQ3zz9uhgdPGtTWcUrIJss15xImj2vFrWgqk0dBlNSxpOqRsKmZRD5X2O6tbfg6rs0Eck22xY7V4eR6JMGRrVxGgHv8nUxPqt2Qc2AJXOzMh6XFPawkcLPW2IcnfE4pj7x9K/37B052D/kjNkpu/K7/sr8KIIDlz//VTpPk86mel9tIfjuP7LB30tqYSmtE3WmCY56csblYLTZsFlQ/N37AGxO7Z+KoSj7mTmt/nq497U3JfYytX/rTGg5ETXgboLRjFWRtBGHSefDEi6UxKYHn6AVS1I1O3DytddEgg7gHYAKKx+mB5bzYXnO/4w67E39zgeJucTF2LOkyVCCat0qvzRgp24zGNeYCbn7SEe"
+  "signature": "Y+vrsm8bxorI//4TVvxdqE4UdcmiMYymVGeCAAU0EVYfmmUf7XjnzilKDfUjQrQ2sdNwCB/BfCrJBxOxJC4+xMlF8qq+C3GVVKJS3hH0cvA1ou3qK7vIlFrqtPqhfkVwFjONE7aLSONJl3elaHYw7PkFvi58s0QEApGcPVUt96c6TAZfRFBRmQFiRRe9ubZy2fgisOYwN89W9kuXC64rJ1Fo8kM/8dkSc58ot4IC2Z53O73VcYZBJlyawk4a44KLpO2vh3/wgZQzG5ORwzBsaAKm85ah0KMtMREXhcrfkzcX1TSOzOaY45Q7OAbQptAaJFaU+nsIlgfQrwkIUeO39dkibkZLJuhH3L0wNhmi+W6We0OVbu1uCPowQeLrmS250CM75w6XVZ48ohYWxBTVN5IbYxt0c33pV6P1Qi93gM0bBjhAfU8xO/7uC4VOyF3vVZvvfR17thumkaQZIWEy9Lhe5dZz9++AAEryVvoRzeylw1EthGzYaAuKzrFdZ2Sn"
 }
