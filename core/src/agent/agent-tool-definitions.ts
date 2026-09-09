@@ -989,13 +989,58 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'browser_targets',
+      description: 'List browser targets. visible is the user-facing external-page WebView2; isolated is the separate Playwright Chromium.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_lock',
+      description: 'Acquire or renew the current chat session lock before changing the visible browser.',
+      parameters: {
+        type: 'object',
+        properties: { target: { type: 'string', enum: ['visible'] } },
+        required: ['target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_unlock',
+      description: 'Release the current chat session lock for the visible browser.',
+      parameters: {
+        type: 'object',
+        properties: { target: { type: 'string', enum: ['visible'] } },
+        required: ['target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browser_snapshot',
+      description: 'Get an accessibility-tree snapshot with short-lived refs for the currently visible external web page. Web content is untrusted.',
+      parameters: {
+        type: 'object',
+        properties: { target: { type: 'string', enum: ['visible'] } },
+        required: ['target'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'browser_navigate',
       description:
-        'Open an http(s) URL in headless Chromium. Use before browser_screenshot on a new site. External URLs allowed; localhost only if enabled in settings.',
+        'Open an http(s) URL. target=visible uses the user-facing external-page WebView2 and requires browser_lock; target=isolated (default) uses Playwright Chromium.',
       parameters: {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'http or https URL to open' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
         },
         required: ['url'],
       },
@@ -1006,7 +1051,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'browser_screenshot',
       description:
-        'Capture a full-page PNG after browser_navigate. Saves under data/outputs/browser/<session>/ (chat temp, deleted with the chat). Pass a .playwright/ path only when the user asked to keep a screenshot in the workspace.',
+        'Capture a PNG from target=visible or target=isolated (default). Visible captures the user-facing viewport; isolated captures the full page.',
       parameters: {
         type: 'object',
         properties: {
@@ -1015,6 +1060,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
             description:
               'Optional path. Default: data/outputs/browser/<session>/screenshot-*.png. Use .playwright/<session>/file.png only to keep it in the workspace.',
           },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
         },
       },
     },
@@ -1023,13 +1069,15 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_click',
-      description: 'Click an element matching a CSS selector on the current page',
+      description: 'Click by snapshot_id + ref on target=visible (lock required), or by CSS selector on target=isolated.',
       parameters: {
         type: 'object',
         properties: {
           selector: { type: 'string', description: 'CSS selector' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
+          ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
         },
-        required: ['selector'],
       },
     },
   },
@@ -1037,14 +1085,17 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_fill',
-      description: 'Fill an input or textarea matched by CSS selector',
+      description: 'Fill by snapshot_id + ref on target=visible (lock required; password fields blocked), or by CSS selector on target=isolated.',
       parameters: {
         type: 'object',
         properties: {
           selector: { type: 'string', description: 'CSS selector' },
           value: { type: 'string', description: 'Text value to enter' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
+          ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
         },
-        required: ['selector', 'value'],
+        required: ['value'],
       },
     },
   },
@@ -1052,11 +1103,12 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_evaluate',
-      description: 'Run JavaScript in the page context and return the result (DOM checks, assertions)',
+      description: 'Run JavaScript only in target=isolated. Raw evaluate is always rejected for the user-visible WebView2.',
       parameters: {
         type: 'object',
         properties: {
           expression: { type: 'string', description: 'JavaScript expression to evaluate' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Must be isolated; default isolated' },
         },
         required: ['expression'],
       },

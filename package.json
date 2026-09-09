@@ -41,6 +41,7 @@
     "verify:work-mode-loop": "node tools/verify-work-mode-loop.mjs",
     "verify:structure-commit": "node tools/verify-structure-commit-scope.mjs --staged",
     "verify:tool-facade": "node tools/verify-tool-facade.mjs",
+    "verify:visible-browser": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-visible-browser-bridge.mjs",
     "verify:agent-import-cycles": "node tools/verify-agent-import-cycles.mjs",
     "verify:perf-metrics": "node tools/verify-perf-metrics.mjs",
     "verify:next-test-runtime": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-next-test-runtime.mjs && node tools/verify-session-continuity.mjs && node tools/verify-harness-policy.mjs && node tools/verify-perf-metrics.mjs",

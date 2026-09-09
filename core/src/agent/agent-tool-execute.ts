@@ -34,7 +34,7 @@ import { remoteGitInspect } from './remote-git-inspect.js';
 import { runAstGrepSidecar, runRepomixSidecar } from '../sidecars/cli-search-sidecars.js';
 import { runMarkitdownSidecar } from '../sidecars/markitdown-sidecar.js';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import {
   formatPluginListJson,
   getAgentPluginByToolName,
@@ -66,6 +66,8 @@ import {
 import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOL_NAMES, CODE_AGENT_TOOLS } from './agent-tool-definitions.js';
 import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
+import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
+import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { isOfficeBinaryPath, normalizeWindowsPermissionError } from '../security/workspace-capabilities.js';
 import { appendPostMutateSyntaxCheck } from './agent-post-mutate-syntax.js';
@@ -104,7 +106,7 @@ import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-
 import type { MemoryScope } from '../memory/user-memory-store.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
-  const base = cqrRoot && isPlaywrightAvailable(cqrRoot)
+  const base = cqrRoot && (isPlaywrightAvailable(cqrRoot) || visibleBrowserConnected())
     ? [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS].map((t) => t.function.name)
     : [...CODE_AGENT_TOOL_NAMES];
   if (!cqrRoot) return base;
@@ -1018,79 +1020,125 @@ async function executeAgentToolInner(
         });
         return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify(result, null, 2) };
       }
+      case 'browser_targets': {
+        const bridge = getVisibleBrowserBridge();
+        const visible = bridge?.isConnected()
+          ? await bridge.request('targets')
+          : { id: 'visible-browser', kind: 'visible', connected: false, available: false };
+        const isolated = {
+          id: 'isolated-browser', kind: 'isolated', connected: Boolean(ctx?.browserSession),
+        };
+        return { label: 'browser targets', output: JSON.stringify({ targets: [visible, isolated] }, null, 2) };
+      }
+      case 'browser_lock': {
+        if (args.target !== 'visible') throw new Error('BROWSER_LOCK_TARGET_MUST_BE_VISIBLE');
+        const bridge = getVisibleBrowserBridge();
+        if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+        return { label: 'browser lock visible', output: JSON.stringify(bridge.lockFor(ctx?.sessionId ?? 'default'), null, 2) };
+      }
+      case 'browser_unlock': {
+        if (args.target !== 'visible') throw new Error('BROWSER_UNLOCK_TARGET_MUST_BE_VISIBLE');
+        const bridge = getVisibleBrowserBridge();
+        if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+        return { label: 'browser unlock visible', output: JSON.stringify(bridge.unlockFor(ctx?.sessionId ?? 'default'), null, 2) };
+      }
+      case 'browser_snapshot': {
+        if (args.target !== 'visible') throw new Error('BROWSER_SNAPSHOT_TARGET_MUST_BE_VISIBLE');
+        const bridge = getVisibleBrowserBridge();
+        if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+        const snapshot = await bridge.request('snapshot');
+        return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
+      }
       case 'browser_navigate': {
-        const session = ctx?.browserSession;
-        if (!session) {
-          return {
-            label: 'browser_navigate',
-            output: 'ERROR: Playwright browser session is not open. Restart MY Agent after: powershell tools\\bootstrap-playwright-if-needed.ps1',
-          };
-        }
+        const target = args.target === 'visible' ? 'visible' : 'isolated';
         const url = String(args.url ?? '');
         if (isPlaceholderNavUrl(url)) {
           return {
             label: `navigate ${url}`,
-            output:
-              'ERROR: Placeholder URL blocked (대상-주소 / example.com). Navigate only to local HTTP or a real production URL.',
+            output: 'ERROR: Placeholder URL blocked (대상-주소 / example.com). Navigate only to local HTTP or a real production URL.',
           };
         }
+        if (target === 'visible') {
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
+          const parsed = assertAllowedBrowserUrl(url, { allowLocalhost: ctx?.allowLocalhost === true });
+          const result = await bridge.request('navigate', { url: parsed.toString() });
+          return { label: `navigate visible ${url}`, output: JSON.stringify(result, null, 2) };
+        }
+        const session = ctx?.browserSession;
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const nav = await session.navigate(url);
-        return {
-          label: `navigate ${url}`,
-          output: JSON.stringify(nav, null, 2),
-        };
+        return { label: `navigate isolated ${url}`, output: JSON.stringify(nav, null, 2) };
       }
       case 'browser_screenshot': {
-        const session = ctx?.browserSession;
-        if (!session) {
-          return {
-            label: 'browser_screenshot',
-            output: 'ERROR: Playwright is not available. Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\\bootstrap-playwright-if-needed.ps1',
-          };
+        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        if (target === 'visible') {
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+          const result = await bridge.request('screenshot');
+          const image = typeof result.image_base64 === 'string' ? result.image_base64 : '';
+          if (!image) throw new Error('VISIBLE_BROWSER_SCREENSHOT_EMPTY');
+          const sid = (ctx.sessionId?.trim() || 'session').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'session';
+          const requested = typeof args.path === 'string' ? path.basename(args.path) : '';
+          const filename = requested || `screenshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+          const dir = path.join(ctx.cqrRoot, 'data', 'outputs', 'browser', sid);
+          mkdirSync(dir, { recursive: true });
+          const absolute = path.join(dir, filename.toLowerCase().endsWith('.png') ? filename : `${filename}.png`);
+          writeFileSync(absolute, Buffer.from(image, 'base64'));
+          const relative = path.relative(ctx.cqrRoot, absolute).split(path.sep).join('/');
+          const shot = { path: absolute, relative, url: `/${relative}`, page_url: result.url };
+          return { label: `screenshot ${relative}`, output: JSON.stringify(shot, null, 2) };
         }
+        const session = ctx?.browserSession;
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const rel = typeof args.path === 'string' ? args.path : undefined;
         const shot = await session.screenshot(workspaceRoot, rel, ctx?.sessionId, guard);
-        return {
-          label: `screenshot ${shot.relative}`,
-          output: JSON.stringify(shot, null, 2),
-        };
+        return { label: `screenshot ${shot.relative}`, output: JSON.stringify(shot, null, 2) };
       }
       case 'browser_click': {
-        const session = ctx?.browserSession;
-        if (!session) {
-          return {
-            label: 'browser_click',
-            output: 'ERROR: Playwright is not available. Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\\bootstrap-playwright-if-needed.ps1',
-          };
+        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        if (target === 'visible') {
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
+          const result = await bridge.request('click', {
+            snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''),
+          });
+          return { label: `click visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
+        const session = ctx?.browserSession;
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const selector = String(args.selector ?? '');
-        const msg = await session.click(selector);
-        return { label: `click ${selector}`, output: msg };
+        if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
+        return { label: `click isolated ${selector}`, output: await session.click(selector) };
       }
       case 'browser_fill': {
-        const session = ctx?.browserSession;
-        if (!session) {
-          return {
-            label: 'browser_fill',
-            output: 'ERROR: Playwright is not available. Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\\bootstrap-playwright-if-needed.ps1',
-          };
-        }
-        const selector = String(args.selector ?? '');
+        const target = args.target === 'visible' ? 'visible' : 'isolated';
         const value = String(args.value ?? '');
-        const msg = await session.fill(selector, value);
-        return { label: `fill ${selector}`, output: msg };
+        if (target === 'visible') {
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
+          const result = await bridge.request('fill', {
+            snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''), value,
+          });
+          return { label: `fill visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
+        }
+        const session = ctx?.browserSession;
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
+        const selector = String(args.selector ?? '');
+        if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
+        return { label: `fill isolated ${selector}`, output: await session.fill(selector, value) };
       }
       case 'browser_evaluate': {
+        if (args.target === 'visible') throw new Error('VISIBLE_BROWSER_RAW_EVALUATE_FORBIDDEN');
         const session = ctx?.browserSession;
-        if (!session) {
-          return {
-            label: 'browser_evaluate',
-            output: 'ERROR: Playwright is not available. Run: powershell -NoProfile -ExecutionPolicy Bypass -File tools\\bootstrap-playwright-if-needed.ps1',
-          };
-        }
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const expression = String(args.expression ?? '');
         const result = await session.evaluate(expression);
-        return { label: 'evaluate', output: result };
+        return { label: 'evaluate isolated', output: result };
       }
       default: {
         if (name.startsWith('mcp_') && ctx?.cqrRoot) {

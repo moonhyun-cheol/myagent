@@ -115,6 +115,7 @@ import {
 } from './tool-self-correction.js';
 import { assertDevWorkspaceRootReadable } from '../security/dev-workspace-guard.js';
 import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
+import { visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import { PlaywrightSession } from '../browser/playwright-session.js';
 import { applyToolSchemaCompat } from './tool-schema-compat.js';
 import {
@@ -196,6 +197,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const guard = { allowNas };
 
   const playwrightAvailable = isPlaywrightAvailable(opts.cqrRoot);
+  const browserAvailable = playwrightAvailable || visibleBrowserConnected();
   let autopilot = resolveAutopilotEnabled(
     process.env,
     typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
@@ -204,7 +206,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   );
   const toolPack =
     opts.forceToolPack
-    ?? (playwrightAvailable ? 'files+browser' : 'files');
+    ?? (browserAvailable ? 'files+browser' : 'files');
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);

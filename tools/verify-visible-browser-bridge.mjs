@@ -1,0 +1,77 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import net from 'node:net';
+import { VisibleBrowserBridge } from '../core/dist/browser/visible-browser-bridge.js';
+
+const root = new URL('../', import.meta.url);
+const read = async (relative) => readFile(new URL(relative, root), 'utf8');
+
+const [definitions, executor, shellAutomation, shellClient] = await Promise.all([
+  read('core/src/agent/agent-tool-definitions.ts'),
+  read('core/src/agent/agent-tool-execute.ts'),
+  read('shell/CqrPa.Shell/MainWindow.VisibleBrowserAutomation.cs'),
+  read('shell/CqrPa.Shell/VisibleBrowserAutomationClient.cs'),
+]);
+
+for (const name of ['browser_targets', 'browser_lock', 'browser_unlock', 'browser_snapshot']) {
+  assert.match(definitions, new RegExp(`name: '${name}'`), `${name} must be in the builtin browser tool catalog`);
+}
+assert.match(definitions, /enum: \['visible', 'isolated'\]/, 'browser tools must expose explicit visible/isolated targets');
+assert.match(executor, /VISIBLE_BROWSER_RAW_EVALUATE_FORBIDDEN/, 'raw evaluate must be rejected for visible target');
+assert.match(executor, /assertLockedBy\(ctx\?\.sessionId/, 'visible mutations must require the session lock');
+assert.match(shellAutomation, /Accessibility\.getFullAXTree/, 'visible snapshot must use the accessibility tree');
+assert.match(shellAutomation, /STALE_BROWSER_REF/, 'stale snapshot refs must be rejected');
+assert.match(shellAutomation, /PASSWORD_FIELD_BLOCKED/, 'password filling must be blocked');
+assert.doesNotMatch(shellAutomation, /\bWebView\.CoreWebView2\b/, 'workspace WebView must never be an automation target');
+assert.match(shellClient, /my-agent-visible-browser-\{port\}/, 'shell and core must share the private pipe naming contract');
+
+const port = 30_000 + (process.pid % 20_000);
+const bridge = new VisibleBrowserBridge(port);
+bridge.start();
+const pipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\my-agent-visible-browser-${port}`
+  : `/tmp/my-agent-visible-browser-${port}.sock`;
+
+const connect = async () => {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const socket = net.createConnection(pipePath, () => resolve(socket));
+        socket.once('error', reject);
+      });
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error('fake shell could not connect to visible browser bridge');
+};
+
+const socket = await connect();
+let buffer = '';
+socket.setEncoding('utf8');
+socket.on('data', (chunk) => {
+  buffer += chunk;
+  while (buffer.includes('\n')) {
+    const index = buffer.indexOf('\n');
+    const line = buffer.slice(0, index).trim();
+    buffer = buffer.slice(index + 1);
+    if (!line) continue;
+    const command = JSON.parse(line);
+    socket.write(`${JSON.stringify({ type: 'result', id: command.id, ok: true, result: { action: command.action } })}\n`);
+  }
+});
+
+for (let attempt = 0; attempt < 30 && !bridge.isConnected(); attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.equal(bridge.isConnected(), true);
+assert.deepEqual(await bridge.request('targets'), { action: 'targets' });
+assert.equal(bridge.lockFor('session-a').owner, 'session-a');
+bridge.assertLockedBy('session-a');
+assert.throws(() => bridge.assertLockedBy('session-b'), /VISIBLE_BROWSER_LOCKED:session-a/);
+assert.deepEqual(bridge.unlockFor('session-a'), { unlocked: true });
+assert.throws(() => bridge.assertLockedBy('session-a'), /VISIBLE_BROWSER_LOCK_REQUIRED/);
+
+socket.destroy();
+bridge.stop();
+console.log('verify-visible-browser-bridge: ok');
