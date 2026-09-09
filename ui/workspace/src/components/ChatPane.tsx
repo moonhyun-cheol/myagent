@@ -1236,7 +1236,7 @@ export function ChatPane() {
                 연결할 작업 폴더
                 <select data-testid="chat-workspace-select" value={activeWorkspaceProjectId ?? ''}
                   disabled={busy || workspaceSaving}
-                  className="mt-1.5 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm"
+                  className="mt-1.5 w-full rounded-xl border border-line bg-panel px-3 py-2 text-sm"
                   onChange={(event) => {
                     setWorkspaceSaving(true);
                     void setSessionWorkspaceProject(event.target.value || null)
@@ -1300,8 +1300,8 @@ export function ChatPane() {
         <button
           type="button"
           aria-pressed={previewPaneOpen}
-          aria-label={previewPaneOpen ? 'Preview 닫기' : 'Preview 열기'}
-          title={previewPaneOpen ? 'Preview 닫기' : 'Preview 열기'}
+          aria-label={previewPaneOpen ? '작업 패널 닫기' : '작업 패널 열기'}
+          title={previewPaneOpen ? '작업 패널 닫기' : '작업 패널 열기'}
           onClick={() => setPreviewPaneOpen(!previewPaneOpen)}
           className="chat-setting-control chat-icon-control"
         >
@@ -1352,7 +1352,7 @@ export function ChatPane() {
         role="region"
         aria-label="대화 이력"
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown"
-        className="min-h-0 flex-1 overflow-auto px-5 py-6 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        className="chat-content-padding min-h-0 flex-1 overflow-auto px-5 py-6 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
         onClick={(event) => focusHistoryBackground(event.currentTarget, event.target)}
         onWheel={() => { historyCursorRef.current = null; }}
         onPointerDown={() => { historyCursorRef.current = null; }}
@@ -1373,7 +1373,7 @@ export function ChatPane() {
         }}
         onContextMenu={openSessionMenu}
       >
-        <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
+        <div className="chat-content-width mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
           {visibleChat.length === 0 && !busy ? (
             <div className="py-16 text-center">
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
@@ -1564,8 +1564,8 @@ export function ChatPane() {
 
       <ContextMenuPortal menu={menu} onClose={close} />
 
-      <div className="border-t border-line bg-panel/65 px-5 py-4 backdrop-blur-xl">
-        <div className="mx-auto max-w-2xl">
+      <div className="chat-content-padding border-t border-line bg-panel px-5 py-4">
+        <div className="chat-content-width mx-auto max-w-2xl">
           {contextBudget && contextBudget.contextLength > 0 ? (
             <div
               className="mb-2 flex justify-end gap-3 text-[10px] tabular-nums text-muted"
@@ -1591,7 +1591,7 @@ export function ChatPane() {
           ) : null}
           <div
             ref={composerRef}
-            className={`rounded-2xl border bg-ink/90 shadow-[0_8px_28px_rgba(0,0,0,0.16)] transition-colors focus-within:border-accent/70 focus-within:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_8px_28px_rgba(0,0,0,0.2)] ${
+            className={`chat-composer rounded-2xl border transition-colors ${
               skillPickerOpen ? 'overflow-visible' : 'overflow-hidden'
             } ${
               dragActive
@@ -1702,8 +1702,9 @@ export function ChatPane() {
                 }
               }}
               rows={3}
-              placeholder="할 일 입력… (@ 또는 피커로 파일 컨텍스트)"
-              className="w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-muted/50"
+              aria-label="메시지 입력"
+              placeholder={skillMode === 'image' ? '만들고 싶은 이미지를 설명하세요…' : activeWorkspaceProjectId ? '메시지 또는 작업 요청… (@로 파일 첨부)' : '무엇이든 물어보세요…'}
+              className="w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-muted"
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter' && !e.shiftKey) {

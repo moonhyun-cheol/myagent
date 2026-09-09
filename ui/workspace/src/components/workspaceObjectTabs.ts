@@ -19,8 +19,8 @@ export interface WorkspaceObjectTabDefinition {
 export const WORKSPACE_OBJECT_TABS: readonly WorkspaceObjectTabDefinition[] = [
   {
     id: 'documents',
-    label: '문서',
-    description: '이 챗의 문서를 렌더링 상태에서 편집하고 에이전트와 검토합니다.',
+    label: '협업 문서',
+    description: '이 대화의 협업 문서를 편집하고 검토합니다. 파일 문서는 상단 문서 탭에서 엽니다.',
     icon: FileText,
   },
   {
@@ -37,8 +37,8 @@ export const WORKSPACE_OBJECT_TABS: readonly WorkspaceObjectTabDefinition[] = [
   },
   {
     id: 'todo',
-    label: 'Todo',
-    description: '현재 작업에서 인식된 할 일과 고정 지침을 확인합니다.',
+    label: '할 일',
+    description: '모델이 등록한 할 일과 고정 지침을 확인합니다.',
     icon: CheckSquareOffset,
   },
 ];

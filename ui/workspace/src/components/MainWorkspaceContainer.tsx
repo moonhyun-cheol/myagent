@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ArrowsInSimple, ArrowsOutSimple, TerminalWindow, X } from '@phosphor-icons/react';
 import type { WorkspaceMode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -18,6 +18,7 @@ import { SchedulerSurface } from './SchedulerSurface';
 import { TerminalPane } from './TerminalPane';
 import { WorkspaceObjectsPane } from './WorkspaceObjectsPane';
 import { useSessionTodos } from '../lib/useSessionTodos';
+import { navigateTabs } from '../lib/tabNavigation';
 
 const EDITING_ONLY_CTRL_KEYS = new Set(['a', 'v', 'x', 'y', 'z']);
 const BLOCKED_BROWSER_CTRL_KEYS = new Set(['d', 'h', 'j', 'l', 'n', 'o', 'r', 't', 'u', 'w', '+', '-', '0']);
@@ -27,6 +28,7 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 }
 
 function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
+  const tabId = useId();
   const mode = useWorkspaceStore(s => s.mode);
   const setMode = useWorkspaceStore(s => s.setMode);
   const terminalOpen = useWorkspaceStore(s => s.terminalOpen);
@@ -61,7 +63,7 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [setTerminalOpen]);
-  const body = <div className="relative h-full min-h-0" data-work-panel-body>
+  const body = <div id={`${tabId}-body`} role="tabpanel" aria-labelledby={`${tabId}-${mode}`} className="relative h-full min-h-0" data-work-panel-body>
     {mode === 'objects' && <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} todoError={todoError} />}
     {(mode === 'document' || mode === 'canvas') && <MarkdownDocument />}
     {mode === 'media' && <MediaPane />}
@@ -69,18 +71,18 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
   </div>;
   return <section className="flex h-full min-h-0 min-w-0 flex-col bg-panel" aria-label="작업 패널" data-preview-pane tabIndex={-1}>
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-b border-line px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-0.5" aria-label="작업 패널 보기">
+      <div className="flex min-w-0 flex-wrap items-center gap-0.5" role="tablist" aria-label="작업 패널 보기" onKeyDown={navigateTabs}>
         {WORKSPACE_PREVIEW_MODES.map(({ id, label, icon: Icon, disabled, disabledReason }) => <button
           key={id} type="button" onClick={() => { if (isAvailableWorkspacePreviewMode(id)) setMode(id); }}
-          disabled={disabled} title={disabledReason} aria-pressed={mode === id}
-          className={`inline-flex min-h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs font-medium ${disabled ? 'text-muted/35' : mode === id ? 'bg-accent text-white' : 'text-muted hover:bg-hover hover:text-text'}`}
+          disabled={disabled} title={disabledReason} role="tab" id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} aria-selected={mode === id} tabIndex={mode === id ? 0 : -1}
+          className="ui-tab"
         ><Icon size={14} />{label}</button>)}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         <button type="button" onClick={() => setTerminalOpen(!terminalOpen)} aria-label="터미널" aria-pressed={terminalOpen}
           title={terminalOpen ? '터미널 접기 (Ctrl+`)' : '터미널 열기 (Ctrl+`)'}
           className={`inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs ${terminalOpen || terminalAttention || terminalBusy ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-hover'}`}>
-          <TerminalWindow size={16} />{terminalBusy ? '실행 중' : terminalAttention ? '완료' : null}
+          <TerminalWindow size={16} />{terminalBusy ? '실행 중' : '터미널'}
         </button>
         {controls && <>
           {!controls.narrow && <button type="button" onClick={controls.toggleExpanded} aria-label={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} title={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} className="rounded-md p-2 text-muted hover:bg-hover">
@@ -92,7 +94,7 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
     </div>
     <div className="min-h-0 flex-1">
       <ResizableSplit axis="vertical" reverse initial={200} min={120} max={520} className="h-full"
-        collapsedSecond={!terminalOpen} first={body} second={<TerminalPane />} />
+        collapsedSecond={!terminalOpen} collapsedSize={38} first={body} second={<TerminalPane />} />
     </div>
   </section>;
 }

@@ -1,24 +1,50 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
+@import './ux.css';
 
 @theme {
   --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-  --color-ink: #dde1de;
-  --color-panel: #f4f5f2;
-  --color-panel-2: #d3dad6;
-  --color-line: #adb9b4;
-  --color-muted: #4f5d57;
-  --color-text: #17211d;
-  --color-accent: #0f8f83;
-  --color-accent-dim: #0b7068;
+  --color-ink: #eef2f0;
+  --color-panel: #fafcfb;
+  --color-panel-2: #e0e8e4;
+  --color-hover: #e0e8e4;
+  --color-line: #b6c5bd;
+  --color-muted: #4f6258;
+  --color-text: #182c22;
+  --color-accent: #086b60;
+  --color-accent-dim: #086b60;
+  --color-on-accent: #ffffff;
+  --color-selected: #d9eee6;
+  --color-danger: #a52737;
+  --color-warning: #815009;
+  --color-success: #216842;
+  --color-info: #245c92;
 }
 
-/* The full product uses one matte light palette; this scope only announces
-   native light controls inside the modal. */
-.model-manager-light {
-  color-scheme: light;
+:root { color-scheme: light; --surface-raised: #ffffff; --surface-terminal: #e8eeeb; --focus-ring: #086b60; }
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-ink: #141c19;
+  --color-panel: #1c2722;
+  --color-panel-2: #2b3b33;
+  --color-hover: #2b3b33;
+  --color-line: #50655a;
+  --color-muted: #b0c2b8;
+  --color-text: #e5eee9;
+  --color-accent: #6cdbc8;
+  --color-accent-dim: #6cdbc8;
+  --color-on-accent: #092d27;
+  --color-selected: #23473e;
+  --color-danger: #ffadba;
+  --color-warning: #f4cc85;
+  --color-success: #92dfb2;
+  --color-info: #a0ccff;
+  --surface-raised: #293930;
+  --surface-terminal: #111a16;
+  --focus-ring: #6cdbc8;
 }
+.model-manager-light { color-scheme: inherit; }
 
 * {
   box-sizing: border-box;
@@ -36,7 +62,7 @@ body {
   background: var(--color-ink);
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
-  color-scheme: light;
+  color-scheme: inherit;
 }
 
 ::-webkit-scrollbar {
@@ -44,7 +70,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #98a6a0;
+  background: var(--color-line);
   border-radius: 8px;
 }
 ::-webkit-scrollbar-track {
@@ -52,7 +78,7 @@ body {
 }
 
 .react-flow__background {
-  background: #dde1de !important;
+  background: var(--color-ink) !important;
 }
 
 /* Cursor-style blink when an agent run finishes (bottom terminal chrome). */
@@ -149,7 +175,7 @@ body {
 }
 .chat-setting-control svg { flex-shrink: 0; }
 .chat-setting-control:hover:not(:disabled), .chat-model-select:hover:not(:disabled) { background: var(--color-panel-2); }
-.chat-setting-control[aria-expanded="true"], .chat-setting-control[aria-pressed="true"] { background: #e0efeb; color: var(--color-accent-dim); border-color: var(--color-accent-dim); }
+.chat-setting-control[aria-expanded="true"], .chat-setting-control[aria-pressed="true"] { background: var(--color-selected); color: var(--color-accent-dim); border-color: var(--color-accent-dim); }
 .chat-setting-control:focus-visible, .chat-model-select:focus-visible, .chat-policy-popover :is(button, select):focus-visible, [data-testid="organization-skill-menu"] :focus-visible {
   outline: 2px solid var(--color-accent-dim);
   outline-offset: 2px;
@@ -179,7 +205,7 @@ body {
   color: var(--color-text); background: transparent; text-align: left; font-size: 12px; cursor: pointer;
 }
 .chat-policy-choice:hover:not(:disabled) { background: var(--color-panel-2); }
-.chat-policy-choice[aria-checked="true"] { background: #e0efeb; border-color: var(--color-accent-dim); }
+.chat-policy-choice[aria-checked="true"] { background: var(--color-selected); border-color: var(--color-accent-dim); }
 .chat-policy-choice:disabled { opacity: .5; cursor: not-allowed; }
 .chat-policy-check { width: 14px; flex-shrink: 0; color: var(--color-accent-dim); font-weight: 700; }
 .chat-skill-status {

@@ -1,309 +1,136 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { CaretDown, CaretUp, CircleNotch, Stop, Trash } from '@phosphor-icons/react';
+import { CaretDown, CaretUp, Stop, Trash } from '@phosphor-icons/react';
 import { cancelRunTerminalJob, listActiveRunTerminalJobs, type ActiveTerminalJob } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
-/** Collapsible workspace terminal under Preview (PowerShell via /fs/run-terminal). */
+type CancelState = 'requesting' | 'accepted' | 'failed';
+
+/** Summary remains mounted and visible when folded. ACK is not a final process result. */
 export function TerminalPane() {
-  const open = useWorkspaceStore((s) => s.terminalOpen);
-  const busy = useWorkspaceStore((s) => s.terminalBusy);
-  const jobId = useWorkspaceStore((s) => s.terminalJobId);
-  const log = useWorkspaceStore((s) => s.terminalLog);
-  const filesRoot = useWorkspaceStore((s) => s.filesRoot);
-  const attention = useWorkspaceStore((s) => s.terminalAttention);
-  const setTerminalOpen = useWorkspaceStore((s) => s.setTerminalOpen);
-  const clearTerminalLog = useWorkspaceStore((s) => s.clearTerminalLog);
-  const clearTerminalAttention = useWorkspaceStore((s) => s.clearTerminalAttention);
-  const runTerminalCommand = useWorkspaceStore((s) => s.runTerminalCommand);
-  const cancelTerminalCommand = useWorkspaceStore((s) => s.cancelTerminalCommand);
+  const open = useWorkspaceStore(s => s.terminalOpen);
+  const busy = useWorkspaceStore(s => s.terminalBusy);
+  const agentBusy = useWorkspaceStore(s => s.busy);
+  const jobId = useWorkspaceStore(s => s.terminalJobId);
+  const log = useWorkspaceStore(s => s.terminalLog);
+  const filesRoot = useWorkspaceStore(s => s.filesRoot);
+  const attention = useWorkspaceStore(s => s.terminalAttention);
+  const clearTerminalAttention = useWorkspaceStore(s => s.clearTerminalAttention);
+  const setTerminalOpen = useWorkspaceStore(s => s.setTerminalOpen);
+  const clearTerminalLog = useWorkspaceStore(s => s.clearTerminalLog);
+  const runTerminalCommand = useWorkspaceStore(s => s.runTerminalCommand);
   const [draft, setDraft] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [liveJobs, setLiveJobs] = useState<ActiveTerminalJob[]>([]);
+  const [jobsError, setJobsError] = useState(false);
+  const [cancels, setCancels] = useState<Record<string, CancelState>>({});
+  const inFlight = useRef(new Set<string>());
   const outRef = useRef<HTMLPreElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const folderName = filesRoot
-    ? filesRoot.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || 'workspace'
-    : 'workspace';
-  const prompt = `PS ${folderName}>`;
+  const summaryRef = useRef<HTMLButtonElement>(null);
+  const followOutput = useRef(true);
+  const folderName = filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '폴더 미연결';
 
   useEffect(() => {
-    if (!open) return;
-    const el = outRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (open && followOutput.current && outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
   }, [log, open]);
-
   useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
-
-  // Poll agent + UI shell jobs while terminal is open (or a UI command is running).
+    if (!attention) return;
+    const timer = window.setTimeout(clearTerminalAttention, 2600);
+    return () => window.clearTimeout(timer);
+  }, [attention, clearTerminalAttention]);
   useEffect(() => {
-    if (!open && !busy) {
-      setLiveJobs([]);
-      return;
-    }
     let cancelled = false;
+    let timer = 0;
     const tick = async () => {
       try {
         const doc = await listActiveRunTerminalJobs();
-        if (!cancelled) setLiveJobs(doc.jobs);
-      } catch {
-        if (!cancelled) setLiveJobs([]);
-      }
+        if (!cancelled) {
+          setJobsError(!doc.ok);
+          if (doc.ok) setLiveJobs(doc.jobs);
+        }
+      } catch { if (!cancelled) setJobsError(true); }
+      if (!cancelled) timer = window.setTimeout(() => void tick(), open || busy || agentBusy ? 2000 : 6000);
     };
     void tick();
-    const t = window.setInterval(() => void tick(), 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(t);
-    };
-  }, [open, busy]);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [open, busy, agentBusy]);
 
-  useEffect(() => {
-    const input = inputRef.current;
-    if (!open || !input) return;
-    const onHistoryKey = (event: globalThis.KeyboardEvent) => {
-      if (busy || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
-      event.preventDefault();
-      if (event.key === 'ArrowUp') {
-        const next = Math.min(historyIndex + 1, history.length - 1);
-        if (history[next]) {
-          setHistoryIndex(next);
-          setDraft(history[history.length - 1 - next]);
-        }
-        return;
-      }
-      if (historyIndex <= 0) {
-        setHistoryIndex(-1);
-        setDraft('');
-        return;
-      }
-      const next = historyIndex - 1;
-      setHistoryIndex(next);
-      setDraft(history[history.length - 1 - next] || '');
-    };
-    input.addEventListener('keydown', onHistoryKey);
-    return () => input.removeEventListener('keydown', onHistoryKey);
-  }, [busy, history, historyIndex, open]);
-
-  // Keep the Cursor-style blink visible for a few pulses, then clear.
-  useEffect(() => {
-    if (!attention) return;
-    const t = window.setTimeout(() => clearTerminalAttention(), 2600);
-    return () => window.clearTimeout(t);
-  }, [attention, clearTerminalAttention]);
-
-  const submit = (e?: FormEvent) => {
-    e?.preventDefault();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
     const cmd = draft.trim();
     if (!cmd || busy) return;
-    setDraft('');
-    setHistory((previous) => [
-      ...previous.filter((item) => item !== cmd),
-      cmd,
-    ].slice(-50));
-    setHistoryIndex(-1);
+    setDraft(''); setHistoryIndex(-1); followOutput.current = true;
+    setHistory(previous => [...previous.filter(item => item !== cmd), cmd].slice(-50));
     void runTerminalCommand(cmd);
   };
-
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      setTerminalOpen(false);
-    }
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Escape') { e.preventDefault(); setTerminalOpen(false); summaryRef.current?.focus({ preventScroll: true }); }
+    if (busy || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+    e.preventDefault();
+    const next = e.key === 'ArrowUp' ? Math.min(historyIndex + 1, history.length - 1) : Math.max(-1, historyIndex - 1);
+    setHistoryIndex(next); setDraft(next < 0 ? '' : history[history.length - 1 - next] || '');
   };
-
   const cancelJob = async (id: string) => {
+    if (inFlight.current.has(id) || cancels[id] === 'accepted') return;
+    inFlight.current.add(id);
+    setCancels(old => ({ ...old, [id]: 'requesting' }));
     try {
-      await cancelRunTerminalJob({ jobId: id });
-      if (id === jobId) await cancelTerminalCommand();
-      const doc = await listActiveRunTerminalJobs();
-      setLiveJobs(doc.jobs);
-    } catch {
-      /* best-effort */
-    }
+      const result = await cancelRunTerminalJob({ jobId: id });
+      setCancels(old => ({ ...old, [id]: result.ok && result.cancelled ? 'accepted' : 'failed' }));
+    } catch { setCancels(old => ({ ...old, [id]: 'failed' })); }
+    finally { inFlight.current.delete(id); }
   };
+  const stopButton = (id: string, name: string) => <button type="button" className="ui-danger shrink-0"
+    data-testid={id === jobId ? 'terminal-cancel' : undefined} aria-label={`${name} 중지`}
+    disabled={cancels[id] === 'requesting' || cancels[id] === 'accepted'} onClick={() => void cancelJob(id)}>
+    <Stop size={14} weight="fill" />{cancels[id] === 'requesting' ? '정지 요청 중…' : cancels[id] === 'accepted' ? '요청 접수됨' : '중지'}
+  </button>;
+  const count = liveJobs.length + (busy && jobId && !liveJobs.some(job => job.id === jobId) ? 1 : 0);
+  const finalLine = log.trim().split(/\r?\n/).at(-1) || '';
+  const resultLabel = finalLine === '[cancelled]' ? '실제 중단됨' : /\(failed\)\]$|^ERROR:/.test(finalLine) ? '명령 실패'
+    : /^\[exit 0\]$/.test(finalLine) ? '명령 완료' : log ? '로그 있음' : '대기';
+  const activeIds = new Set(liveJobs.map(job => job.id));
+  if (busy && jobId) activeIds.add(jobId);
+  const cancelStates = [...activeIds].map(id => cancels[id]);
+  const requestingCount = cancelStates.filter(state => state === 'requesting').length;
+  const acceptedCount = cancelStates.filter(state => state === 'accepted').length;
+  const hasCancelFailure = cancelStates.includes('failed');
+  const summary = `${count || busy ? `실행 중 ${Math.max(1, count)}개` : resultLabel}${requestingCount ? ` · 정지 요청 중 ${requestingCount}개` : ''}${acceptedCount ? ` · 정지 결과 대기 ${acceptedCount}개` : ''}${hasCancelFailure ? ' · 정지 요청 실패' : ''}${jobsError ? ' · 실행 목록 확인 불가' : ''}`;
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setTerminalOpen(true)}
-        className={`flex h-8 w-full shrink-0 items-center justify-between border-t px-3 text-[11px] text-muted hover:bg-ink hover:text-text ${
-          attention
-            ? 'animate-terminal-attention border-accent/60 bg-accent/15 text-accent'
-            : 'border-line bg-panel'
-        }`}
-        title="터미널 열기 (Ctrl+`)"
-      >
-        <span className="inline-flex items-center gap-1.5 font-medium uppercase tracking-[0.12em]">
-          <CaretUp size={12} weight="bold" />
-          Terminal
-          {attention ? <span className="normal-case tracking-normal text-[10px]">· 작업 완료</span> : null}
-          {liveJobs.length > 0 ? (
-            <span className="normal-case tracking-normal text-[10px] text-accent">
-              · {liveJobs.length} job
-            </span>
-          ) : null}
-        </span>
-        <span className="truncate text-[10px] text-muted/70">
-          {filesRoot ? filesRoot : '폴더 미연결'}
-        </span>
+  return <div className="terminal-surface flex h-full min-h-0 flex-col" data-testid="terminal-pane">
+    <div className="flex shrink-0 items-center border-b border-line bg-panel">
+      <button ref={summaryRef} type="button" className="terminal-summary min-w-0 flex-1" onClick={() => { setTerminalOpen(!open); if (attention) clearTerminalAttention(); }}
+        data-attention={attention} aria-expanded={open} aria-controls="terminal-details" title={`${summary} · ${open ? '접기' : '열기'} (Ctrl+\`) · ${filesRoot || folderName}`}>
+        {open ? <CaretDown size={14} /> : <CaretUp size={14} />}<span>터미널 · {summary}</span>
       </button>
-    );
-  }
-
-  return (
-    <div
-      className={`flex h-full min-h-0 flex-col border-t bg-[#cdd4d0] ${
-        attention ? 'animate-terminal-attention border-accent/60' : 'border-line'
-      }`}
-      onClick={() => {
-        if (attention) clearTerminalAttention();
-      }}
-    >
-      <div
-        className={`flex shrink-0 items-center justify-between border-b px-3 py-1.5 ${
-          attention ? 'border-accent/40 bg-accent/10' : 'border-line/80 bg-panel'
-        }`}
-      >
-        <button
-          type="button"
-          onClick={() => setTerminalOpen(false)}
-          className={`inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.12em] hover:text-text ${
-            attention ? 'text-accent' : 'text-muted'
-          }`}
-          title="터미널 접기 (Ctrl+`)"
-        >
-          <CaretDown size={12} weight="bold" />
-          Terminal
-          {busy ? <CircleNotch size={12} className="animate-spin text-accent" /> : null}
-          {busy ? (
-            <span className="normal-case tracking-normal text-[10px] text-accent">
-              · 실행 중{jobId ? ` (${jobId.slice(0, 14)}…)` : ''}
-            </span>
-          ) : null}
-          {attention && !busy ? (
-            <span className="normal-case tracking-normal text-[10px]">· 작업 완료</span>
-          ) : null}
-        </button>
-        <div className="flex items-center gap-2">
-          {busy ? (
-            <button
-              type="button"
-              onClick={() => void cancelTerminalCommand()}
-              className="inline-flex items-center gap-1 rounded-md border border-red-400/40 px-1.5 py-0.5 text-[10px] font-medium text-red-200 hover:bg-red-950/30"
-              title="실행 중인 명령 중지"
-              data-testid="terminal-cancel"
-            >
-              <Stop size={11} weight="fill" />
-              Stop
-            </button>
-          ) : null}
-          <span className="max-w-[220px] truncate text-[10px] text-muted/70" title={filesRoot ?? undefined}>
-            {filesRoot ? filesRoot : '작업 폴더 미연결'}
-          </span>
-          <button
-            type="button"
-            onClick={() => clearTerminalLog()}
-            className="rounded p-1 text-muted hover:bg-ink hover:text-text"
-            title="로그 지우기"
-            aria-label="로그 지우기"
-          >
-            <Trash size={13} />
-          </button>
-        </div>
-      </div>
-
-      {liveJobs.length > 0 ? (
-        <div
-          className="shrink-0 border-b border-line/60 bg-panel/80 px-3 py-1.5"
-          data-testid="terminal-active-jobs"
-        >
-          <p className="mb-1 text-[10px] font-medium uppercase tracking-[0.1em] text-muted">
-            Active jobs ({liveJobs.length})
-          </p>
-          <ul className="max-h-20 space-y-1 overflow-y-auto">
-            {liveJobs.map((j) => (
-              <li key={j.id} className="flex items-center gap-2 text-[10px] text-muted">
-                <span
-                  className={`shrink-0 rounded px-1 py-px uppercase ${
-                    j.kind === 'agent'
-                      ? 'bg-accent/15 text-accent'
-                      : j.kind === 'ui'
-                        ? 'bg-sky-500/15 text-sky-200'
-                        : 'bg-ink text-muted'
-                  }`}
-                >
-                  {j.kind}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-text/80" title={j.command}>
-                  {j.command}
-                </span>
-                <span className="shrink-0 text-muted/70">{Math.round(j.age_ms / 1000)}s</span>
-                <button
-                  type="button"
-                  className="shrink-0 rounded border border-red-400/30 px-1 py-px text-red-200 hover:bg-red-950/30"
-                  onClick={() => void cancelJob(j.id)}
-                >
-                  Stop
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <pre
-        ref={outRef}
-        className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-text/90 whitespace-pre-wrap break-words"
-      >
-        {log || (
-          <span className="text-muted">
-            PowerShell · {folderName}
-            <br />
-            예: <code className="text-accent/80">npm --version</code>
-          </span>
-        )}
+      {open && <button type="button" onClick={clearTerminalLog} className="ui-secondary m-1" title="화면 로그만 지웁니다. 실행 중인 프로세스는 종료하지 않습니다." aria-label="로그만 지우기"><Trash size={15} /></button>}
+    </div>
+    <div id="terminal-details" className="flex min-h-0 flex-1 flex-col" style={{ display: open ? undefined : 'none' }}>
+      {(jobsError || hasCancelFailure) && <p role="status" className="px-3 py-1 text-xs text-danger">{jobsError ? '실행 목록을 확인하지 못했습니다. 마지막 목록을 표시하며 자동 재시도합니다. ' : ''}{hasCancelFailure ? '정지 요청 실패 또는 이미 종료된 작업입니다. 로그를 확인한 뒤 필요하면 다시 시도하세요.' : ''}</p>}
+      {liveJobs.length > 0 && <details className="shrink-0 border-b border-line px-3 py-1" data-testid="terminal-active-jobs">
+        <summary>실행 작업 {liveJobs.length}개 · 명령과 개별 중지</summary>
+        <ul className="max-h-36 space-y-2 overflow-auto py-2">
+          {liveJobs.map(job => <li key={job.id} className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted">{job.kind === 'agent' ? '에이전트' : job.kind === 'ui' ? '직접 실행' : job.kind} · {Math.round(job.age_ms / 1000)}초</span>
+            <code className="min-w-0 flex-1 break-all text-text">{job.command}</code>{stopButton(job.id, job.command)}
+            {cancels[job.id] === 'accepted' && <span className="text-warning">요청 접수 · 최종 결과는 실행 로그에서 확인</span>}
+          </li>)}
+        </ul>
+      </details>}
+      <pre ref={outRef} tabIndex={0} aria-label="터미널 출력" onScroll={e => { const el = e.currentTarget; followOutput.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32; }}
+        className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs leading-relaxed text-text">
+        {log || <span className="text-muted">PowerShell · {folderName}\n명령을 직접 입력하거나 에이전트 실행 내역을 펼쳐 확인하세요.</span>}
       </pre>
-
-      <form
-        onSubmit={submit}
-        className="flex shrink-0 items-center gap-2 border-t border-line/80 bg-panel px-3 py-1.5"
-      >
-        <span className="shrink-0 font-mono text-[12px] text-accent">{prompt}</span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={draft}
-          disabled={busy}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={busy ? '실행 중… Stop으로 취소' : '명령 입력'}
-          spellCheck={false}
-          autoComplete="off"
-          className="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text outline-none placeholder:text-muted/50 disabled:opacity-60"
-        />
-        {busy ? (
-          <button
-            type="button"
-            onClick={() => void cancelTerminalCommand()}
-            className="rounded-md border border-red-400/50 bg-red-950/30 px-2.5 py-1 text-[11px] font-medium text-red-200"
-          >
-            Stop
-          </button>
-        ) : (
-          <button
-            type="submit"
-            disabled={!draft.trim()}
-            className="rounded-md bg-accent/90 px-2.5 py-1 text-[11px] font-medium text-ink disabled:opacity-40"
-          >
-            Run
-          </button>
-        )}
+      {!busy && log && <p role="status" className={`px-3 text-xs ${resultLabel === '명령 실패' ? 'text-danger' : 'text-muted'}`}>{resultLabel}</p>}
+      <form onSubmit={submit} className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line bg-panel px-3 py-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs"><span className="text-accent">PS &gt;</span>
+          <input aria-label="PowerShell 명령" type="text" value={draft} disabled={busy} onChange={e => setDraft(e.target.value)} onKeyDown={onKeyDown}
+            placeholder={busy ? '명령 실행 중…' : '명령 입력'} spellCheck={false} autoComplete="off" className="min-w-0 flex-1 bg-transparent py-1 font-mono text-text" />
+        </label>
+        {busy ? jobId ? stopButton(jobId, '직접 실행 명령') : <span className="text-xs text-muted">시작 중…</span>
+          : <button type="submit" disabled={!draft.trim()} className="ui-primary">실행</button>}
       </form>
     </div>
-  );
+  </div>;
 }

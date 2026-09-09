@@ -332,8 +332,12 @@ export function BrowserPane() {
 
       {useShellSurface && (shellLoading || (shellStatus && !['탐색 완료', '닫힘'].includes(shellStatus))) ? (
         <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-xs text-muted">
-          <span>{shellLoading ? '페이지를 여는 중…' : shellStatus}</span>
-          {!shellLoading && <button type="button" onClick={onReload} className="underline">다시 시도</button>}
+          <span>{shellLoading ? '페이지를 여는 중…' : `웹 페이지 상태 · ${shellStatus}`}</span>
+          {!shellLoading && <>
+            <button type="button" onClick={onReload} className="ui-secondary">다시 시도</button>
+            <button type="button" onClick={() => surfaceRef.current?.closest('section')?.querySelector<HTMLInputElement>('input')?.focus()} className="ui-secondary">주소 수정</button>
+            <button type="button" onClick={openExternal} className="ui-secondary">외부에서 열기</button>
+          </>}
         </div>
       ) : null}
       <div className={`relative min-h-0 flex-1 ${useShellSurface ? 'overflow-hidden' : 'overflow-auto bg-[#d7dcd9] p-4'}`}>

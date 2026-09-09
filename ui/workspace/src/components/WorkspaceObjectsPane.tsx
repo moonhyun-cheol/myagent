@@ -8,7 +8,8 @@ import {
   Image as ImageIcon,
   LinkSimple,
 } from '@phosphor-icons/react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { navigateTabs } from '../lib/tabNavigation';
 import { openWorkspaceRootInExplorer } from '../api/myAgentClient';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
 import type { WorkspaceAsset } from '../types';
@@ -73,17 +74,19 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
   return (
     <article className="group flex min-w-0 items-center gap-2 border-b border-line/70 px-3 py-2 last:border-b-0">
       {asset.kind === 'image' && asset.imageUrl ? <img src={asset.imageUrl} alt="" className="h-8 w-8 shrink-0 rounded-md object-cover" /> : <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink"><AssetIcon asset={asset} /></span>}
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={openAsset} title={asset.sourcePath || asset.title}>
-        <span className="block truncate text-xs font-medium text-text">{asset.title}</span>
-        <span className="block truncate text-[10px] text-muted">{asset.sourcePath || (asset.kind === 'image' ? '생성 이미지' : asset.language || '결과물')}{(asset.modificationCount ?? 0) > 1 ? ` · 수정 ${asset.modificationCount}회` : ''}</span>
+      <button type="button" className="min-w-0 flex-1 text-left" onClick={openAsset} title={`${asset.kind === 'image' && asset.imageUrl ? '이미지 미리보기' : asset.sourcePath ? '설정된 외부 앱으로 열기' : '앱에서 열기'} · ${asset.sourcePath || asset.title}`}>
+        <span className="block truncate text-sm font-medium text-text">{asset.title}</span>
+        <span className="block truncate text-xs text-muted">{asset.sourcePath || (asset.kind === 'image' ? '생성 이미지' : asset.language || '결과물')}</span>
+        <span className="mt-1 block text-xs text-accent">{asset.modificationCount ? `변경 기록 ${asset.modificationCount}회` : asset.imageUrl ? '이미지 결과' : '등록된 작업물'}</span>
       </button>
       {showDownloadAction ? <button type="button" title="다운로드" aria-label={`${asset.title} 다운로드`} className="rounded-md border border-line p-1.5 text-muted opacity-0 transition-opacity hover:border-accent/60 hover:text-text focus:opacity-100 group-hover:opacity-100" onClick={() => downloadAsset(asset.id)}><DownloadSimple size={13} /></button> : null}
-      <button type="button" aria-label={`${asset.title} 열기`} className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text" onClick={openAsset}><ArrowSquareOut size={13} /></button>
+      {asset.sourcePath && <button type="button" aria-label={`${asset.title} 외부 앱으로 열기`} title="외부 앱으로 열기" className="ui-secondary" onClick={() => void openWorkspaceFileWithConfiguredApp(asset.sourcePath!, asset.title)}><ArrowSquareOut size={15} /></button>}
     </article>
   );
 }
 
 export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = [], todoError = null }: { showDownloadActions?: boolean; todoItems?: TodoProgressItem[]; todoError?: string | null }) {
+  const tabId = useId();
   const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>('recent');
   const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
   const [instructionDraft, setInstructionDraft] = useState('');
@@ -112,25 +115,25 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-panel" aria-label="작업 오브젝트">
+    <section className="workspace-results flex h-full min-h-0 flex-col bg-panel" aria-label="작업 내역">
       <header className="shrink-0 border-b border-line px-3 py-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">Workspace</p><h2 className="mt-1 text-sm font-semibold tracking-tight text-text">작업 오브젝트</h2><p className="mt-1 text-[10px] text-muted">{activeDefinition.description}</p></div>
+          <div className="min-w-0"><h2 className="truncate text-sm font-semibold text-text" title={filesRoot || '폴더 미연결'}>{filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '현재 대화'}</h2><p className="mt-1 text-xs text-muted">{activeDefinition.description}</p></div>
           <button type="button" data-testid="open-workspace-explorer" disabled={!filesRoot} onClick={openExplorer} title={filesRoot ? `탐색기에서 열기 · ${filesRoot}` : '작업 폴더를 먼저 연결하세요.'} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[10px] text-muted hover:border-accent/60 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"><FolderOpen size={13} weight="bold" />탐색기</button>
         </div>
         {explorerMessage ? <p className="mt-2 truncate text-[10px] text-muted" title={explorerMessage}>{explorerMessage}</p> : null}
-        {filesRoot ? <p className="mt-2 truncate font-mono text-[10px] text-muted/80" title={filesRoot}>{filesRoot}</p> : null}
+        {filesRoot ? <details className="mt-2 text-xs text-muted"><summary>전체 경로</summary><p className="break-all py-1 font-mono">{filesRoot}</p></details> : null}
       </header>
 
-      <nav className="flex shrink-0 gap-1 border-b border-line px-2 py-2" aria-label="작업 오브젝트 보기" role="tablist">
+      <nav className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2 py-2" aria-label="작업 내역 보기" role="tablist" onKeyDown={navigateTabs}>
         {WORKSPACE_OBJECT_TABS.map(({ id, label, icon: Icon }) => {
           const selected = id === activeTab;
           const count = id === 'recent' ? workAssets.length : id === 'todo' ? todoItems.length : undefined;
-          return <button key={id} type="button" aria-selected={selected} role="tab" onClick={() => setActiveTab(id)} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium ${selected ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-ink hover:text-text'}`}><Icon size={13} weight={selected ? 'fill' : 'regular'} />{label}{count !== undefined ? <span className="text-[10px] opacity-70">{count}</span> : null}</button>;
+          return <button key={id} id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} tabIndex={selected ? 0 : -1} type="button" aria-selected={selected} role="tab" onClick={() => setActiveTab(id)} className="ui-tab"><Icon size={14} weight={selected ? 'fill' : 'regular'} />{label}{count !== undefined ? <span>{count}</span> : null}</button>;
         })}
       </nav>
 
-      <div className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-label={activeDefinition.label}>
+      <div id={`${tabId}-body`} className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`}>
         {activeTab === 'recent' ? <>
           <section className="border-b border-line">
             <div className="flex items-center justify-between px-3 py-2.5"><div className="flex items-center gap-1.5"><LinkSimple size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">참조 링크</h3></div><span className="text-[10px] text-muted">{browserHistory.length}</span></div>
@@ -147,8 +150,8 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
         {activeTab === 'todo' ? <div className="p-3">
           <p className="mb-2 text-[10px] text-muted">모델이 등록한 작업과 상태를 표시합니다.</p>
           {todoError ? <p role="status" className="mb-2 text-[11px] text-red-300">{todoError}</p> : null}
-          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-semibold text-text">현재 작업 Todo</h3>{todoItems.length ? <span className="text-[10px] text-muted">{todoItems.filter((item) => item.status === 'done').length}/{todoItems.length}</span> : null}</div>
-          {todoItems.length ? <ol className="mt-2 space-y-2" aria-label="현재 작업 Todo 진행 상황">{todoItems.map((item, index) => <li key={item.id} className="flex items-start gap-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${item.status === 'done' ? 'border-accent bg-accent text-ink' : item.status === 'blocked' ? 'border-red-400 text-red-300' : item.status === 'active' ? 'border-accent text-accent' : 'border-line text-muted'}`} aria-label={item.status === 'done' ? '완료' : item.status === 'blocked' ? '차단' : item.status === 'active' ? '진행 중' : '대기'}>{item.status === 'done' ? <Check size={10} weight="bold" /> : index + 1}</span><span className="min-w-0 flex-1"><span className={item.status === 'done' ? 'text-muted line-through' : item.status === 'pending' ? 'text-muted' : 'text-text'}>{item.label}</span>{item.authoredBy === 'model' ? <span className="mt-0.5 block text-[10px] text-muted">작성: 모델 (todo_update)</span> : null}</span></li>)}</ol> : <EmptyState>{todoError ? '조회가 복구되면 모델 TODO를 표시합니다.' : '모델이 등록한 작업이 없습니다.'}</EmptyState>}
+          <div className="flex items-center justify-between gap-2"><h3 className="text-xs font-semibold text-text">현재 작업 할 일</h3>{todoItems.length ? <span className="text-[10px] text-muted">{todoItems.filter((item) => item.status === 'done').length}/{todoItems.length}</span> : null}</div>
+          {todoItems.length ? <ol className="mt-2 space-y-2" aria-label="현재 작업 할 일 진행 상황">{todoItems.map((item, index) => <li key={item.id} className="flex items-start gap-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${item.status === 'done' ? 'border-accent bg-accent text-ink' : item.status === 'blocked' ? 'border-red-400 text-red-300' : item.status === 'active' ? 'border-accent text-accent' : 'border-line text-muted'}`} aria-label={item.status === 'done' ? '완료' : item.status === 'blocked' ? '차단' : item.status === 'active' ? '진행 중' : '대기'}>{item.status === 'done' ? <Check size={10} weight="bold" /> : index + 1}</span><span className="min-w-0 flex-1"><span className={item.status === 'done' ? 'text-muted line-through' : item.status === 'pending' ? 'text-muted' : 'text-text'}>{item.label}</span>{item.authoredBy === 'model' ? <span className="mt-0.5 block text-[10px] text-muted">작성: 모델 (todo_update)</span> : null}</span></li>)}</ol> : <EmptyState>{todoError ? '조회가 복구되면 모델 TODO를 표시합니다.' : '모델이 등록한 작업이 없습니다.'}</EmptyState>}
           <h3 className="mt-5 text-xs font-semibold text-text">고정 지침</h3>
           <div className="mt-2 flex gap-1"><input value={instructionDraft} onChange={(event) => setInstructionDraft(event.target.value)} placeholder="현재 작업 동안 기억할 지침" className="min-w-0 flex-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent" /><button type="button" className="rounded-md bg-accent px-2 text-[11px] font-semibold text-ink disabled:opacity-40" disabled={!instructionDraft.trim()} onClick={() => { savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); }}>고정</button></div>
           {pinnedInstructions.map((instruction, index) => <div key={`${instruction}-${index}`} className="mt-2 flex items-start gap-2 rounded-md border border-line px-2 py-2 text-[11px] text-text"><span className="min-w-0 flex-1">{instruction}</span><button type="button" className="text-muted hover:text-red-300" onClick={() => savePinnedInstructions(pinnedInstructions.filter((_, itemIndex) => itemIndex !== index))}>삭제</button></div>)}

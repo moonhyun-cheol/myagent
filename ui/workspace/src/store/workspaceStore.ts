@@ -622,6 +622,20 @@ function isAbortError(err: unknown) {
   return e.name === 'AbortError' || /aborted|BodyStreamBuffer/i.test(String(e.message ?? ''));
 }
 
+/**
+ * Chromium/WebView2 rejects a streaming `fetch` body read with a bare
+ * `TypeError: network error` (or `Failed to fetch`) when the local core API
+ * connection is reset mid-response. That raw string is meaningless to users,
+ * so map known low-level transport failures to an actionable Korean message.
+ */
+function humanizeStreamError(message: string): string {
+  const raw = String(message ?? '').trim();
+  if (/^(network error|failed to fetch|load failed|networkerror|err_)/i.test(raw)) {
+    return '로컬 AI 서비스와의 연결이 응답 도중 끊어졌습니다. 잠시 후 다시 시도하세요. (연결 재설정)';
+  }
+  return raw || '알 수 없는 오류가 발생했습니다.';
+}
+
 const MAX_VISIBLE_PROGRESS_STEPS = 6;
 
 const MAR_ROLE_LABELS: Record<string, string> = {
@@ -1209,7 +1223,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         await finishJob(sid, job);
         return;
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      const message = humanizeStreamError(rawMessage);
       patchAssistant({ text: `[오류] ${message}`, streamPreview: undefined });
       // A network error is not proof of server termination either.
       job.abort.abort();

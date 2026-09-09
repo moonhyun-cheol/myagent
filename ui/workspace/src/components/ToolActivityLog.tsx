@@ -28,7 +28,7 @@ export function ToolActivityLog({ rows, live }: { rows: ToolActivity[]; live: bo
     }
   };
   const cancelButton = (row: ToolActivity) => live && row.state === 'running' && row.cancelSessionId ? (
-    <button type="button" className="ml-2 rounded border border-line px-2 py-1 text-amber-200"
+    <button type="button" className="ui-danger ml-2"
       disabled={pending[row.id] || row.cancelRequested}
       aria-label={`${row.tool} 하위 실행 중지`}
       onClick={event => { event.preventDefault(); event.stopPropagation(); void cancel(row); }}>
@@ -63,18 +63,18 @@ export function ToolActivityLog({ rows, live }: { rows: ToolActivity[]; live: bo
       <div className="border-t border-line p-3" aria-label="실행 내역">
         <p className="mb-2 text-muted">최근 40개 작업 · 작업별 최근 12,000자 · 주요 비밀값 마스킹</p>
         {rows.map((row) => (
-          <section key={row.id} className="mb-3 min-w-0" data-tool-state={row.state}>
-            <div className={row.state === 'failed' ? 'text-red-300' : 'text-text'}>
+          <details key={row.id} className="mb-3 min-w-0" data-tool-state={row.state}>
+            <summary className={row.state === 'failed' ? 'text-danger' : 'text-text'}>
               {row.tool} · {label(row)} · {elapsed(row)}
               {row.exitCode !== undefined ? ` · 종료 코드 ${row.exitCode ?? '없음'}` : ''}
               {cancelButton(row)}
-            </div>
+            </summary>
             {errors[row.id] ? <p role="alert" className="text-red-300">{errors[row.id]}</p> : null}
             {row.target ? <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-muted">{row.target}</pre> : null}
             {row.output ? <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-text/90">{row.output}</pre>
               : <p className="mt-1 text-muted">{row.state === 'running' && live ? '출력 대기 중…' : '출력 없음'}</p>}
-            {row.truncated ? <p className="text-amber-300">일부 로그 생략 · 최근 출력만 표시</p> : null}
-          </section>
+            {row.truncated ? <p className="text-warning">일부 로그 생략 · 최근 출력만 표시</p> : null}
+          </details>
         ))}
       </div>
     </details>

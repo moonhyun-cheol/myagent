@@ -96,7 +96,7 @@ export function GeminiNavSidebar({
 
   return (
     <aside
-      className={`relative flex h-full shrink-0 border-r border-line bg-panel ${collapsed ? 'w-14' : ''}`}
+      className={`app-navigation relative flex h-full shrink-0 border-r border-line bg-panel ${collapsed ? 'w-14' : ''}`}
       style={collapsed ? undefined : { width }}
       data-sidebar-collapsed={collapsed}
     >
@@ -142,8 +142,8 @@ export function GeminiNavSidebar({
                 {activeSurface === 'chat'
                   ? <Notebook size={15} className="shrink-0 text-accent" />
                   : <img src={automationSchedulerImage} alt="" className="h-[15px] w-[15px] rounded-sm object-cover" />}
-                <p className="truncate text-xs font-semibold text-text">
-                  {activeSurface === 'chat' ? '워크스페이스' : '자동화'}
+                <p className="truncate text-sm font-semibold text-text">
+                  {activeSurface === 'chat' ? '탐색' : '자동화'}
                 </p>
               </div>
               {activeSurface === 'chat' ? (
@@ -151,7 +151,7 @@ export function GeminiNavSidebar({
                   type="button"
                   onClick={() => setSearchOpen((value) => !value)}
                   className={`rounded-lg p-1.5 transition ${searchOpen ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-ink hover:text-text'}`}
-                  aria-label="워크스페이스 검색"
+                  aria-label="프로젝트와 대화 검색"
                   aria-pressed={searchOpen}
                 >
                   <MagnifyingGlass size={14} />

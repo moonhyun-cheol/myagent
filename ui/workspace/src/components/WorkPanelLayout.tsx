@@ -12,6 +12,11 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
   panel: (controls: WorkPanelControls) => ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const chatRoot = useRef<HTMLDivElement>(null);
+  const panelRoot = useRef<HTMLDivElement>(null);
+  const lastChatFocus = useRef<HTMLElement | null>(null);
+  const lastPanelFocus = useRef<HTMLElement | null>(null);
+  const [narrowView, setNarrowView] = useState<'chat' | 'panel'>('chat');
   const [available, setAvailable] = useState(0);
   const [preferred, setPreferred] = useState<number | null>(() => {
     try { const n = Number(localStorage.getItem(WIDTH_KEY)); return Number.isFinite(n) && n >= MIN_PANEL ? n : null; }
@@ -30,12 +35,19 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
   useEffect(() => {
     const el = root.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => setAvailable(el.clientWidth));
-    observer.observe(el); setAvailable(el.clientWidth);
+    const update = () => {
+      setAvailable(el.clientWidth);
+      // Resizing never silently hides the pane the user is currently reading.
+      if (panelRoot.current?.contains(document.activeElement)) setNarrowView('panel');
+      else if (chatRoot.current?.contains(document.activeElement)) setNarrowView('chat');
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(el); update();
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
-    if (!open) { setExpanded(false); setDragging(false); }
+    if (!open) { setExpanded(false); setDragging(false); setNarrowView('chat'); }
+    else setNarrowView('panel');
   }, [open]);
   useEffect(() => {
     if (!dragging) return;
@@ -45,9 +57,22 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
     return () => { delete document.body.dataset.panelResizing; window.removeEventListener('blur', stop); };
   }, [dragging]);
   const single = open && (expanded || narrow);
+  const showChat = !open || (narrow ? narrowView === 'chat' : !expanded);
+  const showPanel = open && (!narrow || narrowView === 'panel');
+  const restoreFocus = (pane: 'chat' | 'panel') => requestAnimationFrame(() => {
+    const last = pane === 'chat' ? lastChatFocus.current : lastPanelFocus.current;
+    const container = pane === 'chat' ? chatRoot.current : panelRoot.current;
+    (last?.isConnected && container?.contains(last) ? last : container)?.focus({ preventScroll: true });
+  });
+  const close = () => { onClose(); restoreFocus('chat'); };
   return (
-    <div ref={root} className="flex h-full min-h-0 min-w-0" data-work-panel-layout data-single-panel={single}>
-      <div className="h-full min-h-0 min-w-0 flex-1" style={{ display: single ? 'none' : undefined }}>{chat}</div>
+    <div ref={root} className="flex h-full min-h-0 min-w-0 flex-col" data-work-panel-layout data-single-panel={single} data-panel-open={open}>
+      {open && narrow && <nav className="narrow-surface-switch" aria-label="대화와 작업 화면 전환">
+        <button type="button" className="ui-secondary" aria-pressed={showChat} onClick={() => { setNarrowView('chat'); restoreFocus('chat'); }}>대화</button>
+        <button type="button" className="ui-secondary" aria-pressed={showPanel} onClick={() => { setNarrowView('panel'); restoreFocus('panel'); }}>작업 화면</button>
+      </nav>}
+      <div className="flex min-h-0 min-w-0 flex-1">
+      <div ref={chatRoot} tabIndex={-1} aria-label="대화 화면" onFocusCapture={e => { lastChatFocus.current = e.target; }} className="h-full min-h-0 min-w-0 flex-1" style={{ display: showChat ? undefined : 'none' }}>{chat}</div>
       {open && !single && <div
         role="separator" aria-label="작업 패널 너비" aria-orientation="vertical"
         aria-valuemin={MIN_PANEL} aria-valuemax={Math.round(max)} aria-valuenow={Math.round(width)}
@@ -65,8 +90,9 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
           resize(e.key === 'Home' ? MIN_PANEL : e.key === 'End' ? max : e.key === 'Enter' ? null : width + (e.key === 'ArrowLeft' ? step : -step));
         }}
       />}
-      <div className="h-full min-h-0 min-w-0 overflow-hidden" data-work-panel style={{ display: open ? undefined : 'none', width: single ? '100%' : width, flex: '0 0 auto' }}>
-        {panel({ expanded, narrow, toggleExpanded: () => setExpanded(v => !v), close: onClose })}
+      <div ref={panelRoot} tabIndex={-1} aria-label="작업 화면" onFocusCapture={e => { lastPanelFocus.current = e.target; }} className="h-full min-h-0 min-w-0 overflow-hidden" data-work-panel style={{ display: showPanel ? undefined : 'none', width: single ? '100%' : width, flex: '0 0 auto' }}>
+        {panel({ expanded, narrow, toggleExpanded: () => { setExpanded(v => !v); if (expanded) restoreFocus('chat'); }, close })}
+      </div>
       </div>
     </div>
   );

@@ -1,0 +1,64 @@
+/* Shared chrome. External pages/iframes are intentionally not themed. */
+:where(button, select, input, textarea, summary, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+button:not(:disabled), summary { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 1; }
+.ui-primary, .ui-secondary, .ui-danger, .ui-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 34px; padding: 6px 10px; border: 1px solid var(--color-line);
+  border-radius: 7px; font-size: 12px; font-weight: 500; line-height: 1.5;
+}
+.ui-primary { background: var(--color-accent); color: var(--color-on-accent); border-color: var(--color-accent); }
+.ui-secondary { background: var(--surface-raised); color: var(--color-text); }
+.ui-danger { color: var(--color-danger); background: var(--color-panel); border-color: var(--color-danger); }
+:is(.ui-primary,.ui-secondary,.ui-danger,.ui-tab):hover:not(:disabled) { box-shadow: inset 0 0 0 1px currentColor; }
+:is(.ui-primary,.ui-secondary,.ui-danger,.ui-tab):disabled { opacity: .5; }
+.ui-tab { border-color: transparent; color: var(--color-muted); background: transparent; white-space: nowrap; }
+.ui-tab[aria-selected='true'] { color: var(--color-accent); background: var(--color-selected); border-bottom: 3px solid var(--color-accent); padding-bottom: 4px; }
+.ui-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 36rem; margin: auto; padding: 28px 16px; text-align: center; color: var(--color-muted); font-size: 13px; line-height: 1.7; }
+.ui-empty h2 { font-size: 16px; font-weight: 600; color: var(--color-text); }
+.document-workspace :is(.document-actions,.document-tabs) button { min-height: 32px; font-size: 12px; }
+.document-workspace .document-save-state { flex-basis: 100%; }
+.document-actions { background: var(--surface-raised); }
+.document-reading { background: var(--color-panel); }
+.document-reading .message-markdown { max-width: 80ch; margin-inline: auto; }
+.chat-composer { background: var(--surface-raised); border-color: var(--color-line); box-shadow: 0 2px 12px #00000012; }
+.chat-composer:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 2px var(--focus-ring); }
+.chat-composer button { min-height: 32px; min-width: 32px; }
+.chat-composer textarea { min-height: 88px; line-height: 1.6; }
+[data-work-panel-layout] { container-type: inline-size; }
+[data-work-panel-layout][data-panel-open='true'] .chat-content-width { max-width: 100%; }
+.chat-setting-control, .chat-policy-choice { font-size: 13px; }
+.narrow-surface-switch { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--color-line); background: var(--color-panel); }
+.narrow-surface-switch button[aria-pressed='true'] { background: var(--color-selected); color: var(--color-accent); border-color: var(--color-accent); }
+.terminal-surface { background: var(--surface-terminal); }
+.terminal-surface button, .terminal-summary { min-height: 34px; }
+.terminal-summary { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 12px; border-top: 1px solid var(--color-line); background: var(--color-panel); color: var(--color-text); font-size: 12px; text-align: left; }
+.terminal-summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-summary[data-attention='true'] { background: var(--color-selected); border-top-color: var(--color-accent); }
+.terminal-surface pre { overflow-wrap: anywhere; }
+.terminal-surface details summary { font-size: 12px; color: var(--color-muted); }
+/* Compatibility for existing status text while components adopt semantic tokens. */
+:where(.text-red-100,.text-red-200,.text-red-300,.text-red-400,.text-red-600,.text-red-700,.text-rose-300,.text-rose-700) { color: var(--color-danger); }
+:where(.text-amber-50,.text-amber-100,.text-amber-200,.text-amber-300,.text-amber-400,.text-yellow-300) { color: var(--color-warning); }
+:where(.text-sky-200,.text-sky-300,.text-blue-300) { color: var(--color-info); }
+:where(.text-emerald-300,.text-emerald-400,.text-green-300) { color: var(--color-success); }
+:is([class~='bg-accent'],[class~='bg-accent-dim']):is([class~='text-ink'],[class~='text-white']) { color: var(--color-on-accent); }
+:root[data-theme='dark'] :is([class~='bg-[#fafbf8]'],[class~='bg-[#d7dcd9]']) { background: var(--color-panel); }
+@container (max-width: 900px) {
+  .chat-content-padding { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 700px) {
+  .app-navigation:not([data-sidebar-collapsed='true']) { width: 56px !important; }
+  .app-navigation > :not(nav) { display: none; }
+  .document-reading { padding: 16px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media (pointer: coarse) {
+  .ui-primary,.ui-secondary,.ui-danger,.ui-tab,.document-workspace button,.chat-composer button { min-height: 44px; }
+}

@@ -12,6 +12,7 @@ interface ResizableSplitProps {
   reverse?: boolean;
   className?: string;
   collapsedSecond?: boolean;
+  collapsedSize?: number;
   first: ReactNode;
   second: ReactNode;
 }
@@ -24,6 +25,7 @@ export function ResizableSplit({
   reverse = false,
   className = '',
   collapsedSecond = false,
+  collapsedSize = 0,
   first,
   second,
 }: ResizableSplitProps) {
@@ -134,7 +136,7 @@ export function ResizableSplit({
         />
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden" style={{ ...secondStyle, display: collapsedSecond ? 'none' : undefined, maxHeight: axis === 'vertical' ? '60%' : undefined }}>
+      <div className="flex min-h-0 min-w-0 flex-col overflow-hidden" style={{ ...secondStyle, ...(collapsedSecond ? collapsedSize ? { height: collapsedSize, flex: '0 0 auto' } : { display: 'none' } : {}), maxHeight: axis === 'vertical' && !collapsedSecond ? '60%' : undefined }}>
         {second}
       </div>
     </div>

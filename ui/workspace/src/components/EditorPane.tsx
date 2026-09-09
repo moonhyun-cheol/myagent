@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { FileNode } from '../types';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import { readWorkspaceFsFile } from '../api/myAgentClient';
+import { useTheme } from '../lib/theme';
 
 const FILES_PANEL_OPEN_KEY = 'my-agent-workspace-files-panel-open';
 const LEGACY_FILES_PANEL_OPEN_KEY = 'cqr-workspace-files-panel-open';
@@ -86,6 +87,7 @@ function WorkspaceTreeItem({
 }
 
 export function EditorPane() {
+  const { resolved: theme } = useTheme();
   const files = useWorkspaceStore((s) => s.files);
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
   const filesMessage = useWorkspaceStore((s) => s.filesMessage);
@@ -312,7 +314,7 @@ export function EditorPane() {
           <div className="min-h-0 flex-1">
             <Editor
               height="100%"
-              theme="vs"
+              theme={theme === 'dark' ? 'vs-dark' : 'vs'}
               path={activeTab?.id}
               language={activeTab?.language ?? 'plaintext'}
               value={activeTab?.content ?? ''}

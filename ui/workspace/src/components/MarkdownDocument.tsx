@@ -1,6 +1,5 @@
 import Editor, { DiffEditor, type OnMount } from '@monaco-editor/react';
 import type { editor as MonacoEditor } from 'monaco-editor';
-import { marked } from 'marked';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { setDevWorkspace, readWorkspaceFsFile } from '../api/myAgentClient';
@@ -9,7 +8,6 @@ import {
   documentTitleFromPath,
   isAllowedDocumentPath,
   normalizeRelPath,
-  sanitizePreviewHref,
 } from '../lib/documentFile';
 import { DOCUMENT_MEMO_MARKER } from '../lib/documentMemo';
 import type { DocumentMemo } from '../lib/documentFile';
@@ -19,6 +17,9 @@ import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './Conte
 import { DocumentSaveModal, type DocumentSaveMode } from './DocumentSaveModal';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
+import { useTheme } from '../lib/theme';
+import { navigateTabs } from '../lib/tabNavigation';
+import { MessageMarkdown } from './MessageMarkdown';
 
 type MemoRange = {
   startLineNumber: number;
@@ -30,16 +31,6 @@ type MemoRange = {
 const NOTE_W = 320;
 const NOTE_H = 300;
 const EMPTY_MEMOS: DocumentMemo[] = [];
-
-marked.setOptions({ gfm: true, breaks: true });
-
-function renderPreviewHtml(markdown: string): string {
-  const raw = marked.parse(markdown || '', { async: false }) as string;
-  return raw.replace(/href="([^"]*)"/gi, (_m, href: string) => {
-    const safe = sanitizePreviewHref(href);
-    return safe ? `href="${safe.replace(/"/g, '&quot;')}"` : 'href="#"';
-  });
-}
 
 /** Full viewport drag — can reach the workspace sidebar to dock. */
 function clampNotePos(x: number, y: number, w = NOTE_W, h = NOTE_H): { left: number; top: number } {
@@ -80,6 +71,7 @@ function uidMemo(): string {
 }
 
 export function MarkdownDocument() {
+  const { resolved: theme } = useTheme();
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
   const files = useWorkspaceStore((s) => s.files);
   const mode = useWorkspaceStore((s) => s.mode);
@@ -156,7 +148,6 @@ export function MarkdownDocument() {
     setBrowseOpen(true);
     return false;
   }, [hasWorkspace]);
-  const previewHtml = useMemo(() => renderPreviewHtml(documentContent), [documentContent]);
   const openMemos = memos.filter((m) => m.open);
   const closedMemoCount = memos.filter((m) => !m.open).length;
   const diskConflict = /디스크에서 변경됨/.test(documentStatus || '');
@@ -511,15 +502,16 @@ export function MarkdownDocument() {
     });
   };
 
-  const pathLabel = documentRelPath || activeDocument?.title || '문서';
-  const pathLabelTitle = documentRelPath || activeDocument?.recoveryPath || activeDocument?.title || '문서';
+  const pathLabelTitle = documentRelPath || activeDocument?.title || '문서';
   const sourceLabel = activeDocument?.source === 'workspace'
     ? '프로젝트'
     : activeDocument?.source === 'import'
       ? '외부 가져옴'
       : '임시 초안';
-  const editLabel = activeDocument?.source === 'workspace' ? '수정 가능' : '저장 전 초안';
-  const saveLabel = documentDirty ? '저장 안 됨' : '저장됨';
+  const projectFile = activeDocument?.source === 'workspace' && Boolean(documentRelPath);
+  const saveLabel = projectFile
+    ? documentDirty ? '프로젝트 파일 · 저장되지 않은 변경' : '프로젝트 파일 · 변경 없음'
+    : '프로젝트에 저장 전';
   const hasDump = Boolean(lastDumpPath || lastDumpContent != null);
 
   const handleOpenLastDump = async () => {
@@ -669,12 +661,11 @@ export function MarkdownDocument() {
       : null;
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-ink" data-testid="markdown-document">
+    <div className="document-workspace relative flex h-full min-h-0 flex-col bg-panel" data-testid="markdown-document">
       {!hasWorkspace ? (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
           <p>
-            메모리 초안입니다. 질문·후속 대화는 폴더 없이 가능합니다. 저장·파일 수정에는 작업 폴더가
-            필요합니다.
+            폴더 없이 작성할 수 있습니다. 프로젝트 파일로 저장하려면 폴더를 연결하세요.
           </p>
           <button
             type="button"
@@ -687,12 +678,13 @@ export function MarkdownDocument() {
       ) : null}
 
       <div
-        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5"
+        className="document-tabs flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5"
         data-testid="document-tabs"
+        role="tablist" aria-label="열린 문서" onKeyDown={navigateTabs}
       >
         <button
           type="button"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-sm text-muted hover:bg-panel-2 hover:text-text"
+          className="order-last flex h-8 w-8 shrink-0 items-center justify-center rounded border border-line text-sm text-muted hover:bg-panel-2 hover:text-text"
           aria-label="새 문서"
           data-testid="new-document-tab"
           onClick={() => void newDocument()}
@@ -711,6 +703,8 @@ export function MarkdownDocument() {
               type="button"
               className="max-w-40 truncate px-2 py-1 text-[10px] text-text hover:bg-panel-2"
               title={tab.path ?? tab.title}
+              role="tab" aria-selected={tab.id === activeDocumentTabId}
+              aria-controls="document-content" tabIndex={tab.id === activeDocumentTabId ? 0 : -1}
               onClick={() => setActiveDocumentTab(tab.id)}
             >
               {tab.title}{tab.dirty ? ' ●' : ''}
@@ -727,26 +721,23 @@ export function MarkdownDocument() {
         ))}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-2 py-1.5">
-        <span className="mr-1 max-w-[28%] truncate text-[10px] font-medium text-text" title={pathLabelTitle}>{pathLabel}</span>
-        <span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent">{sourceLabel}</span>
-        <span className="rounded border border-line px-1.5 py-0.5 text-[10px] text-muted">{editLabel}</span>
-        <span className={`rounded border px-1.5 py-0.5 text-[10px] ${documentDirty ? 'border-amber-500/40 text-amber-200' : 'border-line text-muted'}`}>{saveLabel}</span>
-        {hasDump ? <span className="rounded border border-rose-400/40 px-1.5 py-0.5 text-[10px] text-rose-300">에이전트 덮어쓰기 덤프 있음</span> : null}
+      <div className="document-actions flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+        <span className={`document-save-state mr-auto text-xs ${documentDirty ? 'text-warning' : 'text-muted'}`}
+          title={`${sourceLabel} · ${pathLabelTitle}`} data-testid="document-save-state">{saveLabel}</span>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
           onClick={() => void openDocQuickOpen()}
           data-testid="document-open"
         >
-          문서 열기
+          프로젝트 문서 열기
         </button>
         <button
           type="button"
           className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
           onClick={() => fileInputRef.current?.click()}
         >
-          파일 선택
+          외부 파일 가져오기
         </button>
         <input
           ref={fileInputRef}
@@ -761,7 +752,7 @@ export function MarkdownDocument() {
         />
         <button
           type="button"
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
+          className="ui-primary"
           onClick={() => void (async () => {
             if (activeDocument?.source === 'workspace' && activeDocument.path) {
               await saveDocument();
@@ -773,16 +764,21 @@ export function MarkdownDocument() {
         >
           {activeDocument?.source === 'workspace' && activeDocument.path ? '저장' : '프로젝트에 저장…'}
         </button>
-        <div className="relative">
+        <div className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setMoreOpen(false); }}
+          onKeyDown={event => { if (event.key === 'Escape') { setMoreOpen(false); event.currentTarget.querySelector('button')?.focus(); } }}>
           <button
             type="button"
             className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
             onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen} aria-controls="document-more-actions"
           >
             더보기
           </button>
           {moreOpen ? (
-            <div className="absolute left-0 top-full z-20 mt-1 min-w-[160px] rounded-lg border border-line bg-panel py-1 shadow-lg">
+            <div id="document-more-actions" className="absolute right-0 top-full z-20 mt-1 w-52 max-w-[85vw] rounded-lg border border-line bg-panel py-1 shadow-lg">
+              <p className="break-all px-3 py-2 text-xs text-muted">{sourceLabel} · {pathLabelTitle}</p>
+              <button type="button" disabled={!hasDump} className="block w-full px-3 py-2 text-left text-xs disabled:opacity-40"
+                onClick={() => { setMoreOpen(false); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
               <button
                 type="button"
                 className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
@@ -825,14 +821,7 @@ export function MarkdownDocument() {
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          disabled={!hasDump}
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text disabled:opacity-40"
-          onClick={() => void handleOpenLastDump()}
-        >
-          최근 덤프
-        </button>
+
         {diskConflict && activeDocument ? (
           <>
             <button
@@ -876,22 +865,21 @@ export function MarkdownDocument() {
             접힌 메모 {closedMemoCount}
           </button>
         ) : null}
-        <div className="ml-auto flex items-center gap-1">
-          {(['source', 'preview', 'diff'] as const).map((id) => (
+      </div>
+      <div className="document-views flex shrink-0 items-center gap-1 border-b border-line px-3 py-1" role="tablist" aria-label="문서 보기" onKeyDown={navigateTabs}>
+          {(['preview', 'source', 'diff'] as const).map((id) => (
             <button
               key={id}
               type="button"
               disabled={id === 'diff' && !lastDumpPath && lastDumpContent == null}
-              className={`rounded px-2 py-0.5 text-[10px] ${
-                view === id ? 'bg-accent text-ink' : 'text-muted hover:text-text'
-              } disabled:opacity-40`}
+              className="ui-tab" role="tab" aria-selected={view === id}
+              tabIndex={view === id ? 0 : -1} aria-controls="document-content"
               onClick={() => setDocumentView(id)}
               title={id === 'diff' ? '덤프 ↔ 현재' : undefined}
             >
-              {id === 'source' ? '원문 편집' : id === 'preview' ? '읽기' : '변경 비교'}
+              {id === 'source' ? '편집' : id === 'preview' ? '읽기' : '변경 비교'}
             </button>
           ))}
-        </div>
       </div>
 
       {hasDump ? (
@@ -900,18 +888,16 @@ export function MarkdownDocument() {
         </p>
       ) : null}
       {documentStatus ? (
-        <p className="shrink-0 border-b border-line px-3 py-1 text-[10px] text-muted">{documentStatus}</p>
-      ) : null}
-      {documentDirty ? (
-        <p className="shrink-0 px-3 py-0.5 text-[10px] text-amber-200/80">저장되지 않은 변경</p>
+        <p role="status" className="shrink-0 border-b border-line px-3 py-1 text-xs text-muted">{documentStatus}</p>
       ) : null}
 
-      <div className="relative min-h-0 flex-1" onContextMenu={view === 'source' ? openEditorContextMenu : undefined}>
+      <div id="document-content" role="tabpanel" aria-label={view === 'source' ? '문서 편집' : view === 'preview' ? '문서 읽기' : '문서 변경 비교'}
+        className="relative min-h-0 flex-1" onContextMenu={view === 'source' ? openEditorContextMenu : undefined}>
         {view === 'source' ? (
           <Editor
             height="100%"
             language="markdown"
-            theme="vs-dark"
+            theme={theme === 'dark' ? 'vs-dark' : 'vs'}
             value={documentContent}
             onChange={(value) => setDocumentContent(value ?? '')}
             onMount={onEditorMount}
@@ -925,17 +911,20 @@ export function MarkdownDocument() {
           />
         ) : null}
         {view === 'preview' ? (
-          <div
-            className="prose prose-invert max-w-none h-full overflow-auto px-4 py-3 text-sm text-text"
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
-          />
+          <div className="document-reading h-full overflow-auto px-5 py-4 text-sm leading-7 text-text" tabIndex={0}>
+            {documentContent.trim() ? <MessageMarkdown text={documentContent}
+              onOpenUrl={url => window.open(url, '_blank', 'noopener,noreferrer')}
+              copyText={async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }} />
+              : <div className="ui-empty"><h2>새 문서를 작성해 보세요</h2><p>편집을 시작하거나 프로젝트 문서·외부 파일을 열 수 있습니다.</p>
+                <button type="button" className="ui-primary" onClick={() => setDocumentView('source')}>편집 시작</button></div>}
+          </div>
         ) : null}
         {view === 'diff' ? (
           dumpPreview != null ? (
             <DiffEditor
               height="100%"
               language="markdown"
-              theme="vs-dark"
+              theme={theme === 'dark' ? 'vs-dark' : 'vs'}
               original={dumpPreview}
               modified={documentContent}
               options={{

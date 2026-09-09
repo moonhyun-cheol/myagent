@@ -29,10 +29,13 @@ export function MediaPane() {
 
   if (!assets.length) {
     return (
-      <div className="grid h-full place-items-center bg-ink text-sm text-muted">
-        <div className="flex flex-col items-center gap-3">
-          <FilmStrip size={36} className="text-line" />
-          <p>표시할 미디어 파일이 없습니다.</p>
+      <div className="flex h-full overflow-auto bg-ink">
+        <div className="ui-empty">
+          <FilmStrip size={36} className="text-accent" aria-hidden="true" />
+          <h2>아직 이미지가 없습니다</h2>
+          <p>이 대화에서 생성하거나 작업 결과로 등록된 이미지를 모아 보여줍니다.</p>
+          <p>대화에서 이미지 생성을 요청하거나 작업 패널의 파일 목록을 확인하세요.</p>
+          <button type="button" className="ui-secondary" onClick={() => useWorkspaceStore.getState().setMode('objects')}>작업 내역 보기</button>
         </div>
       </div>
     );

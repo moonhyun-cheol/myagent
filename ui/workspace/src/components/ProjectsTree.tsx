@@ -1130,9 +1130,11 @@ function SessionRow({
       onKeyDown={(e) => {
         if (e.key === 'Enter') onSelect();
       }}
-      className={`group relative mb-0.5 flex h-7 cursor-pointer items-center gap-1 rounded-md pr-1 text-[11px] transition before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded ${
-        active ? 'bg-accent/10 text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
+      className={`group relative mb-0.5 flex min-h-8 cursor-pointer items-center gap-1 rounded-md pr-1 text-xs transition before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded ${
+        active ? 'bg-selected font-medium text-text before:bg-accent' : 'text-muted before:bg-transparent hover:bg-ink hover:text-text'
       }`}
+      aria-current={active ? 'page' : undefined}
+      title={session.title || '제목 없음'}
       style={{ paddingLeft: indent }}
     >
       {editing ? (
