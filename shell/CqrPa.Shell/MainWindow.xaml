@@ -197,8 +197,9 @@
         </StackPanel>
       </Border>
 
-      <!-- External pages are isolated in a second WebView2 so navigation never replaces the workspace. -->
-      <Canvas ClipToBounds="True">
+      <!-- External pages are isolated in a second WebView2 so navigation never replaces the workspace.
+           Each browser tab is a child of this canvas; only the active tab is shown. -->
+      <Canvas x:Name="BrowserTabCanvas" ClipToBounds="True">
         <Border x:Name="InAppBrowserPanel" Visibility="Collapsed" Background="{DynamicResource ShellWindowBrush}">
           <wv2:WebView2 x:Name="BrowserWebView" />
         </Border>

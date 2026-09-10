@@ -4,12 +4,19 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  Bug,
   CaretDown,
   Check,
   GlobeSimple,
+  Plus,
+  WarningCircle,
+  X,
 } from '@phosphor-icons/react';
 import { isLocalPreviewUrl, normalizeBrowserUrl } from '../lib/browserUrl';
 import {
+  activateInAppBrowserTab,
+  closeInAppBrowserTab,
+  createInAppBrowserTab,
   inAppBrowserBack,
   inAppBrowserForward,
   inAppBrowserOpenExternal,
@@ -17,9 +24,13 @@ import {
   isShellInAppBrowserAvailable,
   navigateInAppBrowser,
   openInAppBrowser,
+  openInAppBrowserDevTools,
   resumeInAppBrowser,
+  returnFromObservedBrowserTab,
+  takeOverInAppBrowserTab,
   trackInAppBrowserSurface,
   subscribeInAppBrowserState,
+  type InAppBrowserTab,
 } from '../lib/inAppBrowserBridge';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
@@ -41,6 +52,22 @@ const VIEWPORT_PRESETS: ViewportPreset[] = [
   { id: 'custom', label: '사용자 지정', width: null, height: null },
 ];
 
+const EXCESSIVE_TAB_WARNING_AT = 9;
+
+function browserTabLabel(tab: InAppBrowserTab): string {
+  const title = tab.title.trim();
+  if (title && title !== '현재 인앱 웹 페이지') return title;
+  if (!tab.url) return '새 탭';
+  try { return new URL(tab.url).hostname || tab.url; } catch { return tab.url; }
+}
+
+function browserTabFavicon(tab: InAppBrowserTab): string | null {
+  try {
+    const url = new URL(tab.url);
+    return /^https?:$/.test(url.protocol) ? `${url.origin}/favicon.ico` : null;
+  } catch { return null; }
+}
+
 export function BrowserPane() {
   const browserInputUrl = useWorkspaceStore((s) => s.browserInputUrl);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
@@ -61,31 +88,56 @@ export function BrowserPane() {
   const [shellStatus, setShellStatus] = useState('');
   const [shellCanGoBack, setShellCanGoBack] = useState(false);
   const [shellCanGoForward, setShellCanGoForward] = useState(false);
+  const [shellUrl, setShellUrl] = useState('');
+  const [shellStateReceived, setShellStateReceived] = useState(false);
+  const [shellTabs, setShellTabs] = useState<InAppBrowserTab[]>([]);
+  const [returnTabId, setReturnTabId] = useState<string | null>(null);
+  const hasShellState = useRef(false);
+  const lastActiveTabId = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [viewportOpen, setViewportOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportPreset>(VIEWPORT_PRESETS[0]);
   const [customWidth, setCustomWidth] = useState('390');
   const [customHeight, setCustomHeight] = useState('844');
 
-  const useShellSurface = Boolean(
-    shellAvailable && browserLoadedUrl && !isLocalPreviewUrl(browserLoadedUrl),
-  );
+  const shellPageUrl = shellStateReceived
+    ? shellUrl
+    : browserLoadedUrl && !isLocalPreviewUrl(browserLoadedUrl) ? browserLoadedUrl : '';
   const useIframeSurface = Boolean(
     browserLoadedUrl && (!shellAvailable || isLocalPreviewUrl(browserLoadedUrl)),
   );
+  const useShellSurface = Boolean(
+    !useIframeSurface && shellAvailable && shellPageUrl && !isLocalPreviewUrl(shellPageUrl),
+  );
+  const activeBrowserUrl = useShellSurface ? shellPageUrl : useIframeSurface ? browserLoadedUrl : '';
   const canGoBack = useShellSurface ? shellCanGoBack : storeCanGoBack;
   const canGoForward = useShellSurface ? shellCanGoForward : storeCanGoForward;
 
   useEffect(() => {
     if (!shellAvailable) return undefined;
     return subscribeInAppBrowserState((state) => {
+      const firstState = !hasShellState.current;
+      hasShellState.current = true;
       setShellVisible(state.visible);
       setShellLoading(state.loading);
       setShellStatus(state.status);
       setShellCanGoBack(state.canGoBack);
       setShellCanGoForward(state.canGoForward);
-      if (state.visible && /^https?:\/\//i.test(state.url)) {
-        const store = useWorkspaceStore.getState();
+      setShellUrl(state.url);
+      setShellStateReceived(true);
+      setShellTabs(state.tabs);
+      setReturnTabId(state.returnTabId);
+      const store = useWorkspaceStore.getState();
+      const recoverUrl = firstState && !state.url && store.browserLoadedUrl
+        && !isLocalPreviewUrl(store.browserLoadedUrl) ? store.browserLoadedUrl : '';
+      if (recoverUrl) {
+        resumeInAppBrowser(recoverUrl);
+      }
+      if (lastActiveTabId.current !== state.activeTabId) {
+        lastActiveTabId.current = state.activeTabId;
+        if (!recoverUrl) store.setBrowserInputUrl(state.url);
+      }
+      if (/^https?:\/\//i.test(state.url)) {
         if (state.url !== store.browserLoadedUrl) {
           store.navigateBrowser(state.url);
         }
@@ -94,9 +146,9 @@ export function BrowserPane() {
   }, [shellAvailable]);
 
   useEffect(() => {
-    if (!useShellSurface || !browserLoadedUrl) return;
-    resumeInAppBrowser(browserLoadedUrl);
-  }, [useShellSurface, browserLoadedUrl]);
+    if (!useShellSurface || !shellPageUrl) return;
+    resumeInAppBrowser(shellPageUrl);
+  }, [useShellSurface, shellPageUrl]);
 
   useEffect(() => {
     if (useShellSurface && surfaceRef.current) return trackInAppBrowserSurface(surfaceRef.current);
@@ -131,9 +183,9 @@ export function BrowserPane() {
   };
 
   const openExternal = () => {
-    if (!browserLoadedUrl) return;
-    if (inAppBrowserOpenExternal(browserLoadedUrl)) return;
-    window.open(browserLoadedUrl, '_blank', 'noopener,noreferrer');
+    if (!activeBrowserUrl) return;
+    if (inAppBrowserOpenExternal(activeBrowserUrl)) return;
+    window.open(activeBrowserUrl, '_blank', 'noopener,noreferrer');
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -166,13 +218,97 @@ export function BrowserPane() {
   };
 
   const onReload = () => {
-    if (!browserLoadedUrl) return;
+    if (!activeBrowserUrl) return;
     if (useShellSurface && inAppBrowserReload()) return;
     reloadBrowser();
   };
 
+  const createTab = () => {
+    setMessage(null);
+    createInAppBrowserTab();
+  };
+
+  const closeTab = (tab: InAppBrowserTab) => {
+    if (tab.primary || tab.controlled) return;
+    closeInAppBrowserTab(tab.id);
+  };
+
+  const activeShellTab = shellTabs.find((tab) => tab.active) ?? null;
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-ink" aria-label="Preview 웹 뷰어">
+      {shellAvailable ? (
+        <div className="flex shrink-0 items-end gap-1 overflow-x-auto border-b border-line bg-panel px-2 pt-1.5" role="tablist" aria-label="웹 브라우저 탭">
+          {shellTabs.map((tab) => {
+            const favicon = browserTabFavicon(tab);
+            const label = browserTabLabel(tab);
+            return (
+              <div
+                key={tab.id}
+                role="presentation"
+                className={`group flex min-w-[120px] max-w-[220px] items-center rounded-t-md border border-b-0 px-1 ${tab.active ? 'border-line bg-ink text-text' : 'border-transparent text-muted hover:bg-hover hover:text-text'}`}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab.active}
+                  title={label}
+                  onClick={() => activateInAppBrowserTab(tab.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1.5 text-left text-[11px]"
+                >
+                  {favicon ? <img src={favicon} alt="" className="size-3.5 shrink-0 rounded-sm" /> : <GlobeSimple size={14} className="shrink-0" />}
+                  <span className="truncate">{label}</span>
+                  {tab.controlled ? (
+                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent" aria-label="에이전트 제어 중">AI</span>
+                  ) : null}
+                  {tab.loading ? <span className="shrink-0 text-accent" aria-label="로딩 중">•</span> : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => closeTab(tab)}
+                  disabled={tab.primary || tab.controlled}
+                  title={tab.primary ? '기본 탭은 유지됩니다' : tab.controlled ? '제어권을 가져온 뒤 닫을 수 있습니다' : `${label} 닫기`}
+                  aria-label={`${label} 닫기`}
+                  className="shrink-0 rounded p-1 text-muted opacity-70 hover:bg-panel-2 hover:text-text disabled:cursor-default disabled:opacity-25"
+                >
+                  <X size={12} weight="bold" />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            onClick={createTab}
+            disabled={shellTabs.length >= 12}
+            title="새 탭"
+            aria-label="새 브라우저 탭"
+            className="mb-1 shrink-0 rounded-md p-1.5 text-muted hover:bg-hover hover:text-text disabled:opacity-35"
+          >
+            <Plus size={15} weight="bold" />
+          </button>
+        </div>
+      ) : null}
+      {activeShellTab?.controlled || returnTabId ? (
+        <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-accent/10 px-3 py-1.5 text-[11px] text-text">
+          <span>{activeShellTab?.controlled ? (activeShellTab.observing ? '에이전트 제어 탭을 관전 중입니다.' : '에이전트가 이 탭을 제어 중입니다.') : '에이전트의 탭 제어가 종료되었습니다.'}</span>
+          {activeShellTab?.controlled ? (
+            <button type="button" onClick={() => takeOverInAppBrowserTab(activeShellTab.id)} className="rounded border border-accent/40 px-2 py-1 font-medium text-accent hover:bg-accent/10">
+              제어 가져오기
+            </button>
+          ) : null}
+          {returnTabId ? (
+            <button type="button" onClick={() => returnFromObservedBrowserTab()} className="rounded px-2 py-1 text-muted hover:bg-hover hover:text-text">
+              원래 탭으로
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {shellTabs.length >= EXCESSIVE_TAB_WARNING_AT ? (
+        <div role="status" className="flex shrink-0 items-center gap-2 border-b border-line bg-panel-2 px-3 py-1.5 text-[11px] text-warning">
+          <WarningCircle size={14} weight="fill" />
+          탭이 많으면 메모리 사용량이 늘 수 있습니다. 사용하지 않는 탭을 닫아 주세요.
+        </div>
+      ) : null}
       <form
         className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line bg-panel px-2 py-2"
         onSubmit={submit}
@@ -198,7 +334,7 @@ export function BrowserPane() {
         <button
           type="button"
           onClick={onReload}
-          disabled={!browserLoadedUrl}
+          disabled={!activeBrowserUrl}
           title="새로고침"
           className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text disabled:cursor-not-allowed disabled:opacity-35"
         >
@@ -219,7 +355,14 @@ export function BrowserPane() {
             className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-muted"
           />
         </label>
-        <button type="button" onClick={openExternal} disabled={!browserLoadedUrl}
+        <button type="button" onClick={() => activeShellTab && openInAppBrowserDevTools(activeShellTab.id)}
+          disabled={!useShellSurface || !activeShellTab || activeShellTab.controlled}
+          title={activeShellTab?.controlled ? '제어권을 가져온 뒤 개발자 도구를 열 수 있습니다' : '개발자 도구 (F12)'}
+          aria-label="개발자 도구 열기 (F12)"
+          className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover disabled:opacity-35">
+          <Bug size={16} />
+        </button>
+        <button type="button" onClick={openExternal} disabled={!activeBrowserUrl}
           title="기본 브라우저에서 열기" aria-label="기본 브라우저에서 열기"
           className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover disabled:opacity-35">
           <ArrowSquareOut size={16} />

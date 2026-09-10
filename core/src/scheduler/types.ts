@@ -50,6 +50,8 @@ export interface SchedulerFeedAttachment {
   path?: string;
   mime?: string;
   size?: number;
+  /** HTTP(S) page from a completed isolated run; opened only by an explicit user action. */
+  browser_url?: string;
 }
 
 export interface SchedulerFeedItem {

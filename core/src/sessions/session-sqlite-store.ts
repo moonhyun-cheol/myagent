@@ -245,7 +245,8 @@ export class SessionSqliteStore {
         const rec = JSON.parse(row.body) as SessionRecord;
         return { id: rec.id, title: rec.title, updated_at: rec.updated_at, message_count: row.count,
           project_id: rec.project_id ?? null, workspace_project_id: rec.workspace_project_id ?? null,
-          preferred_model: rec.preferred_model, allowed_paths: rec.allowed_paths ?? [] };
+          preferred_model: rec.preferred_model, allowed_paths: rec.allowed_paths ?? [],
+          archived: rec.archived === true };
       }).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     });
   }

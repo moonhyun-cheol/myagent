@@ -3,6 +3,7 @@ import {
   CheckCircle,
   Clock,
   DownloadSimple,
+  Eye,
   FileText,
   Robot,
   WarningCircle,
@@ -14,6 +15,7 @@ import {
   type AutomationFeedAttachment,
   type AutomationFeedItem,
 } from '../api/myAgentClient';
+import { promoteInAppBrowserTab } from '../lib/inAppBrowserBridge';
 
 type FeedFilter = 'all' | 'result' | 'error';
 
@@ -27,6 +29,14 @@ function formatFeedTime(value: string): string {
 
 function isDownloadable(attachment: AutomationFeedAttachment): attachment is AutomationFeedAttachment & { path: string } {
   return typeof attachment.path === 'string' && attachment.path.startsWith('/outputs/automations/');
+}
+
+function browserHandoff(attachment: AutomationFeedAttachment): string | null {
+  return attachment.mime === 'application/x-my-agent-browser-handoff'
+    && typeof attachment.browser_url === 'string'
+    && /^https?:\/\//i.test(attachment.browser_url)
+    ? attachment.browser_url
+    : null;
 }
 
 export function AutomationFeedModal({ open, onClose, targetItemId = null }: { open: boolean; onClose: () => void; targetItemId?: string | null }) {
@@ -175,6 +185,10 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
           : status
             ? '진행 알림'
             : '정상 완료';
+  const browserPages = item.attachments.flatMap((attachment) => {
+    const url = browserHandoff(attachment);
+    return url ? [{ attachment, url }] : [];
+  });
   return (
     <article
       data-feed-item-id={item.id}
@@ -206,6 +220,28 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
         <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
           실행은 종료됐지만 일부 결과에 확인이 필요합니다. 내용을 검토한 뒤 누락된 조건을 보완해 다시 실행하세요.
         </p>
+      ) : null}
+      {browserPages.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-900">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold">에이전트 백그라운드 브라우저 작업</p>
+              <p className="mt-0.5 text-[11px] text-sky-700">헤드리스로 완료되었습니다. 요청할 때만 보이는 탭으로 엽니다.</p>
+            </div>
+            {browserPages.map(({ attachment, url }) => (
+              <button
+                key={url}
+                type="button"
+                onClick={() => promoteInAppBrowserTab(url)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-sky-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-800"
+                title={attachment.name}
+              >
+                <Eye size={15} weight="bold" />
+                탭으로 보기
+              </button>
+            ))}
+          </div>
+        </div>
       ) : null}
       {item.attachments.filter(isDownloadable).length > 0 ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2">

@@ -1837,7 +1837,9 @@ export async function dispatchApiRequest(
 
       if (method === 'GET' && url.pathname === '/workspace') {
         license.assertFeature('chat');
-        const sessions = sessionStore.list();
+        // Roll oldest overflow into 보관함 before building the visible tree.
+        sessionStore.autoArchive();
+        const sessions = sessionStore.listActive();
         const overrides = loadUserOverrides(userConfigPath);
         const devRoot = overrides.dev_workspace_root?.trim() || null;
         if (devRoot) {
@@ -1875,6 +1877,7 @@ export async function dispatchApiRequest(
           move_targets: projectStore.listMoveTargets(),
           projects,
           standalone_sessions: sessionStore.listStandalone(),
+          archived_sessions: sessionStore.listArchived(),
         });
       }
 
@@ -2708,6 +2711,16 @@ export async function dispatchApiRequest(
       }
 
       const sessionWorkspaceMatch = url.pathname.match(/^\/sessions\/([^/]+)\/workspace$/);
+      const sessionArchiveMatch = url.pathname.match(/^\/sessions\/([^/]+)\/archive$/);
+      if (sessionArchiveMatch && method === 'PUT') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { archived?: boolean };
+        const summary = sessionStore.setArchived(sessionArchiveMatch[1], body.archived !== false);
+        if (!summary) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        return sendJson(res, 200, summary);
+      }
+
       if (sessionWorkspaceMatch && method === 'PUT') {
         license.assertWritable();
         license.assertFeature('chat');

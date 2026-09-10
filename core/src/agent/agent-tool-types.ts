@@ -23,6 +23,8 @@ export interface AgentToolContext {
   cqrRoot?: string;
   sessionId?: string;
   allowLocalhost?: boolean;
+  /** Restricts background/scheduled executions to isolated browser sessions. */
+  browserRouting?: 'interactive' | 'background';
   /** Cancel long-running tools (run_terminal). */
   signal?: AbortSignal;
   /** Exact current/continued run tool evidence and evidence_read source. */

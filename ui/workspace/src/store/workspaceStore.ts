@@ -548,6 +548,8 @@ interface WorkspaceState {
   removeCanvasNode: (nodeId: string) => void;
   placeAssetOnCanvas: (assetId: string, position?: { x: number; y: number }) => void;
   openAssetInEditor: (assetId: string) => void;
+  /** Drag a workspace result (asset) into the composer as a pending attachment. */
+  attachAssetToComposer: (assetId: string) => Promise<void>;
   setSkillMode: (mode: string | null, label?: string | null) => void;
   addPendingAttachments: (items: PendingAttachment[]) => void;
   removePendingAttachment: (id: string) => Promise<void>;
@@ -1661,6 +1663,46 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     uploadClipboardImages: async (files) => get().uploadFiles(files),
+
+    attachAssetToComposer: async (assetId) => {
+      const asset = get().assets.find((a) => a.id === assetId);
+      if (!asset) return;
+      const hasExt = (name: string) => /\.[a-z0-9]+$/i.test(name);
+      const imageExtForMime = (mime: string): string => {
+        const m = mime.toLowerCase();
+        if (m === 'image/jpeg' || m === 'image/jpg') return 'jpg';
+        if (m === 'image/webp') return 'webp';
+        if (m === 'image/gif') return 'gif';
+        if (m === 'image/bmp') return 'bmp';
+        if (m === 'image/svg+xml') return 'svg';
+        return 'png';
+      };
+      try {
+        let file: File | null = null;
+        if (asset.kind === 'image' && asset.imageUrl) {
+          const res = await fetch(asset.imageUrl);
+          if (!res.ok) throw new Error(`이미지 로드 실패 (${res.status})`);
+          const blob = await res.blob();
+          const mime = blob.type || 'image/png';
+          const base = asset.title && hasExt(asset.title)
+            ? asset.title
+            : `${asset.title || 'image'}.${imageExtForMime(mime)}`;
+          file = new File([blob], base, { type: mime });
+        } else if (typeof asset.content === 'string' && asset.content.length) {
+          const name = asset.title && hasExt(asset.title)
+            ? asset.title
+            : `${asset.title || 'asset'}.txt`;
+          file = new File([asset.content], name, { type: 'text/plain' });
+        } else if (asset.sourcePath) {
+          // No inline payload: reference the workspace file as context instead.
+          get().addContextPath(asset.sourcePath);
+          return;
+        }
+        if (file) await get().uploadFiles([file]);
+      } catch (e) {
+        set({ statusText: `자산 첨부 실패: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    },
 
     startNewChat: async (projectId = null, legacyWorkspaceProjectId = null) => {
       get().clearPendingAttachments();

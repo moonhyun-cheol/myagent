@@ -323,6 +323,15 @@ export function needsHumanApproval(
       }
     }
   }
+  if (toolName === 'browser_evaluate') {
+    return {
+      needed: true,
+      danger: true,
+      access: 'operation',
+      expires: 'once',
+      summary: '격리 브라우저에서 JavaScript 실행',
+    };
+  }
   if (toolName === 'workspace_rollback') {
     const id = typeof args.checkpoint_id === 'string' ? args.checkpoint_id : '?';
     return {

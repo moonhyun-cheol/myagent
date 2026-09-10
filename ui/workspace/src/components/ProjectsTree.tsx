@@ -3,6 +3,7 @@ import {
   Brain,
   CaretDown,
   CaretRight,
+  CaretUp,
   ChatTeardropText,
   DotsThree,
   FolderPlus,
@@ -17,6 +18,7 @@ import {
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import {
+  archiveSession,
   createProject,
   deleteProject,
   deleteSession,
@@ -638,6 +640,16 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
             작업 폴더나 프로젝트를 추가하면 여기에 표시됩니다.
           </p>
         ) : null}
+
+        {(tree?.archived_sessions?.length ?? 0) > 0 ? (
+          <ArchivedSessions
+            sessions={tree!.archived_sessions!}
+            activeSessionId={activeSessionId}
+            matchSession={matchSession}
+            onSelect={(id, projectId) => void onSelectSession(id, projectId)}
+            onDelete={(id) => void onDeleteSession(id)}
+          />
+        ) : null}
       </div>
 
       <UserMemoryPanelHost />
@@ -1004,6 +1016,54 @@ function ProjectBlock({
   );
 }
 
+function ArchivedSessions({
+  sessions,
+  activeSessionId,
+  matchSession,
+  onSelect,
+  onDelete,
+}: {
+  sessions: SessionSummary[];
+  activeSessionId: string | null;
+  matchSession: (s: SessionSummary) => boolean;
+  onSelect: (id: string, projectId: string | null) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const visible = sessions.filter(matchSession);
+  if (visible.length === 0) return null;
+  return (
+    <div className="mt-1 border-t border-line/70 pt-1">
+      <button
+        type="button"
+        className="flex h-8 w-full items-center gap-1 rounded-md px-1 text-[12px] text-muted transition hover:bg-ink hover:text-text"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        title="보관함"
+      >
+        {open ? <CaretDown size={12} /> : <CaretRight size={12} />}
+        <Archive size={14} />
+        <span className="font-medium">보관함</span>
+        <span className="ml-auto rounded-full bg-ink px-1.5 text-[10px] tabular-nums text-muted">{visible.length}</span>
+      </button>
+      {open ? (
+        <div className="ml-[11px] border-l border-line/70 pl-1">
+          {visible.map((session) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              active={session.id === activeSessionId}
+              indent={20}
+              onSelect={() => onSelect(session.id, session.project_id ?? null)}
+              onDelete={() => onDelete(session.id)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SessionPreviewList({
   sessions,
   activeSessionId,
@@ -1038,38 +1098,42 @@ function SessionPreviewList({
 
   if (sessions.length === 0) return null;
 
+  const canToggle = !revealAll && sessions.length > SESSION_PREVIEW_LIMIT;
   const showAll = revealAll || expanded || sessions.length <= SESSION_PREVIEW_LIMIT;
-  const visible = showAll ? sessions : sessions.slice(0, SESSION_PREVIEW_LIMIT);
-  const hiddenCount = sessions.length - SESSION_PREVIEW_LIMIT;
+  const previewSessions = canToggle ? sessions.slice(0, SESSION_PREVIEW_LIMIT) : sessions;
+  const hiddenSessions = canToggle ? sessions.slice(SESSION_PREVIEW_LIMIT) : [];
+
+  const renderRow = (session: SessionSummary) => (
+    <SessionRow
+      key={session.id}
+      session={session}
+      active={session.id === activeSessionId}
+      indent={indent}
+      pinned={pinnedSessionIds.includes(session.id)}
+      onTogglePin={() => onTogglePin(session.id)}
+      onSelect={() => onSelect(session)}
+      onDelete={() => onDelete(session.id)}
+    />
+  );
 
   return (
     <>
-      {visible.map((session) => (
-        <SessionRow
-          key={session.id}
-          session={session}
-          active={session.id === activeSessionId}
-          indent={indent}
-          pinned={pinnedSessionIds.includes(session.id)}
-          onTogglePin={() => onTogglePin(session.id)}
-          onSelect={() => onSelect(session)}
-          onDelete={() => onDelete(session.id)}
-        />
-      ))}
-      {hiddenCount > 0 && !revealAll ? (
+      {previewSessions.map(renderRow)}
+      {canToggle ? (
         <button
           type="button"
           className="mb-0.5 flex h-7 w-full items-center gap-1 rounded-md pr-1 text-[11px] text-muted transition hover:bg-ink hover:text-text"
           style={{ paddingLeft: indent }}
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={showAll}
-          aria-label={showAll ? '숨겨진 대화 접기' : '숨겨진 대화 펼치기'}
-          title={showAll ? '숨겨진 대화 접기' : '숨겨진 대화 펼치기'}
+          aria-label={showAll ? '대화 숨기기' : '숨겨진 대화 펼치기'}
+          title={showAll ? '대화 숨기기' : '숨겨진 대화 펼치기'}
         >
-          {showAll ? <CaretDown size={12} /> : <CaretRight size={12} />}
-          <span className="truncate">{showAll ? '접기' : '숨겨진 대화'}</span>
+          {showAll ? <CaretUp size={12} /> : <CaretRight size={12} />}
+          <span className="truncate">{showAll ? '대화 숨기기' : '숨겨진 대화'}</span>
         </button>
       ) : null}
+      {canToggle && showAll ? hiddenSessions.map(renderRow) : null}
     </>
   );
 }
@@ -1188,6 +1252,19 @@ function SessionRow({
             ) : null}
             <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'session', id: session.id, title: session.title || '제목 없음', preferredModel: session.preferred_model, allowedPaths: session.allowed_paths, projectId: session.project_id ?? session.workspace_project_id }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />대화 설정</button>
             <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
+            <button
+              type="button"
+              onClick={async () => {
+                setMenuOpen(false);
+                try {
+                  await archiveSession(session.id, !session.archived);
+                  window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
+                } catch { /* keep current state on failure */ }
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"
+            >
+              <Archive size={13} weight={session.archived ? 'fill' : 'regular'} />{session.archived ? '보관 해제' : '보관'}
+            </button>
             <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
           </div>
         ) : null}

@@ -6,6 +6,17 @@ type ChromeWebViewHost = {
   removeEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void;
 };
 
+export type InAppBrowserTab = {
+  id: string;
+  url: string;
+  title: string;
+  active: boolean;
+  loading: boolean;
+  primary: boolean;
+  controlled: boolean;
+  observing: boolean;
+};
+
 export type InAppBrowserState = {
   visible: boolean;
   url: string;
@@ -13,6 +24,9 @@ export type InAppBrowserState = {
   canGoForward: boolean;
   loading: boolean;
   status: string;
+  activeTabId: string;
+  returnTabId: string | null;
+  tabs: InAppBrowserTab[];
 };
 
 function shellWebView(): ChromeWebViewHost | null {
@@ -26,6 +40,62 @@ export function isShellInAppBrowserAvailable(): boolean {
 
 export function closeInAppBrowser(): void {
   shellWebView()?.postMessage({ type: 'inAppBrowser.close' });
+}
+
+export function createInAppBrowserTab(): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.create' });
+  return true;
+}
+
+export function closeInAppBrowserTab(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.close', tabId });
+  return true;
+}
+
+export function activateInAppBrowserTab(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.activate', tabId });
+  return true;
+}
+
+export function openInAppBrowserDevTools(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.devtools', tabId });
+  return true;
+}
+
+export function takeOverInAppBrowserTab(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.takeOver', tabId });
+  return true;
+}
+
+export function returnFromObservedBrowserTab(): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.return' });
+  return true;
+}
+
+export function promoteInAppBrowserTab(url: string): boolean {
+  const webview = shellWebView();
+  if (!webview || !/^https?:\/\//i.test(url)) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.promote', url });
+  return true;
+}
+
+export function listInAppBrowserTabs(): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.list' });
+  return true;
 }
 
 export function resumeInAppBrowser(url: string): void {
@@ -120,6 +190,21 @@ export function subscribeInAppBrowserState(
     if (!data || typeof data !== 'object') return;
     const rec = data as Record<string, unknown>;
     if (rec.type !== 'inAppBrowser.state') return;
+    const tabs = Array.isArray(rec.tabs) ? rec.tabs.flatMap((value): InAppBrowserTab[] => {
+      if (!value || typeof value !== 'object') return [];
+      const tab = value as Record<string, unknown>;
+      if (typeof tab.id !== 'string' || !tab.id) return [];
+      return [{
+        id: tab.id,
+        url: typeof tab.url === 'string' ? tab.url : '',
+        title: typeof tab.title === 'string' ? tab.title : '',
+        active: Boolean(tab.active),
+        loading: Boolean(tab.loading),
+        primary: Boolean(tab.primary),
+        controlled: Boolean(tab.controlled),
+        observing: Boolean(tab.observing),
+      }];
+    }) : [];
     onState({
       visible: Boolean(rec.visible),
       url: typeof rec.url === 'string' ? rec.url : '',
@@ -127,6 +212,9 @@ export function subscribeInAppBrowserState(
       canGoForward: Boolean(rec.canGoForward),
       loading: Boolean(rec.loading),
       status: typeof rec.status === 'string' ? rec.status : '',
+      activeTabId: typeof rec.activeTabId === 'string' ? rec.activeTabId : tabs.find((tab) => tab.active)?.id ?? 'main',
+      returnTabId: typeof rec.returnTabId === 'string' && rec.returnTabId ? rec.returnTabId : null,
+      tabs,
     });
   };
 

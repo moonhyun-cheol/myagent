@@ -66,6 +66,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   sessionId?: string;
   playwrightHeadless?: boolean;
   playwrightAllowLocalhost?: boolean;
+  /** Browser routing boundary. Background runs cannot address shell-owned visible tabs. */
+  browserRouting?: 'interactive' | 'background';
   /** Optional extra lifecycle hooks (merged with defaults). */
   hooks?: AgentRuntimeHooks;
   /** Image attachments as data URLs — multimodal LLM + UI-target vision. */
@@ -90,6 +92,8 @@ export interface CodeAgentResult {
   diagnostics?: import('./agent-outcome-gate.js').DiagnosticsEvidenceStatus;
   /** Verify witness from this run. */
   verifyWitness?: import('./agent-claim-gates.js').VerifyWitness | null;
+  /** Final HTTP(S) page from an isolated browser run, suitable for explicit UI promotion. */
+  browserHandoff?: { url: string; title: string };
   /** Host/application notice kept separate from model-authored content. */
   applicationNotice?: import('../sessions/types.js').ApplicationNotice;
 }

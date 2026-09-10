@@ -126,6 +126,27 @@ function appendPostMutateGates(
   return appendPostMutateSyntaxCheck(workspaceRoot, paths, output);
 }
 
+/** Optional multi-tab id for visible-browser tools; undefined targets the active/default tab. */
+function visibleTabId(args: Record<string, unknown>): string | undefined {
+  const raw = typeof args.tab_id === 'string' ? args.tab_id.trim() : '';
+  return raw || undefined;
+}
+
+function assertVisibleBrowserAllowed(ctx?: AgentToolContext): void {
+  if (ctx?.browserRouting === 'background') {
+    throw new Error('BACKGROUND_VISIBLE_BROWSER_FORBIDDEN');
+  }
+}
+
+/** Merge an optional tab_id into a shell request payload without adding empty keys. */
+function withVisibleTab(
+  args: Record<string, unknown>,
+  payload: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const tabId = visibleTabId(args);
+  return tabId ? { ...payload, tab_id: tabId } : payload;
+}
+
 export async function executeAgentTool(
   workspaceRoot: string,
   call: AgentToolCall,
@@ -1031,22 +1052,38 @@ async function executeAgentToolInner(
         return { label: 'browser targets', output: JSON.stringify({ targets: [visible, isolated] }, null, 2) };
       }
       case 'browser_lock': {
+        assertVisibleBrowserAllowed(ctx);
         if (args.target !== 'visible') throw new Error('BROWSER_LOCK_TARGET_MUST_BE_VISIBLE');
         const bridge = getVisibleBrowserBridge();
         if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-        return { label: 'browser lock visible', output: JSON.stringify(bridge.lockFor(ctx?.sessionId ?? 'default'), null, 2) };
+        const tabId = visibleTabId(args);
+        const owner = ctx?.sessionId ?? 'default';
+        const lease = bridge.lockFor(owner, tabId);
+        try {
+          await bridge.request('tab.control.acquire', { tab_id: lease.tab_id, owner });
+        } catch (error) {
+          bridge.unlockFor(owner, lease.tab_id);
+          throw error;
+        }
+        return { label: 'browser lock visible', output: JSON.stringify(lease, null, 2) };
       }
       case 'browser_unlock': {
+        assertVisibleBrowserAllowed(ctx);
         if (args.target !== 'visible') throw new Error('BROWSER_UNLOCK_TARGET_MUST_BE_VISIBLE');
         const bridge = getVisibleBrowserBridge();
         if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-        return { label: 'browser unlock visible', output: JSON.stringify(bridge.unlockFor(ctx?.sessionId ?? 'default'), null, 2) };
+        const tabId = visibleTabId(args);
+        const owner = ctx?.sessionId ?? 'default';
+        const resolvedTabId = tabId ?? 'main';
+        await bridge.request('tab.control.release', { tab_id: resolvedTabId, owner });
+        return { label: 'browser unlock visible', output: JSON.stringify(bridge.unlockFor(owner, resolvedTabId), null, 2) };
       }
       case 'browser_snapshot': {
+        assertVisibleBrowserAllowed(ctx);
         if (args.target !== 'visible') throw new Error('BROWSER_SNAPSHOT_TARGET_MUST_BE_VISIBLE');
         const bridge = getVisibleBrowserBridge();
         if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-        const snapshot = await bridge.request('snapshot');
+        const snapshot = await bridge.request('snapshot', withVisibleTab(args));
         return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
       }
       case 'browser_navigate': {
@@ -1059,11 +1096,13 @@ async function executeAgentToolInner(
           };
         }
         if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
+          const tabId = visibleTabId(args);
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
           const parsed = assertAllowedBrowserUrl(url, { allowLocalhost: ctx?.allowLocalhost === true });
-          const result = await bridge.request('navigate', { url: parsed.toString() });
+          const result = await bridge.request('navigate', withVisibleTab(args, { url: parsed.toString() }));
           return { label: `navigate visible ${url}`, output: JSON.stringify(result, null, 2) };
         }
         const session = ctx?.browserSession;
@@ -1074,10 +1113,11 @@ async function executeAgentToolInner(
       case 'browser_screenshot': {
         const target = args.target === 'visible' ? 'visible' : 'isolated';
         if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
-          const result = await bridge.request('screenshot');
+          const result = await bridge.request('screenshot', withVisibleTab(args));
           const image = typeof result.image_base64 === 'string' ? result.image_base64 : '';
           if (!image) throw new Error('VISIBLE_BROWSER_SCREENSHOT_EMPTY');
           const sid = (ctx.sessionId?.trim() || 'session').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'session';
@@ -1100,12 +1140,14 @@ async function executeAgentToolInner(
       case 'browser_click': {
         const target = args.target === 'visible' ? 'visible' : 'isolated';
         if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
-          const result = await bridge.request('click', {
+          const tabId = visibleTabId(args);
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          const result = await bridge.request('click', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''),
-          });
+          }));
           return { label: `click visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = ctx?.browserSession;
@@ -1118,12 +1160,14 @@ async function executeAgentToolInner(
         const target = args.target === 'visible' ? 'visible' : 'isolated';
         const value = String(args.value ?? '');
         if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default');
-          const result = await bridge.request('fill', {
+          const tabId = visibleTabId(args);
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          const result = await bridge.request('fill', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''), value,
-          });
+          }));
           return { label: `fill visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = ctx?.browserSession;

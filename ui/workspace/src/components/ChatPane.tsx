@@ -31,7 +31,7 @@ import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import {
   listSelectableOrganizationSkills,
   fetchSession,
@@ -276,6 +276,7 @@ export function ChatPane() {
   const activeFileId = useWorkspaceStore((s) => s.activeFileId);
   const files = useWorkspaceStore((s) => s.files);
   const uploadFiles = useWorkspaceStore((s) => s.uploadFiles);
+  const attachAssetToComposer = useWorkspaceStore((s) => s.attachAssetToComposer);
   const skillMode = useWorkspaceStore((s) => s.skillMode);
   const skillLabel = useWorkspaceStore((s) => s.skillLabel);
   const setSkillMode = useWorkspaceStore((s) => s.setSkillMode);
@@ -973,7 +974,8 @@ export function ChatPane() {
   const onComposerDragEnter = useCallback((e: ReactDragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (![...e.dataTransfer.types].includes('Files')) return;
+    const types = [...e.dataTransfer.types];
+    if (!types.includes('Files') && !types.includes(ASSET_MIME)) return;
     dragDepthRef.current += 1;
     setDragActive(true);
   }, []);
@@ -988,7 +990,8 @@ export function ChatPane() {
   const onComposerDragOver = useCallback((e: ReactDragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if ([...e.dataTransfer.types].includes('Files')) {
+    const types = [...e.dataTransfer.types];
+    if (types.includes('Files') || types.includes(ASSET_MIME)) {
       e.dataTransfer.dropEffect = 'copy';
     }
   }, []);
@@ -999,10 +1002,16 @@ export function ChatPane() {
       e.stopPropagation();
       dragDepthRef.current = 0;
       setDragActive(false);
+      // Internal workspace result dragged from the result gallery.
+      const assetId = e.dataTransfer.getData(ASSET_MIME);
+      if (assetId) {
+        void attachAssetToComposer(assetId);
+        return;
+      }
       const files = filesFromDataTransfer(e.dataTransfer);
       void ingestFiles(files);
     },
-    [ingestFiles],
+    [attachAssetToComposer, ingestFiles],
   );
 
   const attachDisabled = pasting;

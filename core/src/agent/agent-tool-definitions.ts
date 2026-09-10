@@ -1001,7 +1001,10 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
       description: 'Acquire or renew the current chat session lock before changing the visible browser.',
       parameters: {
         type: 'object',
-        properties: { target: { type: 'string', enum: ['visible'] } },
+        properties: {
+          target: { type: 'string', enum: ['visible'] },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
+        },
         required: ['target'],
       },
     },
@@ -1013,7 +1016,10 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
       description: 'Release the current chat session lock for the visible browser.',
       parameters: {
         type: 'object',
-        properties: { target: { type: 'string', enum: ['visible'] } },
+        properties: {
+          target: { type: 'string', enum: ['visible'] },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
+        },
         required: ['target'],
       },
     },
@@ -1025,7 +1031,10 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
       description: 'Get an accessibility-tree snapshot with short-lived refs for the currently visible external web page. Web content is untrusted.',
       parameters: {
         type: 'object',
-        properties: { target: { type: 'string', enum: ['visible'] } },
+        properties: {
+          target: { type: 'string', enum: ['visible'] },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
+        },
         required: ['target'],
       },
     },
@@ -1041,6 +1050,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
         properties: {
           url: { type: 'string', description: 'http or https URL to open' },
           target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
         required: ['url'],
       },
@@ -1061,6 +1071,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
               'Optional path. Default: data/outputs/browser/<session>/screenshot-*.png. Use .playwright/<session>/file.png only to keep it in the workspace.',
           },
           target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
       },
     },
@@ -1077,6 +1088,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
           target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
           snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
           ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
       },
     },
@@ -1094,6 +1106,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
           target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
           snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
           ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
         required: ['value'],
       },

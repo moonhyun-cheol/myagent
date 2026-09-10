@@ -82,6 +82,7 @@ export interface SessionSummary {
   preferred_model?: string;
   effective_preferred_model?: string;
   allowed_paths?: string[];
+  archived?: boolean;
 }
 
 export interface ApplicationNotice {
@@ -296,6 +297,7 @@ export interface AutomationFeedAttachment {
   path?: string;
   mime?: string;
   size?: number;
+  browser_url?: string;
 }
 
 export interface AutomationFeedItem {
@@ -609,6 +611,7 @@ export interface WorkspaceTreePayload {
     session_count: number;
   }>;
   standalone_sessions: SessionSummary[];
+  archived_sessions?: SessionSummary[];
 }
 
 export async function resolveWorkspaceRootProjectId(projectId: string | null): Promise<string | null> {
@@ -928,6 +931,17 @@ export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`세션 삭제 실패 (${res.status})`);
   if (localStorage.getItem(SESSION_KEY) === id) localStorage.removeItem(SESSION_KEY);
+}
+
+export async function archiveSession(id: string, archived: boolean): Promise<SessionSummary> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}/archive`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ archived }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `세션 보관 처리 실패 (${res.status})`);
+  return data as SessionSummary;
 }
 
 export interface LocalModelInfo {

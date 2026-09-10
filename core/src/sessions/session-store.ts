@@ -40,6 +40,54 @@ export class SessionStore {
     return this.database.list();
   }
 
+  /** Live (non-archived) sessions shown in the workspace tree. */
+  listActive(): SessionSummary[] {
+    return this.list().filter((s) => !s.archived);
+  }
+
+  /** Archived sessions, surfaced only in the 보관함 view (newest first). */
+  listArchived(): SessionSummary[] {
+    return this.list().filter((s) => s.archived);
+  }
+
+  /** Set/clear the archive flag. Reviving (unarchive) bumps recency so auto-archive keeps it visible. */
+  setArchived(id: string, archived: boolean): SessionSummary | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    if (Boolean(rec.archived) === archived) return this.getSummary(rec);
+    rec.archived = archived;
+    // Archiving preserves ordering; unarchiving revives the session to the top of its group.
+    if (!archived) rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    if (rec.project_id) this.onProjectActivity?.(rec.project_id);
+    return this.getSummary(rec);
+  }
+
+  /**
+   * Auto-archive overflow per group (project_id; null = standalone). Once a group's
+   * visible sessions exceed previewLimit + hiddenMax, the oldest overflow is archived
+   * so the tree never grows unbounded. Idempotent: no writes once each group fits.
+   */
+  autoArchive(previewLimit = 5, hiddenMax = 10): number {
+    const keep = previewLimit + hiddenMax;
+    const groups = new Map<string, SessionSummary[]>();
+    for (const summary of this.listActive()) {
+      const key = summary.project_id ?? '';
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(summary);
+    }
+    let archived = 0;
+    for (const list of groups.values()) {
+      if (list.length <= keep) continue;
+      const overflow = [...list]
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        .slice(keep);
+      for (const summary of overflow) {
+        if (this.setArchived(summary.id, true)) archived++;
+      }
+    }
+    return archived;
+  }
+
   /** Import the portable cqr-pa conversation export as a new local session. */
   importPortable(raw: unknown, projectId: string | null = null, workspaceProjectId: string | null = null): SessionRecord {
     const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
@@ -100,13 +148,13 @@ export class SessionStore {
   }
 
   listStandalone(): SessionSummary[] {
-    return this.list().filter((s) => !s.project_id);
+    return this.listActive().filter((s) => !s.project_id);
   }
 
   listByProject(projectId: string): SessionSummary[] {
     const safe = sanitizeId(projectId);
     if (!safe) return [];
-    return this.list().filter((s) => s.project_id === safe);
+    return this.listActive().filter((s) => s.project_id === safe);
   }
 
   load(id: string): SessionRecord | null {
@@ -562,6 +610,7 @@ export class SessionStore {
       workspace_project_id: rec.workspace_project_id ?? null,
       preferred_model: rec.preferred_model,
       allowed_paths: rec.allowed_paths ?? [],
+      archived: rec.archived === true,
     };
   }
 

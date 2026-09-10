@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const LOCK_LEASE_MS = 45_000;
+/** Tab id used when a caller does not target a specific tab (single-tab compatibility). */
+export const DEFAULT_VISIBLE_TAB = 'main';
 
 type PendingRequest = {
   resolve: (value: Record<string, unknown>) => void;
@@ -24,7 +26,8 @@ export class VisibleBrowserBridge {
   private socket: net.Socket | null = null;
   private buffer = '';
   private pending = new Map<string, PendingRequest>();
-  private lock: LockState | null = null;
+  /** One lease per visible tab. A missing tab id resolves to DEFAULT_VISIBLE_TAB. */
+  private locks = new Map<string, LockState>();
 
   constructor(private readonly port: number) {}
 
@@ -47,35 +50,58 @@ export class VisibleBrowserBridge {
     return this.socket !== null && !this.socket.destroyed;
   }
 
-  lockFor(sessionId: string): { owner: string; expires_at: string } {
+  private tabKey(tabId?: string): string {
+    const key = (tabId ?? '').trim();
+    return key || DEFAULT_VISIBLE_TAB;
+  }
+
+  private sweepExpiredLocks(now: number): void {
+    for (const [key, state] of this.locks) if (state.expiresAt <= now) this.locks.delete(key);
+  }
+
+  lockFor(sessionId: string, tabId?: string): { owner: string; tab_id: string; expires_at: string } {
     const owner = sessionId.trim() || 'default';
+    const key = this.tabKey(tabId);
     const now = Date.now();
-    if (this.lock && this.lock.expiresAt > now && this.lock.owner !== owner) {
-      throw new Error(`VISIBLE_BROWSER_LOCKED:${this.lock.owner}`);
+    this.sweepExpiredLocks(now);
+    const existing = this.locks.get(key);
+    if (existing && existing.expiresAt > now && existing.owner !== owner) {
+      throw new Error(`VISIBLE_BROWSER_LOCKED:${existing.owner}`);
     }
-    this.lock = { owner, expiresAt: now + LOCK_LEASE_MS };
-    return { owner, expires_at: new Date(this.lock.expiresAt).toISOString() };
+    const state: LockState = { owner, expiresAt: now + LOCK_LEASE_MS };
+    this.locks.set(key, state);
+    return { owner, tab_id: key, expires_at: new Date(state.expiresAt).toISOString() };
   }
 
-  unlockFor(sessionId: string): { unlocked: boolean } {
+  unlockFor(sessionId: string, tabId?: string): { unlocked: boolean; tab_id: string } {
     const owner = sessionId.trim() || 'default';
-    if (!this.lock || this.lock.expiresAt <= Date.now()) {
-      this.lock = null;
-      return { unlocked: false };
+    const key = this.tabKey(tabId);
+    const existing = this.locks.get(key);
+    if (!existing || existing.expiresAt <= Date.now()) {
+      this.locks.delete(key);
+      return { unlocked: false, tab_id: key };
     }
-    if (this.lock.owner !== owner) throw new Error(`VISIBLE_BROWSER_LOCKED:${this.lock.owner}`);
-    this.lock = null;
-    return { unlocked: true };
+    if (existing.owner !== owner) throw new Error(`VISIBLE_BROWSER_LOCKED:${existing.owner}`);
+    this.locks.delete(key);
+    return { unlocked: true, tab_id: key };
   }
 
-  assertLockedBy(sessionId: string): void {
+  assertLockedBy(sessionId: string, tabId?: string): void {
     const owner = sessionId.trim() || 'default';
-    if (!this.lock || this.lock.expiresAt <= Date.now()) {
-      this.lock = null;
+    const key = this.tabKey(tabId);
+    const existing = this.locks.get(key);
+    if (!existing || existing.expiresAt <= Date.now()) {
+      this.locks.delete(key);
       throw new Error('VISIBLE_BROWSER_LOCK_REQUIRED');
     }
-    if (this.lock.owner !== owner) throw new Error(`VISIBLE_BROWSER_LOCKED:${this.lock.owner}`);
-    this.lock.expiresAt = Date.now() + LOCK_LEASE_MS;
+    if (existing.owner !== owner) throw new Error(`VISIBLE_BROWSER_LOCKED:${existing.owner}`);
+    existing.expiresAt = Date.now() + LOCK_LEASE_MS;
+  }
+
+  /** Drop every lease owned by a session (e.g. when a tab it held is closed). */
+  releaseSession(sessionId: string): void {
+    const owner = sessionId.trim() || 'default';
+    for (const [key, state] of this.locks) if (state.owner === owner) this.locks.delete(key);
   }
 
   async request(action: string, payload: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
@@ -150,7 +176,7 @@ export class VisibleBrowserBridge {
       pending.reject(error);
     }
     this.pending.clear();
-    this.lock = null;
+    this.locks.clear();
   }
 }
 

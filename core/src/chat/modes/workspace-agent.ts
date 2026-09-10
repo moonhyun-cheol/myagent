@@ -222,8 +222,16 @@ export async function runWorkspaceCodeAgent(opts: {
     workspaceRoot = workspaceLock.targetRoot;
     callbacks?.onStatus?.(`Workspace lock · ${workspaceLock.matchedName || workspaceRoot}`);
   }
+  const browserRouting = req.execution_context === 'background' ? 'background' : 'interactive';
   const lockNote = formatWorkspaceLockNote(workspaceLock);
-  const lockSystemNotes = [lockNote, ...(extraSystemNotes ?? [])];
+  const backgroundBrowserNote = browserRouting === 'background'
+    ? [
+        '## Background browser routing',
+        'This run is scheduled/background work. Browser actions must use target="isolated".',
+        'Visible shell tabs are forbidden and cannot be focused. A final HTTP(S) page may be offered to the user as “탭으로 보기” after completion.',
+      ].join('\n')
+    : '';
+  const lockSystemNotes = [lockNote, backgroundBrowserNote, ...(extraSystemNotes ?? [])].filter(Boolean);
 
   const provider = resolveCodeAgentProvider(configPath, providerStore, resolved);
   if (
@@ -332,7 +340,8 @@ export async function runWorkspaceCodeAgent(opts: {
     cqrRoot,
     configPath,
     sessionId,
-    playwrightHeadless: overrides.playwright_headless,
+    playwrightHeadless: browserRouting === 'background' ? true : overrides.playwright_headless,
+    browserRouting,
     // Code agent default ON for 127.0.0.1 dev E2E; set user-overrides false to lock.
     playwrightAllowLocalhost: overrides.playwright_allow_localhost !== false,
     autopilot,
@@ -371,6 +380,7 @@ export async function runWorkspaceCodeAgent(opts: {
     routing,
     model: agent.model,
     mutatedPaths: agent.mutatedPaths ?? [],
+    ...(agent.browserHandoff ? { browserHandoff: agent.browserHandoff } : {}),
     ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
   };
 }

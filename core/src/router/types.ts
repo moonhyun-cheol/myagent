@@ -51,6 +51,8 @@ export interface ChatRequest {
   runId?: string;
   mode?: ChatMode | 'chat';
   attachments?: string[];
+  /** Internal execution origin. Background runs are restricted to isolated browser tools. */
+  execution_context?: 'interactive' | 'background';
   /** `auto` | `cloud` | registry model id */
   model?: string;
   /** Session-scoped execution policy, snapshotted by the UI when this job is queued. */
@@ -76,4 +78,6 @@ export interface ChatResponse {
   planConstraintsLocked?: boolean;
   /** Host-side continuation or failure notice surfaced to the workspace UI. */
   applicationNotice?: ApplicationNotice;
+  /** Final isolated-browser page that a host UI may promote after background completion. */
+  browserHandoff?: { url: string; title: string };
 }

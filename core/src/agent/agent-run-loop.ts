@@ -341,6 +341,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     agentMutateTurn: true,
   });
   const mutatedPathsThisRun = new Set<string>();
+  let browserSession: PlaywrightSession | null = null;
   /** Filled before step loop so `finish` reads live counters (not prepare-time copies). */
   let stepState: AgentRunStepState | null = null;
   let finished = false;
@@ -369,6 +370,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     // Remove exact channel envelope markers only. The model owns the meaning,
     // wording, paragraph structure, and diagnostic details of its final answer.
     const finalContent = scrubAgentChannelLeak(String(result.content ?? ''));
+    const browserHandoff = opts.browserRouting === 'background'
+      ? await browserSession?.handoffState().catch(() => null) ?? null
+      : null;
     result = {
       ...result,
       content: finalContent,
@@ -376,6 +380,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       checkpointId: live?.lastAutoCheckpointId ?? result.checkpointId ?? null,
       diagnostics: live?.evidenceDiagOk ?? null,
       verifyWitness: live?.verifyWitness ?? null,
+      ...(browserHandoff ? { browserHandoff } : {}),
     };
     const wallMs = Date.now() - runStartedAt;
     const liveToolTrace = live?.toolTrace ?? toolTrace;
@@ -606,7 +611,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const readBodiesFetchedThisRun = new Set<string>();
   let readBeforeWriteAutoHeals = 0;
   let steps = 0;
-  let browserSession: PlaywrightSession | null = null;
   if (playwrightAvailable && packIncludesBrowser(toolPack)) {
     try {
       browserSession = await PlaywrightSession.open({
@@ -632,6 +636,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     sessionId: opts.sessionId,
     evidenceStore,
     allowLocalhost: opts.playwrightAllowLocalhost,
+    browserRouting: opts.browserRouting,
     signal: opts.signal,
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],

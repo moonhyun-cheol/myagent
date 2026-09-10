@@ -2,6 +2,7 @@ import {
   CalendarBlank,
   CheckCircle,
   Clock,
+  Eye,
   GearSix,
   ArrowsOut,
   MagnifyingGlass,
@@ -21,6 +22,7 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ErrorReportMenu } from './ErrorReportMenu';
 import { AutomationFeedModal } from './AutomationFeedModal';
+import { promoteInAppBrowserTab } from '../lib/inAppBrowserBridge';
 import { SettingsModal } from './SettingsModal';
 import { ProjectsTree } from './ProjectsTree';
 
@@ -274,6 +276,7 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
             label={item.kind === 'error' ? '실행 오류' : item.outcome === 'blocked' ? '조치 필요 · 차단됨' : item.outcome === 'failed' ? '결과상 실패' : item.outcome === 'warning' ? '확인 필요' : item.kind === 'status' ? '진행 알림' : '정상 완료'}
             title={item.title}
             tone={item.kind === 'error' || item.outcome === 'failed' || item.outcome === 'blocked' ? 'error' : item.outcome === 'warning' ? 'warning' : 'success'}
+            browserUrl={item.attachments.find((attachment) => attachment.mime === 'application/x-my-agent-browser-handoff')?.browser_url}
             onOpen={() => onOpenFeed(item.id)}
           />
         ))}
@@ -293,21 +296,25 @@ function AutomationFeedMessage({
   label,
   title,
   tone = 'success',
+  browserUrl,
   onOpen,
 }: {
   time: string;
   label: string;
   title: string;
   tone?: 'success' | 'warning' | 'error';
+  browserUrl?: string;
   onOpen: () => void;
 }) {
+  const promotableUrl = typeof browserUrl === 'string' && /^https?:\/\//i.test(browserUrl) ? browserUrl : null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="block w-full rounded-xl border border-line bg-white/75 p-2.5 text-left shadow-sm transition hover:border-accent/45 hover:bg-accent/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      aria-label={`${title} 뉴스피드에서 보기`}
-    >
+    <div className="rounded-xl border border-line bg-white/75 p-2.5 shadow-sm transition hover:border-accent/45 hover:bg-accent/5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        aria-label={`${title} 뉴스피드에서 보기`}
+      >
       <div className="flex items-center justify-between gap-2">
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${tone === 'error' ? 'bg-red-600' : tone === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
           {tone === 'success' ? <CheckCircle size={11} weight="fill" /> : <Clock size={11} />}
@@ -316,8 +323,19 @@ function AutomationFeedMessage({
         <time className="text-[9px] text-muted">{time}</time>
       </div>
       <p className="mt-2 truncate text-[11px] font-semibold text-text">{title}</p>
-      <p className="mt-0.5 text-[9px] text-accent">뉴스피드에서 보기</p>
-    </button>
+        <p className="mt-0.5 text-[9px] text-accent">뉴스피드에서 보기</p>
+      </button>
+      {promotableUrl ? (
+        <button
+          type="button"
+          onClick={() => promoteInAppBrowserTab(promotableUrl)}
+          className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md bg-sky-700 px-2 py-1.5 text-[9px] font-bold text-white hover:bg-sky-800"
+        >
+          <Eye size={11} weight="bold" />
+          에이전트 백그라운드 작업 · 탭으로 보기
+        </button>
+      ) : null}
+    </div>
   );
 }
 

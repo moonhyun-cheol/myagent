@@ -101,6 +101,12 @@ export interface SessionRecord {
   responses_state?: ResponsesContinuationState;
   /** Independent chat/agent/MAR lanes; prevents concurrent roles from sharing a chain. */
   responses_states?: Record<string, ResponsesContinuationState>;
+  /**
+   * When true the session is archived: hidden from the live workspace tree and
+   * shown only in the 보관함 view. Auto-set once a group's visible sessions
+   * exceed the preview + hidden threshold; still fully loadable by id.
+   */
+  archived?: boolean;
 }
 
 export interface SessionSummary {
@@ -112,4 +118,5 @@ export interface SessionSummary {
   workspace_project_id?: string | null;
   preferred_model?: string;
   allowed_paths?: string[];
+  archived?: boolean;
 }

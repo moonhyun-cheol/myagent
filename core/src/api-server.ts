@@ -112,6 +112,7 @@ export async function createApiServer(port: number) {
         const response = await orchestrator.handle({
           message: task.instruction,
           attachments: [],
+          execution_context: 'background',
         }, sessionId);
         const feedAttachments = [
           ...(response.mutatedPaths ?? []).map((filePath) => ({
@@ -122,6 +123,11 @@ export async function createApiServer(port: number) {
             name: `image-${index + 1}`,
             path: image.url,
           })),
+          ...(response.browserHandoff ? [{
+            name: response.browserHandoff.title || '백그라운드 브라우저',
+            mime: 'application/x-my-agent-browser-handoff',
+            browser_url: response.browserHandoff.url,
+          }] : []),
         ];
         return { content: response.content, attachments: feedAttachments };
       } finally {
