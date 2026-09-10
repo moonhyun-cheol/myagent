@@ -11,7 +11,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 1 | 2026-09-09-server-chat-cancel | 이미 반영(스킵) | — | — |
 | 3 | 2026-09-10-scheduler-run-outcome-status | 포팅 완료 | 47 | `4750568` |
 | 2 | 2026-09-10-conversation-list-chat-focus | 포팅 완료 | 46 | (이 커밋) |
-| 7 | 2026-09-09-conversation-status-toast-navigation | 대기 | 46 | — |
+| 7 | 2026-09-09-conversation-status-toast-navigation | 포팅 완료 | 46 | (이 커밋) |
 | 4 | 2026-09-09-conversation-token-time-display | 대기 | 46 | — |
 | 5 | 2026-09-09-model-driven-conversation-images | 대기 | 46 | — |
 | 6 | 2026-09-09-unified-workflow-cancel | 대기(대형/위험) | 46 | — |
@@ -27,3 +27,14 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - `chatHistoryNavigation.tabToComposer()` 추가: 이력 영역 자체 포커스 상태의 보조키 없는 `Tab` -> 입력창(`draftInputRef`)으로 이동, 기본 탭 이동 차단. 메시지 내부 인터랙션 요소의 Tab은 기존 접근성 유지.
 - 이력 영역 `aria-keyshortcuts`에 `Tab` 추가.
 - 검증: `ui/workspace` `tsc -b` exit 0, `npm run build` exit 0.
+
+## #7 conversation-status-toast-navigation (포팅 완료)
+- 스토어에 `unseenCompletions: Record<string, boolean>` 상태 추가(`workspaceStore.ts`).
+  - 완료 알림 시 `activeSessionId !== sid`이면 해당 세션을 미확인으로 표시.
+  - `runJob`가 `running` 진입 시 해당 세션 미확인 해제(진행 중 우선).
+  - `loadChatSession`가 세션 열람 시 미확인 즉시 해제.
+- 완료 토스트에 `targetSessionId` 연결(`userNotifications.ts` 타입 + 알림 payload).
+- `ProjectsTree.SessionRow`: 진행 중 = `CircleNotch` 회전 아이콘, 미확인 완료 = 녹색 원 + 제목 볼드. 진행 중이 미확인보다 우선.
+- `NotificationCenter`: `targetSessionId` 있는 토스트 본문 클릭 → `loadChatSession` + `my-agent:navigate-chat` 이벤트로 채팅 화면 전환, 토스트 닫기/액션 버튼은 `stopPropagation`으로 이동 억제.
+- `MainWorkspaceContainer`: `my-agent:navigate-chat` 구독 → `activeSurface='chat'`.
+- 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0.

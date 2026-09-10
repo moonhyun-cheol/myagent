@@ -7,6 +7,8 @@ export type UserNotification = {
   message: string;
   persistent: boolean;
   actionLabel?: string;
+  /** When set, clicking the toast body opens this conversation in the chat surface. */
+  targetSessionId?: string;
 };
 
 const EVENT_NAME = 'my-agent:user-notification';

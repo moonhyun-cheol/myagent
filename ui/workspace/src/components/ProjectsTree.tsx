@@ -5,6 +5,7 @@ import {
   CaretRight,
   CaretUp,
   ChatTeardropText,
+  CircleNotch,
   DotsThree,
   FolderPlus,
   FolderSimple,
@@ -1158,6 +1159,7 @@ function SessionRow({
   onDelete: () => void;
 }) {
   const phase = useWorkspaceStore((s) => s.sessionPhases[session.id]);
+  const unseen = useWorkspaceStore((s) => Boolean(s.unseenCompletions[session.id]));
   const menuId = `session:${session.id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
   const [editing, setEditing] = useState(false);
@@ -1219,10 +1221,12 @@ function SessionRow({
           aria-label="챗 이름 수정"
         />
       ) : (
-        <span className="min-w-0 flex-1 truncate">{session.title || '제목 없음'}</span>
+        <span className={`min-w-0 flex-1 truncate ${unseen && phase !== 'running' ? 'font-semibold text-text' : ''}`}>{session.title || '제목 없음'}</span>
       )}
       {phase === 'running' ? (
-        <span className="shrink-0 text-[9px] text-accent" title="생성 중">
+        <CircleNotch size={12} weight="bold" aria-label="생성 중" className="shrink-0 animate-spin text-accent" />
+      ) : unseen ? (
+        <span className="shrink-0 text-[10px] text-emerald-500" title="새 답변 완료" aria-label="새 답변 완료">
           ●
         </span>
       ) : null}

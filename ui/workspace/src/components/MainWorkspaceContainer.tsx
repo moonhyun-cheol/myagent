@@ -118,6 +118,11 @@ export function MainWorkspaceContainer() {
     const store = useWorkspaceStore.getState();
     store.navigateBrowser(url); store.setMode('browser'); store.setPreviewPaneOpen(true); setActiveSurface('chat');
   }), []);
+  useEffect(() => {
+    const onNav = () => setActiveSurface('chat');
+    window.addEventListener('my-agent:navigate-chat', onNav);
+    return () => window.removeEventListener('my-agent:navigate-chat', onNav);
+  }, []);
   // Hide the reserved surface without stopping the page or losing its history.
   const closePanel = () => setPreviewPaneOpen(false);
   if (isAvailableWorkspacePreviewMode(detachedMode)) return <div className="h-full min-h-0 bg-ink text-text"><PreviewPane /><ImagePreviewModal /><ConfirmModal /></div>;

@@ -471,6 +471,8 @@ interface WorkspaceState {
   streamAbort: AbortController | null;
   /** Per-session run phase for sidebar badges (FIFO global queue). */
   sessionPhases: Record<string, SessionRunPhase>;
+  /** Sessions completed in the background and not yet viewed (green dot + bold title). */
+  unseenCompletions: Record<string, boolean>;
   /** User messages waiting for the current turn to finish, in session FIFO order. */
   messageQueue: QueuedMessage[];
   /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
@@ -848,8 +850,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   const runJob = async (sid: string) => {
     const job = liveJobs.get(sid);
     if (!job) return;
+    const runningUnseen = { ...get().unseenCompletions };
+    delete runningUnseen[sid];
     set({
       sessionPhases: { ...get().sessionPhases, [sid]: 'running' },
+      unseenCompletions: runningUnseen,
     });
     if (get().activeSessionId === sid) {
       set({ busy: true, statusText: '연결 중…', streamAbort: job.abort });
@@ -1142,7 +1147,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                     : finalOnly ? '요청한 작업 결과를 확인할 수 있습니다.' : '새 답변을 확인할 수 있습니다.',
                   persistent: false,
                   system: 'when-hidden',
+                  targetSessionId: sid,
                 });
+                if (get().activeSessionId !== sid) {
+                  set({ unseenCompletions: { ...get().unseenCompletions, [sid]: true } });
+                }
               }
             },
           },
@@ -1292,6 +1301,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     pendingMutateReview: null,
     streamAbort: null,
     sessionPhases: {},
+    unseenCompletions: {},
     messageQueue: loadMessageQueue(),
     queueReviewSessions: {},
     updateQueuedMessage: (id, text) => {
@@ -1779,6 +1789,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     loadChatSession: async (sessionId) => {
       get().clearPendingAttachments();
+      if (get().unseenCompletions[sessionId]) {
+        const seen = { ...get().unseenCompletions };
+        delete seen[sessionId];
+        set({ unseenCompletions: seen });
+      }
       cacheActiveSessionView();
 
       const live = liveJobs.get(sessionId);
