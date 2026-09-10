@@ -199,6 +199,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
   const startNewChat = useWorkspaceStore((s) => s.startNewChat);
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const loadChatSession = useWorkspaceStore((s) => s.loadChatSession);
+  const requestHistoryFocus = useWorkspaceStore((s) => s.requestHistoryFocus);
 
   const refresh = useCallback(async () => {
     try {
@@ -363,6 +364,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     try {
       await loadChatSession(id);
       onChatOpened?.();
+      requestHistoryFocus();
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : '세션 로드 실패');
     }

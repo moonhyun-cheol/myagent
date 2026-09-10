@@ -45,6 +45,21 @@ export function historyTarget(
   return requests[Math.max(0, Math.min(requests.length - 1, turn + direction))];
 }
 
+/**
+ * Tab (no modifiers) while the history region itself holds focus moves focus to the
+ * request composer. Individual interactive elements inside messages keep native tabbing.
+ */
+export function tabToComposer(
+  event: KeyboardEvent, container: HTMLElement, composer: HTMLElement | null,
+): boolean {
+  if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return false;
+  if (event.target !== container || container.ownerDocument.activeElement !== container || !composer) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  composer.focus();
+  return true;
+}
+
 /** Returns a logical cursor as short final messages may be clamped to the same scroll offset. */
 export function navigateHistory(
   event: KeyboardEvent, container: HTMLElement, anchors: HistoryAnchor[], cursor: HistoryCursor | null,

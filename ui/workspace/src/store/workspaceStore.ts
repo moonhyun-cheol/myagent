@@ -419,6 +419,8 @@ interface WorkspaceState {
   /** ChatPane watches this to seed the composer (Ask AI). */
   composerPrefill: string | null;
   composerFocusNonce: number;
+  /** ChatPane watches this to move keyboard focus onto the conversation history after a session opens. */
+  historyFocusNonce: number;
   canvasNodes: Node[];
   canvasEdges: Edge[];
   /** Viewed session is currently running. */
@@ -539,6 +541,7 @@ interface WorkspaceState {
   askAiFromDocumentSelection: () => void;
   flushDocumentAfterWorkspaceConnect: () => Promise<void>;
   clearComposerPrefill: () => void;
+  requestHistoryFocus: () => void;
   setCanvasNodes: (nodes: Node[]) => void;
   setCanvasEdges: (edges: Edge[]) => void;
   updateCanvasNodeSize: (nodeId: string, width: number, height: number) => void;
@@ -1258,6 +1261,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     ...emptyDocumentState(),
     composerPrefill: null,
     composerFocusNonce: 0,
+    historyFocusNonce: 0,
     canvasNodes: [],
     canvasEdges: [],
     busy: false,
@@ -2256,6 +2260,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
     clearComposerPrefill: () => set({ composerPrefill: null }),
+    requestHistoryFocus: () => set({ historyFocusNonce: get().historyFocusNonce + 1 }),
     appendToDocument: (text) => {
       const chunk = String(text || '');
       if (!chunk.trim()) return;

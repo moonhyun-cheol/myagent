@@ -67,7 +67,7 @@ import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './Conte
 import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
 import { SessionAttachmentGallery } from './SessionAttachmentGallery';
 import { MessageMarkdown } from './MessageMarkdown';
-import { focusHistoryBackground, navigateHistory, type HistoryCursor } from '../lib/chatHistoryNavigation';
+import { focusHistoryBackground, navigateHistory, tabToComposer, type HistoryCursor } from '../lib/chatHistoryNavigation';
 
 const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
 
@@ -567,6 +567,14 @@ export function ChatPane() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyCursorRef = useRef<HistoryCursor | null>(null);
   useEffect(() => { historyCursorRef.current = null; }, [activeSessionId]);
+  const historyFocusNonce = useWorkspaceStore((s) => s.historyFocusNonce);
+  // After a session loads (including re-selecting the same one), move keyboard focus onto
+  // the conversation history on the next frame so arrow/Page keys work and Tab reaches the composer.
+  useEffect(() => {
+    if (!historyFocusNonce) return;
+    const frame = window.requestAnimationFrame(() => scrollRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [historyFocusNonce]);
   const openedSessionRef = useRef<string | null>(null);
   const turnAnchorRefs = useRef<Map<string, HTMLElement>>(new Map());
   const wasBusyRef = useRef(false);
@@ -1360,7 +1368,7 @@ export function ChatPane() {
         tabIndex={0}
         role="region"
         aria-label="대화 이력"
-        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown"
+        aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Tab"
         className="chat-content-padding min-h-0 flex-1 overflow-auto px-5 py-6 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
         onClick={(event) => focusHistoryBackground(event.currentTarget, event.target)}
         onWheel={() => { historyCursorRef.current = null; }}
@@ -1368,6 +1376,7 @@ export function ChatPane() {
         onBlur={() => { historyCursorRef.current = null; }}
         onKeyDown={(event) => {
           const scroller = event.currentTarget;
+          if (tabToComposer(event.nativeEvent, scroller, draftInputRef.current)) return;
           const viewportTop = scroller.getBoundingClientRect().top + scroller.clientTop;
           const anchors = visibleChat.flatMap((turn) => {
             const anchor = turnAnchorRefs.current.get(turn.id);
