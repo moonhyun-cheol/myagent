@@ -10,15 +10,22 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 |---|------|------|-------------|------|
 | 1 | 2026-09-09-server-chat-cancel | 이미 반영(스킵) | — | — |
 | 3 | 2026-09-10-scheduler-run-outcome-status | 포팅 완료 | 47 | `4750568` |
-| 2 | 2026-09-10-conversation-list-chat-focus | 포팅 완료 | 46 | (이 커밋) |
-| 7 | 2026-09-09-conversation-status-toast-navigation | 포팅 완료 | 46 | (이 커밋) |
-| 4 | 2026-09-09-conversation-token-time-display | 포팅 완료 | 46 | (이 커밋) |
-| 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | (이 커밋) |
-| 6 | 2026-09-09-unified-workflow-cancel | 포팅 완료 | 46 | (이 커밋) |
-| 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
-| 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | (이 커밋) |
-| 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | (이 커밋) |
-| 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | 머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식 |
+| 2 | 2026-09-10-conversation-list-chat-focus | 포팅 완료 | 46 | `b91437b` |
+| 7 | 2026-09-09-conversation-status-toast-navigation | 포팅 완료 | 46 | `5dc1396` |
+| 4 | 2026-09-09-conversation-token-time-display | 포팅 완료 | 46 | `37b49e8`,`0519bea` |
+| 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | `bdd0590` |
+| 6 | 2026-09-09-unified-workflow-cancel | 포팅 완료 | 46 | `4e8f789` |
+| 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | `dffb7dc`,`477ea01`(facts) |
+| 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | `1ab15d9` |
+| 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | `60fc95f` |
+| 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | `a660a15` (머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식) |
+
+## 릴리스 상태 (2026-09-10)
+
+- `manifest.json` `update_sequence` 46→48 (커밋 `24f35af`). version 1.1.4 유지, channel stable.
+- **push 완료**: `origin/main` `0febf0d..477ea01` (배치 14커밋 + facts 재생성 `477ea01`).
+- **release-preflight 통과**: `node tools/release-preflight.mjs` → `OK: 1.1.4 sequence=48`. 4개 레인(defaults/core/ui/shell) 재빌드 + `deploy/output/release-preflight.json` 기록(revision `24f35af`). public-boundary strict 게이트는 중립 코어 아이덴티티 확정 전까지 deferred(경고).
+- **미실행(별도 승인 필요)**: 설치 zip 생성(`npm run publish` — normalize-encoding 소스 트리 변형 + node 임베드 + dotnet self-contained + keys-bundle 기록), 공개 업데이트 피드 게시(`npm run publish:update:github` — `channels/stable.json` + GitHub release). `channels/stable.json`은 다운로드 가능한 아티팩트 게시 전까지 손대지 않음.
 
 ## #2 conversation-list-chat-focus (포팅 완료)
 - 스토어에 `historyFocusNonce` + `requestHistoryFocus()` 추가(`workspaceStore.ts`).
