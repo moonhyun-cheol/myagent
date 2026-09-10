@@ -1,0 +1,23 @@
+{
+  "terminalWindowName": "MY_AGENT_SERVICES",
+  "services": [
+    {
+      "name": "example-api",
+      "tabTitle": "Example API :8080",
+      "healthUrl": "http://127.0.0.1:8080/health",
+      "command": "Write-Host 'replace with your API launch command'"
+    },
+    {
+      "name": "example-frontend",
+      "tabTitle": "Example Frontend :3000",
+      "healthUrl": "http://127.0.0.1:3000",
+      "command": "Write-Host 'replace with your frontend launch command'"
+    },
+    {
+      "name": "example-admin-cli",
+      "tabTitle": "Admin CLI",
+      "skipIfHealthy": false,
+      "command": "Write-Host 'replace with your management CLI'"
+    }
+  ]
+}

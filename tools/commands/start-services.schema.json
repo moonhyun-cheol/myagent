@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://my-agent.local/schemas/start-services.schema.json",
+  "title": "MY Agent service orchestration schema",
+  "description": "Portable, schema-driven contract for start-services.ps1. Ported from the CQR_PA service-terminal-orchestration WORK_SPEC as a generic skeleton: no machine-specific paths, ports, or service names are baked in.",
+  "type": "object",
+  "required": ["services"],
+  "properties": {
+    "terminalWindowName": {
+      "type": "string",
+      "description": "Dedicated Windows Terminal window name that collects every service tab. Default MY_AGENT_SERVICES.",
+      "default": "MY_AGENT_SERVICES"
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Logical service id used in health/skip reporting."
+          },
+          "tabTitle": {
+            "type": "string",
+            "description": "Windows Terminal tab title. Defaults to name."
+          },
+          "healthUrl": {
+            "type": "string",
+            "description": "Optional HTTP(S) health probe. If it responds (2xx-4xx), the service is treated as already running and is not launched, restarted, or killed."
+          },
+          "skipIfHealthy": {
+            "type": "boolean",
+            "default": true,
+            "description": "Set false to always launch even if healthUrl responds."
+          },
+          "command": {
+            "type": "string",
+            "description": "Command string executed inside the tab shell (pwsh preferred, powershell fallback)."
+          },
+          "workingDirectory": {
+            "type": "string",
+            "description": "Optional starting directory for the tab."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

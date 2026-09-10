@@ -18,7 +18,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | (이 커밋) |
 | 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | (이 커밋) |
-| 11 | 2026-09-10-service-terminal-orchestration | 보류 | 48 | `D:\.workspace\...`·포트 하드코딩 → 직접 포팅 불가. 범용화 설계 또는 제외 결정 필요 |
+| 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | 머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식 |
 
 ## #2 conversation-list-chat-focus (포팅 완료)
 - 스토어에 `historyFocusNonce` + `requestHistoryFocus()` 추가(`workspaceStore.ts`).
@@ -102,3 +102,12 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
   - `normalizeWorkspaceMode` 허용 목록에 `codocument` 추가(레거시 `canvas`→`document` 보정 유지).
 - CQR_PA 수용 기준 대비: #2(중간 하위 탭 없이 상위에서 공동 편집기 열림)·#3(작업 화면에 협업 문서 하위 탭 없음)·#4(문서 기능 전부 상위에서 동일 동작)·#5·#6 충족. **#1(탭 4개 = 작업/문서/미디어/웹)만 미충족** — MY Agent는 CQR_PA에 없는 파일 문서 편집기를 별도로 갖고 있어 탭이 5개(협업 문서 추가)가 되며, 협업 탭 라벨도 `협업 문서`다. 이는 파일 문서 기능 회귀를 피하기 위한 불가피한 편차.
 - 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. ⚠️ 실제 WebView2에서의 탭 전환/문서 편집 상호작용은 앱 실행 검증 아님(정적·빌드 검증까지).
+
+## #11 service-terminal-orchestration — (a) 범용 런너/스키마 골격만 포팅
+- **원본은 직접 포팅 불가**: CQR_PA WORK_SPEC은 사내 인프라에 강하게 묶임 — 특정 서비스명(NS_FBE/EVAL), 하드코딩 포트(18349/18000/18080), 절대 경로(`D:\.workspace\NS_FBE\run_local.ps1`, `my_automaton\run_local.ps1`), 고정 자동화 작업 ID(`96c43a09-...`). MY Agent 배포 트리에 이 서비스/경로는 존재하지 않는다.
+- **이식 범위 = (a) 범용 골격만**(계획대로). 스펙의 **재사용 가능한 오케스트레이션 계약**만 스키마 주도로 일반화:
+  - `tools/commands/start-services.ps1`: 전용 Windows Terminal 창(`MY_AGENT_SERVICES` 기본)에 서비스 탭을 모으는 런너. 헬스 우선 점검(정상 서비스는 재실행/종료/재시작 안 함), 탭 실행 직후 직전 foreground window 복원(포커스 보존), 모든 배치 후 **단 한 번** 최종 활성화. `-WhatIf`·`-NoFinalActivate` 옵션. `pwsh.exe` 우선 → `powershell.exe` fallback. `wt.exe` 부재는 명시적 오케스트레이션 실패(서비스 런처 자체 셸 fallback과 구분).
+  - `tools/commands/start-services.schema.json`: 서비스 목록 스키마(`name`/`command` 필수, `tabTitle`/`healthUrl`/`skipIfHealthy`/`workingDirectory` 선택, `terminalWindowName`). 머신 종속 값은 전부 스키마 입력으로 외부화 — 골격엔 하드코딩 없음.
+  - `tools/commands/services.example.json`: 플레이스홀더 예제(실제 서비스로 교체용).
+- **미이식(범위 밖, (b)~)**: 실제 NS_FBE/EVAL 서비스 런처 연동(`run_local.ps1` `-TerminalWindowName`/`-NoActivate`), 사내 자동화 작업 갱신/일시정지 등 사내 배포 운영 항목. 이들은 MY Agent 제품 저장소 대상이 아니며 필요 시 별도 사내 배포 단위에서 반영해야 한다.
+- 검증: `npm run verify:service-orchestration` **12/12 통과** — 스키마 구조/예제 적합성, 골격의 CQR_PA 머신 종속값 부재(경로·포트·ID 정적 스캔), 계약 요소(전용 창 기본값·헬스 우선 스킵·포커스 캡처/복원·단일 최종 활성화·pwsh fallback·wt.exe 실패), 그리고 실제 PowerShell 파서 검사 + `-WhatIf -NoFinalActivate` 드라이런 exit 0. ⚠️ 실제 Windows Terminal 다중 탭 기동/포커스 복원은 앱·환경 실행 검증 아님(정적·파서·드라이런까지).
