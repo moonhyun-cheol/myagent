@@ -296,12 +296,28 @@ export class PersonalSchedulerStore {
     return this.runs.runs.filter((run) => run.status === 'queued' || run.status === 'running').length;
   }
 
-  markRunRunning(id: string): void {
+  // queued -> running 전환을 상태 확인과 함께 원자적으로 수행한다.
+  // 큐 대기 중 취소된 실행은 status가 이미 'cancelled'이므로 false를 반환하여
+  // executor가 시작되지 않게 한다.
+  markRunRunning(id: string): boolean {
     const run = this.runs.runs.find((candidate) => candidate.id === id);
-    if (!run) return;
+    if (!run || run.status !== 'queued') return false;
     run.status = 'running';
     run.started_at = timestamp();
     this.saveRuns();
+    return true;
+  }
+
+  // 아직 시작되지 않은 queued 실행만 취소한다. 이미 실행 중이거나 종료된
+  // 실행에는 not_queued를 반환한다(라우트에서 409로 매핑).
+  cancelRun(id: string): { ok: true; run: SchedulerRun } | { ok: false; reason: 'not_found' | 'not_queued' } {
+    const run = this.runs.runs.find((candidate) => candidate.id === id);
+    if (!run) return { ok: false, reason: 'not_found' };
+    if (run.status !== 'queued') return { ok: false, reason: 'not_queued' };
+    run.status = 'cancelled';
+    run.finished_at = timestamp();
+    this.saveRuns();
+    return { ok: true, run: reconcileRunStatus(clone(run)) };
   }
 
   completeRun(id: string, resultText: string, outcome: SchedulerRun['outcome'] = 'success'): void {
@@ -337,6 +353,26 @@ export class PersonalSchedulerStore {
   listFeed(limit = 50): SchedulerFeedItem[] {
     const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
     return clone([...this.feed.items].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit));
+  }
+
+  // 읽지 않은 결과·오류 피드를 읽음 처리하고 갱신 건수를 반환한다.
+  markFeedRead(): number {
+    const now = timestamp();
+    let count = 0;
+    for (const item of this.feed.items) {
+      if ((item.kind === 'result' || item.kind === 'error') && item.read_at === null) {
+        item.read_at = now;
+        count += 1;
+      }
+    }
+    if (count > 0) this.saveFeed();
+    return count;
+  }
+
+  countUnreadFeed(): number {
+    return this.feed.items.filter(
+      (item) => (item.kind === 'result' || item.kind === 'error') && item.read_at === null,
+    ).length;
   }
 
   ensureWeeklyQueue(weekKey: string, items: Array<{ taskId: string; availableAt: string }>): boolean {

@@ -4,6 +4,7 @@ import type { WorkspaceMode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { BrowserPane } from './BrowserPane';
 import { APP_PREFERENCES_CHANGED_EVENT, syncMinimizeToTrayOnClose } from '../lib/appPreferences';
+import { listAutomationFeed, markAutomationFeedRead } from '../api/myAgentClient';
 import { subscribeInAppBrowserActivation } from '../lib/inAppBrowserBridge';
 import { ChatPane } from './ChatPane';
 import { GeminiNavSidebar, type AppSurface } from './GeminiNavSidebar';
@@ -104,6 +105,7 @@ export function MainWorkspaceContainer() {
   const setPreviewPaneOpen = useWorkspaceStore(s => s.setPreviewPaneOpen);
   const setMode = useWorkspaceStore(s => s.setMode);
   const [activeSurface, setActiveSurface] = useState<AppSurface>('chat');
+  const [automationUnread, setAutomationUnread] = useState(0);
   const detachedMode = new URLSearchParams(window.location.search).get('preview') as WorkspaceMode | null;
   useEffect(() => {
     const syncPreference = () => syncMinimizeToTrayOnClose();
@@ -123,12 +125,36 @@ export function MainWorkspaceContainer() {
     window.addEventListener('my-agent:navigate-chat', onNav);
     return () => window.removeEventListener('my-agent:navigate-chat', onNav);
   }, []);
+  // Poll unread automation results/errors every 10s for the dock badge.
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const feed = await listAutomationFeed(100);
+        if (active) {
+          setAutomationUnread(feed.filter(
+            (item) => (item.kind === 'result' || item.kind === 'error') && item.read_at === null,
+          ).length);
+        }
+      } catch { /* ignore transient feed errors */ }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 10_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  // Entering the automation surface marks the feed read and clears the badge.
+  useEffect(() => {
+    if (activeSurface !== 'scheduler') return;
+    let active = true;
+    void markAutomationFeedRead().then(() => { if (active) setAutomationUnread(0); }).catch(() => { /* ignore */ });
+    return () => { active = false; };
+  }, [activeSurface]);
   // Hide the reserved surface without stopping the page or losing its history.
   const closePanel = () => setPreviewPaneOpen(false);
   if (isAvailableWorkspacePreviewMode(detachedMode)) return <div className="h-full min-h-0 bg-ink text-text"><PreviewPane /><ImagePreviewModal /><ConfirmModal /></div>;
   return <div className="flex h-full min-h-0 flex-col bg-ink text-text">
     <div className="flex min-h-0 flex-1">
-      <GeminiNavSidebar activeSurface={activeSurface} onSurfaceChange={setActiveSurface} automationUnreadCount={0} />
+      <GeminiNavSidebar activeSurface={activeSurface} onSurfaceChange={setActiveSurface} automationUnreadCount={automationUnread} />
       <div className="min-h-0 min-w-0 flex-1">
         <div className={activeSurface === 'chat' ? 'h-full min-h-0' : 'hidden'} aria-hidden={activeSurface !== 'chat'}>
           <WorkPanelLayout open={previewPaneOpen} onClose={closePanel} chat={<ChatPane />} panel={controls => <PreviewPane controls={controls} />} />

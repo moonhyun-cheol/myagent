@@ -1,7 +1,7 @@
 export type SchedulerTriggerType = 'time' | 'sequence' | 'on_action' | 'condition' | 'manual';
 export type SchedulerMisfirePolicy = 'skip' | 'run_once';
 export type SchedulerRunSource = 'scheduled' | 'manual' | 'action';
-export type SchedulerRunStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type SchedulerRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type SchedulerContentOutcome = 'success' | 'warning' | 'failed' | 'blocked';
 
 export interface SchedulerTrigger {

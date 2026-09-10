@@ -226,7 +226,13 @@ export class PersonalSchedulerService {
     return this.store.createRun(taskId, source);
   }
 
-  markRunning(runId: string): void { this.store.markRunRunning(runId); }
+  markRunning(runId: string): boolean { return this.store.markRunRunning(runId); }
+
+  cancelRun(runId: string): ReturnType<PersonalSchedulerStore['cancelRun']> { return this.store.cancelRun(runId); }
+
+  markFeedRead(): number { return this.store.markFeedRead(); }
+
+  countUnreadFeed(): number { return this.store.countUnreadFeed(); }
 
   completeRun(runId: string, task: PersonalSchedulerTask, content: string, attachments: SchedulerFeedAttachment[] = []): void {
     const outcome = classifySchedulerContentOutcome(content);

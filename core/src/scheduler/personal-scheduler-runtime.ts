@@ -90,8 +90,9 @@ export class PersonalSchedulerRuntime {
 
   private async execute(task: PersonalSchedulerTask, run: SchedulerRun): Promise<void> {
     if (!this.running) return;
+    // 큐에서 차례를 기다리는 동안 취소된 실행은 여기서 걸러 executor를 시작하지 않는다.
+    if (!this.service.markRunning(run.id)) return;
     this.executing += 1;
-    this.service.markRunning(run.id);
     try {
       const result = await this.executor(task, run);
       this.service.completeRun(run.id, task, result.content, result.attachments);

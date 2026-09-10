@@ -220,7 +220,7 @@ export interface AutomationRun {
   id: string;
   task_id: string;
   source: 'scheduled' | 'manual' | 'action';
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   outcome?: 'success' | 'warning' | 'failed' | 'blocked' | null;
   started_at: string | null;
   finished_at: string | null;
@@ -286,6 +286,19 @@ export async function runAutomationTask(id: string): Promise<void> {
 export async function deleteAutomationTask(id: string): Promise<void> {
   const res = await fetch(`/automations/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`자동화 작업을 삭제하지 못했습니다. (${res.status})`);
+}
+
+export async function cancelAutomationRun(id: string): Promise<void> {
+  const res = await fetch(`/automations/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+  if (res.status === 409) throw new Error('이미 실행 중이거나 종료된 실행은 취소할 수 없습니다.');
+  if (!res.ok) throw new Error(`대기 중인 자동화 실행을 취소하지 못했습니다. (${res.status})`);
+}
+
+export async function markAutomationFeedRead(): Promise<number> {
+  const res = await fetch('/automations/feed/read', { method: 'POST' });
+  if (!res.ok) throw new Error(`자동화 알림을 읽음 처리하지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { marked?: number };
+  return typeof payload.marked === 'number' ? payload.marked : 0;
 }
 
 export async function listAutomationRuns(limit = 50): Promise<AutomationRun[]> {

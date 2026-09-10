@@ -370,6 +370,22 @@ export async function dispatchApiRequest(
         });
       }
 
+      if (method === 'POST' && url.pathname === '/automations/feed/read') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        return sendJson(res, 200, { marked: personalScheduler.markFeedRead() });
+      }
+
+      const automationRunCancelMatch = url.pathname.match(/^\/automations\/runs\/([^/]+)\/cancel$/);
+      if (method === 'POST' && automationRunCancelMatch) {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const result = personalScheduler.cancelRun(decodeURIComponent(automationRunCancelMatch[1]));
+        if (result.ok) return sendJson(res, 200, result.run);
+        if (result.reason === 'not_found') return sendJson(res, 404, { error: 'scheduler_run_not_found' });
+        return sendJson(res, 409, { error: 'scheduler_run_not_cancellable' });
+      }
+
       if (method === 'GET' && url.pathname === '/automations/queue') {
         license.assertFeature('chat');
         const weekKey = url.searchParams.get('week')?.trim() || undefined;

@@ -15,7 +15,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 4 | 2026-09-09-conversation-token-time-display | 포팅 완료 | 46 | (이 커밋) |
 | 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | (이 커밋) |
 | 6 | 2026-09-09-unified-workflow-cancel | 대기(대형/위험) | 46 | — |
-| 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 대기 | 47 | — |
+| 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 대기(WPF 셸 포함) | 47 | — |
 | 10 | 2026-09-09-document-top-level-tab | 대기 | 48 | — |
 | 11 | 2026-09-10-service-terminal-orchestration | 보류 | 48 | `D:\.workspace\...`·포트 하드코딩 → 직접 포팅 불가. 범용화 설계 또는 제외 결정 필요 |
@@ -49,6 +49,19 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - `NotificationCenter`: `targetSessionId` 있는 토스트 본문 클릭 → `loadChatSession` + `my-agent:navigate-chat` 이벤트로 채팅 화면 전환, 토스트 닫기/액션 버튼은 `stopPropagation`으로 이동 억제.
 - `MainWorkspaceContainer`: `my-agent:navigate-chat` 구독 → `activeSurface='chat'`.
 - 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0.
+
+## #9 scheduler-queue-cancel-completion-badge (포팅 완료)
+- 실행 상태에 `cancelled` 추가(`core .../scheduler/types.ts`, UI `AutomationRun.status`).
+- 대기 취소:
+  - `PersonalSchedulerStore.cancelRun(id)`: `queued`만 취소(→`cancelled`+`finished_at`), 아니면 `{ok:false, reason:'not_found'|'not_queued'}`.
+  - `markRunRunning(id)`를 상태 확인 포함 원자적 전환으로 변경(`queued`만 `running`, 반환 boolean). 큐 대기 중 취소된 실행은 `false` → executor 미시작.
+  - `PersonalSchedulerRuntime.execute`가 `markRunning` false면 executing 증가 없이 early-return.
+  - `POST /automations/runs/:id/cancel`: `queued`만 200, 종료/실행중 409, 미존재 404.
+  - UI `RunsDashboard`: `queued` 행에만 `취소` 버튼(성공 시 즉시 `cancelled`로 갱신, 오류는 상단 alert).
+- 완료 숫자 배지:
+  - 기존 피드 `read_at` 활용. `markFeedRead()`/`countUnreadFeed()`(result·error 미읽음) 추가, `POST /automations/feed/read`.
+  - `MainWorkspaceContainer`가 10초마다 `listAutomationFeed`로 미읽음 수 계산 → 도크 아이콘 `badgeCount`(기존 `99+` UI). 자동화 화면 진입 시 `markAutomationFeedRead()`로 배지 0 해제.
+- 검증: `npm run verify:personal-scheduler`(cancellation/feedBadge 케이스 포함) exit 0, `ui/workspace` `npm run build` exit 0.
 
 ## #5 model-driven-conversation-images (포팅 완료)
 - 순수 모듈 `core/src/agent/conversation-image-catalog.ts` 신설: 세션 durable 메시지 + 첨부 메타에서 이미지 카탈로그(첨부 id·메시지 위치/시각·파일명·MIME·발신 메시지 excerpt)를 생성. 최신 N=16개로 bounded, SVG·비이미지 제외. 로컬 유사도/키워드 매칭·자동 재첨부 없음(모델이 id로 선택).

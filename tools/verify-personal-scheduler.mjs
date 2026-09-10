@@ -141,6 +141,24 @@ try {
   assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.status, 'failed');
   assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.outcome, 'blocked');
   assert.equal(service.listFeed()[0].outcome, 'blocked');
+
+  // 대기 중(queued) 실행은 취소되고, 큐 차례가 와도 executor를 시작하지 않는다.
+  const cancelTarget = service.createRun(manual.id, 'manual');
+  const cancelResult = service.cancelRun(cancelTarget.id);
+  assert.equal(cancelResult.ok, true);
+  assert.equal(service.listRuns().find((run) => run.id === cancelTarget.id)?.status, 'cancelled');
+  assert.equal(service.markRunning(cancelTarget.id), false);
+  const reCancel = service.cancelRun(cancelTarget.id);
+  assert.equal(reCancel.ok, false);
+  assert.equal(reCancel.ok === false && reCancel.reason, 'not_queued');
+  assert.equal(service.cancelRun('00000000-0000-0000-0000-000000000000').ok, false);
+
+  // 읽지 않은 결과·오류 피드 수 집계와 읽음 처리 배지 해제.
+  const unreadBefore = service.countUnreadFeed();
+  assert.ok(unreadBefore >= 1);
+  assert.equal(service.markFeedRead(), unreadBefore);
+  assert.equal(service.countUnreadFeed(), 0);
+
   const schedulerRoot = path.join(root, 'data', 'scheduler');
   const taskPath = path.join(schedulerRoot, 'tasks', `${manual.id}.json`);
   assert.equal(existsSync(taskPath), true);
@@ -223,6 +241,8 @@ try {
     isoWeek53: 'ISO week 53 is folded into week 52',
     weeklyQueue: 'ISO week queue is created once and drained without recreation',
     weeklyRollover: 'skip expires and run_once carries one occurrence without duplication',
+    cancellation: 'queued runs cancel atomically and never start; finished runs stay not_queued',
+    feedBadge: 'unread result/error feed counted and cleared by markFeedRead',
     storage: 'task files and separate runs/feed/weekly JSON files persist across service reopen',
   }, null, 2));
 } finally {

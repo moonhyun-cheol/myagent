@@ -6,6 +6,7 @@ import {
   Pause,
   Play,
   Plus,
+  Prohibit,
   Trash,
   UserCircle,
   WarningCircle,
@@ -13,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   buildAutomationTriggers,
+  cancelAutomationRun,
   deleteAutomationTask,
   listAutomationRuns,
   listAutomationTasks,
@@ -744,6 +746,7 @@ const RUN_STATUS_META: Record<
   running: { label: '실행 중', className: 'border-amber-500 bg-amber-400 text-slate-950', icon: Lightning },
   succeeded: { label: '성공', className: 'border-emerald-700 bg-emerald-600 text-white', icon: CheckCircle },
   failed: { label: '실패', className: 'border-red-700 bg-red-600 text-white', icon: WarningCircle },
+  cancelled: { label: '취소', className: 'border-slate-500 bg-slate-400 text-slate-950', icon: Prohibit },
 };
 
 const RUN_SOURCE_LABEL: Record<AutomationRun['source'], string> = {
@@ -757,6 +760,23 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
   const [taskNames, setTaskNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  const handleCancelRun = useCallback(async (id: string) => {
+    setActionError('');
+    setCancelling(id);
+    try {
+      await cancelAutomationRun(id);
+      setRuns((prev) => prev.map((run) => (
+        run.id === id ? { ...run, status: 'cancelled', finished_at: new Date().toISOString() } : run
+      )));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '실행을 취소하지 못했습니다.');
+    } finally {
+      setCancelling(null);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -805,6 +825,7 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
         <div className="border-b border-line bg-[var(--surface-raised)] px-5 py-4">
           <h2 className="text-[15px] font-bold text-text">실행 기록</h2>
           <p className="mt-1 text-xs leading-5 text-muted">최근 자동화 실행 결과입니다. 상세 결과는 작업 뉴스피드에서 확인하세요.</p>
+          {actionError ? <p role="alert" className="mt-2 text-xs font-medium text-red-700">{actionError}</p> : null}
         </div>
         <div className="hidden grid-cols-[minmax(180px,1.2fr)_100px_120px_minmax(160px,1fr)_minmax(180px,1fr)] gap-4 border-b border-line bg-panel-2/55 px-5 py-3 text-[11px] font-bold tracking-[0.04em] text-text md:grid">
           <span>작업</span>
@@ -839,7 +860,21 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
                   <span>{meta.label}</span>
                 </div>
                 <span className="text-xs text-text">{startedLabel}</span>
-                <p className="line-clamp-2 text-xs leading-5 text-muted">{resultText}</p>
+                {run.status === 'queued' ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="line-clamp-2 text-xs leading-5 text-muted">{resultText}</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleCancelRun(run.id)}
+                      disabled={cancelling === run.id}
+                      className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-semibold text-text transition hover:border-red-400 hover:text-red-600 disabled:opacity-50"
+                    >
+                      {cancelling === run.id ? '취소 중…' : '취소'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="line-clamp-2 text-xs leading-5 text-muted">{resultText}</p>
+                )}
               </article>
             );
           })}
