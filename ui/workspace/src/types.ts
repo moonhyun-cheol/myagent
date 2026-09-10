@@ -113,6 +113,8 @@ export interface ChatTurn {
   planConstraintsLocked?: boolean;
   /** Host/application notice displayed outside the model-authored bubble. */
   applicationNotice?: ApplicationNotice;
+  /** Provider-reported token usage (input maps to the request, output to this reply). */
+  usage?: { inputTokens?: number; outputTokens?: number };
 }
 
 export interface CanvasCardData extends Record<string, unknown> {

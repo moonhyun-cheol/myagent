@@ -17,6 +17,22 @@ import {
 } from '../chat/chat-context.js';
 import { isOwuiOrGatewayError } from '../agent/code-agent.js';
 
+interface ChatUsageResult {
+  content: string;
+  model: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
+}
+
+function mapChatUsage(
+  usage?: import('./openai-compatible.js').CompletionUsage,
+): { input_tokens?: number; output_tokens?: number } | undefined {
+  if (!usage) return undefined;
+  const out: { input_tokens?: number; output_tokens?: number } = {};
+  if (typeof usage.prompt_tokens === 'number') out.input_tokens = usage.prompt_tokens;
+  if (typeof usage.completion_tokens === 'number') out.output_tokens = usage.completion_tokens;
+  return out.input_tokens === undefined && out.output_tokens === undefined ? undefined : out;
+}
+
 export class CloudChatService {
   constructor(
     private readonly store: ProviderStore,
@@ -95,7 +111,7 @@ export class CloudChatService {
       reasoningEffort?: string | null;
       onThought?: (text: string) => void;
     },
-  ): Promise<{ content: string; model: string }> {
+  ): Promise<ChatUsageResult> {
     try {
       return await this.completeAt(providerId, userMessage, attachmentContext, history, systemPrompt, opts);
     } catch (e: unknown) {
@@ -128,7 +144,7 @@ export class CloudChatService {
       reasoningEffort?: string | null;
       onThought?: (text: string) => void;
     },
-  ): Promise<{ content: string; model: string }> {
+  ): Promise<ChatUsageResult> {
     try {
       return await this.completeStreamAt(
         providerId,
@@ -182,7 +198,7 @@ export class CloudChatService {
       reasoningEffort?: string | null;
       onThought?: (text: string) => void;
     },
-  ): Promise<{ content: string; model: string }> {
+  ): Promise<ChatUsageResult> {
     const resolved = this.store.resolveProvider(providerId, opts?.modelId);
     if (!resolved) {
       throw new ProviderError('PROVIDER_NOT_CONFIGURED', `${providerId} API 키가 등록되지 않았습니다.`);
@@ -213,7 +229,7 @@ export class CloudChatService {
       ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
       ...(opts?.onThought ? { onThought: opts.onThought } : {}),
     });
-    return { content: result.content, model: `${def.name}/${result.model}` };
+    return { content: result.content, model: `${def.name}/${result.model}`, usage: mapChatUsage(result.usage) };
   }
 
   private async completeStreamAt(
@@ -233,7 +249,7 @@ export class CloudChatService {
       reasoningEffort?: string | null;
       onThought?: (text: string) => void;
     },
-  ): Promise<{ content: string; model: string }> {
+  ): Promise<ChatUsageResult> {
     const resolved = this.store.resolveProvider(providerId, opts?.modelId);
     if (!resolved) {
       throw new ProviderError('PROVIDER_NOT_CONFIGURED', `${providerId} API 키가 등록되지 않았습니다.`);
@@ -265,6 +281,6 @@ export class CloudChatService {
         ...(opts?.onThought ? { onThought: opts.onThought } : {}),
       },
     );
-    return { content: result.content, model: `${def.name}/${result.model}` };
+    return { content: result.content, model: `${def.name}/${result.model}`, usage: mapChatUsage(result.usage) };
   }
 }

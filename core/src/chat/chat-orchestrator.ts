@@ -614,6 +614,7 @@ export class ChatOrchestrator {
       model: chatResult.model,
       mode: chatLikeMode,
       image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
+      ...(chatResult.usage ? { usage: chatResult.usage } : {}),
     });
 
     return {
@@ -1023,12 +1024,22 @@ export class ChatOrchestrator {
         const lastProcessedTokens = lastUsage
           ? Math.max(0, (lastUsage.prompt_tokens ?? 0) + (lastUsage.completion_tokens ?? 0))
           : undefined;
+        const agentUsage =
+          lastUsage &&
+          (typeof lastUsage.prompt_tokens === 'number' || typeof lastUsage.completion_tokens === 'number')
+            ? {
+                ...(typeof lastUsage.prompt_tokens === 'number' ? { input_tokens: lastUsage.prompt_tokens } : {}),
+                ...(typeof lastUsage.completion_tokens === 'number' ? { output_tokens: lastUsage.completion_tokens } : {}),
+              }
+            : undefined;
+        if (agentUsage) this.sessionStore.setLastAssistantUsage(sessionId, agentUsage);
         const applicationNotice = (full as { applicationNotice?: import('../sessions/types.js').ApplicationNotice }).applicationNotice;
         sseEvent(res, {
           type: 'done',
           model: full.model,
           mode: full.mode,
           ...(applicationNotice ? { applicationNotice } : {}),
+          ...(agentUsage ? { usage: agentUsage } : {}),
           ...(lastProcessedTokens !== undefined ? { lastProcessedTokens } : {}),
           ...(donePaths.length ? { mutatedPaths: donePaths } : {}),
           ...(checkpointId ? { checkpointId } : {}),
@@ -1260,11 +1271,13 @@ export class ChatOrchestrator {
           model: out.model,
           mode: routing.mode,
           image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
+          ...(out.usage ? { usage: out.usage } : {}),
         });
         sseEvent(res, {
           type: 'done',
           model: out.model,
           mode: routing.mode,
+          ...(out.usage ? { usage: out.usage } : {}),
         });
         sseDone(res);
         return;
@@ -1345,7 +1358,7 @@ export class ChatOrchestrator {
     hasWorkspaceContext = false,
     imageDataUrls: string[] = [],
     sessionId?: string,
-  ): Promise<{ content: string; model: string }> {
+  ): Promise<{ content: string; model: string; usage?: { input_tokens?: number; output_tokens?: number } }> {
     if (resolved.route.type === 'provider') {
       try {
         return await this.cloudChat.complete(

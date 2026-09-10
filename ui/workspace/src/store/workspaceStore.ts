@@ -285,6 +285,12 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       imageUrls: [...urls, ...(m.attachments ?? []).filter((a) => a.mime.startsWith('image/')).map((a) => a.url)],
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
+      usage: m.role === 'assistant' && m.usage
+        ? {
+            ...(typeof m.usage.input_tokens === 'number' ? { inputTokens: m.usage.input_tokens } : {}),
+            ...(typeof m.usage.output_tokens === 'number' ? { outputTokens: m.usage.output_tokens } : {}),
+          }
+        : undefined,
       planBuildOffer: m.status !== 'stopped' && shouldOfferPlanBuild(messages, i),
       planConstraintsLocked:
         m.role === 'assistant' && typeof m.plan_constraints_locked === 'boolean'
@@ -1103,6 +1109,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if (info.model && info.model !== '중지됨') patchAssistant({ model: info.model });
               if (info.applicationNotice) {
                 patchAssistant({ applicationNotice: info.applicationNotice });
+              }
+              if (info.usage) {
+                patchAssistant({ usage: info.usage });
               }
               const resolvedMode: AiWorkMode = info.mode === 'web_dev'
                 ? 'code'

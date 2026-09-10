@@ -28,6 +28,7 @@ import {
   type ReactNode,
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
+import { useConversationDisplayPreferences } from '../lib/conversationDisplayPreferences';
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
@@ -137,6 +138,13 @@ function formatElapsedRuntime(elapsedMs?: number): string | null {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
     : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatClockTime(iso?: string): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function formatWorkDuration(startedAt?: string, completedAt?: string, now = Date.now()): string | null {
@@ -478,6 +486,7 @@ export function ChatPane() {
     };
   }, [skillPickerOpen]);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
+  const conversationDisplay = useConversationDisplayPreferences();
   const [selectableSkills, setSelectableSkills] = useState<SkillListItem[]>([]);
   const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; title: string; path: string }>>([]);
   const [projectOptions, setProjectOptions] = useState<Array<{ id: string; title: string }>>([]);
@@ -1518,6 +1527,30 @@ export function ChatPane() {
                     ? <MessageMarkdown text={turn.text} onOpenUrl={openExternalUrl} copyText={async (text) => { await navigator.clipboard.writeText(text); return true; }} />
                     : renderMessageText(turn.text)}
               </div>
+              {turn.role === 'assistant' && (conversationDisplay.showTokens || conversationDisplay.showTime)
+                ? (() => {
+                    const parts: string[] = [];
+                    if (conversationDisplay.showTokens && typeof turn.usage?.inputTokens === 'number') {
+                      parts.push(`입력 ${turn.usage.inputTokens.toLocaleString()} 토큰`);
+                    }
+                    if (conversationDisplay.showTime) {
+                      const req = formatClockTime(turn.startedAt);
+                      if (req) parts.push(`요청 ${req}`);
+                    }
+                    if (conversationDisplay.showTokens && typeof turn.usage?.outputTokens === 'number') {
+                      parts.push(`출력 ${turn.usage.outputTokens.toLocaleString()} 토큰`);
+                    }
+                    if (conversationDisplay.showTime) {
+                      const done = formatClockTime(turn.completedAt);
+                      if (done) parts.push(`완료 ${done}`);
+                      const dur = formatWorkDuration(turn.startedAt, turn.completedAt, clockNow);
+                      if (dur) parts.push(`소요 ${dur}`);
+                    }
+                    return parts.length ? (
+                      <div className="max-w-[92%] px-1 text-[11px] text-muted">{parts.join(' · ')}</div>
+                    ) : null;
+                  })()
+                : null}
               {turn.role === 'assistant' && turn.applicationNotice ? (
                 <aside
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${

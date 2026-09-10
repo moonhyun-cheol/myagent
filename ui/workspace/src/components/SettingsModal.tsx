@@ -1,4 +1,5 @@
 import {
+  ChatText,
   FolderSimple,
   GearSix,
   MagnifyingGlass,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ModelManagementModal } from './ModelManagementModal';
 import { SettingsAgentPage } from './SettingsAgentPage';
+import { SettingsConversationPage } from './SettingsConversationPage';
 import { SettingsGeneralPage } from './SettingsGeneralPage';
 import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
@@ -51,6 +53,14 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     icon: Stack,
     keywords: ['모델', 'llm', 'provider', 'api key', '프로바이더', 'openai', 'gemini'],
     render: () => <ModelManagementModal open embedded onClose={ignoreEmbeddedClose} />,
+  },
+  {
+    id: 'conversation',
+    group: '대화',
+    label: '대화 표시',
+    icon: ChatText,
+    keywords: ['대화', '토큰', 'token', '시간', 'time', '사용량', 'usage', '대화 표시'],
+    render: ({ readOnly }) => <SettingsConversationPage readOnly={readOnly} />,
   },
   {
     id: 'agent',

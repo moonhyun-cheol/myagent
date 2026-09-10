@@ -512,6 +512,23 @@ export class SessionStore {
     return rec;
   }
 
+  /** Attach provider-reported token usage to the most recent assistant message. */
+  setLastAssistantUsage(
+    id: string,
+    usage: { input_tokens?: number; output_tokens?: number },
+  ): SessionRecord | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    for (let i = rec.messages.length - 1; i >= 0; i--) {
+      if (rec.messages[i].role === 'assistant') {
+        rec.messages[i].usage = usage;
+        this.save(rec);
+        return rec;
+      }
+    }
+    return null;
+  }
+
   responsesState(
     id: string,
     providerId: string,

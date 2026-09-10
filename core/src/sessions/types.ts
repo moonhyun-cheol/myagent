@@ -43,6 +43,12 @@ export interface SessionMessage {
   /** Host/application notice rendered separately from model-authored content. */
   application_notice?: ApplicationNotice;
   /**
+   * Provider-reported token usage for this exact assistant response.
+   * `input_tokens` maps to the preceding user request, `output_tokens` to this
+   * assistant reply. Absent when the provider did not report usage.
+   */
+  usage?: { input_tokens?: number; output_tokens?: number };
+  /**
    * When true, UI may still show the message but it must not be fed back to the model.
    * Used for guardrail / hallucination-block notices that would pollute later turns.
    */
