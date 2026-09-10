@@ -16,7 +16,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | (이 커밋) |
 | 6 | 2026-09-09-unified-workflow-cancel | 대기(대형/위험) | 46 | — |
 | 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
-| 8 | 2026-09-09-scheduler-conversation-window-usability | 대기(WPF 셸 포함) | 47 | — |
+| 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | (이 커밋) |
 | 10 | 2026-09-09-document-top-level-tab | 대기 | 48 | — |
 | 11 | 2026-09-10-service-terminal-orchestration | 보류 | 48 | `D:\.workspace\...`·포트 하드코딩 → 직접 포팅 불가. 범용화 설계 또는 제외 결정 필요 |
 
@@ -69,3 +69,13 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - 툴 `conversation_image_get`(읽기 전용): `agent-tool-definitions`에 정의, `agent-runtime-facts`(생성기+JSON+폴백) read_only 목록에 추가. `agent-tool-execute`가 `AttachmentService.get(id, sessionId)`로 세션 스코프 조회 → `validateConversationImage`로 SVG/비이미지/과대/미존재·타세션(=missing) 거부, 통과 시 원본을 data URL로 반환.
 - 멀티모달 전달: 툴 role은 이미지 파트를 담지 못하므로, 실행 결과에 `followUpImage`를 추가하고 `agent-run-step-loop`가 tool 결과 push 직후 이미지 파트를 담은 `user` 턴을 추가해 다음 모델 스텝에 전달. `conversation_image_get`은 병렬 read 대상이 아니라 직렬 경로로 실행됨.
 - 검증: 코어 `tsc -p tsconfig.json --noEmit` exit 0. 표적 스크립트 `verify:conversation-image-catalog`(7/7 통과): 카탈로그 생성·SVG 제외·bounding, 메타데이터 계약 노트, 검증 거부 사유, 툴 등록(정의+read_only 팩+facts), executeAgentTool 실 조회+세션 격리(타세션 미조회, data URL 반환), 소스 내 로컬 휴리스틱 부재.
+
+## #8 scheduler-conversation-window-usability (포팅 완료)
+- 자동화 편집:
+  - 백엔드 PATCH `/automations/tasks/:id` + `saveTask(body, id)`와 클라이언트 `saveAutomationTask(input, id?)`·`buildAutomationTriggers`(`daily_time` 필드)는 본체에 이미 존재 → UI만 신설.
+  - `SchedulerSurface`에 `editingTask` 상태 추가. 작업 행 `…` 메뉴에 `수정` 항목(`PencilSimple`) → 기존 값이 채워진 `ScheduleDraft`를 편집 모드로 연다.
+  - `draftInitFromTask()`가 트리거에서 폼 초기값 도출: `time.at`→한 번 실행(로컬 datetime 변환), `time.daily_time`+`weekdays`→정기 실행, manual/무트리거→수동. sequence/on_action/condition은 `lockedTriggers`로 트리거 편집 잠금(이름·설명·지시만 수정, 트리거 원본 유지).
+  - 저장 시 기존 ID로 PATCH, `enabled`/`misfire_policy`는 기존 값 보존.
+- 대화 탐색: `SessionRow` 루트에 `data-session-nav-id` 부여. `ProjectsTree`에 전역 `Ctrl+PageUp/PageDown` 핸들러 — DOM에 실제 렌더된 `[data-session-nav-id]`만 순서대로 수집(접힌 폴더·검색 제외 항목 자동 제외), 현재 활성 행 기준 이전/다음 행의 기존 클릭 경로(`.click()`) 실행. 첫 항목에서 위/마지막에서 아래는 현재 유지.
+- 데스크톱 창: `MainWindow.xaml` `WindowChrome.ResizeBorderThickness` 6→10, `MaximizeWorkArea.ApplyChrome` 복원 분기의 동적 복원값도 6→10으로 일치.
+- 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. WPF 2줄 상수 변경은 콘텐츠 검토(명세도 self-contained 빌드 제약 명시).

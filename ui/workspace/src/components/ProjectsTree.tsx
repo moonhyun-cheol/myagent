@@ -220,6 +220,32 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     return () => window.removeEventListener('cqr:workspace-tree-changed', onTreeChanged);
   }, [refresh]);
 
+  // Ctrl+PgUp / Ctrl+PgDn move between sessions actually rendered in the left list.
+  // Rows collapsed under a folder or excluded by search are absent from the DOM,
+  // so they are skipped automatically. Reuses each row's existing click path.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || (event.key !== 'PageUp' && event.key !== 'PageDown')) return;
+      const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-session-nav-id]'));
+      if (rows.length === 0) return;
+      event.preventDefault();
+      const currentIndex = rows.findIndex((row) => row.getAttribute('data-session-nav-id') === activeSessionId);
+      let targetIndex: number;
+      if (currentIndex === -1) {
+        targetIndex = event.key === 'PageDown' ? 0 : rows.length - 1;
+      } else if (event.key === 'PageUp') {
+        if (currentIndex === 0) return;
+        targetIndex = currentIndex - 1;
+      } else {
+        if (currentIndex === rows.length - 1) return;
+        targetIndex = currentIndex + 1;
+      }
+      rows[targetIndex]?.click();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSessionId]);
+
   const togglePin = (id: string) => {
     const next = pinned.includes(id) ? pinned.filter((item) => item !== id) : [id, ...pinned];
     setPinned(next);
@@ -1189,6 +1215,7 @@ function SessionRow({
       role="button"
       tabIndex={0}
       data-sidebar-menu-id={menuId}
+      data-session-nav-id={session.id}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();

@@ -4,6 +4,7 @@ import {
   DotsThree,
   Lightning,
   Pause,
+  PencilSimple,
   Play,
   Plus,
   Prohibit,
@@ -45,6 +46,7 @@ function useAutomationWritable(): { canMutate: boolean; readOnlyNotice: string |
 export function SchedulerSurface() {
   const [activeTab, setActiveTab] = useState<SchedulerTab>('schedules');
   const [creating, setCreating] = useState(false);
+  const [editingTask, setEditingTask] = useState<AutomationTask | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const bumpRefresh = useCallback(() => setRefreshKey((key) => key + 1), []);
   const { canMutate, readOnlyNotice } = useAutomationWritable();
@@ -66,6 +68,7 @@ export function SchedulerSurface() {
           title={canMutate ? undefined : readOnlyNotice ?? '저장할 수 없습니다'}
           onClick={() => {
             setActiveTab('schedules');
+            setEditingTask(null);
             setCreating(true);
           }}
           className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
@@ -104,18 +107,35 @@ export function SchedulerSurface() {
 
       <div className="min-h-0 flex-1 overflow-auto px-7 py-6">
         {activeTab === 'schedules' ? (
-          creating ? (
+          creating || editingTask ? (
             <ScheduleDraft
               canMutate={canMutate}
               readOnlyNotice={readOnlyNotice}
-              onCancel={() => setCreating(false)}
+              task={editingTask}
+              onCancel={() => {
+                setCreating(false);
+                setEditingTask(null);
+              }}
               onSaved={() => {
                 bumpRefresh();
                 setCreating(false);
+                setEditingTask(null);
               }}
             />
           ) : (
-            <ScheduleDashboard refreshKey={refreshKey} canMutate={canMutate} onCreate={() => setCreating(true)} onChanged={bumpRefresh} />
+            <ScheduleDashboard
+              refreshKey={refreshKey}
+              canMutate={canMutate}
+              onCreate={() => {
+                setEditingTask(null);
+                setCreating(true);
+              }}
+              onEdit={(task) => {
+                setCreating(false);
+                setEditingTask(task);
+              }}
+              onChanged={bumpRefresh}
+            />
           )
         ) : (
           <RunsDashboard refreshKey={refreshKey} />
@@ -208,11 +228,13 @@ function ScheduleDashboard({
   refreshKey,
   canMutate,
   onCreate,
+  onEdit,
   onChanged,
 }: {
   refreshKey: number;
   canMutate: boolean;
   onCreate: () => void;
+  onEdit: (task: AutomationTask) => void;
   onChanged: () => void;
 }) {
   const [rows, setRows] = useState<ScheduleRow[]>([]);
@@ -291,9 +313,13 @@ function ScheduleDashboard({
             <p role="alert" className="px-5 py-8 text-center text-xs text-red-700">{loadError}</p>
           ) : rows.length === 0 ? (
             <p className="px-5 py-8 text-center text-xs text-muted">등록된 자동화 작업이 없습니다.</p>
-          ) : rows.map((row) => (
-            <ScheduleTableRow key={row.id} row={row} canMutate={canMutate} onChanged={onChanged} />
-          ))}
+          ) : rows.map((row) => {
+            const task = tasks.find((item) => item.id === row.id);
+            if (!task) return null;
+            return (
+              <ScheduleTableRow key={row.id} row={row} task={task} canMutate={canMutate} onEdit={onEdit} onChanged={onChanged} />
+            );
+          })}
         </div>
       </section>
 
@@ -371,7 +397,7 @@ function TriggerTag({ kind, pending = false }: { kind: TriggerKind; pending?: bo
   );
 }
 
-function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; canMutate: boolean; onChanged: () => void }) {
+function ScheduleTableRow({ row, task, canMutate, onEdit, onChanged }: { row: ScheduleRow; task: AutomationTask; canMutate: boolean; onEdit: (task: AutomationTask) => void; onChanged: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
@@ -500,6 +526,16 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
             <button
               type="button"
               role="menuitem"
+              disabled={busy || !canMutate}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-text transition hover:bg-panel disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => { setMenuOpen(false); onEdit(task); }}
+            >
+              <PencilSimple size={14} />
+              수정
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               disabled={busy}
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-text transition hover:bg-panel disabled:cursor-wait disabled:opacity-60"
               onClick={toggleEnabled}
@@ -525,14 +561,67 @@ function ScheduleTableRow({ row, canMutate, onChanged }: { row: ScheduleRow; can
   );
 }
 
-function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMutate: boolean; readOnlyNotice: string | null; onCancel: () => void; onSaved: () => void }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [instruction, setInstruction] = useState('');
-  const [scheduleMode, setScheduleMode] = useState<AutomationScheduleMode>('recurring');
-  const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [dailyTime, setDailyTime] = useState('09:00');
-  const [onceAt, setOnceAt] = useState('');
+type DraftInit = {
+  name: string;
+  description: string;
+  instruction: string;
+  scheduleMode: AutomationScheduleMode;
+  weekdays: number[];
+  dailyTime: string;
+  onceAt: string;
+  lockedTriggers: boolean;
+};
+
+function isoToLocalInput(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function draftInitFromTask(task: AutomationTask | null): DraftInit {
+  const base: DraftInit = {
+    name: task?.name ?? '',
+    description: task?.description ?? '',
+    instruction: task?.instruction ?? '',
+    scheduleMode: 'recurring',
+    weekdays: [1, 2, 3, 4, 5],
+    dailyTime: '09:00',
+    onceAt: '',
+    lockedTriggers: false,
+  };
+  if (!task) return base;
+  const timeTrigger = task.triggers.find((trigger) => trigger.type === 'time');
+  if (timeTrigger) {
+    const cfg = timeTrigger.config as { at?: unknown; daily_time?: unknown; weekdays?: unknown };
+    if (typeof cfg.at === 'string') {
+      return { ...base, scheduleMode: 'once', onceAt: isoToLocalInput(cfg.at) };
+    }
+    if (typeof cfg.daily_time === 'string') {
+      const wd = Array.isArray(cfg.weekdays)
+        ? cfg.weekdays.filter((day): day is number => typeof day === 'number' && day >= 1 && day <= 7)
+        : base.weekdays;
+      return { ...base, scheduleMode: 'recurring', dailyTime: cfg.daily_time, weekdays: wd.length ? wd : base.weekdays };
+    }
+    return base;
+  }
+  const onlyManual = task.triggers.length === 0 || task.triggers.every((trigger) => trigger.type === 'manual');
+  if (onlyManual) return { ...base, scheduleMode: 'manual' };
+  // sequence/on_action/condition — non-time triggers stay untouched during edit.
+  return { ...base, lockedTriggers: true };
+}
+
+function ScheduleDraft({ canMutate, readOnlyNotice, task = null, onCancel, onSaved }: { canMutate: boolean; readOnlyNotice: string | null; task?: AutomationTask | null; onCancel: () => void; onSaved: () => void }) {
+  const init = useMemo(() => draftInitFromTask(task), [task]);
+  const isEdit = Boolean(task);
+  const lockedTriggers = init.lockedTriggers;
+  const [name, setName] = useState(init.name);
+  const [description, setDescription] = useState(init.description);
+  const [instruction, setInstruction] = useState(init.instruction);
+  const [scheduleMode, setScheduleMode] = useState<AutomationScheduleMode>(init.scheduleMode);
+  const [weekdays, setWeekdays] = useState<number[]>(init.weekdays);
+  const [dailyTime, setDailyTime] = useState(init.dailyTime);
+  const [onceAt, setOnceAt] = useState(init.onceAt);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -561,20 +650,22 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
     setSaving(true);
     void (async () => {
       try {
-        const triggers = buildAutomationTriggers({
-          mode: scheduleMode,
-          dailyTime: scheduleMode === 'recurring' ? dailyTime : undefined,
-          weekdays: scheduleMode === 'recurring' ? weekdays : undefined,
-          onceAt: scheduleMode === 'once' ? onceAt : undefined,
-        });
+        const triggers = lockedTriggers && task
+          ? task.triggers
+          : buildAutomationTriggers({
+              mode: scheduleMode,
+              dailyTime: scheduleMode === 'recurring' ? dailyTime : undefined,
+              weekdays: scheduleMode === 'recurring' ? weekdays : undefined,
+              onceAt: scheduleMode === 'once' ? onceAt : undefined,
+            });
         await saveAutomationTask({
           name: trimmedName,
           description: description.trim(),
           instruction: trimmedInstruction,
           triggers,
-          enabled: true,
-          misfire_policy: 'skip',
-        });
+          enabled: task?.enabled ?? true,
+          misfire_policy: task?.misfire_policy ?? 'skip',
+        }, task?.id);
         onSaved();
       } catch (saveError: unknown) {
         setError(saveError instanceof Error ? saveError.message : '자동화 작업을 저장하지 못했습니다.');
@@ -587,9 +678,9 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">New schedule</p>
-        <h2 className="mt-1 text-lg font-semibold text-text">새 일정</h2>
-        <p className="mt-1 text-sm text-muted">실행 지시와 트리거를 설정하면 MY Agent가 예약대로 채팅 작업을 수행합니다.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{isEdit ? 'Edit schedule' : 'New schedule'}</p>
+        <h2 className="mt-1 text-lg font-semibold text-text">{isEdit ? '일정 수정' : '새 일정'}</h2>
+        <p className="mt-1 text-sm text-muted">{isEdit ? '기존 작업의 이름·실행 지시와 트리거를 수정하고 같은 작업으로 저장합니다.' : '실행 지시와 트리거를 설정하면 MY Agent가 예약대로 채팅 작업을 수행합니다.'}</p>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -619,6 +710,11 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
                 className="mt-1.5 w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-text outline-none focus:border-accent"
               />
             </label>
+            {lockedTriggers ? (
+              <p className="rounded-lg border border-line bg-panel px-3 py-2 text-xs leading-5 text-muted">
+                이 작업의 트리거 형식은 이 화면에서 바꿀 수 없습니다. 이름·설명·실행 지시만 수정되며 트리거는 그대로 유지됩니다.
+              </p>
+            ) : (
             <label className="block text-xs font-medium text-text">
               실행 유형
               <select
@@ -631,7 +727,8 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
                 <option value="manual">수동 실행</option>
               </select>
             </label>
-            {scheduleMode === 'recurring' ? (
+            )}
+            {!lockedTriggers && scheduleMode === 'recurring' ? (
               <>
                 <div>
                   <p className="text-xs font-medium text-text">반복 요일</p>
@@ -667,7 +764,7 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
                 </label>
               </>
             ) : null}
-            {scheduleMode === 'once' ? (
+            {!lockedTriggers && scheduleMode === 'once' ? (
               <label className="block text-xs font-medium text-text">
                 실행 시각
                 <input
@@ -678,7 +775,7 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
                 />
               </label>
             ) : null}
-            {scheduleMode === 'manual' ? (
+            {!lockedTriggers && scheduleMode === 'manual' ? (
               <p className="rounded-lg border border-line bg-panel px-3 py-2 text-xs leading-5 text-muted">
                 수동 실행은 일정 목록에서 「즉시 실행」으로만 시작됩니다.
               </p>
@@ -713,7 +810,7 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
             {error}
           </p>
         ) : (
-          <p className="text-xs text-muted">저장하면 즉시 활성화됩니다.</p>
+          <p className="text-xs text-muted">{isEdit ? '변경 사항은 기존 작업에 저장됩니다.' : '저장하면 즉시 활성화됩니다.'}</p>
         )}
         <div className="flex gap-2">
           <button
@@ -730,7 +827,7 @@ function ScheduleDraft({ canMutate, readOnlyNotice, onCancel, onSaved }: { canMu
             onClick={handleSave}
             className="rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-white transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
           >
-            {saving ? '저장 중…' : '저장 및 활성화'}
+            {saving ? '저장 중…' : isEdit ? '변경 저장' : '저장 및 활성화'}
           </button>
         </div>
       </div>

@@ -15,7 +15,7 @@
         StateChanged="OnWindowStateChanged">
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="36"
-                        ResizeBorderThickness="6"
+                        ResizeBorderThickness="10"
                         GlassFrameThickness="0"
                         CornerRadius="0"
                         UseAeroCaptionButtons="False" />

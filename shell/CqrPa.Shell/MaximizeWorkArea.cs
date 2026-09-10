@@ -222,7 +222,8 @@ internal static class MaximizeWorkArea
             window.BorderThickness = restoredBorder;
             if (chrome != null)
             {
-                chrome.ResizeBorderThickness = new Thickness(6);
+                // Match XAML ResizeBorderThickness (10) so the grab band stays wide after restore.
+                chrome.ResizeBorderThickness = new Thickness(10);
                 chrome.GlassFrameThickness = new Thickness(0);
             }
             if (root != null) root.Margin = new Thickness(0);
