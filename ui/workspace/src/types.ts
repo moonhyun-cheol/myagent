@@ -1,4 +1,4 @@
-export type WorkspaceMode = 'editor' | 'objects' | 'document' | 'media' | 'browser' | 'canvas';
+export type WorkspaceMode = 'editor' | 'objects' | 'document' | 'codocument' | 'media' | 'browser' | 'canvas';
 
 export type AiWorkMode = 'text' | 'code' | 'image';
 

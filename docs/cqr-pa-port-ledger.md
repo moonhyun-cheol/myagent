@@ -17,7 +17,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 6 | 2026-09-09-unified-workflow-cancel | 포팅 완료 | 46 | (이 커밋) |
 | 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | (이 커밋) |
-| 10 | 2026-09-09-document-top-level-tab | 대기 | 48 | — |
+| 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | (이 커밋) |
 | 11 | 2026-09-10-service-terminal-orchestration | 보류 | 48 | `D:\.workspace\...`·포트 하드코딩 → 직접 포팅 불가. 범용화 설계 또는 제외 결정 필요 |
 
 ## #2 conversation-list-chat-focus (포팅 완료)
@@ -88,3 +88,17 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - UI: `ChatTurn.workTimeline` 신설. 라이브 리듀서 `onThought`/`onToolActivity`가 클라이언트 헬퍼로 타임라인 유지, 세션 복원 매핑에서 `sanitizeWorkTimeline(m.work_timeline)`로 복원.
 - ChatPane 렌더: `turn.workTimeline?.length`면 2단계 패널(reasoning 묶음→도구 묶음) 대신 **평면 교차 타임라인**(응답 세그먼트=muted 텍스트, 도구=단일 `ToolActivityLog rows={[activity]}`)을 도착 순서대로 렌더, 최종 답변은 기존 위치(타임라인 뒤)에 `최종 응답`으로 유지. workTimeline 없는 **레거시 세션은 기존 reasoning details + 하단 ToolActivityLog로 폴백**.
 - 검증: 코어 `tsc -p tsconfig.json` + `verify:work-timeline`(7/7: 교차 순서·연속 델타 병합·도구 재수신 무재정렬·도구 뒤 새 세그먼트·sanitize 복원/폴백·core 저장 배선·UI 배선) exit 0, `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. ⚠️ 실제 WebView2 라이브 스트림/복원 표시는 앱 실행 검증 아님(정적·빌드·알고리즘 검증까지).
+
+## #10 document-top-level-tab (포팅 완료 — 구조 차이로 조정)
+- **CQR_PA와의 구조 차이(중요)**: CQR_PA는 문서 표면이 협업 문서(`DocumentPane`) 하나뿐이고 상위 `문서` 탭이 비어(미연결) 있어, 그 탭을 `DocumentPane`에 연결하고 협업 문서 하위 탭을 제거하는 작업이었다. 그러나 MY Agent는 문서 표면이 **둘**이다:
+  - 상위 `document` 모드 = `MarkdownDocument` (Monaco 기반 **파일 문서** 다중 탭 편집기 — `documentTabs`/`activeDocumentTabId`, R-620 AI 메모/차이 비교/작업폴더 FS 편집, AssetExplorer "문서로 열기" 진입점). **비어 있지 않은 실제 출시 기능.**
+  - `작업` 하위 `협업 문서` 탭 = `DocumentPane` (TipTap 세션 협업 문서).
+  - 스펙을 문자 그대로 적용하면 상위 `문서` 탭을 `DocumentPane`으로 교체 → `MarkdownDocument` 파일 문서 시스템 전체가 진입점을 잃는 회귀가 발생한다.
+- **조정 포팅(회귀 없이 CQR_PA 의도 최대 반영)**:
+  - `WorkspaceMode`에 `codocument` 추가(`types.ts`).
+  - 상위 Preview 레지스트리에 `협업 문서`(`codocument`, `NotePencil`) 탭 추가 → `작업 / 문서 / 협업 문서 / 미디어 / 웹`. `document`(파일 문서)는 기존대로 유지.
+  - `PreviewBody`가 `mode === 'codocument'`일 때 기존 `DocumentPane`을 상위 탭에서 직접 렌더(스크롤 컨테이너로 래핑).
+  - `작업`(`WorkspaceObjectsPane`)에서 `협업 문서` 하위 탭과 `DocumentPane` 조건부 렌더 제거 → `최근 작업물 / 파일 / 할 일`만 남김. `WorkspaceObjectTabId`에서 `documents` 제거.
+  - `normalizeWorkspaceMode` 허용 목록에 `codocument` 추가(레거시 `canvas`→`document` 보정 유지).
+- CQR_PA 수용 기준 대비: #2(중간 하위 탭 없이 상위에서 공동 편집기 열림)·#3(작업 화면에 협업 문서 하위 탭 없음)·#4(문서 기능 전부 상위에서 동일 동작)·#5·#6 충족. **#1(탭 4개 = 작업/문서/미디어/웹)만 미충족** — MY Agent는 CQR_PA에 없는 파일 문서 편집기를 별도로 갖고 있어 탭이 5개(협업 문서 추가)가 되며, 협업 탭 라벨도 `협업 문서`다. 이는 파일 문서 기능 회귀를 피하기 위한 불가피한 편차.
+- 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. ⚠️ 실제 WebView2에서의 탭 전환/문서 편집 상호작용은 앱 실행 검증 아님(정적·빌드 검증까지).

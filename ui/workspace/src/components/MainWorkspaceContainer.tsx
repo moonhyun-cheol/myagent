@@ -12,6 +12,7 @@ import { ImagePreviewModal } from './ImagePreviewModal';
 import { ConfirmModal } from './ConfirmModal';
 import { MarkdownDocument } from './MarkdownDocument';
 import { MediaPane } from './MediaPane';
+import { DocumentPane } from './DocumentPane';
 import { ResizableSplit } from './ResizableSplit';
 import { WorkPanelLayout, type WorkPanelControls } from './WorkPanelLayout';
 import { isAvailableWorkspacePreviewMode, resolveAvailableWorkspacePreviewMode, WORKSPACE_PREVIEW_MODES } from './workspacePreviewModes';
@@ -67,6 +68,7 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
   const body = <div id={`${tabId}-body`} role="tabpanel" aria-labelledby={`${tabId}-${mode}`} className="relative h-full min-h-0" data-work-panel-body>
     {mode === 'objects' && <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} todoError={todoError} />}
     {(mode === 'document' || mode === 'canvas') && <MarkdownDocument />}
+    {mode === 'codocument' && <div className="h-full min-h-0 overflow-auto"><DocumentPane /></div>}
     {mode === 'media' && <MediaPane />}
     {mode === 'browser' && <BrowserPane />}
   </div>;
