@@ -13,7 +13,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 2 | 2026-09-10-conversation-list-chat-focus | 포팅 완료 | 46 | (이 커밋) |
 | 7 | 2026-09-09-conversation-status-toast-navigation | 포팅 완료 | 46 | (이 커밋) |
 | 4 | 2026-09-09-conversation-token-time-display | 포팅 완료 | 46 | (이 커밋) |
-| 5 | 2026-09-09-model-driven-conversation-images | 대기 | 46 | — |
+| 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | (이 커밋) |
 | 6 | 2026-09-09-unified-workflow-cancel | 대기(대형/위험) | 46 | — |
 | 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 대기 | 47 | — |
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 대기(WPF 셸 포함) | 47 | — |
@@ -49,3 +49,10 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - `NotificationCenter`: `targetSessionId` 있는 토스트 본문 클릭 → `loadChatSession` + `my-agent:navigate-chat` 이벤트로 채팅 화면 전환, 토스트 닫기/액션 버튼은 `stopPropagation`으로 이동 억제.
 - `MainWorkspaceContainer`: `my-agent:navigate-chat` 구독 → `activeSurface='chat'`.
 - 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0.
+
+## #5 model-driven-conversation-images (포팅 완료)
+- 순수 모듈 `core/src/agent/conversation-image-catalog.ts` 신설: 세션 durable 메시지 + 첨부 메타에서 이미지 카탈로그(첨부 id·메시지 위치/시각·파일명·MIME·발신 메시지 excerpt)를 생성. 최신 N=16개로 bounded, SVG·비이미지 제외. 로컬 유사도/키워드 매칭·자동 재첨부 없음(모델이 id로 선택).
+- 컨텍스트 주입: `agent-run-helpers.buildAgentMessages`가 `opts.history`로 카탈로그 노트를 시스템 메시지에 추가(멀티모달 노트 다음). 노트는 "metadata only — not pixels" 계약과 `conversation_image_get` 사용법을 명시.
+- 툴 `conversation_image_get`(읽기 전용): `agent-tool-definitions`에 정의, `agent-runtime-facts`(생성기+JSON+폴백) read_only 목록에 추가. `agent-tool-execute`가 `AttachmentService.get(id, sessionId)`로 세션 스코프 조회 → `validateConversationImage`로 SVG/비이미지/과대/미존재·타세션(=missing) 거부, 통과 시 원본을 data URL로 반환.
+- 멀티모달 전달: 툴 role은 이미지 파트를 담지 못하므로, 실행 결과에 `followUpImage`를 추가하고 `agent-run-step-loop`가 tool 결과 push 직후 이미지 파트를 담은 `user` 턴을 추가해 다음 모델 스텝에 전달. `conversation_image_get`은 병렬 read 대상이 아니라 직렬 경로로 실행됨.
+- 검증: 코어 `tsc -p tsconfig.json --noEmit` exit 0. 표적 스크립트 `verify:conversation-image-catalog`(7/7 통과): 카탈로그 생성·SVG 제외·bounding, 메타데이터 계약 노트, 검증 거부 사유, 툴 등록(정의+read_only 팩+facts), executeAgentTool 실 조회+세션 격리(타세션 미조회, data URL 반환), 소스 내 로컬 휴리스틱 부재.

@@ -69,6 +69,11 @@ import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
+import { AttachmentService } from '../attachments/attachment-service.js';
+import {
+  CONVERSATION_IMAGE_MAX_BYTES,
+  validateConversationImage,
+} from './conversation-image-catalog.js';
 import { isOfficeBinaryPath, normalizeWindowsPermissionError } from '../security/workspace-capabilities.js';
 import { appendPostMutateSyntaxCheck } from './agent-post-mutate-syntax.js';
 import {
@@ -152,7 +157,7 @@ export async function executeAgentTool(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string }> {
   assertChatRunWritable();
   throwIfAborted(ctx?.signal);
   const normalized = normalizeToolCall(call);
@@ -189,7 +194,7 @@ async function executeAgentToolInner(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string }> {
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
@@ -1040,6 +1045,69 @@ async function executeAgentToolInner(
           allowLocalhost: ctx.allowLocalhost === true,
         });
         return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify(result, null, 2) };
+      }
+      case 'conversation_image_get': {
+        const cqrRoot = ctx?.cqrRoot;
+        const sessionId = ctx?.sessionId;
+        if (!cqrRoot || !sessionId) {
+          return {
+            label: 'conversation_image_get',
+            output: JSON.stringify({ ok: false, error: 'session context missing' }, null, 2),
+          };
+        }
+        const attachmentId = String(args.attachment_id ?? '').trim();
+        if (!attachmentId) {
+          return {
+            label: 'conversation_image_get',
+            output: JSON.stringify({ ok: false, error: 'attachment_id required' }, null, 2),
+          };
+        }
+        const svc = new AttachmentService(
+          path.join(cqrRoot, 'data', 'attachments'),
+          cqrRoot,
+          CONVERSATION_IMAGE_MAX_BYTES,
+        );
+        // Session-scoped lookup: a null record means missing or foreign to this session.
+        const rec = svc.get(attachmentId, sessionId);
+        const validation = validateConversationImage(rec, CONVERSATION_IMAGE_MAX_BYTES);
+        if (!validation.ok || !rec) {
+          return {
+            label: `conversation_image_get ${validation.reason ?? 'rejected'}`,
+            output: JSON.stringify(
+              { ok: false, attachment_id: attachmentId, reason: validation.reason, error: validation.detail },
+              null,
+              2,
+            ),
+          };
+        }
+        const bytes = svc.readBytes(attachmentId, sessionId);
+        if (!bytes) {
+          return {
+            label: 'conversation_image_get missing',
+            output: JSON.stringify(
+              { ok: false, attachment_id: attachmentId, reason: 'missing', error: 'attachment bytes unavailable' },
+              null,
+              2,
+            ),
+          };
+        }
+        const dataUrl = `data:${rec.mime};base64,${bytes.toString('base64')}`;
+        return {
+          label: `conversation_image_get ${rec.original_name}`,
+          output: JSON.stringify(
+            {
+              ok: true,
+              attachment_id: attachmentId,
+              filename: rec.original_name,
+              mime: rec.mime,
+              size_bytes: rec.size_bytes,
+              note: 'Original image is attached to your next step as a multimodal image.',
+            },
+            null,
+            2,
+          ),
+          followUpImage: dataUrl,
+        };
       }
       case 'browser_targets': {
         const bridge = getVisibleBrowserBridge();

@@ -79,6 +79,7 @@
     "verify:artifact-contract": "node tools/verify-artifact-contract.mjs",
     "verify:domain-registry": "node tools/verify-domain-registry.mjs",
     "verify:personal-scheduler": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-personal-scheduler.mjs",
+    "verify:conversation-image-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-conversation-image-catalog.mjs",
     "verify:agent-profiles": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-agent-profiles.mjs",
     "sync:work-kit-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/sync-work-kit-catalog.mjs",
     "verify:skills": "node tools/verify-skills.mjs",

@@ -42,6 +42,7 @@ const readOnlyInclude = [
   'ast_grep_search',
   'repomix_pack',
   'markitdown_convert',
+  'conversation_image_get',
   'plugin_list',
   'task_history_search',
   'task_history_detail',

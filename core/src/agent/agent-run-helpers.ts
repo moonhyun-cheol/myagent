@@ -14,6 +14,10 @@ import {
   buildCodeAgentUserContent,
   formatMultimodalSystemNote,
 } from './agent-multimodal.js';
+import {
+  buildConversationImageCatalog,
+  formatConversationImageCatalogNote,
+} from './conversation-image-catalog.js';
 import { enrichWorkspaceIndexContext } from './index/public.js';
 import { buildDevWorkspaceContext } from './dev-workspace-fs.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
@@ -194,6 +198,7 @@ export function buildAgentMessages(
         memoryForPrompt,
         injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace) : '',
         formatMultimodalSystemNote(hasImages, hasAttach, false),
+        formatConversationImageCatalogNote(buildConversationImageCatalog(opts.history)),
         '',
         useClientToolProtocol
           ? 'Protocol: TOOL_CALL JSON first line (see TOOL_CALL protocol note). No XML/<invoke>.'

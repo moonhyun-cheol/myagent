@@ -983,6 +983,24 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'conversation_image_get',
+      description:
+        'Fetch one image previously supplied in THIS conversation, by attachment id from the "Conversation image catalog" note. The catalog is metadata only; call this to actually load an original as a multimodal image for your next step. Scoped to the current session; rejects SVG, oversized, missing, or foreign attachments. Do not describe a past image as if you saw it unless you fetched it here.',
+      parameters: {
+        type: 'object',
+        properties: {
+          attachment_id: {
+            type: 'string',
+            description: 'Attachment id from the conversation image catalog (id=…).',
+          },
+        },
+        required: ['attachment_id'],
+      },
+    },
+  },
 ];
 
 export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [

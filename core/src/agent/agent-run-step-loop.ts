@@ -834,6 +834,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
       let output: string;
       let durationMs: number;
+      let followUpImage: string | undefined;
       if (preflight?.runnable && parallelResults) {
         const resultMap = await parallelResults;
         const parallelResult = resultMap.get(execCall.id);
@@ -844,7 +845,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         const toolStarted = Date.now();
         state.toolCallCount += 1;
         noteFirstTool(state);
-        ({ output } = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx));
+        const execResult = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx);
+        output = execResult.output;
+        followUpImage = execResult.followUpImage;
         durationMs = Date.now() - toolStarted;
       }
       const rawEvidenceOutput = output;
@@ -1095,6 +1098,18 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         tool_call_id: execCall.id,
         content: projectEvidenceForModel(evidenceRecord, output),
       });
+      // conversation_image_get returns one original as a multimodal image for the
+      // next model step: the tool role cannot carry image parts, so attach it via
+      // an immediate user turn. Model chose this by id; no local heuristic here.
+      if (toolOk && followUpImage) {
+        state.messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: 'conversation_image_get delivered the requested image below.' },
+            { type: 'image_url', image_url: { url: followUpImage, detail: 'auto' } },
+          ],
+        });
+      }
     }
 
     if (loopHardStop) {
