@@ -53,7 +53,9 @@ import {
   formatLoopGuardStop,
   formatLoopGuardUserMessage,
   formatSoftExplorationLoopCorrection,
+  formatConsecutiveFailureStop,
   isSoftLoopGuardStop,
+  maxConsecutiveToolFailures,
 } from './tool-loop-guard.js';
 import {
   canDelegateToolApproval,
@@ -147,6 +149,9 @@ export async function runAgentStepLoop(state: AgentRunStepState): Promise<CodeAg
 
 async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgentResult> {
   let toolFailuresSinceSnapshot = 0;
+  // Run ends when tools fail this many times in a row (successes reset it).
+  let consecutiveToolFailures = 0;
+  const maxConsecutiveFailures = maxConsecutiveToolFailures();
   const cumulativeSteps = (): number => Math.min(
     MAX_AGENT_STEPS,
     state.priorSteps + state.steps,
@@ -945,6 +950,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         durationMs,
       });
       if (!toolOk) toolFailuresSinceSnapshot += 1;
+      if (toolOk) consecutiveToolFailures = 0;
+      else consecutiveToolFailures += 1;
       const afterTool = await state.hooks.afterTool?.({
         tool: execCall.function.name,
         args,
@@ -1110,6 +1117,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           ],
         });
       }
+    }
+
+    if (!loopHardStop && consecutiveToolFailures >= maxConsecutiveFailures) {
+      loopHardStop = formatConsecutiveFailureStop(consecutiveToolFailures, maxConsecutiveFailures);
+      state.reportStatus(`도구 연속 실패 ${consecutiveToolFailures}회 · 작업 종료`);
     }
 
     if (loopHardStop) {

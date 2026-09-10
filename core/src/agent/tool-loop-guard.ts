@@ -216,7 +216,11 @@ function admitCall(
       : exploration
         ? Math.max(maxRepeat * 2, 4)
         : maxRepeat;
-  const coarseMax = editFailure ? 2 : maxRepeat * 3;
+  // Cumulative per-(tool, errorClass) hard-stop retired in favor of a run-wide
+  // consecutive-failure stop (see maxConsecutiveToolFailures). Keep only the
+  // edit_file coarse budget (soft), which steers write_file/apply_patch after 2
+  // same-path hunk failures.
+  const coarseMax = editFailure ? 2 : Number.POSITIVE_INFINITY;
 
   if (errorClass === 'success') {
     const fp = `${toolName}|values:${argFingerprint(rawArguments)}|success`;
@@ -349,6 +353,23 @@ export function formatSoftExplorationLoopCorrection(
     '- Do NOT paste TOOL_LOOP_GUARD / Fingerprint into the user-visible reply.',
     '- Do NOT claim 완료 until mutate + disk evidence exist.',
     '- User-facing status should stay 「해결 중…」 while you continue.',
+  ].join('\n');
+}
+
+/** Run-wide consecutive tool-failure budget before aborting the run. */
+export function maxConsecutiveToolFailures(): number {
+  const raw = process.env.MY_AGENT_TOOL_MAX_CONSECUTIVE_FAILURES;
+  const n = raw ? Number(raw) : 6;
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 6;
+}
+
+/** User-facing stop message when tools fail `count` times in a row. */
+export function formatConsecutiveFailureStop(count: number, max: number): string {
+  return [
+    '중단: 도구가 연속으로 실패하여 code-agent를 멈췄습니다.',
+    `원인: 연속 실패 ${count}회 (한도 ${max}회)`,
+    '실제 반영: 없음 또는 부분 — 이 상태에서 「수정 완료」라고 쓰지 마세요.',
+    '다음에: 접근 방식(경로·인자·도구)을 바꾸거나 필요한 정보를 확인한 뒤 다시 시도하세요.',
   ].join('\n');
 }
 

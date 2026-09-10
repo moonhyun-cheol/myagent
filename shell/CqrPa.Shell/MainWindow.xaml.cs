@@ -58,7 +58,11 @@ public partial class MainWindow : Window
         SourceInitialized += (_, _) =>
         {
             DarkTitleBar.TryApply(this, _shellDark);
-            MaximizeWorkArea.Hook(this);
+            MaximizeWorkArea.Hook(this, () =>
+            {
+                MaximizeWorkArea.ApplyChrome(this, RootLayout, _restoredBorderThickness);
+                UpdateMaximizeGlyph();
+            });
 
             // Restore before the first frame is rendered. Deferring this work lets the
             // 1100x780 loading surface flash first and can leave that size on screen.

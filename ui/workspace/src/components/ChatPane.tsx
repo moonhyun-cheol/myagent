@@ -1431,28 +1431,42 @@ export function ChatPane() {
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
                 {turn.role === 'assistant' && turn.workTimeline?.length ? (
-                  <div className="mb-3 space-y-2 border-b border-line/70 pb-3" data-work-timeline>
-                    {turn.workTimeline.map((item, idx) => {
-                      if (item.kind === 'response') {
-                        return item.text.trim() ? (
-                          <div
-                            key={`wt-r-${idx}`}
-                            className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] border-l border-line/70 pl-3 text-[13px] leading-relaxed text-text/75"
-                          >
-                            {item.text.trim()}
-                          </div>
+                  <details
+                    className="group mb-3 border-b border-line/70 pb-3"
+                    open={busy && !turn.completedAt}
+                    data-work-timeline
+                  >
+                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+                      <span>작업 로그</span>
+                      <CaretDown
+                        size={13}
+                        className="transition-transform duration-150 group-open:rotate-180"
+                        aria-hidden="true"
+                      />
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      {turn.workTimeline.map((item, idx) => {
+                        if (item.kind === 'response') {
+                          return item.text.trim() ? (
+                            <div
+                              key={`wt-r-${idx}`}
+                              className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] border-l border-line/70 pl-3 text-[13px] leading-relaxed text-text/75"
+                            >
+                              {item.text.trim()}
+                            </div>
+                          ) : null;
+                        }
+                        const activity = turn.toolActivity?.find((a) => a.id === item.id);
+                        return activity ? (
+                          <ToolActivityLog
+                            key={`wt-t-${item.id}`}
+                            rows={[activity]}
+                            live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((it) => it.role === 'assistant')?.id}
+                          />
                         ) : null;
-                      }
-                      const activity = turn.toolActivity?.find((a) => a.id === item.id);
-                      return activity ? (
-                        <ToolActivityLog
-                          key={`wt-t-${item.id}`}
-                          rows={[activity]}
-                          live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((it) => it.role === 'assistant')?.id}
-                        />
-                      ) : null;
-                    })}
-                  </div>
+                      })}
+                    </div>
+                  </details>
                 ) : turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim()) ? (
                   <details
                     className="group mb-3 border-b border-line/70 pb-3"

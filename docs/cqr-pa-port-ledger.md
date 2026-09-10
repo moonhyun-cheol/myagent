@@ -20,6 +20,11 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | `60fc95f` |
 | 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | `a660a15` (머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식) |
 
+## CQR_PA patch-candidates 정리 (2026-09-10)
+
+- GitHub `moonhyun-cheol/CQR_PA` HEAD `d1bcf41` 기준 잔여 후보 **11개 전부** MY Agent에 수용 확인(코드 증거 + 본 원장).
+- CQR_PA에서 `patch-candidates/` 삭제·push 완료: `e3a56fe` (`d1bcf41..e3a56fe`). API `contents/patch-candidates` → 404(폴더 없음).
+
 ## 릴리스 상태 (2026-09-10)
 
 - `manifest.json` `update_sequence` 46→48 (커밋 `24f35af`). version 1.1.4 유지, channel stable.

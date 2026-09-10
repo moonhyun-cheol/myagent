@@ -49,6 +49,15 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
     if (!open) { setExpanded(false); setDragging(false); setNarrowView('chat'); }
     else setNarrowView('panel');
   }, [open]);
+  // Shrinking the window into narrow mode should surface exploration + chat first,
+  // not the work panel — unless the user is actively reading the panel.
+  const wasNarrow = useRef(narrow);
+  useEffect(() => {
+    if (narrow && !wasNarrow.current && !panelRoot.current?.contains(document.activeElement)) {
+      setNarrowView('chat');
+    }
+    wasNarrow.current = narrow;
+  }, [narrow]);
   useEffect(() => {
     if (!dragging) return;
     document.body.dataset.panelResizing = 'true';

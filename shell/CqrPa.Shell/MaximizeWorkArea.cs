@@ -14,11 +14,15 @@ namespace CqrPa.Shell;
 internal static class MaximizeWorkArea
 {
     private const int WmGetMinMaxInfo = 0x0024;
+    private const int WmNcLButtonDblClk = 0x00A3;
+    private const int HtCaption = 2;
     private const uint MonitorDefaultToNearest = 2;
 
     private static Rect? _restoreBounds;
     private static bool _workAreaFilled;
     private static bool _suppressStateHandler;
+    private static Window? _hookedWindow;
+    private static Action? _afterCaptionToggle;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Point32
@@ -78,8 +82,14 @@ internal static class MaximizeWorkArea
         return new Rect(window.Left, window.Top, window.Width, window.Height);
     }
 
-    public static void Hook(Window window)
+    /// <summary>
+    /// Hook the window. <paramref name="afterCaptionToggle"/> runs after a title-bar
+    /// double-click toggles the work-area fill so the caller can re-apply chrome/glyph.
+    /// </summary>
+    public static void Hook(Window window, Action? afterCaptionToggle = null)
     {
+        _hookedWindow = window;
+        _afterCaptionToggle = afterCaptionToggle;
         var helper = new WindowInteropHelper(window);
         helper.EnsureHandle();
         var source = HwndSource.FromHwnd(helper.Handle);
@@ -268,6 +278,18 @@ internal static class MaximizeWorkArea
 
     private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // Caption double-click: route through our Toggle so restore uses the saved
+        // pre-maximize bounds. The default WindowChrome handler re-maximizes because
+        // our "maximized" state is really a work-area-filled Normal window, which loses
+        // the previous size.
+        if (msg == WmNcLButtonDblClk && wParam.ToInt32() == HtCaption && _hookedWindow != null)
+        {
+            Toggle(_hookedWindow);
+            _afterCaptionToggle?.Invoke();
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         if (msg != WmGetMinMaxInfo) return IntPtr.Zero;
 
         var mmi = Marshal.PtrToStructure<MinMaxInfo>(lParam);
