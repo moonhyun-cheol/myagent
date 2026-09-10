@@ -138,7 +138,7 @@ try {
   assert.equal(service.listFeed()[0].outcome, 'success');
   const contentFailureRun = service.createRun(manual.id, 'manual');
   service.completeRun(contentFailureRun.id, manual, '자료 접근 권한이 없어 작업이 차단되었습니다.');
-  assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.status, 'succeeded');
+  assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.status, 'failed');
   assert.equal(service.listRuns().find((run) => run.id === contentFailureRun.id)?.outcome, 'blocked');
   assert.equal(service.listFeed()[0].outcome, 'blocked');
   const schedulerRoot = path.join(root, 'data', 'scheduler');

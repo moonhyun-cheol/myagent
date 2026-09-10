@@ -219,6 +219,7 @@ export interface AutomationRun {
   task_id: string;
   source: 'scheduled' | 'manual' | 'action';
   status: 'queued' | 'running' | 'succeeded' | 'failed';
+  outcome?: 'success' | 'warning' | 'failed' | 'blocked' | null;
   started_at: string | null;
   finished_at: string | null;
   result_text: string | null;

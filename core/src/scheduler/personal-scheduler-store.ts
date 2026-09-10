@@ -30,6 +30,15 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+// 과거에 status=succeeded로 잘못 저장된 기록도 outcome이 failed|blocked면
+// 실행 기록 표시에서 실패로 보정한다(저장본은 건드리지 않고 반환값만 교정).
+function reconcileRunStatus(run: SchedulerRun): SchedulerRun {
+  if (run.status === 'succeeded' && (run.outcome === 'failed' || run.outcome === 'blocked')) {
+    return { ...run, status: 'failed' };
+  }
+  return run;
+}
+
 function timestamp(): string {
   return new Date().toISOString();
 }
@@ -274,12 +283,13 @@ export class PersonalSchedulerStore {
 
   getRun(id: string): SchedulerRun | null {
     const run = this.runs.runs.find((candidate) => candidate.id === id);
-    return run ? clone(run) : null;
+    return run ? reconcileRunStatus(clone(run)) : null;
   }
 
   listRuns(limit = 50): SchedulerRun[] {
     const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
-    return clone([...this.runs.runs].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit));
+    return clone([...this.runs.runs].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit))
+      .map((run) => reconcileRunStatus(run));
   }
 
   countActiveRuns(): number {
@@ -297,7 +307,9 @@ export class PersonalSchedulerStore {
   completeRun(id: string, resultText: string, outcome: SchedulerRun['outcome'] = 'success'): void {
     const run = this.runs.runs.find((candidate) => candidate.id === id);
     if (!run) return;
-    run.status = 'succeeded';
+    // 답변 내용이 실패/차단으로 판정되면 실행 상태도 실패로 기록한다.
+    // success/warning은 실행 자체가 정상 종료된 것이므로 succeeded를 유지한다.
+    run.status = outcome === 'failed' || outcome === 'blocked' ? 'failed' : 'succeeded';
     run.outcome = outcome;
     run.result_text = resultText;
     run.error = null;
