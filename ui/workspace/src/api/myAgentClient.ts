@@ -116,6 +116,8 @@ export interface SessionMessage {
   workspace_behavior?: WorkspaceBehavior;
   plan_constraints_locked?: boolean;
   tool_activity?: import('../types').ToolActivity[];
+  /** Interleaved response/tool order (CQR_PA #6); absent on legacy messages. */
+  work_timeline?: import('../types').WorkTimelineItem[];
   attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice, never model-authored chat content. */
   application_notice?: ApplicationNotice;

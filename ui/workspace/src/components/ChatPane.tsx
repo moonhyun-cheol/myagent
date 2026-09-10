@@ -1430,7 +1430,30 @@ export function ChatPane() {
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
-                {turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim()) ? (
+                {turn.role === 'assistant' && turn.workTimeline?.length ? (
+                  <div className="mb-3 space-y-2 border-b border-line/70 pb-3" data-work-timeline>
+                    {turn.workTimeline.map((item, idx) => {
+                      if (item.kind === 'response') {
+                        return item.text.trim() ? (
+                          <div
+                            key={`wt-r-${idx}`}
+                            className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] border-l border-line/70 pl-3 text-[13px] leading-relaxed text-text/75"
+                          >
+                            {item.text.trim()}
+                          </div>
+                        ) : null;
+                      }
+                      const activity = turn.toolActivity?.find((a) => a.id === item.id);
+                      return activity ? (
+                        <ToolActivityLog
+                          key={`wt-t-${item.id}`}
+                          rows={[activity]}
+                          live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((it) => it.role === 'assistant')?.id}
+                        />
+                      ) : null;
+                    })}
+                  </div>
+                ) : turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim()) ? (
                   <details
                     className="group mb-3 border-b border-line/70 pb-3"
                     open={busy && !turn.completedAt}
@@ -1516,7 +1539,7 @@ export function ChatPane() {
                     ))}
                   </div>
                 ) : null}
-                {turn.role === 'assistant' && turn.toolActivity?.length ? (
+                {turn.role === 'assistant' && !turn.workTimeline?.length && turn.toolActivity?.length ? (
                   <ToolActivityLog rows={turn.toolActivity} live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id} />
                 ) : null}
                 {!turn.text || turn.text === '작업 중…'

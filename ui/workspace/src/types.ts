@@ -74,8 +74,17 @@ export interface ToolActivity {
   exitCode?: number | null;
 }
 
+export type WorkTimelineItem =
+  | { kind: 'response'; text: string }
+  | { kind: 'tool'; id: string };
+
 export interface ChatTurn {
   toolActivity?: ToolActivity[];
+  /**
+   * Interleaved response/tool arrival order (CQR_PA #6). When present, ChatPane
+   * renders a flat timeline; absent = legacy `reasoning → tool_activity` layout.
+   */
+  workTimeline?: WorkTimelineItem[];
   id: string;
   role: 'user' | 'assistant';
   mode: AiWorkMode;

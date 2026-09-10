@@ -11,6 +11,11 @@ import type {
   SessionSummary,
 } from './types.js';
 import { gcDeletedSessionTemp } from './session-temp-gc.js';
+import {
+  pushResponseDelta,
+  pushToolMarker,
+  type WorkTimelineItem,
+} from './work-timeline.js';
 
 const MAX_ASSISTANT_THOUGHT_CHARS = 200_000;
 const TRUNCATED_THOUGHT_PREFIX = '[이전 작업 로그 일부 생략]\n';
@@ -26,6 +31,8 @@ export class SessionStore {
   /** Work-log deltas collected before the matching assistant message is persisted. */
   private readonly pendingAssistantThought = new Map<string, string>();
   private readonly pendingToolActivity = new Map<string, Map<string, import('../agent/tool-activity.js').ToolActivity>>();
+  /** Interleaved response/tool arrival order collected for the streamed turn. */
+  private readonly pendingWorkTimeline = new Map<string, WorkTimelineItem[]>();
 
   constructor(
     private readonly sessionsDir: string,
@@ -266,6 +273,7 @@ export class SessionStore {
     if (!safe) return;
     this.pendingAssistantThought.delete(safe);
     this.pendingToolActivity.delete(safe);
+    this.pendingWorkTimeline.delete(safe);
   }
 
   /** Bounded display snapshots, attached even when an infra/cancel reply is saved. */
@@ -277,6 +285,7 @@ export class SessionStore {
     rows.set(row.id, { ...row });
     if (rows.size > 40) rows.delete(rows.keys().next().value!);
     this.pendingToolActivity.set(safe, rows);
+    this.pendingWorkTimeline.set(safe, pushToolMarker(this.pendingWorkTimeline.get(safe) ?? [], row.id));
     currentChatRun()?.checkpoint?.(true);
   }
 
@@ -291,6 +300,7 @@ export class SessionStore {
       ? combined
       : `${TRUNCATED_THOUGHT_PREFIX}${combined.slice(-(MAX_ASSISTANT_THOUGHT_CHARS - TRUNCATED_THOUGHT_PREFIX.length))}`;
     this.pendingAssistantThought.set(safe, bounded);
+    this.pendingWorkTimeline.set(safe, pushResponseDelta(this.pendingWorkTimeline.get(safe) ?? [], delta));
     currentChatRun()?.checkpoint?.();
   }
 
@@ -319,11 +329,13 @@ export class SessionStore {
       if (timer) { clearTimeout(timer); timer = undefined; }
       const thought = this.pendingAssistantThought.get(run.sessionId);
       const activities = this.pendingToolActivity.get(run.sessionId);
+      const timeline = this.pendingWorkTimeline.get(run.sessionId);
       this.database.checkpointDraft(run.sessionId, run.runId, {
         role: 'assistant', content: run.partial, at: new Date(now).toISOString(),
         run_id: run.runId, reply_to_run_id: run.runId, mode: user.mode,
         ...(thought ? { reasoning: { version: 1, format: 'public_summary', content: thought } } : {}),
         ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
+        ...(timeline?.length ? { work_timeline: timeline } : {}),
       });
       lastSaved = now;
     };
@@ -335,6 +347,7 @@ export class SessionStore {
       } finally {
         this.pendingAssistantThought.delete(run.sessionId);
         this.pendingToolActivity.delete(run.sessionId);
+        this.pendingWorkTimeline.delete(run.sessionId);
       }
     };
   }
@@ -357,6 +370,8 @@ export class SessionStore {
       const { thought: _legacyThought, ...normalizedMessage } = message;
       const activities = this.pendingToolActivity.get(rec.id);
       if (activities?.size) normalizedMessage.tool_activity = [...activities.values()];
+      const timeline = this.pendingWorkTimeline.get(rec.id);
+      if (timeline?.length) normalizedMessage.work_timeline = timeline;
       storedMessage = reasoningContent?.trim()
         ? {
             ...normalizedMessage,
@@ -378,6 +393,7 @@ export class SessionStore {
     if (storedMessage.role === 'assistant') {
       this.pendingAssistantThought.delete(rec.id);
       this.pendingToolActivity.delete(rec.id);
+      this.pendingWorkTimeline.delete(rec.id);
     }
     if (run && storedMessage.role === 'user') this.trackAssistantDraft(run, storedMessage);
     if (rec.project_id) this.onProjectActivity?.(rec.project_id);
@@ -411,6 +427,7 @@ export class SessionStore {
       for (const message of replies) { message.status = 'stopped'; message.model_exclude = true; }
     } else {
       const activities = this.pendingToolActivity.get(rec.id);
+      const timeline = this.pendingWorkTimeline.get(rec.id);
       rec.messages.push({
         role: 'assistant',
         content: run.partial.trim() || '(중지됨)',
@@ -421,6 +438,7 @@ export class SessionStore {
         model_exclude: true,
         thought: this.pendingAssistantThought.get(rec.id),
         ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
+        ...(timeline?.length ? { work_timeline: timeline } : {}),
       });
     }
     delete rec.responses_state;
@@ -429,6 +447,7 @@ export class SessionStore {
     this.save(rec);
     this.pendingAssistantThought.delete(rec.id);
     this.pendingToolActivity.delete(rec.id);
+    this.pendingWorkTimeline.delete(rec.id);
   }
 
   delete(id: string): boolean {
@@ -436,6 +455,7 @@ export class SessionStore {
     if (!safe) return false;
     const rec = this.load(safe);
     if (!this.database.delete(safe)) return false;
+    this.pendingWorkTimeline.delete(safe);
     this.pendingAssistantThought.delete(safe);
     this.pendingToolActivity.delete(safe);
     try {

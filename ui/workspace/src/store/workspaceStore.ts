@@ -17,6 +17,7 @@ import type {
 } from '../types';
 import { isCanvasAsset } from '../types';
 import { isDocumentMemoMessage } from '../lib/documentMemo';
+import { pushResponseDelta, pushToolMarker, sanitizeWorkTimeline } from '../lib/workTimeline';
 import { normalizeWorkspaceMode } from '../components/workspacePreviewModes';
 import {
   documentRecoveryRelPath,
@@ -281,6 +282,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
         : undefined,
       applicationNotice: m.role === 'assistant' ? m.application_notice : undefined,
       toolActivity: m.role === 'assistant' ? m.tool_activity?.slice(-40) : undefined,
+      workTimeline: m.role === 'assistant' ? sanitizeWorkTimeline(m.work_timeline) : undefined,
       attachmentNames: m.attachments?.map((a) => a.name),
       imageUrls: [...urls, ...(m.attachments ?? []).filter((a) => a.mime.startsWith('image/')).map((a) => a.url)],
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
@@ -933,7 +935,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               const index = rows.findIndex((item) => item.id === row.id);
               if (index < 0) rows.push(row);
               else if (rows[index].updatedAt <= row.updatedAt) rows[index] = row;
-              patchAssistant({ toolActivity: rows.slice(-40) });
+              patchAssistant({
+                toolActivity: rows.slice(-40),
+                workTimeline: pushToolMarker(turn?.workTimeline ?? [], row.id),
+              });
             },
             onStatus: (t) => {
               const text = String(t || '');
@@ -978,7 +983,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               if (!delta) return;
               const activeTurn = job.chat.find((turn) => turn.id === job.assistantId);
               const previous = activeTurn?.thought ?? '';
-              patchAssistant({ thought: `${previous}${delta}` });
+              patchAssistant({
+                thought: `${previous}${delta}`,
+                workTimeline: pushResponseDelta(activeTurn?.workTimeline ?? [], delta),
+              });
             },
             onExecutionPolicy: (policy) => {
               job.executionPolicy = policy.requested;

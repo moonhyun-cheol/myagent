@@ -36,6 +36,11 @@ export interface SessionMessage {
   thought?: string;
   /** Redacted bounded tool execution snapshots, UI-only (not reasoning). */
   tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
+  /**
+   * Interleaved response/tool order for this assistant turn (CQR_PA #6). Absent
+   * on legacy messages, which fall back to `reasoning → tool_activity` display.
+   */
+  work_timeline?: import('./work-timeline.js').WorkTimelineItem[];
   /** Local `/outputs/images/...` URLs for chat + image_gen restore */
   image_urls?: string[];
   /** Uploaded files owned by the originating chat; no blob URLs or absolute paths. */

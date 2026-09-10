@@ -14,7 +14,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 7 | 2026-09-09-conversation-status-toast-navigation | 포팅 완료 | 46 | (이 커밋) |
 | 4 | 2026-09-09-conversation-token-time-display | 포팅 완료 | 46 | (이 커밋) |
 | 5 | 2026-09-09-model-driven-conversation-images | 포팅 완료 | 46 | (이 커밋) |
-| 6 | 2026-09-09-unified-workflow-cancel | 대기(대형/위험) | 46 | — |
+| 6 | 2026-09-09-unified-workflow-cancel | 포팅 완료 | 46 | (이 커밋) |
 | 9 | 2026-09-10-scheduler-queue-cancel-completion-badge | 포팅 완료 | 47 | (이 커밋) |
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | (이 커밋) |
 | 10 | 2026-09-09-document-top-level-tab | 대기 | 48 | — |
@@ -79,3 +79,12 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - 대화 탐색: `SessionRow` 루트에 `data-session-nav-id` 부여. `ProjectsTree`에 전역 `Ctrl+PageUp/PageDown` 핸들러 — DOM에 실제 렌더된 `[data-session-nav-id]`만 순서대로 수집(접힌 폴더·검색 제외 항목 자동 제외), 현재 활성 행 기준 이전/다음 행의 기존 클릭 경로(`.click()`) 실행. 첫 항목에서 위/마지막에서 아래는 현재 유지.
 - 데스크톱 창: `MainWindow.xaml` `WindowChrome.ResizeBorderThickness` 6→10, `MaximizeWorkArea.ApplyChrome` 복원 분기의 동적 복원값도 6→10으로 일치.
 - 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. WPF 2줄 상수 변경은 콘텐츠 검토(명세도 self-contained 빌드 제약 명시).
+
+## #6 unified-workflow-cancel (포팅 완료)
+- 개별 실행 중지(명세 §4·5·6)는 본체 `ToolActivityLog`에 이미 구현되어 있었음(`/fs/tool-execution/cancel`, `cancelSessionId`, `cancelRequested`, 연결 종료 후 running 유지). 남은 범위 = **응답↔작업 교차 타임라인 + 세션 저장/복원**.
+- 교차 타임라인 모델: `WorkTimelineItem = {kind:'response';text} | {kind:'tool';id}`.
+  - 순수 헬퍼 `core/src/sessions/work-timeline.ts` + 클라이언트 미러 `ui/workspace/src/lib/workTimeline.ts`: `pushResponseDelta`(직전 항목이 응답이면 이어붙이고, 도구 뒤면 새 응답 세그먼트), `pushToolMarker`(도착 위치에 도구 기록, 같은 id 재수신은 no-op → 재정렬 없음), `sanitizeWorkTimeline`(복원 검증, 빈 배열/누락은 undefined=레거시 폴백). 세그먼트 8,000자·항목 200개 bound.
+- 서버 권위 순서: `SessionStore.pendingWorkTimeline`가 `appendAssistantThought`(응답 델타)·`appendToolActivity`(도구)에서 SSE 도착 순서로 누적 → 체크포인트 드래프트/`append`/`finalizeStoppedRun` 3개 저장 지점에서 assistant 메시지 `work_timeline`에 첨부. 메시지는 sqlite에 전체 JSON 저장되므로 별도 sqlite 매핑 없이 자동 영속·복원. `SessionMessage.work_timeline?`(core+UI 타입) 신설.
+- UI: `ChatTurn.workTimeline` 신설. 라이브 리듀서 `onThought`/`onToolActivity`가 클라이언트 헬퍼로 타임라인 유지, 세션 복원 매핑에서 `sanitizeWorkTimeline(m.work_timeline)`로 복원.
+- ChatPane 렌더: `turn.workTimeline?.length`면 2단계 패널(reasoning 묶음→도구 묶음) 대신 **평면 교차 타임라인**(응답 세그먼트=muted 텍스트, 도구=단일 `ToolActivityLog rows={[activity]}`)을 도착 순서대로 렌더, 최종 답변은 기존 위치(타임라인 뒤)에 `최종 응답`으로 유지. workTimeline 없는 **레거시 세션은 기존 reasoning details + 하단 ToolActivityLog로 폴백**.
+- 검증: 코어 `tsc -p tsconfig.json` + `verify:work-timeline`(7/7: 교차 순서·연속 델타 병합·도구 재수신 무재정렬·도구 뒤 새 세그먼트·sanitize 복원/폴백·core 저장 배선·UI 배선) exit 0, `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. ⚠️ 실제 WebView2 라이브 스트림/복원 표시는 앱 실행 검증 아님(정적·빌드·알고리즘 검증까지).
