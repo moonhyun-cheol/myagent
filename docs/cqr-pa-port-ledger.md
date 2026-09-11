@@ -32,6 +32,18 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - **프로젝트 문서협업(조정):** 작업 루트가 있는 세션의 상위 `문서협업` 탭은 프로젝트 `.md`/`.markdown`을 원본으로 사용한다. SQLite에는 문서 ID/revision/hash/강조·참조 메타만 저장한다. 루트 이탈·절대/비-Markdown·링크/정션·NAS 쓰기를 거부하고 2MB/1,000개 한도를 둔다. 외부 변경은 hash revision으로 감지하며 사용자 초안 중 자동 덮어쓰지 않는다. 작업 루트 없는 세션은 기존 SQLite 협업 문서를 유지한다. 기존 Preview「문서」/AI 메모는 별도 표면으로 보존한다.
 - 검증: Core/UI TypeScript, UI 프로덕션 빌드, `verify-tool-activity` 9개, `verify-work-timeline` 8개, 실제 Chromium 그룹 UI/일괄 취소, `verify-project-documents`, 기존 `verify-documents`, 세션 작업 루트 회귀 검증.
 
+## CQR_PA patch-candidates 정리 (2026-09-11 / update 50)
+
+- GitHub `moonhyun-cheol/CQR_PA` HEAD `e17bc84` 기준 잔여 후보 **5개 전부** MY Agent update 50에 수용 확인.
+- CQR_PA에서 `patch-candidates/` 삭제·push 완료: `2387146` (`e17bc84..2387146`).
+
+## 릴리스 상태 (2026-09-11 / update 50)
+
+- `manifest.json` `update_sequence` 49→50 (커밋 `6348eb3` + ledger `d4c8ba6`). version 1.1.4 유지, channel stable.
+- **push 완료**: `origin/main` `00fd042..d4c8ba6`.
+- **로컬 아티팩트**: `deploy/output/MYAgent-v1.1.4-delta.zip`, `MYAgent-v1.1.4-install.zip`, `WorkKitLauncher-v1.0.10-update-5.zip`, `WorkKitLauncher-v1.0.10-install.zip`.
+- **미실행(별도 승인 필요)**: 공개 업데이트 피드 게시(`npm run publish:update:github -- --confirm`, launcher는 `publish:launcher-update:github -- --confirm`). `channels/stable.json` / `channels/launcher-stable.json`은 다운로드 가능한 아티팩트 GitHub release 게시 전까지 손대지 않음.
+
 ## CQR_PA patch-candidates 정리 (2026-09-10)
 
 - GitHub `moonhyun-cheol/CQR_PA` HEAD `d1bcf41` 기준 잔여 후보 **11개 전부** MY Agent에 수용 확인(코드 증거 + 본 원장).
