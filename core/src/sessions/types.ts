@@ -34,7 +34,7 @@ export interface SessionMessage {
   reasoning?: PublicReasoningRecord;
   /** @deprecated Legacy public work-log field; read for backward compatibility only. */
   thought?: string;
-  /** Redacted bounded tool execution snapshots, UI-only (not reasoning). */
+  /** Redacted tool execution snapshots, UI-only (not reasoning). */
   tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
   /**
    * Interleaved response/tool order for this assistant turn (CQR_PA #6). Absent

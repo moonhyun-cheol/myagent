@@ -164,7 +164,8 @@ export async function executeAgentTool(
   const id = randomUUID();
   const cancellable = ['run_terminal', 'run_tests', 'run_diagnostics'].includes(normalized.function.name) && !!ctx?.sessionId;
   const activity = createToolActivity(id, normalized.function.name,
-    parseToolArgs(normalized.function.arguments), ctx?.onToolActivity, cancellable ? ctx?.sessionId : undefined);
+    parseToolArgs(normalized.function.arguments), ctx?.onToolActivity,
+    cancellable ? ctx?.sessionId : undefined, ctx?.activityGroupId);
   const execution = cancellable ? registerToolExecution(id, ctx!.sessionId!, ctx?.signal, () => activity.requestCancel()) : undefined;
   const signal = execution?.signal ?? ctx?.signal;
   try {
@@ -1223,6 +1224,38 @@ async function executeAgentToolInner(
         const selector = String(args.selector ?? '');
         if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
         return { label: `click isolated ${selector}`, output: await session.click(selector) };
+      }
+      case 'browser_drag': {
+        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const targetPosition = args.target_position === 'before' || args.target_position === 'after'
+          ? args.target_position
+          : 'center';
+        if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          const tabId = visibleTabId(args);
+          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          const result = await bridge.request('drag', withVisibleTab(args, {
+            snapshot_id: String(args.snapshot_id ?? ''),
+            source_ref: String(args.source_ref ?? ''),
+            target_ref: String(args.target_ref ?? ''),
+            target_position: targetPosition,
+          }));
+          return {
+            label: `drag visible ${String(args.source_ref ?? '')} -> ${String(args.target_ref ?? '')}`,
+            output: JSON.stringify(result, null, 2),
+          };
+        }
+        const session = ctx?.browserSession;
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
+        const sourceSelector = String(args.source_selector ?? '');
+        const targetSelector = String(args.target_selector ?? '');
+        if (!sourceSelector || !targetSelector) throw new Error('BROWSER_DRAG_SELECTORS_REQUIRED');
+        return {
+          label: `drag isolated ${sourceSelector} -> ${targetSelector}`,
+          output: await session.drag(sourceSelector, targetSelector),
+        };
       }
       case 'browser_fill': {
         const target = args.target === 'visible' ? 'visible' : 'isolated';

@@ -18,6 +18,8 @@ export interface AgentToolCall {
 
 export interface AgentToolContext {
   onToolActivity?: (row: import('./tool-activity.js').ToolActivity) => void;
+  /** Tool calls returned by one model response share this display grouping id. */
+  activityGroupId?: string;
   onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
   browserSession?: PlaywrightSession | null;
   cqrRoot?: string;

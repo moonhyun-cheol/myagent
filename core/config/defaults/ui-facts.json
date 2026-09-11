@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-10T01:18:34.907Z",
+  "generated_at": "2026-09-10T07:13:57.158Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
@@ -53,6 +53,7 @@
       "ui/workspace/src/lib/documentMarkdown.ts",
       "ui/workspace/src/lib/documentNotes.ts",
       "core/src/documents/document-store.ts",
+      "core/src/documents/project-document-store.ts",
       "core/src/documents/document-route.ts"
     ],
     "chat_markdown": [

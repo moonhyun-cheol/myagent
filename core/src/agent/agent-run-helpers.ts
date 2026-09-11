@@ -178,6 +178,7 @@ export function buildAgentMessages(
         '- Keep responses concise and lead with the result. Omit unnecessary background, repetition, and examples unless requested.',
         '- For implementation requests, complete discovery, modification, and verification in the current run when practical. Do not modify files or run tests for explanation-only requests.',
         '- Limit changes and tool calls to the minimum scope needed to satisfy the request.',
+        '- For initial discovery, issue independent read-only searches and reads together in one model response, then decide from the combined results. Do not serialize independent background exploration.',
         '- Use risk-proportionate verification. Start with the narrowest check that directly validates the change, and stop when sufficient evidence is obtained.',
         '- Use content review for documentation, diagnostics for static changes, targeted tests for runtime behavior, and browser or execution checks for user-facing behavior.',
         '- Expand verification for high-risk changes involving security, authentication, persistent data, installation, or updates.',

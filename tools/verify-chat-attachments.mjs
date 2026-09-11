@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { AttachmentService } from '../core/dist/attachments/attachment-service.js';
+import {
+  buildAttachmentContext,
+  resolveAttachmentContextIds,
+} from '../core/dist/attachments/text-extract.js';
 import { SessionStore } from '../core/dist/sessions/session-store.js';
 import { collectLiveTempRefs, pruneSessionTemp } from '../core/dist/sessions/session-temp-gc.js';
 
@@ -32,9 +36,33 @@ try {
   const legacy = service.saveFile(session.id, 'legacy.png', png);
   assert(restarted.listSession(session.id).some((item) => item.id === legacy.id));
   assert(!reloaded.messages[0].attachments.some((item) => item.id === legacy.id));
+
+  const workbook = service.saveFile(session.id, 'design-dates.xlsx', Buffer.from('xlsx-placeholder'));
+  const workbookRef = service.messageAttachments([workbook.id], session.id);
+  const currentWins = resolveAttachmentContextIds(['new-upload', 'new-upload'], reloaded.messages);
+  assert.deepEqual(currentWins, ['new-upload']);
+  const restoredWorkbook = resolveAttachmentContextIds([], [
+    ...reloaded.messages,
+    { role: 'user', content: '엑셀 첨부', at: new Date().toISOString(), attachments: workbookRef },
+  ]);
+  assert.deepEqual(restoredWorkbook, [workbook.id]);
+  const imageOnlySupersedesOlderDocs = resolveAttachmentContextIds([], [
+    { role: 'user', content: '엑셀 첨부', at: new Date().toISOString(), attachments: workbookRef },
+    { role: 'user', content: '이미지 첨부', at: new Date().toISOString(), attachments: refs },
+  ]);
+  assert.deepEqual(imageOnlySupersedesOlderDocs, []);
+
+  const note = service.saveFile(session.id, 'design-dates.txt', Buffer.from('HKJ001,2026-09-12'));
+  const context = await buildAttachmentContext([note.id], service, session.id);
+  assert.match(context, /대화 첨부 원본/);
+  assert.match(context, /작업 폴더 밖의 전용 첨부 저장소/);
+  assert(context.includes(note.stored_path));
+  assert.match(context, /HKJ001,2026-09-12/);
+
   const source = readFileSync('core/src/chat/chat-orchestrator.ts', 'utf8');
   assert.equal(source.split('attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId)').length - 1, 4);
-  console.log('PASS: scoped references, dedupe, missing ID, disk/session restart, bytes, GC retention, legacy listing, four request paths');
+  assert.equal(source.split('resolveAttachmentContextIds(').length - 1, 2);
+  console.log('PASS: scoped references, durable follow-up documents, current-upload priority, image exclusion, source-path context, GC retention');
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

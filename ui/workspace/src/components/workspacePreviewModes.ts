@@ -15,7 +15,7 @@ export interface WorkspacePreviewDefinition {
 export const WORKSPACE_PREVIEW_MODES: readonly WorkspacePreviewDefinition[] = [
   { id: 'objects', label: '작업', icon: Briefcase },
   { id: 'document', label: '문서', icon: ArticleNyTimes },
-  { id: 'codocument', label: '협업 문서', icon: NotePencil },
+  { id: 'codocument', label: '문서협업', icon: NotePencil },
   { id: 'media', label: '미디어', icon: ImageSquare },
   { id: 'browser', label: '웹', icon: Browser },
 ];

@@ -1075,7 +1075,20 @@ export async function dispatchApiRequest(
           undefined,
           {
             projectForSession: (id) => sessionStore.list().find((s) => s.id === id)?.project_id ?? null,
+            workspaceRootForSession: (id) => resolveWorkspaceRootForSession(sessionStore, projectStore, id),
             sessions: () => sessionStore.list().map((s) => ({ id: s.id, title: s.title })),
+            attachments: (session) => attachments.listSession(session).map((item) => ({
+              id: item.id,
+              name: item.name,
+            })),
+            attachment: (session, id) => {
+              const record = attachments.get(id, session);
+              if (!record || record.size_bytes > 20_000_000) return null;
+              const bytes = attachments.readBytes(id, session);
+              return bytes
+                ? { id, name: record.original_name, mime: record.mime, bytes }
+                : null;
+            },
           },
         );
         return;

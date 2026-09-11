@@ -36,6 +36,13 @@ check('interleave preserves arrival order', () => {
   ]);
 });
 
+check('full response and timeline history is retained', () => {
+  let timeline = pushResponseDelta([], 'x'.repeat(20_000));
+  for (let index = 0; index < 240; index += 1) timeline = pushToolMarker(timeline, `tool-${index}`);
+  assert.equal(timeline[0].text.length, 20_000);
+  assert.equal(timeline.length, 241);
+});
+
 // 2. Consecutive thought deltas merge into the trailing response segment.
 check('consecutive response deltas merge', () => {
   let tl = pushResponseDelta([], 'Hello');
@@ -83,7 +90,7 @@ check('sanitize restores valid timeline and drops junk', () => {
   assert.equal(sanitizeWorkTimeline([]), undefined, 'empty => undefined (legacy fallback)');
 });
 
-// 6. Server persists work_timeline on the assistant message (types + store wiring).
+// 7. Server persists work_timeline on the assistant message (types + store wiring).
 check('core session-store attaches work_timeline at persist points', () => {
   const store = readFileSync(path.join(root, 'core/src/sessions/session-store.ts'), 'utf8');
   assert.ok(store.includes('pendingWorkTimeline'), 'pending timeline map present');
@@ -94,14 +101,18 @@ check('core session-store attaches work_timeline at persist points', () => {
   assert.ok(types.includes('work_timeline?'), 'SessionMessage.work_timeline declared');
 });
 
-// 7. UI wires live reducers + restore + interleaved render (legacy fallback kept).
-check('ui store + ChatPane wire the interleaved timeline', () => {
+// 8. UI wires live reducers + restore + unified grouped render.
+check('ui store + ChatPane wire the unified grouped timeline', () => {
   const storeSrc = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
   assert.ok(storeSrc.includes('pushResponseDelta') && storeSrc.includes('pushToolMarker'), 'live reducers wired');
   assert.ok(storeSrc.includes('sanitizeWorkTimeline'), 'restore mapping wired');
   const pane = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
-  assert.ok(pane.includes('turn.workTimeline?.length'), 'interleaved branch present');
-  assert.ok(pane.includes("!turn.workTimeline?.length && turn.toolActivity?.length"), 'legacy ToolActivityLog fallback guarded');
+  assert.ok(pane.includes('timeline={turn.workTimeline}'), 'timeline passed to unified component');
+  assert.ok(pane.includes('modelResponse={turn.thought}'), 'model response passed to unified component');
+  const activity = readFileSync(path.join(root, 'ui/workspace/src/components/ToolActivityLog.tsx'), 'utf8');
+  assert.ok(activity.includes('activityGroupId'), 'activity groups rendered');
+  assert.ok(activity.includes('중간 추론 및 작업 로그'), 'unified collapse header rendered');
+  assert.ok(activity.includes('중단 후 이어가기'), 'group cancellation kept');
 });
 
 console.log(JSON.stringify({ ok: true, checks: pass }));

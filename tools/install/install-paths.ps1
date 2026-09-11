@@ -1,14 +1,20 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  ASCII-first install locations. Prefer a folder on the system drive so Hangul
-  user profiles (C:\Users\박소미\...) are not the default runtime path.
-  Never pick the drive root itself (C:\). Creating C:\MYAgent is allowed when
-  the employee account can write there; otherwise fall back.
+  Permission-safe per-user install locations. Reuse C:\MYAgent only when the
+  current Windows account can fully mutate it; otherwise prefer LocalAppData.
+  Never select a shared Public profile because the install tree contains the
+  user's vault, sessions, attachments, and configuration.
 #>
 
 function Get-ProductInstallFolderName {
   return 'MYAgent'
+}
+
+function Get-CurrentUserInstallPath {
+  $local = [Environment]::GetFolderPath('LocalApplicationData')
+  if (-not $local) { return $null }
+  return (Join-Path (Join-Path $local 'Programs') (Get-ProductInstallFolderName))
 }
 
 function Get-InstallPathCandidates {
@@ -19,26 +25,27 @@ function Get-InstallPathCandidates {
   $sys = $env:SystemDrive
   if (-not $sys) { $sys = 'C:' }
   $out = @((Join-Path $sys $name))
-  if ($env:PUBLIC) {
-    $out += (Join-Path $env:PUBLIC $name)
-  }
-  $local = [Environment]::GetFolderPath('LocalApplicationData')
-  if ($local) {
-    $out += (Join-Path (Join-Path $local 'Programs') $name)
-  }
+  $perUser = Get-CurrentUserInstallPath
+  if ($perUser) { $out += $perUser }
   return $out
 }
 
 function Test-InstallPathCandidateWritable([string]$folder) {
   if (-not $folder) { return $false }
+  $probeDir = $null
   try {
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
-    $probe = Join-Path $folder ".my-agent-install-probe-$PID.tmp"
-    [IO.File]::WriteAllText($probe, 'probe')
-    Remove-Item -LiteralPath $probe -Force
+    $probeDir = Join-Path $folder ('.my-agent-install-probe-{0}-{1}' -f $PID, [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $probeDir | Out-Null
+    $source = Join-Path $probeDir 'create.tmp'
+    $moved = Join-Path $probeDir 'moved.tmp'
+    [IO.File]::WriteAllText($source, 'probe')
+    Move-Item -LiteralPath $source -Destination $moved
+    Remove-Item -LiteralPath $moved -Force
+    Remove-Item -LiteralPath $probeDir -Force
     return $true
   } catch {
-    Remove-Item -LiteralPath (Join-Path $folder ".my-agent-install-probe-$PID.tmp") -Force -ErrorAction SilentlyContinue
+    if ($probeDir) { Remove-Item -LiteralPath $probeDir -Recurse -Force -ErrorAction SilentlyContinue }
     return $false
   }
 }
@@ -63,6 +70,8 @@ function Get-DefaultInstallPath {
     if (Test-InstallPathCandidateWritable $full) { return $full }
   }
   if ($fallback) { return $fallback }
+  $perUser = Get-CurrentUserInstallPath
+  if ($perUser) { return $perUser }
   $sys = $env:SystemDrive
   if (-not $sys) { $sys = 'C:' }
   return (Join-Path $sys (Get-ProductInstallFolderName))

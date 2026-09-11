@@ -65,6 +65,8 @@ shell/**/obj/
 shell/**/bin/
 tools/lab/**/obj/
 tools/lab/**/bin/
+tools/updater-resilience-harness/**/obj/
+tools/updater-resilience-harness/**/bin/
 test-results/
 playwright-report/
 tools/cache/

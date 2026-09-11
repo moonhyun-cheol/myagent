@@ -119,6 +119,7 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
   browser_snapshot: 'browser_snapshot',
   browser_screenshot: 'browser_screenshot',
   browser_click: 'browser_click',
+  browser_drag: 'browser_drag',
   browser_fill: 'browser_fill',
   browser_evaluate: 'browser_evaluate',
 };
@@ -382,6 +383,9 @@ export function toolStatusLabel(call: AgentToolCall): string {
     if (name === 'browser_screenshot') return `${name}: ${args.path ?? 'auto'}`;
     if (name === 'save_web_asset') return `${name}: ${args.url ?? ''}`;
     if (name === 'browser_click' || name === 'browser_fill') return `${name}: ${args.selector ?? ''}`;
+    if (name === 'browser_drag') {
+      return `${name}: ${args.source_selector ?? args.source_ref ?? ''} -> ${args.target_selector ?? args.target_ref ?? ''}`;
+    }
     return name;
   } catch {
     return call.function.name;

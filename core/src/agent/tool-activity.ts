@@ -2,6 +2,8 @@ import { agentToolOutputOk } from './agent-tool-result.js';
 
 export interface ToolActivity {
   id: string;
+  /** Stable id shared by every tool call returned by the same model response. */
+  activityGroupId?: string;
   tool: string;
   target: string;
   state: 'running' | 'success' | 'failed' | 'cancelled';
@@ -16,8 +18,6 @@ export interface ToolActivity {
   exitCode?: number | null;
 }
 
-const MAX_LOG = 12_000;
-const MAX_LINE = 4_096;
 
 /** Display-only redaction. Never rewrite tool evidence or commands being executed. */
 export function redactActivity(text: string): string {
@@ -35,21 +35,22 @@ export function redactActivity(text: string): string {
     .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@');
 }
 
-/** Full, bounded snapshots make duplicate SSE deliveries idempotent. */
+/** Full redacted snapshots make duplicate SSE deliveries idempotent without discarding output. */
 export function createToolActivity(
   id: string, tool: string, args: Record<string, unknown>,
   emit?: (row: ToolActivity) => void,
   cancelSessionId?: string,
+  activityGroupId?: string,
 ) {
   const target = ['command', 'path', 'query', 'url'].map((key) => args[key]).find((v) => typeof v === 'string') ?? '';
   const row: ToolActivity = {
-    id, tool, target: redactActivity(String(target)).slice(0, 600), state: 'running',
+    id, ...(activityGroupId ? { activityGroupId } : {}),
+    tool, target: redactActivity(String(target)).slice(0, 600), state: 'running',
     startedAt: Date.now(), updatedAt: Date.now(), output: '', truncated: false, cancelSessionId,
   };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let closed = false;
   const pending = { stdout: '', stderr: '' };
-  const dropping = { stdout: false, stderr: false };
   const privateKey = { stdout: false, stderr: false };
   const publish = () => {
     timer = undefined;
@@ -63,8 +64,7 @@ export function createToolActivity(
       text = '[REDACTED PRIVATE KEY]\n';
     }
     const chunk = `${stream === 'stderr' ? '[stderr] ' : ''}${redactActivity(text)}`;
-    if (row.output.length + chunk.length > MAX_LOG) row.truncated = true;
-    row.output = (row.output + chunk).slice(-MAX_LOG);
+    row.output += chunk;
     if (!timer) timer = setTimeout(publish, 120);
   };
   publish();
@@ -81,13 +81,10 @@ export function createToolActivity(
       // Buffer complete lines so secrets split across process chunks never leak.
       for (const part of chunk.split(/(?<=\n)/)) {
         if (!part) continue;
-        if (!dropping[stream]) pending[stream] += part;
-        if (pending[stream].length > MAX_LINE) {
-          pending[stream] = ''; dropping[stream] = true; row.truncated = true;
-        }
+        pending[stream] += part;
         if (part.endsWith('\n')) {
-          append(stream, dropping[stream] ? '[long line omitted]\n' : pending[stream]);
-          pending[stream] = ''; dropping[stream] = false;
+          append(stream, pending[stream]);
+          pending[stream] = '';
         }
       }
       if (!timer) timer = setTimeout(publish, 120);
@@ -96,7 +93,7 @@ export function createToolActivity(
       if (closed) return;
       closed = true;
       for (const stream of ['stdout', 'stderr'] as const) {
-        if (pending[stream] || dropping[stream]) append(stream, dropping[stream] ? '[long line omitted]\n' : pending[stream]);
+        if (pending[stream]) append(stream, pending[stream]);
       }
       let result: Record<string, unknown> = {};
       try { result = JSON.parse(output); } catch { /* plain-text tool result */ }

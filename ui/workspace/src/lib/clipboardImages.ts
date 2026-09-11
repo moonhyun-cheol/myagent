@@ -27,15 +27,30 @@ export function isClipboardImageFile(file: File | null | undefined): boolean {
 
 /** Any files from drag-drop or Explorer paste (no MIME allowlist). */
 export function filesFromDataTransfer(data: DataTransfer | null | undefined): File[] {
-  if (!data?.files?.length) return [];
+  if (!data) return [];
   const out: File[] = [];
   const seen = new Set<string>();
-  for (const file of Array.from(data.files)) {
-    if (!file) continue;
+  const pushFile = (file: File | null) => {
+    if (!file) return;
     const key = `${file.name}:${file.size}:${file.lastModified || 0}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     out.push(file);
+  };
+
+  for (const file of Array.from(data.files ?? [])) pushFile(file);
+
+  // Some WebView2/Windows drag sources expose files through items while
+  // dataTransfer.files is empty. Read item files synchronously during drop.
+  if (!out.length) {
+    for (const item of Array.from(data.items ?? [])) {
+      if (item.kind !== 'file') continue;
+      try {
+        pushFile(item.getAsFile());
+      } catch {
+        // Ignore an inaccessible item and continue with the remaining files.
+      }
+    }
   }
   return out;
 }

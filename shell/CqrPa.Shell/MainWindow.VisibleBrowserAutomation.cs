@@ -25,6 +25,7 @@ public partial class MainWindow
             "navigate" => await AutomateBrowserNavigateAsync(payload),
             "snapshot" => await CaptureBrowserSnapshotAsync(payload),
             "click" => await AutomateBrowserClickAsync(payload),
+            "drag" => await AutomateBrowserDragAsync(payload),
             "fill" => await AutomateBrowserFillAsync(payload),
             "screenshot" => await CaptureBrowserScreenshotAsync(payload),
             "tab.create" => BrowserTabCreate(payload),
@@ -202,14 +203,14 @@ public partial class MainWindow
         "link" or "button" or "textbox" or "searchbox" or "checkbox" or "radio"
         or "combobox" or "menuitem" or "option" or "tab" or "switch" or "slider";
 
-    private static long ResolveAutomationRef(BrowserTab tab, JsonElement payload)
+    private static long ResolveAutomationRef(BrowserTab tab, JsonElement payload, string refPropertyName = "ref")
     {
         var snapshotId = payload.ValueKind == JsonValueKind.Object
             && payload.TryGetProperty("snapshot_id", out var snapshotProperty)
             ? snapshotProperty.GetString()
             : null;
         var reference = payload.ValueKind == JsonValueKind.Object
-            && payload.TryGetProperty("ref", out var refProperty)
+            && payload.TryGetProperty(refPropertyName, out var refProperty)
             ? refProperty.GetString()
             : null;
         if (string.IsNullOrWhiteSpace(snapshotId) || snapshotId != tab.SnapshotId
@@ -253,6 +254,88 @@ public partial class MainWindow
             "function(){if(!(this instanceof Element))return {ok:false};this.scrollIntoView({block:'center',inline:'center'});this.click();return {ok:true};}");
         InvalidateAutomationSnapshot(tab);
         return new { tab_id = tab.Id, clicked = true, snapshot_invalidated = true, url = core.Source ?? tab.Url };
+    }
+
+    private async Task<(double X, double Y)> ResolveNodePointAsync(
+        CoreWebView2 core,
+        long backendNodeId,
+        double verticalRatio = 0.5)
+    {
+        var raw = await core.CallDevToolsProtocolMethodAsync(
+            "DOM.getBoxModel", JsonSerializer.Serialize(new { backendNodeId }));
+        using var document = JsonDocument.Parse(raw);
+        if (!document.RootElement.TryGetProperty("model", out var model)
+            || !model.TryGetProperty("border", out var quad)
+            || quad.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("BROWSER_NODE_NOT_VISIBLE");
+        var coordinates = quad.EnumerateArray().Select(value => value.GetDouble()).ToArray();
+        if (coordinates.Length < 8) throw new InvalidOperationException("BROWSER_NODE_NOT_VISIBLE");
+        var xs = new[] { coordinates[0], coordinates[2], coordinates[4], coordinates[6] };
+        var ys = new[] { coordinates[1], coordinates[3], coordinates[5], coordinates[7] };
+        var minY = ys.Min();
+        return (xs.Average(), minY + ((ys.Max() - minY) * verticalRatio));
+    }
+
+    private static Task DispatchMouseEventAsync(
+        CoreWebView2 core,
+        string type,
+        double x,
+        double y,
+        int buttons) => core.CallDevToolsProtocolMethodAsync(
+            "Input.dispatchMouseEvent",
+            JsonSerializer.Serialize(new { type, x, y, button = "left", buttons, clickCount = 1 }));
+
+    private async Task<object> AutomateBrowserDragAsync(JsonElement payload)
+    {
+        var tab = RequireVisibleBrowser(RequireAutomationControl(ResolveTab(PayloadTabId(payload))));
+        var core = tab.Core!;
+        var sourceNodeId = ResolveAutomationRef(tab, payload, "source_ref");
+        var targetNodeId = ResolveAutomationRef(tab, payload, "target_ref");
+        var sourceObjectId = await ResolveObjectIdAsync(core, sourceNodeId);
+        var targetObjectId = await ResolveObjectIdAsync(core, targetNodeId);
+        await CallOnNodeAsync(core, targetObjectId,
+            "function(){if(!(this instanceof Element))return {ok:false};this.scrollIntoView({block:'nearest',inline:'nearest'});return {ok:true};}");
+        await CallOnNodeAsync(core, sourceObjectId,
+            "function(){if(!(this instanceof Element))return {ok:false};this.scrollIntoView({block:'nearest',inline:'nearest'});return {ok:true};}");
+
+        var targetPosition = payload.TryGetProperty("target_position", out var positionProperty)
+            ? positionProperty.GetString()
+            : "center";
+        var targetRatio = targetPosition == "before" ? 0.2 : targetPosition == "after" ? 0.8 : 0.5;
+        var source = await ResolveNodePointAsync(core, sourceNodeId);
+        var target = await ResolveNodePointAsync(core, targetNodeId, targetRatio);
+
+        await DispatchMouseEventAsync(core, "mouseMoved", source.X, source.Y, 0);
+        await DispatchMouseEventAsync(core, "mousePressed", source.X, source.Y, 1);
+        var currentX = source.X;
+        var currentY = source.Y;
+        try
+        {
+            const int steps = 16;
+            for (var step = 1; step <= steps; step++)
+            {
+                var progress = (double)step / steps;
+                currentX = source.X + ((target.X - source.X) * progress);
+                currentY = source.Y + ((target.Y - source.Y) * progress);
+                await DispatchMouseEventAsync(core, "mouseMoved", currentX, currentY, 1);
+                await Task.Delay(16);
+            }
+        }
+        finally
+        {
+            await DispatchMouseEventAsync(core, "mouseReleased", currentX, currentY, 0);
+        }
+        InvalidateAutomationSnapshot(tab);
+        return new
+        {
+            tab_id = tab.Id,
+            dragged = true,
+            source_ref = payload.GetProperty("source_ref").GetString(),
+            target_ref = payload.GetProperty("target_ref").GetString(),
+            target_position = targetPosition,
+            snapshot_invalidated = true,
+            url = core.Source ?? tab.Url,
+        };
     }
 
     private async Task<object> AutomateBrowserFillAsync(JsonElement payload)

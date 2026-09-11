@@ -17,15 +17,6 @@ export type WorkTimelineItem =
   | { kind: 'response'; text: string }
   | { kind: 'tool'; id: string };
 
-/** Per-response-segment cap so one long reasoning burst cannot grow unbounded. */
-export const MAX_TIMELINE_SEGMENT_CHARS = 8_000;
-/** Hard cap on interleaved items retained for one assistant turn. */
-export const MAX_TIMELINE_ITEMS = 200;
-
-function boundItems(timeline: WorkTimelineItem[]): WorkTimelineItem[] {
-  if (timeline.length <= MAX_TIMELINE_ITEMS) return timeline;
-  return timeline.slice(timeline.length - MAX_TIMELINE_ITEMS);
-}
 
 /**
  * Append a `thought` delta. When the last item is a response segment the delta
@@ -40,12 +31,12 @@ export function pushResponseDelta(
   const next = [...timeline];
   const last = next[next.length - 1];
   if (last && last.kind === 'response') {
-    const merged = (last.text + delta).slice(-MAX_TIMELINE_SEGMENT_CHARS);
+    const merged = last.text + delta;
     next[next.length - 1] = { kind: 'response', text: merged };
   } else {
-    next.push({ kind: 'response', text: delta.slice(-MAX_TIMELINE_SEGMENT_CHARS) });
+    next.push({ kind: 'response', text: delta });
   }
-  return boundItems(next);
+  return next;
 }
 
 /**
@@ -58,7 +49,7 @@ export function pushToolMarker(
 ): WorkTimelineItem[] {
   if (!id) return [...timeline];
   if (timeline.some((item) => item.kind === 'tool' && item.id === id)) return [...timeline];
-  return boundItems([...timeline, { kind: 'tool', id }]);
+  return [...timeline, { kind: 'tool', id }];
 }
 
 /** Runtime validation for restored/persisted timelines from untrusted JSON. */
@@ -69,10 +60,10 @@ export function sanitizeWorkTimeline(value: unknown): WorkTimelineItem[] | undef
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
     if (item.kind === 'response' && typeof item.text === 'string') {
-      out.push({ kind: 'response', text: item.text.slice(-MAX_TIMELINE_SEGMENT_CHARS) });
+      out.push({ kind: 'response', text: item.text });
     } else if (item.kind === 'tool' && typeof item.id === 'string' && item.id) {
       out.push({ kind: 'tool', id: item.id });
     }
   }
-  return out.length ? boundItems(out) : undefined;
+  return out.length ? out : undefined;
 }

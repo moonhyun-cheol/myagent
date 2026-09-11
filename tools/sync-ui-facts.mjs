@@ -84,6 +84,7 @@ const facts = {
       'ui/workspace/src/lib/documentMarkdown.ts',
       'ui/workspace/src/lib/documentNotes.ts',
       'core/src/documents/document-store.ts',
+      'core/src/documents/project-document-store.ts',
       'core/src/documents/document-route.ts',
     ],
     chat_markdown: [

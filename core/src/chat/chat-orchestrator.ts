@@ -2,7 +2,11 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ServerResponse } from 'node:http';
 import type { AttachmentService } from '../attachments/attachment-service.js';
-import { buildAttachmentContext, collectAttachmentImageDataUrls } from '../attachments/text-extract.js';
+import {
+  buildAttachmentContext,
+  collectAttachmentImageDataUrls,
+  resolveAttachmentContextIds,
+} from '../attachments/text-extract.js';
 import type { ModelRegistry } from '../models/model-registry.js';
 import type { ProviderStore } from '../providers/provider-store.js';
 import type { SessionStore } from '../sessions/session-store.js';
@@ -358,7 +362,11 @@ export class ChatOrchestrator {
     }
     const message = inlet.text;
     const explicitMode = normalizeMode(req.mode);
-    const hasAttachments = (req.attachments?.length ?? 0) > 0;
+    const attachmentContextIds = resolveAttachmentContextIds(
+      req.attachments ?? [],
+      this.sessionStore.load(sessionId)?.messages ?? [],
+    );
+    const hasAttachments = attachmentContextIds.length > 0;
     const initialRoute = this.resolveRouting(
       message,
       explicitMode,
@@ -517,7 +525,7 @@ export class ChatOrchestrator {
         resolved,
         message,
         attachmentContext: await buildAttachmentContext(
-          req.attachments ?? [],
+          attachmentContextIds,
           this.attachments,
           sessionId,
           12_000,
@@ -545,7 +553,7 @@ export class ChatOrchestrator {
       skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
     );
     const attachmentCtx = await buildAttachmentContext(
-      req.attachments ?? [],
+      attachmentContextIds,
       this.attachments,
       sessionId,
       12_000,
@@ -652,7 +660,11 @@ export class ChatOrchestrator {
     }
     const message = inlet.text;
     const explicitMode = normalizeMode(req.mode);
-    const hasAttachments = (req.attachments?.length ?? 0) > 0;
+    const attachmentContextIds = resolveAttachmentContextIds(
+      req.attachments ?? [],
+      this.sessionStore.load(sessionId)?.messages ?? [],
+    );
+    const hasAttachments = attachmentContextIds.length > 0;
     const initialRoute = this.resolveRouting(
       message,
       explicitMode,
@@ -793,7 +805,7 @@ export class ChatOrchestrator {
           this.providerStore,
           {
             mode: agentRouting.mode,
-            hasAttachments: (req.attachments?.length ?? 0) > 0,
+            hasAttachments,
           },
         );
         if (!userAlreadyAppended) {
@@ -824,7 +836,7 @@ export class ChatOrchestrator {
             resolved,
             message,
             attachmentContext: await buildAttachmentContext(
-              req.attachments ?? [],
+              attachmentContextIds,
               this.attachments,
               sessionId,
               12_000,
@@ -1137,7 +1149,7 @@ export class ChatOrchestrator {
       this.providerStore,
       {
         mode: routing.mode,
-        hasAttachments: (req.attachments?.length ?? 0) > 0,
+        hasAttachments,
       },
     );
     const generalModelId = resolved.route.type === 'provider' ? resolved.route.modelId : null;
@@ -1179,7 +1191,7 @@ export class ChatOrchestrator {
       skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
     );
     const attachmentCtx = await buildAttachmentContext(
-      req.attachments ?? [],
+      attachmentContextIds,
       this.attachments,
       sessionId,
       12_000,

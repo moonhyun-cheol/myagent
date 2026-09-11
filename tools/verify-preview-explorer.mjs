@@ -5,13 +5,18 @@ import path from 'node:path';
 
 const root = process.cwd();
 const ui = readFileSync(path.join(root, 'ui/workspace/src/components/MainWorkspaceContainer.tsx'), 'utf8');
+const previewModes = readFileSync(path.join(root, 'ui/workspace/src/components/workspacePreviewModes.ts'), 'utf8');
 const objects = readFileSync(path.join(root, 'ui/workspace/src/components/WorkspaceObjectsPane.tsx'), 'utf8');
 const chat = readFileSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'), 'utf8');
 const store = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
-const client = readFileSync(path.join(root, 'ui/workspace/src/api/cqrClient.ts'), 'utf8');
+const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
 const dispatch = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
 
 assert.match(ui, /WorkspaceObjectsPane/);
+assert.match(ui, /mode === 'document'.*MarkdownDocument/s);
+assert.match(ui, /mode === 'codocument'.*DocumentPane/s);
+assert.match(previewModes, /id: 'document', label: '문서'/);
+assert.match(previewModes, /id: 'codocument', label: '문서협업'/);
 assert.match(objects, /data-testid="open-workspace-explorer"/);
 assert.match(objects, /openWorkspaceRootInExplorer\(\)/);
 assert.doesNotMatch(ui, /id: 'editor', label: '코드'/);

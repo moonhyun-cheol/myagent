@@ -60,6 +60,7 @@ export interface ApplicationNotice {
 
 export interface ToolActivity {
   id: string;
+  activityGroupId?: string;
   tool: string;
   target: string;
   state: 'running' | 'success' | 'failed' | 'cancelled';

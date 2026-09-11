@@ -136,6 +136,20 @@ export function resolveWorkspaceRootForSession(
   return resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId)[0] ?? null;
 }
 
+function buildDocumentCollaborationContext(
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string,
+): string {
+  const root = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
+  if (!root) return '';
+  return [
+    '## 문서협업',
+    '문서협업의 본문 원본은 이 작업 폴더 안의 Markdown(.md, .markdown) 파일입니다.',
+    '사용자가 문서협업으로 올리거나 게시해 달라고 하면 프로젝트 상대 경로에 Markdown 파일을 생성·수정하고 그 경로를 답변에 명시하세요. UI가 파일을 자동 발견합니다.',
+  ].join('\n');
+}
+
 export function shouldAttachDevWorkspaceTree(
   _configPath: string,
   _sessionStore: SessionStore,
@@ -261,6 +275,8 @@ export function buildWorkspaceContext(
   // User memory (알잘딱): always attach when present, regardless of workspace scope.
   const memoryCtx = buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId);
   if (memoryCtx) parts.push(memoryCtx);
+  const documentCtx = buildDocumentCollaborationContext(sessionStore, projectStore, sessionId);
+  if (documentCtx) parts.push(documentCtx);
 
   if (!shouldAttachWorkspaceContext(configPath, sessionStore, projectStore, sessionId, mode)) {
     return parts.join('\n\n');

@@ -38,16 +38,7 @@ function Test-IsDriveRoot([string]$target) {
 }
 
 function Test-InstallFolderWritable([string]$folder) {
-  try {
-    New-Item -ItemType Directory -Force -Path $folder | Out-Null
-    $probe = Join-Path $folder ".my-agent-ui-probe-$PID.tmp"
-    [IO.File]::WriteAllText($probe, 'probe')
-    Remove-Item -LiteralPath $probe -Force
-    return $true
-  } catch {
-    Remove-Item -LiteralPath (Join-Path $folder ".my-agent-ui-probe-$PID.tmp") -Force -ErrorAction SilentlyContinue
-    return $false
-  }
+  return (Test-InstallPathCandidateWritable $folder)
 }
 
 function Test-IsProtectedSystemFolder([string]$target) {
@@ -111,7 +102,7 @@ if (-not $TargetDir) {
   $defaultOk = Test-InstallFolderWritable $defaultPath
   if (-not $defaultOk) {
     [void][System.Windows.Forms.MessageBox]::Show(
-      "Cannot write to the default install folder:`r`n$defaultPath`r`nCheck disk / antivirus, then run install.bat again.",
+      "Cannot create, rename, and delete files in the default install folder:`r`n$defaultPath`r`n`r`nUse the current Windows account and check antivirus / Controlled Folder Access, then run install.bat again.",
       'MY Agent Installer',
       [System.Windows.Forms.MessageBoxButtons]::OK,
       [System.Windows.Forms.MessageBoxIcon]::Error
@@ -151,7 +142,7 @@ if (-not $TargetDir) {
     if (-not $badSame -and -not $badInside -and -not $badDump -and -not $badRoot -and -not $badSystem) {
       if (-not (Test-InstallFolderWritable $picked)) {
         [void][System.Windows.Forms.MessageBox]::Show(
-          "That folder is not writable:`r`n$picked`r`nUse $defaultPath",
+          "That folder does not allow create, rename, and delete for this Windows account:`r`n$picked`r`n`r`nUse the recommended per-user folder:`r`n$defaultPath",
           'MY Agent Installer',
           [System.Windows.Forms.MessageBoxButtons]::OK,
           [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -646,7 +637,9 @@ function Complete-Install {
     $st.Status.Text = 'Do not run as administrator. Run install.bat as the employee Windows user.'
   } elseif ($failBlob -like '*Program Files*' -or $failBlob -like '*ProgramData*') {
     $st.Status.Text = "Do not install under Program Files. Example: $defaultPath"
-  } elseif ($failBlob -like '*directly under*' -or $failBlob -like '*drive root*' -or $failBlob -like '*not C:\*' -or $failBlob -like '*not writable*') {
+  } elseif ($failBlob -like '*does not allow create, rename, and delete*' -or $failBlob -like '*not fully writable*' -or $failBlob -like '*not writable*') {
+    $st.Status.Text = "Folder permission blocked installation. Run as this Windows user and use: $defaultPath"
+  } elseif ($failBlob -like '*directly under*' -or $failBlob -like '*drive root*' -or $failBlob -like '*not C:\*') {
     $st.Status.Text = "Do not install to C:\ itself. Use a folder such as $defaultPath (Yes on the first prompt)."
   } elseif ($failBlob -like '*is not a batch file*' -or $failBlob -like '*tsclient*' -or $failBlob -like '*UNC*') {
     $st.Status.Text = 'Shared folder path broke the installer. Copy zip to C:\Temp, extract, run install.bat.'

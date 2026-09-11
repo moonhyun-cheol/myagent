@@ -1,9 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendJson, sessionFromReq } from '../http/json.js';
 import { DocumentError, getDocumentStore } from './document-store.js';
+import { getProjectDocumentStore, type ProjectDocumentStore } from './project-document-store.js';
 
 export interface DocumentRouteContext {
   projectForSession?: (session: string) => string | null;
+  workspaceRootForSession?: (session: string) => string | null;
+  projectDocuments?: ProjectDocumentStore;
   sessions?: () => { id: string; title: string }[];
   attachments?: (session: string) => { id: string; name: string }[];
   attachment?: (session: string, id: string) => { id: string; name: string; mime: string; bytes: Buffer } | null;
@@ -21,8 +24,46 @@ export async function documentRoute(
   try {
     const session = sessionFromReq(req);
     if (!sessionExists(session)) throw new DocumentError(404, '먼저 챗을 생성하거나 선택하세요.');
-    const store = storeProvider();
     const suffix = url.pathname.slice('/workspace/documents'.length);
+    const workspaceRoot = context.workspaceRootForSession?.(session) ?? null;
+    if (workspaceRoot) {
+      const projectDocuments = context.projectDocuments ?? getProjectDocumentStore();
+      if (method === 'GET' && suffix === '') {
+        return sendJson(res, 200, {
+          documents: projectDocuments.list(workspaceRoot),
+          root: workspaceRoot,
+          projectRoot: true,
+        });
+      }
+      const projectMatch = /^\/([a-f0-9-]{36})$/.exec(suffix);
+      if (method === 'GET' && projectMatch) {
+        return sendJson(res, 200, projectDocuments.get(workspaceRoot, projectMatch[1]));
+      }
+      if ((method === 'POST' && suffix === '') || (method === 'PUT' && projectMatch)) {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += Buffer.byteLength(chunk);
+          if (size > 3_000_000) throw new DocumentError(413, '요청이 너무 큽니다.');
+          chunks.push(Buffer.from(chunk));
+        }
+        let body;
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          throw new DocumentError(400, '잘못된 JSON입니다.');
+        }
+        if (!body || typeof body !== 'object') throw new DocumentError(400, '문서가 필요합니다.');
+        return sendJson(
+          res,
+          200,
+          projectDocuments.save(workspaceRoot, projectMatch?.[1] ?? null, body),
+        );
+      }
+      throw new DocumentError(404, '프로젝트 문서협업에서 지원하지 않는 경로입니다.');
+    }
+
+    const store = storeProvider();
     const project = context.projectForSession?.(session);
     const projectScope = project ? `project:${project}` : null;
     const scopeFor = (id: string) => (projectScope && store.ownedBy(projectScope, id) ? projectScope : session);

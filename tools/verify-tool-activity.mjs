@@ -18,7 +18,10 @@ const pass = (name) => { count++; console.log(`PASS ${name}`); };
 try {
   const snapshots = [];
   process.env.ACTIVITY_TEST_TOKEN = 'known-secret-value';
-  const activity = createToolActivity('mask', 'run_terminal', { command: 'curl --token="private-value"' }, (row) => snapshots.push(row));
+  const activity = createToolActivity(
+    'mask', 'run_terminal', { command: 'curl --token="private-value"' },
+    (row) => snapshots.push(row), undefined, 'model-tool-batch:test-one',
+  );
   activity.output('stdout', 'api_key=split');
   await pause(150);
   assert.equal(snapshots.at(-1).output, '');
@@ -32,21 +35,26 @@ try {
   for (const secret of ['split-secret', 'known-secret-value', 'abcdef', 'private-value', 'dummy-key-material']) assert.ok(!serialized.includes(secret), secret);
   assert.match(snapshots.at(-1).output, /\[stderr\] warning/);
   assert.equal(snapshots.at(-1).state, 'success');
+  assert.ok(snapshots.every((row) => row.activityGroupId === 'model-tool-batch:test-one'));
   assert.match(redactActivity('https://name:password@host/path'), /REDACTED/);
   delete process.env.ACTIVITY_TEST_TOKEN;
   pass('split-chunk secrets, known secrets, bearer, synthetic PEM, stderr');
 
-  const bounded = [];
-  const flood = createToolActivity('flood', 'run_terminal', {}, (row) => bounded.push(row));
-  flood.output('stdout', `${'x'.repeat(50_000)}\n`);
+  const complete = [];
+  const flood = createToolActivity('flood', 'run_terminal', {}, (row) => complete.push(row));
+  const longLine = 'x'.repeat(50_000);
+  flood.output('stdout', `${longLine}\n`);
   for (let i = 0; i < 1000; i++) flood.output('stdout', `line ${i} ${'x'.repeat(60)}\n`);
   flood.finish('{"ok":false,"exit_code":3}');
-  assert.ok(bounded.length <= 3);
-  assert.ok(bounded.at(-1).output.length <= 12_000);
-  assert.equal(bounded.at(-1).truncated, true);
-  assert.equal(bounded.at(-1).state, 'failed');
-  assert.equal(bounded.at(-1).exitCode, 3);
-  pass('bounded output, throttling, exit failure');
+  assert.ok(complete.length <= 3);
+  assert.match(complete.at(-1).output, new RegExp(`^${longLine.slice(0, 80)}`));
+  assert.match(complete.at(-1).output, /line 0 /);
+  assert.match(complete.at(-1).output, /line 999 /);
+  assert.ok(complete.at(-1).output.length > 100_000);
+  assert.equal(complete.at(-1).truncated, false);
+  assert.equal(complete.at(-1).state, 'failed');
+  assert.equal(complete.at(-1).exitCode, 3);
+  pass('complete long-line and 100k+ output, throttling, exit failure');
 
   for (const tool of ['run_terminal', 'run_tests', 'run_diagnostics']) {
     const rows = [];
@@ -97,18 +105,20 @@ try {
   const sessions = path.join(temp, 'sessions'); mkdirSync(sessions);
   const store = new SessionStore(sessions, temp);
   store.beginAssistantThought('one'); store.beginAssistantThought('two');
-  for (let i = 0; i < 45; i++) store.appendToolActivity('one', { ...snapshots.at(-1), id: String(i) });
+  for (let i = 0; i < 90; i++) store.appendToolActivity('one', { ...snapshots.at(-1), id: String(i) });
   store.appendToolActivity('two', { ...snapshots.at(-1), id: 'only-two' });
   appendAssistantReply(store, 'one', { content: 'done', model: 'fixture', mode: 'chat' });
   appendAssistantReply(store, 'two', { content: 'failed', model: 'fixture', mode: 'chat', application_notice: { kind: 'failure', title: 'test', message: 'test' } });
   const reloaded = new SessionStore(sessions, temp);
-  assert.equal(reloaded.load('one').messages[0].tool_activity.length, 40);
+  assert.equal(reloaded.load('one').messages[0].tool_activity.length, 90);
+  assert.equal(reloaded.load('one').messages[0].work_timeline.length, 90);
+  assert.ok(reloaded.load('one').messages[0].tool_activity.every((row) => row.activityGroupId === 'model-tool-batch:test-one'));
   assert.equal(reloaded.load('two').messages[0].tool_activity[0].id, 'only-two');
   assert.equal(reloaded.load('one').messages[0].reasoning, undefined);
   store.beginAssistantThought('one');
   appendAssistantReply(store, 'one', { content: 'new', model: 'fixture', mode: 'chat' });
   assert.equal(store.load('one').messages.at(-1).tool_activity, undefined);
-  pass('disk restore, session isolation, 40-row cap, failure persistence, no next-turn leak');
+  pass('disk restore, session isolation, complete grouped activities, failure persistence, no next-turn leak');
   console.log(`\n${count} tool-activity checks passed`);
 } finally {
   delete process.env.ACTIVITY_TEST_TOKEN;

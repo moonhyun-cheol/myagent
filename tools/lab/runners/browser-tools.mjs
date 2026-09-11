@@ -69,8 +69,21 @@ export async function runBrowserTools(root, fixture, opts = {}) {
     <h1 id="lab">lab</h1>
     <input id="inp" type="text" value="" />
     <button id="btn" type="button">go</button>
+    <ul id="items">
+      <li id="drag-a" draggable="true">A</li>
+      <li id="drag-b" draggable="true">B</li>
+    </ul>
     <p id="out"></p>
     <script>
+      const dragged = document.getElementById('drag-a');
+      const dropTarget = document.getElementById('drag-b');
+      dragged.addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', 'drag-a'));
+      dropTarget.addEventListener('dragover', (event) => event.preventDefault());
+      dropTarget.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dropTarget.after(dragged);
+        document.getElementById('out').dataset.dragged = 'true';
+      });
       document.getElementById('btn').onclick = function () {
         document.getElementById('out').textContent = document.getElementById('inp').value || 'clicked';
       };
@@ -112,18 +125,25 @@ export async function runBrowserTools(root, fixture, opts = {}) {
     await withLocalServer(html, async (base) => {
       const steps = [
         ['browser_navigate', { url: base }],
-        ['browser_evaluate', { expression: 'document.getElementById("lab")?.textContent' }],
+        ['browser_evaluate', { expression: 'document.getElementById("lab")?.textContent' }, 'lab'],
         ['browser_fill', { selector: '#inp', value: 'cqr-lab' }],
         ['browser_click', { selector: '#btn' }],
+        ['browser_drag', { source_selector: '#drag-a', target_selector: '#drag-b' }],
+        ['browser_evaluate', { expression: 'document.getElementById("out")?.dataset.dragged' }, 'true'],
         ['browser_screenshot', { path: 'lab-browser.png' }],
       ];
-      for (const [name, args] of steps) {
+      for (const [name, args, expected] of steps) {
         const t0 = Date.now();
         try {
           const res = await executeAgentTool(fixture, tc(name, args), { allowNas: false }, ctx);
           const out = String(res.output || '');
-          const ok = !/^ERROR:/m.test(out);
-          rows.push(row(name, ok ? 'pass' : 'fail', Date.now() - t0, ok ? (res.label || 'ok') : out.slice(0, 200)));
+          const ok = !/^ERROR:/m.test(out) && (!expected || out.includes(expected));
+          rows.push(row(
+            name,
+            ok ? 'pass' : 'fail',
+            Date.now() - t0,
+            ok ? (res.label || 'ok') : `expected ${expected || 'success'}; got ${out.slice(0, 160)}`,
+          ));
         } catch (e) {
           rows.push(row(name, 'fail', Date.now() - t0, e instanceof Error ? e.message : String(e)));
         }
@@ -141,6 +161,7 @@ export async function runBrowserTools(root, fixture, opts = {}) {
     'browser_navigate',
     'browser_screenshot',
     'browser_click',
+    'browser_drag',
     'browser_fill',
     'browser_evaluate',
   ]) {

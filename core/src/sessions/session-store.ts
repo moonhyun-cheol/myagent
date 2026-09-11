@@ -276,14 +276,13 @@ export class SessionStore {
     this.pendingWorkTimeline.delete(safe);
   }
 
-  /** Bounded display snapshots, attached even when an infra/cancel reply is saved. */
+  /** Redacted display snapshots, attached even when an infra/cancel reply is saved. */
   appendToolActivity(id: string, row: import('../agent/tool-activity.js').ToolActivity): void {
     assertChatRunWritable(id);
     const safe = sanitizeId(id);
     if (!safe) return;
     const rows = this.pendingToolActivity.get(safe) ?? new Map();
     rows.set(row.id, { ...row });
-    if (rows.size > 40) rows.delete(rows.keys().next().value!);
     this.pendingToolActivity.set(safe, rows);
     this.pendingWorkTimeline.set(safe, pushToolMarker(this.pendingWorkTimeline.get(safe) ?? [], row.id));
     currentChatRun()?.checkpoint?.(true);

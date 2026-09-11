@@ -1114,6 +1114,31 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'browser_drag',
+      description:
+        'Drag one element onto another. On target=visible, use snapshot_id + source_ref + target_ref (lock required). On target=isolated, use source_selector + target_selector.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source_selector: { type: 'string', description: 'CSS selector for the element to drag (isolated)' },
+          target_selector: { type: 'string', description: 'CSS selector for the drop target (isolated)' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
+          source_ref: { type: 'string', description: 'Drag source ref from the latest visible snapshot' },
+          target_ref: { type: 'string', description: 'Drop target ref from the same visible snapshot' },
+          target_position: {
+            type: 'string',
+            enum: ['before', 'center', 'after'],
+            description: 'Vertical point within the target; before=upper, after=lower, default center',
+          },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'browser_fill',
       description: 'Fill by snapshot_id + ref on target=visible (lock required; password fields blocked), or by CSS selector on target=isolated.',
       parameters: {

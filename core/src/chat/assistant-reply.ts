@@ -50,7 +50,7 @@ export function appendAssistantReply(
     model: opts.model,
     mode: opts.mode,
     ...(opts.image_urls?.length ? { image_urls: opts.image_urls } : {}),
-    ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity.slice(-40) } : {}),
+    ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity } : {}),
     ...(opts.application_notice ? { application_notice: opts.application_notice } : {}),
   });
   return content;

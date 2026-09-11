@@ -19,6 +19,18 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | `1ab15d9` |
 | 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | `60fc95f` |
 | 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | `a660a15` (머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식) |
+| 12 | 2026-09-10-tool-call-batch-activity-grouping | 포팅 완료 | 50 | (본 배치) |
+| 13 | 2026-09-10-tool-activity-full-retention-batched-discovery | 포팅 완료 | 50 | (본 배치) |
+| 14 | 2026-09-10-tool-call-stop-and-continue | 포팅 완료 | 50 | (본 배치) |
+| 15 | 2026-09-10-intermediate-work-collapse | 포팅 완료 | 50 | (본 배치) |
+| 16 | 2026-09-10-project-root-document-collaboration | 포팅 완료(구조 차이로 조정) | 50 | (본 배치) |
+
+## cae3d31 + e17bc84 후보 포팅 (2026-09-11)
+
+- **툴콜 배치/전체 보존:** 한 모델 응답의 도구에 `activityGroupId`를 부여해 라이브 이벤트와 세션 복원에 유지한다. UI는 연속 동일 그룹을 `작업 N` 하나로 묶는다. 작업 출력 12,000자·긴 행 4,096자·도구 40개·타임라인 항목/세그먼트 절단을 제거했으며, ANSI/제어문자 정리와 비밀 마스킹은 유지한다. 초기 독립 read-only 탐색은 한 모델 응답에 묶도록 시스템 지침을 추가했다.
+- **중단 후 이어가기/통합 접기:** 그룹 헤더에서 실행 중인 취소 가능 하위 도구만 한 번에 중단한다. 부모 채팅 abort는 건드리지 않으며 개별 중지 버튼도 유지한다. 중간 응답·스트림·작업 그룹은 단일 `중간 추론 및 작업 로그`에 표시되고, 실행 중 펼침/완료 후 접힘 및 응답·작업·상태 요약을 제공한다.
+- **프로젝트 문서협업(조정):** 작업 루트가 있는 세션의 상위 `문서협업` 탭은 프로젝트 `.md`/`.markdown`을 원본으로 사용한다. SQLite에는 문서 ID/revision/hash/강조·참조 메타만 저장한다. 루트 이탈·절대/비-Markdown·링크/정션·NAS 쓰기를 거부하고 2MB/1,000개 한도를 둔다. 외부 변경은 hash revision으로 감지하며 사용자 초안 중 자동 덮어쓰지 않는다. 작업 루트 없는 세션은 기존 SQLite 협업 문서를 유지한다. 기존 Preview「문서」/AI 메모는 별도 표면으로 보존한다.
+- 검증: Core/UI TypeScript, UI 프로덕션 빌드, `verify-tool-activity` 9개, `verify-work-timeline` 8개, 실제 Chromium 그룹 UI/일괄 취소, `verify-project-documents`, 기존 `verify-documents`, 세션 작업 루트 회귀 검증.
 
 ## CQR_PA patch-candidates 정리 (2026-09-10)
 
@@ -95,7 +107,7 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 ## #6 unified-workflow-cancel (포팅 완료)
 - 개별 실행 중지(명세 §4·5·6)는 본체 `ToolActivityLog`에 이미 구현되어 있었음(`/fs/tool-execution/cancel`, `cancelSessionId`, `cancelRequested`, 연결 종료 후 running 유지). 남은 범위 = **응답↔작업 교차 타임라인 + 세션 저장/복원**.
 - 교차 타임라인 모델: `WorkTimelineItem = {kind:'response';text} | {kind:'tool';id}`.
-  - 순수 헬퍼 `core/src/sessions/work-timeline.ts` + 클라이언트 미러 `ui/workspace/src/lib/workTimeline.ts`: `pushResponseDelta`(직전 항목이 응답이면 이어붙이고, 도구 뒤면 새 응답 세그먼트), `pushToolMarker`(도착 위치에 도구 기록, 같은 id 재수신은 no-op → 재정렬 없음), `sanitizeWorkTimeline`(복원 검증, 빈 배열/누락은 undefined=레거시 폴백). 세그먼트 8,000자·항목 200개 bound.
+  - 순수 헬퍼 `core/src/sessions/work-timeline.ts` + 클라이언트 미러 `ui/workspace/src/lib/workTimeline.ts`: `pushResponseDelta`(직전 항목이 응답이면 이어붙이고, 도구 뒤면 새 응답 세그먼트), `pushToolMarker`(도착 위치에 도구 기록, 같은 id 재수신은 no-op → 재정렬 없음), `sanitizeWorkTimeline`(복원 검증, 빈 배열/누락은 undefined=레거시 폴백). 최초 포팅의 세그먼트 8,000자·항목 200개 bound는 #13 전체 보존 포팅에서 제거했다.
 - 서버 권위 순서: `SessionStore.pendingWorkTimeline`가 `appendAssistantThought`(응답 델타)·`appendToolActivity`(도구)에서 SSE 도착 순서로 누적 → 체크포인트 드래프트/`append`/`finalizeStoppedRun` 3개 저장 지점에서 assistant 메시지 `work_timeline`에 첨부. 메시지는 sqlite에 전체 JSON 저장되므로 별도 sqlite 매핑 없이 자동 영속·복원. `SessionMessage.work_timeline?`(core+UI 타입) 신설.
 - UI: `ChatTurn.workTimeline` 신설. 라이브 리듀서 `onThought`/`onToolActivity`가 클라이언트 헬퍼로 타임라인 유지, 세션 복원 매핑에서 `sanitizeWorkTimeline(m.work_timeline)`로 복원.
 - ChatPane 렌더: `turn.workTimeline?.length`면 2단계 패널(reasoning 묶음→도구 묶음) 대신 **평면 교차 타임라인**(응답 세그먼트=muted 텍스트, 도구=단일 `ToolActivityLog rows={[activity]}`)을 도착 순서대로 렌더, 최종 답변은 기존 위치(타임라인 뒤)에 `최종 응답`으로 유지. workTimeline 없는 **레거시 세션은 기존 reasoning details + 하단 ToolActivityLog로 폴백**.
@@ -108,11 +120,11 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
   - 스펙을 문자 그대로 적용하면 상위 `문서` 탭을 `DocumentPane`으로 교체 → `MarkdownDocument` 파일 문서 시스템 전체가 진입점을 잃는 회귀가 발생한다.
 - **조정 포팅(회귀 없이 CQR_PA 의도 최대 반영)**:
   - `WorkspaceMode`에 `codocument` 추가(`types.ts`).
-  - 상위 Preview 레지스트리에 `협업 문서`(`codocument`, `NotePencil`) 탭 추가 → `작업 / 문서 / 협업 문서 / 미디어 / 웹`. `document`(파일 문서)는 기존대로 유지.
+  - 상위 Preview 레지스트리에 `문서협업`(`codocument`, `NotePencil`) 탭 추가 → `작업 / 문서 / 문서협업 / 미디어 / 웹`. `document`(파일 문서)는 기존대로 유지.
   - `PreviewBody`가 `mode === 'codocument'`일 때 기존 `DocumentPane`을 상위 탭에서 직접 렌더(스크롤 컨테이너로 래핑).
   - `작업`(`WorkspaceObjectsPane`)에서 `협업 문서` 하위 탭과 `DocumentPane` 조건부 렌더 제거 → `최근 작업물 / 파일 / 할 일`만 남김. `WorkspaceObjectTabId`에서 `documents` 제거.
   - `normalizeWorkspaceMode` 허용 목록에 `codocument` 추가(레거시 `canvas`→`document` 보정 유지).
-- CQR_PA 수용 기준 대비: #2(중간 하위 탭 없이 상위에서 공동 편집기 열림)·#3(작업 화면에 협업 문서 하위 탭 없음)·#4(문서 기능 전부 상위에서 동일 동작)·#5·#6 충족. **#1(탭 4개 = 작업/문서/미디어/웹)만 미충족** — MY Agent는 CQR_PA에 없는 파일 문서 편집기를 별도로 갖고 있어 탭이 5개(협업 문서 추가)가 되며, 협업 탭 라벨도 `협업 문서`다. 이는 파일 문서 기능 회귀를 피하기 위한 불가피한 편차.
+- CQR_PA 수용 기준 대비: #2(중간 하위 탭 없이 상위에서 공동 편집기 열림)·#3(작업 화면에 협업 문서 하위 탭 없음)·#4(문서 기능 전부 상위에서 동일 동작)·#5·#6 충족. **#1(탭 4개 = 작업/문서/미디어/웹)만 미충족** — MY Agent는 CQR_PA에 없는 파일 문서 편집기를 별도로 갖고 있어 탭이 5개(문서협업 추가)다. 이는 파일 문서 기능 회귀를 피하기 위한 불가피한 편차.
 - 검증: `ui/workspace` `npm run build`(tsc -b + vite build) exit 0. ⚠️ 실제 WebView2에서의 탭 전환/문서 편집 상호작용은 앱 실행 검증 아님(정적·빌드 검증까지).
 
 ## #11 service-terminal-orchestration — (a) 범용 런너/스키마 골격만 포팅

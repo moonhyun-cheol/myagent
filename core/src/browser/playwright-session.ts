@@ -65,6 +65,7 @@ type PwPage = {
   evaluate<T>(fn: (arg: T) => unknown, arg: T): Promise<unknown>;
   screenshot(opts: { path: string; fullPage: boolean; timeout: number }): Promise<unknown>;
   click(selector: string, opts: { timeout: number }): Promise<void>;
+  dragAndDrop(source: string, target: string, opts: { timeout: number }): Promise<void>;
   fill(selector: string, value: string, opts: { timeout: number }): Promise<void>;
   selectOption(selector: string, value: string, opts: { timeout: number }): Promise<string[]>;
   press(selector: string, key: string, opts: { timeout: number }): Promise<void>;
@@ -280,6 +281,16 @@ export class PlaywrightSession {
     const selector = this.snapshotRefs.get(normalized);
     if (!selector) throw new Error('BROWSER_REF_NOT_FOUND');
     return this.click(selector);
+  }
+
+  async drag(sourceSelector: string, targetSelector: string): Promise<string> {
+    const source = sourceSelector.trim();
+    const target = targetSelector.trim();
+    if (!source || !target) throw new Error('BROWSER_DRAG_SELECTORS_REQUIRED');
+    const page = await this.ensureBrowser();
+    await this.raceAbort(page.dragAndDrop(source, target, { timeout: ACTION_TIMEOUT_MS }));
+    this.invalidateSnapshot();
+    return `Dragged selector: ${source} -> ${target}`;
   }
 
   async fill(selector: string, value: string): Promise<string> {

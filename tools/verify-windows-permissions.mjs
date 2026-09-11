@@ -83,6 +83,7 @@ try {
   assert.match(installer, /Test-IsElevated/);
   assert.match(installer, /Test-IsProtectedSystemFolder/);
   assert.match(installer, /Grant-CurrentUserModify/);
+  assert.match(installer, /Installed folder is not fully writable/);
   assert.match(installer, /Repair-CopiedTree/);
   assert.match(installer, /npm_config_cache/);
   assert.match(shellHost, /UseShellExecute = false/);

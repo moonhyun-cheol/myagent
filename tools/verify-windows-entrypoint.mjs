@@ -20,7 +20,7 @@ for (const marker of [
 
 const updaterProject = read('shell/CqrPa.Updater/CqrPa.Updater.csproj');
 for (const marker of [
-  '<OutputType>Exe</OutputType>',
+  '<OutputType>WinExe</OutputType>',
   '<RuntimeIdentifier>win-x64</RuntimeIdentifier>',
   '<SelfContained>true</SelfContained>',
   '<PublishSingleFile>true</PublishSingleFile>',
@@ -88,6 +88,8 @@ assert.match(installer, /Test-IsElevated/);
 assert.match(installer, /Test-IsProtectedSystemFolder/);
 assert.match(installer, /Test-IsShellDumpFolder/);
 assert.match(installer, /Grant-CurrentUserModify/);
+assert.match(installer, /Installed folder is not fully writable/);
+assert.match(installer, /data\\vault/);
 assert.match(installer, /npm_config_cache/);
 assert.match(installer, /cannot be inside the unzipped app folder/);
 assert.match(installer, /OptionalRuntimes/);
@@ -96,9 +98,12 @@ assert.match(installer, /Install-SelectedOptionalRuntimes/);
 assert.match(installer, /install-paths\.ps1/);
 
 const installPaths = read('tools/install/install-paths.ps1');
+assert.match(installPaths, /function Get-CurrentUserInstallPath/);
 assert.match(installPaths, /function Get-DefaultInstallPath/);
 assert.match(installPaths, /Join-Path \$sys \$name/);
-assert.match(installPaths, /\$env:PUBLIC/);
+assert.match(installPaths, /LocalApplicationData/);
+assert.doesNotMatch(installPaths, /\$env:PUBLIC/);
+assert.match(installPaths, /Move-Item -LiteralPath \$source -Destination \$moved/);
 assert.match(installPaths, /Get-ProductInstallFolderName/);
 
 const optionalCatalog = JSON.parse(read('core/config/defaults/optional-runtimes.json'));

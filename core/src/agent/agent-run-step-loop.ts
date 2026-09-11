@@ -460,6 +460,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     }
 
     const toolCalls = result.tool_calls.map((call) => normalizeToolCall(call as AgentToolCall));
+    const batchToolCtx = {
+      ...state.toolCtx,
+      activityGroupId: `model-tool-batch:${toolCalls[0]?.id ?? state.steps}`,
+    };
     if (state.toolProtocol === 'api' && toolCalls.length) {
       clearClientToolProtocol(state.protocolCacheKey);
     }
@@ -536,7 +540,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         parallelResults = runParallelToolCalls(
           runnable,
           parallelism,
-          (execCall) => executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx),
+          (execCall) => executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, batchToolCtx),
         ).then((rows) => new Map(rows.map((row) => [row.call.id, {
           output: row.output,
           durationMs: row.durationMs,
@@ -695,7 +699,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                   state.opts.workspaceRoot,
                   listCall,
                   state.guard,
-                  state.toolCtx,
+                  batchToolCtx,
                 );
                 const evidence = recordToolEvidence(state, listCall, listRes.output);
                 pushToolResultMessage(
@@ -745,7 +749,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                   state.opts.workspaceRoot,
                   readCall,
                   state.guard,
-                  state.toolCtx,
+                  batchToolCtx,
                 );
                 const evidence = recordToolEvidence(state, readCall, readRes.output);
                 pushToolResultMessage(
@@ -850,7 +854,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         const toolStarted = Date.now();
         state.toolCallCount += 1;
         noteFirstTool(state);
-        const execResult = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, state.toolCtx);
+        const execResult = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, batchToolCtx);
         output = execResult.output;
         followUpImage = execResult.followUpImage;
         durationMs = Date.now() - toolStarted;

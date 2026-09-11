@@ -36,6 +36,7 @@ const steps = [
   ['deploy-parity', () => runTool('verify-deploy-parity.mjs', verifyEnv)],
   ['nas', () => runTool('verify-no-nas-paths.mjs', verifyEnv)],
   ['delta-process-scope', () => runTool('verify-delta-process-scope.mjs', verifyEnv)],
+  ['initial-install-permissions', () => runTool('verify-initial-install-permissions.mjs', verifyEnv)],
   ['attachments', () => runTool('verify-attachments.mjs', verifyEnv)],
   ['models', () => runTool('verify-models.mjs', verifyEnv)],
   ['image-gen-retry', () => runTool('verify-image-gen-retry.mjs', verifyEnv)],

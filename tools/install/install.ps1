@@ -61,12 +61,8 @@ function Test-InstallFolderWritable([string]$folder) {
   try {
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
     Grant-CurrentUserModify $folder
-    $writeProbe = Join-Path $folder ".my-agent-install-probe-$PID.tmp"
-    [IO.File]::WriteAllText($writeProbe, 'probe')
-    Remove-Item -LiteralPath $writeProbe -Force
-    return $true
+    return (Test-InstallPathCandidateWritable $folder)
   } catch {
-    Remove-Item -LiteralPath (Join-Path $folder ".my-agent-install-probe-$PID.tmp") -Force -ErrorAction SilentlyContinue
     return $false
   }
 }
@@ -200,7 +196,8 @@ function Should-SkipRel([string]$rel) {
 }
 
 if (-not (Test-InstallFolderWritable $targetFull)) {
-  throw "ERROR: Install folder is not writable: $targetFull. Example: $defaultPath. Do not run as administrator."
+  $perUserPath = Get-CurrentUserInstallPath
+  throw "ERROR: Install folder does not allow create, rename, and delete for this Windows account: $targetFull. Use the recommended per-user folder: $perUserPath. Do not run as administrator."
 }
 
 $cacheRoot = Join-Path $targetFull 'tools\cache'
@@ -243,6 +240,11 @@ try {
 }
 Repair-CopiedTree $targetFull
 Grant-CurrentUserModify $targetFull
+foreach ($requiredWritable in @($targetFull, (Join-Path $targetFull 'data\vault'), (Join-Path $targetFull 'data\config'), (Join-Path $targetFull 'data\sessions'))) {
+  if (-not (Test-InstallPathCandidateWritable $requiredWritable)) {
+    throw "ERROR: Installed folder is not fully writable by this Windows account: $requiredWritable. Antivirus or inherited folder permissions may be blocking create, rename, or delete."
+  }
+}
 
 $bootstrapNode = Join-Path $targetFull 'tools\bootstrap-node-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNode) {

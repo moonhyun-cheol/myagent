@@ -39,21 +39,45 @@ internal sealed class UpdateTransaction
     public void Rollback()
     {
         WriteState("rolling_back");
+        var failures = new List<Exception>();
         foreach (var entry in _entries.Reverse())
         {
-            var destination = UpdateProtocol.ResolveUnder(_root, entry.Path);
-            if (entry.Existed)
+            try
             {
-                var backup = UpdateProtocol.ResolveUnder(_backupRoot, entry.Path);
-                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                File.Copy(backup, destination, overwrite: true);
+                var destination = UpdateProtocol.ResolveUnder(_root, entry.Path);
+                ClearReadOnly(destination);
+                if (entry.Existed)
+                {
+                    var backup = UpdateProtocol.ResolveUnder(_backupRoot, entry.Path);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                    File.Copy(backup, destination, overwrite: true);
+                }
+                else if (File.Exists(destination))
+                {
+                    File.Delete(destination);
+                }
             }
-            else if (File.Exists(destination))
+            catch (Exception error)
             {
-                File.Delete(destination);
+                failures.Add(new IOException($"Rollback failed for {entry.Path}: {error.Message}", error));
             }
         }
-        WriteState("rolled_back");
+        if (failures.Count == 0)
+        {
+            WriteState("rolled_back");
+            return;
+        }
+
+        try { WriteState("rollback_failed"); } catch { }
+        throw new AggregateException("One or more update files could not be restored.", failures);
+    }
+
+    private static void ClearReadOnly(string path)
+    {
+        if (!File.Exists(path)) return;
+        var attributes = File.GetAttributes(path);
+        if ((attributes & FileAttributes.ReadOnly) != 0)
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
     }
 
     private void WriteState(string state)
@@ -73,6 +97,38 @@ internal sealed class UpdateTransaction
 
 internal static class TransactionalInstaller
 {
+    public static void Preflight(string root, VerifiedUpdate update)
+    {
+        var fullRoot = Path.GetFullPath(root);
+        EnsureDirectoryIsNotReparsePoint(fullRoot);
+        EnsureDiskSpace(fullRoot, update);
+
+        var touchedPaths = update.Files.Select(file => file.Path)
+            .Concat(update.Deleted)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var probeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            FindNearestExistingDirectory(Path.Combine(fullRoot, "data", "backups"), fullRoot),
+        };
+
+        foreach (var relative in touchedPaths)
+        {
+            var destination = UpdateProtocol.ResolveUnder(fullRoot, relative);
+            EnsureDestinationChainIsSafe(fullRoot, destination);
+            probeDirectories.Add(FindNearestExistingDirectory(Path.GetDirectoryName(destination)!, fullRoot));
+            if (!File.Exists(destination)) continue;
+            using var stream = new FileStream(
+                destination,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+        }
+
+        foreach (var directory in probeDirectories)
+            ProbeDirectoryMutation(directory);
+    }
+
     public static UpdateTransaction Apply(string root, VerifiedUpdate update)
     {
         var fullRoot = Path.GetFullPath(root);
@@ -119,6 +175,7 @@ internal static class TransactionalInstaller
             foreach (var relative in update.Deleted)
             {
                 var destination = UpdateProtocol.ResolveUnder(fullRoot, relative);
+                ClearReadOnly(destination);
                 if (File.Exists(destination)) File.Delete(destination);
             }
 
@@ -127,6 +184,7 @@ internal static class TransactionalInstaller
                 var source = UpdateProtocol.ResolveUnder(update.StageRoot, file.Path);
                 var destination = UpdateProtocol.ResolveUnder(fullRoot, file.Path);
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                ClearReadOnly(destination);
                 var temporary = $"{destination}.cqr-update-{Guid.NewGuid():N}.tmp";
                 try
                 {
@@ -165,10 +223,78 @@ internal static class TransactionalInstaller
                 }, new JsonSerializerOptions { WriteIndented = true }));
             return transaction;
         }
+        catch (Exception applyError)
+        {
+            try
+            {
+                transaction.Rollback();
+            }
+            catch (Exception rollbackError)
+            {
+                throw new AggregateException(
+                    "Update apply failed and rollback was incomplete.",
+                    applyError,
+                    rollbackError);
+            }
+            throw;
+        }
+    }
+
+    private static void ClearReadOnly(string path)
+    {
+        if (!File.Exists(path)) return;
+        var attributes = File.GetAttributes(path);
+        if ((attributes & FileAttributes.ReadOnly) != 0)
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+    }
+
+    private static string FindNearestExistingDirectory(string candidate, string root)
+    {
+        var current = Path.GetFullPath(candidate);
+        while (!Directory.Exists(current))
+        {
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrWhiteSpace(parent)
+                || !parent.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                return root;
+            current = parent;
+        }
+        return current;
+    }
+
+    private static void ProbeDirectoryMutation(string directory)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        var created = Path.Combine(directory, $".cqr-update-permission-{token}.tmp");
+        var moved = $"{created}.moved";
+        try
+        {
+            File.WriteAllText(created, "permission-check");
+            File.Move(created, moved);
+            File.Delete(moved);
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            throw new UnauthorizedAccessException(
+                $"Update permission check failed for directory: {directory}",
+                error);
+        }
+        finally
+        {
+            TryDeleteProbe(created);
+            TryDeleteProbe(moved);
+        }
+    }
+
+    private static void TryDeleteProbe(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
         catch
         {
-            transaction.Rollback();
-            throw;
+            // The original permission error is more useful than cleanup noise.
         }
     }
 

@@ -16,7 +16,7 @@ const [definitions, executor, shellAutomation, shellTabs, shellClient, workspace
   read('ui/workspace/src/components/BrowserPane.tsx'),
 ]);
 
-for (const name of ['browser_targets', 'browser_lock', 'browser_unlock', 'browser_snapshot']) {
+for (const name of ['browser_targets', 'browser_lock', 'browser_unlock', 'browser_snapshot', 'browser_drag']) {
   assert.match(definitions, new RegExp(`name: '${name}'`), `${name} must be in the builtin browser tool catalog`);
 }
 assert.match(definitions, /enum: \['visible', 'isolated'\]/, 'browser tools must expose explicit visible/isolated targets');
@@ -27,6 +27,8 @@ assert.match(executor, /tab\.control\.release/, 'releasing a lease must clear sh
 assert.match(shellAutomation, /Accessibility\.getFullAXTree/, 'visible snapshot must use the accessibility tree');
 assert.match(shellAutomation, /STALE_BROWSER_REF/, 'stale snapshot refs must be rejected');
 assert.match(shellAutomation, /PASSWORD_FIELD_BLOCKED/, 'password filling must be blocked');
+assert.match(shellAutomation, /Input\.dispatchMouseEvent/, 'visible drag must dispatch trusted CDP mouse input');
+assert.match(shellAutomation, /"drag" => await AutomateBrowserDragAsync/, 'shell must route visible drag commands');
 assert.match(shellAutomation, /VISIBLE_BROWSER_CONTROL_TAKEN_OVER/, 'automation must stop after user takeover');
 assert.match(shellTabs, /VISIBLE_BROWSER_TAB_CONTROLLED/, 'controlled tabs must be protected from closing');
 assert.match(shellTabs, /returnTabId = _browserReturnTabId/, 'shell state must retain the observation return tab');

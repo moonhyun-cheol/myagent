@@ -1,4 +1,5 @@
 import type { AttachmentService } from './attachment-service.js';
+import type { SessionMessage } from '../sessions/types.js';
 import { extractDocxText } from './docx-extract.js';
 import { extractPdfText, extractPdfTextLegacy } from './pdf-extract.js';
 import { mimeFromFilename } from './types.js';
@@ -23,6 +24,39 @@ const MARKITDOWN_ATTACHMENT_EXTENSIONS = new Set([
 export function isMarkitdownAttachment(name: string): boolean {
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
   return MARKITDOWN_ATTACHMENT_EXTENSIONS.has(ext);
+}
+
+function isVisualAttachment(name: string, mime: string): boolean {
+  const normalizedMime = mime.trim().toLowerCase();
+  if (normalizedMime.startsWith('image/') || normalizedMime.startsWith('video/')) return true;
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+  return IMAGE_EXTENSIONS.has(ext) || isVideoAttachment(name, mime);
+}
+
+/**
+ * Keep the current upload authoritative. When a follow-up turn has no new
+ * upload, restore the most recent user-provided document from durable session
+ * history. Historical images/videos stay catalog-only to avoid silently
+ * resending large vision payloads on every turn.
+ */
+export function resolveAttachmentContextIds(
+  requestedIds: string[],
+  messages: Array<Pick<SessionMessage, 'role' | 'attachments'>>,
+  maxFiles = 6,
+): string[] {
+  const current = [...new Set(requestedIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (current.length) return current.slice(0, Math.max(1, maxFiles));
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== 'user' || !message.attachments?.length) continue;
+    return [...new Set(message.attachments
+      .filter((attachment) => !isVisualAttachment(attachment.name, attachment.mime))
+      .map((attachment) => attachment.id.trim())
+      .filter(Boolean))]
+      .slice(0, Math.max(1, maxFiles));
+  }
+  return [];
 }
 
 function extractMarkitdownAttachment(
@@ -122,7 +156,14 @@ export async function buildAttachmentContext(
       text = `[첨부: ${rec.original_name}, ${mime}, ${rec.size_bytes} bytes]`;
     }
 
-    const chunk = `### ${rec.original_name}\n${text}\n`;
+    const sourceNote = [
+      '[대화 첨부 원본 — 작업 폴더 밖의 전용 첨부 저장소]',
+      `attachment_id: ${rec.id}`,
+      `stored_path: ${rec.stored_path}`,
+      '이 파일은 이미 업로드되어 아래 내용으로 읽혔습니다. 워크스페이스 검색 결과에 없다는 이유로 다시 요청하지 마세요.',
+      `원본 재변환이 필요하면 markitdown_convert에 위 stored_path 절대경로를 사용하세요.`,
+    ].join('\n');
+    const chunk = `### ${rec.original_name}\n${sourceNote}\n${text}\n`;
     if (total + chunk.length > maxChars) {
       parts.push(chunk.slice(0, maxChars - total));
       break;

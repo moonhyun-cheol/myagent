@@ -10,6 +10,9 @@ namespace CqrPa.Updater;
 internal sealed class UpdateRunner
 {
     private StreamWriter? _log;
+    private string? _logPath;
+
+    public string LastFailureDetail { get; private set; } = "업데이트 로그를 확인해 주세요.";
 
     public int Run(string[] args, Action<string, string?>? reportStatus = null)
     {
@@ -60,13 +63,19 @@ internal sealed class UpdateRunner
                 if (current.Sequence < update.MinimumSupportedSequence)
                     throw new InvalidOperationException("Installed version is too old for this direct update.");
 
-                Status(reportStatus, "MY Agent 종료 중…", "실행 중인 앱을 안전하게 종료합니다.");
-                ProductProcessStop.StopAll(root, parentPid, Log);
-                Status(reportStatus, "업데이트 적용 중…", "파일을 교체하고 있습니다.");
-                var transaction = TransactionalInstaller.Apply(root, update);
+                Status(reportStatus, "설치 권한 확인 중…", "앱을 종료하기 전에 업데이트 가능 여부를 확인합니다.");
+                TransactionalInstaller.Preflight(root, update);
+
+                UpdateTransaction? transaction = null;
                 Process? restarted = null;
+                var restartRequired = false;
                 try
                 {
+                    restartRequired = true;
+                    Status(reportStatus, "MY Agent 종료 중…", "실행 중인 앱을 안전하게 종료합니다.");
+                    ProductProcessStop.StopAll(root, parentPid, Log);
+                    Status(reportStatus, "업데이트 적용 중…", "파일을 교체하고 있습니다.");
+                    transaction = TransactionalInstaller.Apply(root, update);
                     Status(reportStatus, "앱 다시 시작 중…", "MY Agent를 실행합니다.");
                     restarted = StartProduct(restartExe, root);
                     Status(reportStatus, "시작 확인 중…", "업데이트가 정상 적용됐는지 확인합니다.");
@@ -82,20 +91,43 @@ internal sealed class UpdateRunner
                     Status(reportStatus, "업데이트가 완료되었습니다.", "MY Agent가 다시 시작되었습니다.");
                     return 0;
                 }
-                catch
+                catch (Exception updateError)
                 {
                     TryStop(restarted);
-                    Status(reportStatus, "업데이트를 되돌리는 중…");
-                    transaction.Rollback();
-                    Log("Update rolled back.");
+                    var recoveryErrors = new List<Exception>();
+                    if (transaction is not null)
+                    {
+                        Status(reportStatus, "업데이트를 되돌리는 중…");
+                        try
+                        {
+                            transaction.Rollback();
+                            Log("Update rolled back.");
+                        }
+                        catch (Exception rollbackError)
+                        {
+                            recoveryErrors.Add(rollbackError);
+                            Log($"Rollback failed: {rollbackError}");
+                        }
+                    }
                     try
                     {
-                        StartProduct(restartExe, root);
-                        Log("Previous application restarted.");
+                        if (restartRequired)
+                        {
+                            StartProduct(restartExe, root);
+                            Log("Previous application restart attempted.");
+                        }
                     }
                     catch (Exception restartError)
                     {
+                        recoveryErrors.Add(restartError);
                         Log($"Previous application restart failed: {restartError.Message}");
+                    }
+                    if (recoveryErrors.Count > 0)
+                    {
+                        recoveryErrors.Insert(0, updateError);
+                        throw new AggregateException(
+                            "Update failed and one or more recovery steps were incomplete.",
+                            recoveryErrors);
                     }
                     throw;
                 }
@@ -110,6 +142,8 @@ internal sealed class UpdateRunner
         catch (Exception error)
         {
             Log($"FAILED: {error}");
+            LastFailureDetail = DescribeFailure(error);
+            Status(reportStatus, "업데이트에 실패했습니다.", LastFailureDetail);
             Console.Error.WriteLine($"MY Agent update failed: {error.Message}");
             return 1;
         }
@@ -119,9 +153,42 @@ internal sealed class UpdateRunner
         }
     }
 
+    private string DescribeFailure(Exception error)
+    {
+        var logHint = string.IsNullOrWhiteSpace(_logPath)
+            ? "data\\logs\\update-*.log"
+            : _logPath;
+        if (ContainsException<UnauthorizedAccessException>(error))
+        {
+            return "설치 폴더에 파일을 교체할 권한이 없습니다. "
+                + $"현재 사용자에게 폴더 수정 권한을 부여한 뒤 다시 시도하세요. 로그: {logHint}";
+        }
+        if (ContainsException<IOException>(error))
+        {
+            return "설치 파일이 다른 프로그램이나 보안 소프트웨어에 의해 사용 중이거나 저장 공간이 부족합니다. "
+                + $"잠시 후 다시 시도하세요. 로그: {logHint}";
+        }
+        return $"이전 버전 복구를 시도했습니다. 자세한 내용: {logHint}";
+    }
+
+    private static bool ContainsException<T>(Exception error) where T : Exception
+    {
+        if (error is T) return true;
+        if (error is AggregateException aggregate)
+            return aggregate.InnerExceptions.Any(ContainsException<T>);
+        return error.InnerException is not null && ContainsException<T>(error.InnerException);
+    }
+
     private void Status(Action<string, string?>? reportStatus, string status, string? detail = null)
     {
-        reportStatus?.Invoke(status, detail);
+        try
+        {
+            reportStatus?.Invoke(status, detail);
+        }
+        catch (Exception statusError)
+        {
+            Log($"Status callback failed: {statusError.Message}");
+        }
         Log(detail is null ? status : $"{status} {detail}");
     }
 
@@ -191,6 +258,7 @@ internal sealed class UpdateRunner
             var logPath = Path.Combine(
                 logDirectory,
                 $"update-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.log");
+            _logPath = logPath;
             _log = new StreamWriter(
                 new FileStream(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read),
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))

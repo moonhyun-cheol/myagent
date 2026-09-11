@@ -1813,7 +1813,7 @@ export async function streamChat(
         if (typeof row.id === 'string' && typeof row.tool === 'string' && typeof row.output === 'string'
           && typeof row.target === 'string' && Number.isFinite(row.startedAt)
           && ['running', 'success', 'failed', 'cancelled'].includes(row.state)) {
-          handlers.onToolActivity?.({ ...row, output: row.output.slice(-12_000), target: row.target.slice(0, 600) });
+          handlers.onToolActivity?.({ ...row, target: row.target.slice(0, 600) });
         }
       }
       else if (type === 'execution_policy' && evt.requested && evt.effective) {

@@ -350,7 +350,6 @@ export async function runWorkspaceCodeAgent(opts: {
     onThought: callbacks?.onThought,
     onToolActivity: (row) => {
       activities.set(row.id, row);
-      if (activities.size > 40) activities.delete(activities.keys().next().value!);
       callbacks?.onToolActivity?.(row);
     },
     onCode: callbacks?.onCode,

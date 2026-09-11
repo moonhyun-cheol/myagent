@@ -1026,9 +1026,13 @@ export function ChatPane() {
         return;
       }
       const files = filesFromDataTransfer(e.dataTransfer);
+      if (!files.length) {
+        flashPasteHint('드롭한 파일을 읽지 못했습니다. 다시 놓거나 첨부 버튼을 사용해 주세요.');
+        return;
+      }
       void ingestFiles(files);
     },
-    [attachAssetToComposer, ingestFiles],
+    [attachAssetToComposer, flashPasteHint, ingestFiles],
   );
 
   const attachDisabled = pasting;
@@ -1066,10 +1070,10 @@ export function ChatPane() {
   return (
     <section
       className="relative flex h-full flex-col bg-ink"
-      onDragEnter={onComposerDragEnter}
-      onDragLeave={onComposerDragLeave}
-      onDragOver={onComposerDragOver}
-      onDrop={onComposerDrop}
+      onDragEnterCapture={onComposerDragEnter}
+      onDragLeaveCapture={onComposerDragLeave}
+      onDragOverCapture={onComposerDragOver}
+      onDropCapture={onComposerDrop}
     >
       <SessionAttachmentGallery key={activeSessionId ?? 'none'} sessionId={activeSessionId}
         onOpen={(url, name) => openImagePreview({ src: url, title: name, prompt: '' })}
@@ -1430,78 +1434,14 @@ export function ChatPane() {
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
-                {turn.role === 'assistant' && turn.workTimeline?.length ? (
-                  <details
-                    className="group mb-3 border-b border-line/70 pb-3"
-                    open={busy && !turn.completedAt}
-                    data-work-timeline
-                  >
-                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
-                      <span>작업 로그</span>
-                      <CaretDown
-                        size={13}
-                        className="transition-transform duration-150 group-open:rotate-180"
-                        aria-hidden="true"
-                      />
-                    </summary>
-                    <div className="mt-3 space-y-2">
-                      {turn.workTimeline.map((item, idx) => {
-                        if (item.kind === 'response') {
-                          return item.text.trim() ? (
-                            <div
-                              key={`wt-r-${idx}`}
-                              className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] border-l border-line/70 pl-3 text-[13px] leading-relaxed text-text/75"
-                            >
-                              {item.text.trim()}
-                            </div>
-                          ) : null;
-                        }
-                        const activity = turn.toolActivity?.find((a) => a.id === item.id);
-                        return activity ? (
-                          <ToolActivityLog
-                            key={`wt-t-${item.id}`}
-                            rows={[activity]}
-                            live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((it) => it.role === 'assistant')?.id}
-                          />
-                        ) : null;
-                      })}
-                    </div>
-                  </details>
-                ) : turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim()) ? (
-                  <details
-                    className="group mb-3 border-b border-line/70 pb-3"
-                    open={busy && !turn.completedAt}
-                  >
-                    <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
-                      <span>모델 응답</span>
-                      <CaretDown
-                        size={13}
-                        className="transition-transform duration-150 group-open:rotate-180"
-                        aria-hidden="true"
-                      />
-                    </summary>
-                    <div className="mt-3 space-y-3 border-l border-line/70 pl-3 text-[13px] leading-relaxed text-muted">
-                      {turn.thought?.trim() ? (
-                        <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-text/75">
-                          {turn.thought.trim()}
-                        </div>
-                      ) : null}
-                    </div>
-                  </details>
-                ) : null}
-                {turn.streamPreview?.trim() ? (
-                  <details
-                    className="mb-3 rounded-xl border border-dashed border-line/70 bg-ink/25 px-3 py-2"
-                    open={busy && turn.role === 'assistant'}
-                  >
-                    <summary className="cursor-pointer select-none text-[11px] tracking-[0.04em] text-muted">
-                      스트림 미리보기 · 공식 답 아님
-                      {busy && turn.role === 'assistant' ? ' · 생성 중' : ''}
-                    </summary>
-                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-[11px] leading-relaxed text-muted/90">
-                      {turn.streamPreview}
-                    </pre>
-                  </details>
+                {turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim() || turn.toolActivity?.length) ? (
+                  <ToolActivityLog
+                    rows={turn.toolActivity ?? []}
+                    timeline={turn.workTimeline}
+                    modelResponse={turn.thought}
+                    streamPreview={turn.streamPreview}
+                    live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id}
+                  />
                 ) : null}
                 {turn.attachmentNames?.length ? (
                   <div className="mb-2 flex flex-wrap gap-1.5">
@@ -1552,9 +1492,6 @@ export function ChatPane() {
                       </button>
                     ))}
                   </div>
-                ) : null}
-                {turn.role === 'assistant' && !turn.workTimeline?.length && turn.toolActivity?.length ? (
-                  <ToolActivityLog rows={turn.toolActivity} live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id} />
                 ) : null}
                 {!turn.text || turn.text === '작업 중…'
                   ? busy && turn.role === 'assistant' && !turn.imageUrls?.length

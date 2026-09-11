@@ -281,7 +281,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
             : undefined)
         : undefined,
       applicationNotice: m.role === 'assistant' ? m.application_notice : undefined,
-      toolActivity: m.role === 'assistant' ? m.tool_activity?.slice(-40) : undefined,
+      toolActivity: m.role === 'assistant' ? m.tool_activity : undefined,
       workTimeline: m.role === 'assistant' ? sanitizeWorkTimeline(m.work_timeline) : undefined,
       attachmentNames: m.attachments?.map((a) => a.name),
       imageUrls: [...urls, ...(m.attachments ?? []).filter((a) => a.mime.startsWith('image/')).map((a) => a.url)],
@@ -936,7 +936,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               if (index < 0) rows.push(row);
               else if (rows[index].updatedAt <= row.updatedAt) rows[index] = row;
               patchAssistant({
-                toolActivity: rows.slice(-40),
+                toolActivity: rows,
                 workTimeline: pushToolMarker(turn?.workTimeline ?? [], row.id),
               });
             },

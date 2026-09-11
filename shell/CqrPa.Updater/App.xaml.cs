@@ -39,12 +39,11 @@ public partial class App : Application
             return;
         }
 
-        window.SetStatus("업데이트에 실패했습니다.", "data\\logs\\update-*.log 파일을 확인해 주세요.");
+        window.SetStatus("업데이트에 실패했습니다.", runner.LastFailureDetail);
         window.AllowClose();
         MessageBox.Show(
             window,
-            "업데이트를 적용하지 못했습니다. MY Agent는 이전 버전으로 복구를 시도했습니다.\n\n"
-            + "자세한 내용은 data\\logs\\update-*.log 를 확인해 주세요.",
+            "업데이트를 적용하지 못했습니다.\n\n" + runner.LastFailureDetail,
             "MY Agent 업데이트",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
