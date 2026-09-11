@@ -3,20 +3,20 @@
   "document": {
     "schema": "my-agent-launcher-feed/v1",
     "kind": "work-kit-launcher",
-    "update_sequence": 4,
+    "update_sequence": 5,
     "minimum_supported_sequence": 1,
-    "version": "1.0.9",
+    "version": "1.0.10",
     "channel": "stable",
-    "published_at": "2026-09-04T07:40:45.388Z",
+    "published_at": "2026-09-11T00:59:52.100Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "launcher-update-4",
-      "name": "WorkKitLauncher-v1.0.9-update-4.zip",
-      "size": 66673786,
-      "sha256": "378211c0fe521ec8a962e0778e2ff26d86ab427e854ff02aa4c7d37552fdf4f3"
+      "release_tag": "launcher-update-5",
+      "name": "WorkKitLauncher-v1.0.10-update-5.zip",
+      "size": 66674867,
+      "sha256": "6f7c918524ac7ded8d47ed3f4f200d1a026ae9fade166a6b21bc160ca3c28dd8"
     },
-    "payload_manifest_sha256": "0f0d5cb8aea07e176e21fc7ee0a19de321a86a1920fe88860fa4fd51bcd14725",
-    "release_notes": "Org skill routing (org:* modes), history isolation for concept RA, and ChatPane organization skill picker fixes."
+    "payload_manifest_sha256": "7f7f571566caf20f677f5f664ca3b0ecf7f40ae3b01379511bc22729a72ad665",
+    "release_notes": "Adds work-kit apply/unapply controls, organization Feature status badges, and Feature activation feedback in MY Agent 관리자."
   },
-  "signature": "ZKP1rcKbcyHImHWDDV3mWnKPjJ6ktibl4eZQW9gQal028QxdZqgBinrL3r5LgAqCohdHCKUDneikQ6Ud4NoGoo22CZLVz5UlDY6s5LhT4+GprmJxUy75rvLS/NnQedwI73mUww0N0Wv0G5DkSaozBHMEYZlPC1PcovAcl8eDizo6f9l4zPFh5PuiIijMacEZki6QhWHucBfY7o9BUuCxQA4dnBHhY0mTnOptOgf7FtsuuZnbGl8w6QFDGvxKXdCxFHbpL17y8FW2RBvsQlGIaepzK3cf+5eflZDHdNaosHboAksTX6iF1VucNw7u5wGxpCxH18zyUD4hrUrTeTY+cY7XCgf210dxwbUN16ZlKq2kMDyRSysRZYtpNQnRUPeHwc3s5a+oYFT+o6AEK8AVmq4+fkARKYPB7OVmONp2aCiEwHb7XCiTvBvtbEAXTyO4JtNFS44DxSVWhizoveHrPbPxiINe6F4NgFSz4itnquNZMeBM6Oyxu80BCoSkhvZk"
+  "signature": "AwijTb0zXL6t7cJ/sCLV7Ni03+pNsXzQmegSYCfNo2NSxOBSy0QSkg12CtFaTGPWDVd/c40BugrahOfzy/NNaEu7zAzARgFRn7hReaBx/EEGzShMKr0BfufNj7CuRXJAkTuJLrl/joB0EcPSs4G7LD/wmOz2ddSW789kz9WmSkN+9DiXdoaHB6H1OnQ71rXQwZr07OdtVQJMfCbm3CcmL5JCp6nvCCCLiVRHG23pGSv86od4XM9X4uxY+6QcnlDZFENZUQW34uCkU9SL+bInYdqRAx+eLFK4bb0olL5U3dHYKks6qfAVOtZ6crBNPQXWbetRlw/y9/LT9fhux2oLOsDv2+k8AqZvM3HSXJd17K4FZix4rjHUiSA0a6InglheiZEVwZrYCqokb3kirZEHCHyCwiX4AH99BskpwjMkHC9FGQQYa77EbeeGX+aGZCCOXim8ZluO5foGefVQin3Jd88DdUN3Ao8wD3852PB9WzDrJI2GAZmYsrBzfDbl6SeF"
 }
