@@ -19,11 +19,11 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 | 8 | 2026-09-09-scheduler-conversation-window-usability | 포팅 완료 | 47 | `1ab15d9` |
 | 10 | 2026-09-09-document-top-level-tab | 포팅 완료(구조 차이로 조정) | 48 | `60fc95f` |
 | 11 | 2026-09-10-service-terminal-orchestration | (a) 골격 포팅 완료 | 48 | `a660a15` (머신 종속 원본 → 범용 스키마 주도 런너 골격만 이식) |
-| 12 | 2026-09-10-tool-call-batch-activity-grouping | 포팅 완료 | 50 | (본 배치) |
-| 13 | 2026-09-10-tool-activity-full-retention-batched-discovery | 포팅 완료 | 50 | (본 배치) |
-| 14 | 2026-09-10-tool-call-stop-and-continue | 포팅 완료 | 50 | (본 배치) |
-| 15 | 2026-09-10-intermediate-work-collapse | 포팅 완료 | 50 | (본 배치) |
-| 16 | 2026-09-10-project-root-document-collaboration | 포팅 완료(구조 차이로 조정) | 50 | (본 배치) |
+| 12 | 2026-09-10-tool-call-batch-activity-grouping | 포팅 완료 | 50 | `6348eb3` |
+| 13 | 2026-09-10-tool-activity-full-retention-batched-discovery | 포팅 완료 | 50 | `6348eb3` |
+| 14 | 2026-09-10-tool-call-stop-and-continue | 포팅 완료 | 50 | `6348eb3` |
+| 15 | 2026-09-10-intermediate-work-collapse | 포팅 완료 | 50 | `6348eb3` |
+| 16 | 2026-09-10-project-root-document-collaboration | 포팅 완료(구조 차이로 조정) | 50 | `6348eb3` |
 
 ## cae3d31 + e17bc84 후보 포팅 (2026-09-11)
 
