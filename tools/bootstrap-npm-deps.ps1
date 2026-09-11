@@ -5,12 +5,19 @@
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Root,
-  [switch]$SkipIfExists
+  [switch]$SkipIfExists,
+  [int]$NpmTimeoutSec = 900
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
 . (Join-Path $PSScriptRoot 'cqr-native.ps1')
+
+# Permission preflight: a blocked node_modules (antivirus / Controlled Folder
+# Access / inherited ACL) should fail fast, not stall mid-install.
+if (-not (Test-CqrPathWritable (Join-Path $Root 'node_modules'))) {
+  Write-Error "bootstrap-npm-deps: no write permission for '$(Join-Path $Root 'node_modules')'. Antivirus, Windows Controlled Folder Access, or inherited folder permissions are blocking create/delete. Allow this folder (or reinstall MY Agent to a per-user folder) and retry."
+}
 
 $mcpPkg = Join-Path $Root 'node_modules\@modelcontextprotocol\sdk\package.json'
 if ($SkipIfExists -and (Test-Path -LiteralPath $mcpPkg)) {
@@ -56,10 +63,13 @@ Push-Location $Root
 try {
   if ($npmViaNode) {
     Write-Host "bootstrap-npm-deps: installing production dependencies (node=$nodeExe npm-cli)"
-    $code = Invoke-CqrNative -FilePath $nodeExe -ArgumentList @($npmCli, 'install', '--omit=dev', '--no-fund', '--no-audit')
+    $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList @($npmCli, 'install', '--omit=dev', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
   } else {
     Write-Host "bootstrap-npm-deps: installing production dependencies (npm=$npmCmd)"
-    $code = Invoke-CqrNative -FilePath $npmCmd -ArgumentList @('install', '--omit=dev', '--no-fund', '--no-audit')
+    $code = Invoke-CqrNativeTimed -FilePath $npmCmd -ArgumentList @('install', '--omit=dev', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
+  }
+  if ($code -eq 124) {
+    Write-Error "bootstrap-npm-deps: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."
   }
   if ($code -ne 0) { exit $code }
 

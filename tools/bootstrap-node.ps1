@@ -6,10 +6,12 @@
 param(
   [Parameter(Mandatory = $true)][string]$Dest,
   [string]$Version = $env:CQR_NODE_VERSION,
-  [switch]$SkipIfExists
+  [switch]$SkipIfExists,
+  [int]$DownloadTimeoutSec = 900
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'cqr-native.ps1')
 
 if (-not $Version) { $Version = '22.15.0' }
 
@@ -22,13 +24,28 @@ if ($SkipIfExists -and (Test-Path -LiteralPath $nodeExe)) {
 $cacheDir = Join-Path $PSScriptRoot 'cache'
 New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
 
+# Permission preflight: fail fast if the destination or cache is blocked
+# (antivirus / Controlled Folder Access / inherited ACL) instead of stalling.
+$destParent = Split-Path -Parent $Dest
+foreach ($needWritable in @($destParent, $cacheDir)) {
+  if ($needWritable -and -not (Test-CqrPathWritable $needWritable)) {
+    Write-Error "bootstrap-node: no write permission for '$needWritable'. Antivirus, Windows Controlled Folder Access, or inherited folder permissions are blocking create/delete. Allow this folder (or reinstall MY Agent to a per-user folder) and retry."
+  }
+}
+
 $zipName = "node-v$Version-win-x64.zip"
 $zipPath = Join-Path $cacheDir $zipName
 $url = "https://nodejs.org/dist/v$Version/$zipName"
 
 if (-not (Test-Path -LiteralPath $zipPath)) {
   Write-Host "bootstrap-node: downloading $url"
-  Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+  $dlCode = Invoke-CqrDownload -Uri $url -OutFile $zipPath -TimeoutSec $DownloadTimeoutSec
+  if ($dlCode -eq 124) {
+    Write-Error "bootstrap-node: download timed out after ${DownloadTimeoutSec}s and was aborted. Check internet/proxy/antivirus and retry."
+  }
+  if ($dlCode -ne 0) {
+    Write-Error "bootstrap-node: download failed ($url). Check internet/proxy and retry."
+  }
 }
 
 $temp = Join-Path $env:TEMP ("cqr-node-" + [guid]::NewGuid().ToString('n'))

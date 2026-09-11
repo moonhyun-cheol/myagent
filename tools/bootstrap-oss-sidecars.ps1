@@ -7,11 +7,15 @@ param(
   [Parameter(Mandatory = $true)][string]$Root,
   [switch]$SkipIfExists,
   [switch]$SkipAstGrep,
-  [string]$AstGrepVersion = '0.45.0'
+  [string]$AstGrepVersion = '0.45.0',
+  [int]$PipTimeoutSec = 900,
+  [int]$NpmTimeoutSec = 900,
+  [int]$DownloadTimeoutSec = 600
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
+. (Join-Path $PSScriptRoot 'cqr-native.ps1')
 $ossRoot = Join-Path $Root 'runtime\oss-sidecars'
 $venvDir = Join-Path $ossRoot 'venv'
 $venvPy = Join-Path $venvDir 'Scripts\python.exe'
@@ -84,17 +88,19 @@ if (-not $py) {
   try {
     if (-not (Test-Path -LiteralPath $venvPy)) {
       Write-Host "bootstrap-oss-sidecars: creating venv ($py)"
-      & $py -m venv $venvDir
-      if ($LASTEXITCODE -ne 0) { throw "venv exit $LASTEXITCODE" }
+      $vcode = Invoke-CqrNativeTimed -FilePath $py -ArgumentList @('-m', 'venv', $venvDir) -TimeoutSec 300
+      if ($vcode -ne 0) { throw "venv exit $vcode" }
     }
     Write-Host 'bootstrap-oss-sidecars: pip install markitdown (internet)'
-    & $venvPy -m pip install --upgrade pip | Out-Host
+    $pcode = Invoke-CqrNativeTimed -FilePath $venvPy -ArgumentList @('-m', 'pip', 'install', '--upgrade', 'pip') -TimeoutSec $PipTimeoutSec
+    if ($pcode -eq 124) { throw "pip upgrade timed out after ${PipTimeoutSec}s (check internet/proxy)" }
     if (Test-Path -LiteralPath $req) {
-      & $venvPy -m pip install -r $req | Out-Host
+      $pcode = Invoke-CqrNativeTimed -FilePath $venvPy -ArgumentList @('-m', 'pip', 'install', '-r', $req) -TimeoutSec $PipTimeoutSec
     } else {
-      & $venvPy -m pip install 'markitdown[pptx,xlsx,xls,outlook]>=0.1.0' | Out-Host
+      $pcode = Invoke-CqrNativeTimed -FilePath $venvPy -ArgumentList @('-m', 'pip', 'install', 'markitdown[pptx,xlsx,xls,outlook]>=0.1.0') -TimeoutSec $PipTimeoutSec
     }
-    if ($LASTEXITCODE -ne 0) { throw "pip exit $LASTEXITCODE" }
+    if ($pcode -eq 124) { throw "pip install timed out after ${PipTimeoutSec}s (check internet/proxy)" }
+    if ($pcode -ne 0) { throw "pip exit $pcode" }
   } catch {
     $warnings.Add("Python sidecars: $($_.Exception.Message)")
   }
@@ -110,13 +116,9 @@ if (-not $npm) {
   try {
     Copy-Item -LiteralPath $pkgTemplate -Destination (Join-Path $ossRoot 'package.json') -Force
     Write-Host 'bootstrap-oss-sidecars: npm install repomix (internet)'
-    Push-Location $ossRoot
-    try {
-      & $npm install --no-fund --no-audit | Out-Host
-      if ($LASTEXITCODE -ne 0) { throw "npm exit $LASTEXITCODE" }
-    } finally {
-      Pop-Location
-    }
+    $ncode = Invoke-CqrNativeTimed -FilePath $npm -ArgumentList @('install', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec -WorkingDirectory $ossRoot
+    if ($ncode -eq 124) { throw "npm install timed out after ${NpmTimeoutSec}s (check internet/proxy)" }
+    if ($ncode -ne 0) { throw "npm exit $ncode" }
   } catch {
     $warnings.Add("repomix: $($_.Exception.Message)")
   }
@@ -131,7 +133,9 @@ if (-not $SkipAstGrep) {
       $url = "https://github.com/ast-grep/ast-grep/releases/download/$AstGrepVersion/app-x86_64-pc-windows-msvc.zip"
       $zip = Join-Path $env:TEMP "ast-grep-$AstGrepVersion.zip"
       Write-Host "bootstrap-oss-sidecars: downloading ast-grep $AstGrepVersion"
-      Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+      $dlCode = Invoke-CqrDownload -Uri $url -OutFile $zip -TimeoutSec $DownloadTimeoutSec
+      if ($dlCode -eq 124) { throw "ast-grep download timed out after ${DownloadTimeoutSec}s (check internet/proxy)" }
+      if ($dlCode -ne 0) { throw "ast-grep download failed ($url)" }
       Expand-Archive -LiteralPath $zip -DestinationPath $binDir -Force
       Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
       if (-not (Test-Path -LiteralPath $sgExe)) {

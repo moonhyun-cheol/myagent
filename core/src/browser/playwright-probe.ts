@@ -27,16 +27,38 @@ export function resolvePlaywrightModuleRoot(cqrRoot: string): string | null {
   return null;
 }
 
+/**
+ * A `chromium-*` directory alone does not mean the browser finished downloading:
+ * an interrupted or antivirus-blocked bootstrap leaves a partial folder behind.
+ * Require an actual browser binary so a half-installed tree is not reported as
+ * available (otherwise the app tries to launch a corrupt Chromium).
+ */
+function chromiumDirHasBrowserBinary(browsers: string): boolean {
+  let entries: string[];
+  try {
+    entries = readdirSync(browsers);
+  } catch {
+    return false;
+  }
+  for (const name of entries) {
+    if (!name.toLowerCase().startsWith('chromium')) continue;
+    const winDir = path.join(browsers, name, 'chrome-win');
+    if (
+      existsSync(path.join(winDir, 'chrome.exe')) ||
+      existsSync(path.join(winDir, 'headless_shell.exe'))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function isPlaywrightChromiumInstalled(cqrRoot: string): boolean {
   const browsers = resolvePlaywrightBrowsersPath(cqrRoot);
   const marker = path.join(browsers, '.chromium-installed');
   if (existsSync(marker)) return true;
   if (!existsSync(browsers)) return false;
-  try {
-    return readdirSync(browsers).some((name) => name.toLowerCase().startsWith('chromium'));
-  } catch {
-    return false;
-  }
+  return chromiumDirHasBrowserBinary(browsers);
 }
 
 export function probePlaywright(cqrRoot: string): PlaywrightProbeResult {
