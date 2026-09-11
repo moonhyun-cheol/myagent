@@ -27,7 +27,7 @@ C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\
 |------|------|
 | **`01-core.md`** | 기본 (대부분 self-edit) |
 | `02-updates-release.md` | 업데이트·릴리즈·확인창 |
-| `03-work-kit-launcher.md` | WorkKitLauncher·키트 |
+| `03-work-kit-launcher.md` | 작업 키트 설정·카탈로그 |
 | `README.md` | 붙이는 방법 |
 | `manifest.json` | bundle 이름 (`default_self_edit`, …) |
 
@@ -43,6 +43,6 @@ C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\
 
 - 기본 self-edit: `01-core.md`
 - 업데이트·릴리즈: `01-core.md` + `02-updates-release.md`
-- WorkKitLauncher: `01-core.md` + `03-work-kit-launcher.md`
+- 작업 키트: `01-core.md` + `03-work-kit-launcher.md`
 - 전체 portable 세트: 위 세 파일
 - `01_CURRENT_STATUS.md`는 frozen 역사 문서이므로 일반 지식 갱신 대상으로 사용하지 않는다.

@@ -21,8 +21,6 @@ export interface ApiContext {
   appVersion: string;
   /** Primary product UI build (`ui/workspace/dist`). */
   workspaceUiDir: string;
-  /** Work Kit Launcher SPA (`bin/work-kit-launcher/web` or `ui/work-kit-launcher/dist`). */
-  workKitLauncherUiDir: string | null;
   userConfigPath: string;
   license: FileLicenseGate;
   getOverrides: () => UserOverrides;

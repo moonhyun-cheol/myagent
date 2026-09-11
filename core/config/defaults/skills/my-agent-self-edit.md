@@ -9,7 +9,7 @@ Use when dev workspace is **MY_CUSTOM_CODEX** (editing the product itself).
 3. Resolve RULEBOOK via `.rulebook-link.yml` (local only). Read **one** context pack — or for **external agents** use `docs/knowledge-export/01-core.md` (+ domain file from `manifest.json`):
    - General: `{rulebook}/docs/knowledge-export/01-core.md` (preferred portable) or `docs/context-packs/reverse-engineering.md`
    - Shell / updates: add `{rulebook}/docs/decisions/ADR-RE-007-four-update-streams.md`
-   - WorkKitLauncher: `{rulebook}/docs/context-packs/work-kit-launcher.md`
+   - Work kits: `{rulebook}/docs/context-packs/work-kit-launcher.md`
 4. Read `{rulebook}/docs/02_ALWAYS_ON_RULES.md` only when touching architecture, updates, shell, or API contracts.
 
 Paths under `{rulebook}` are **outside** the product repo. Use absolute paths from `.rulebook-link.yml` → `rulebook_dir` (e.g. `C:/MY_FULL_AI/RULEBOOK/MY_CUSTOM_CODEX/docs/...`).
@@ -28,7 +28,7 @@ RULEBOOK `01_CURRENT_STATUS.md` is **frozen** (historical). Do not append S-XX r
 
 - Create or restore `rulebook/` under the product repo (ADR-RE-008).
 - Ship rulebook in delta/install zip or `build-rulebook` into product tree.
-- Merge the four update streams (core / launcher / org module / work-kit catalog).
+- Merge the three update streams (core / org module / work-kit catalog).
 - Default every UI ask to `ChatPane.tsx` — classify with `ui-facts.json` first.
 
 ## Structural changes only

@@ -96,17 +96,9 @@ const facts = {
       'ui/workspace/src/components/ChatPane.tsx',
     ],
   },
-  work_kit_launcher: {
-    shell: existsSync(path.join(root, 'shell/WorkKitLauncher/MainWindow.xaml'))
-      ? 'shell/WorkKitLauncher/MainWindow.xaml'
-      : null,
-    ui: existsSync(path.join(root, 'ui/work-kit-launcher/src/App.tsx'))
-      ? 'ui/work-kit-launcher/src/App.tsx'
-      : null,
-    profile_library: existsSync(path.join(root, 'ui/work-kit-launcher/src/components/ProfileLibrary.tsx'))
-      ? 'ui/work-kit-launcher/src/components/ProfileLibrary.tsx'
-      : null,
-    serve_path: '/launcher/',
+  work_kits: {
+    settings_page: 'ui/workspace/src/components/SettingsWorkKitsPage.tsx',
+    serve_path: '/',
   },
 };
 

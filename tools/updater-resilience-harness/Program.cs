@@ -13,6 +13,7 @@ internal static class Program
             TestApplyRollbackAndReadOnly(sandbox);
             TestLockedFilePreflight(sandbox);
             TestApplyFailureRollback(sandbox);
+            TestLegacyDirectoryDeleteAndRollback(sandbox);
             Console.WriteLine("updater resilience behavior harness OK");
             return 0;
         }
@@ -32,6 +33,21 @@ internal static class Program
         Assert(File.ReadAllText(destination) == "new", "update content was not installed");
         transaction.Rollback();
         Assert(File.ReadAllText(destination) == "old", "rollback did not restore read-only file");
+        Directory.Delete(stage, recursive: true);
+    }
+
+    private static void TestLegacyDirectoryDeleteAndRollback(string sandbox)
+    {
+        var (root, stage, _, validUpdate) = CreateFixture(sandbox, "delete-directory", "old", "new");
+        var legacyDirectory = Path.Combine(root, "ui", "work-kit-launcher");
+        Directory.CreateDirectory(legacyDirectory);
+        File.WriteAllText(Path.Combine(legacyDirectory, "index.html"), "legacy", Encoding.UTF8);
+        var update = validUpdate with { Deleted = new[] { "ui/work-kit-launcher" } };
+        TransactionalInstaller.Preflight(root, update);
+        var transaction = TransactionalInstaller.Apply(root, update);
+        Assert(!Directory.Exists(legacyDirectory), "legacy launcher directory was not deleted");
+        transaction.Rollback();
+        Assert(File.ReadAllText(Path.Combine(legacyDirectory, "index.html")) == "legacy", "deleted directory was not restored on rollback");
         Directory.Delete(stage, recursive: true);
     }
 

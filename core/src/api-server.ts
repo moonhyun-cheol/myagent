@@ -30,17 +30,6 @@ import {
 } from './scheduler/runtime-registry.js';
 import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
 
-function resolveWorkKitLauncherUiDir(cqrRoot: string): string | null {
-  const candidates = [
-    path.join(cqrRoot, 'bin', 'work-kit-launcher', 'web'),
-    path.join(cqrRoot, 'ui', 'work-kit-launcher', 'dist'),
-  ];
-  for (const dir of candidates) {
-    if (existsSync(path.join(dir, 'index.html'))) return dir;
-  }
-  return null;
-}
-
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
   const paths = getBootstrapPaths(cqrRoot);
@@ -137,7 +126,6 @@ export async function createApiServer(port: number) {
   );
 
   const workspaceUiDir = path.join(cqrRoot, 'ui', 'workspace', 'dist');
-  const workKitLauncherUiDir = resolveWorkKitLauncherUiDir(cqrRoot);
   const appVersion = readProductVersion(cqrRoot);
 
   const ctx: ApiContext = {
@@ -146,7 +134,6 @@ export async function createApiServer(port: number) {
     port,
     appVersion,
     workspaceUiDir,
-    workKitLauncherUiDir,
     userConfigPath,
     license,
     getOverrides,

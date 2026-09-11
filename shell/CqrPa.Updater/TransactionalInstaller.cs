@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace CqrPa.Updater;
 
-internal sealed record BackupEntry(string Path, bool Existed);
+internal sealed record BackupEntry(string Path, bool Existed, bool IsDirectory = false);
 
 internal sealed class UpdateTransaction
 {
@@ -21,6 +21,19 @@ internal sealed class UpdateTransaction
         _backupRoot = backupRoot;
         _entries = entries;
         _recordPath = recordPath;
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
+        }
     }
 
     public void Commit()
@@ -49,12 +62,24 @@ internal sealed class UpdateTransaction
                 if (entry.Existed)
                 {
                     var backup = UpdateProtocol.ResolveUnder(_backupRoot, entry.Path);
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    File.Copy(backup, destination, overwrite: true);
+                    if (entry.IsDirectory)
+                    {
+                        if (Directory.Exists(destination)) Directory.Delete(destination, recursive: true);
+                        CopyDirectory(backup, destination);
+                    }
+                    else
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                        File.Copy(backup, destination, overwrite: true);
+                    }
                 }
                 else if (File.Exists(destination))
                 {
                     File.Delete(destination);
+                }
+                else if (Directory.Exists(destination))
+                {
+                    Directory.Delete(destination, recursive: true);
                 }
             }
             catch (Exception error)
@@ -97,6 +122,19 @@ internal sealed class UpdateTransaction
 
 internal static class TransactionalInstaller
 {
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
+        }
+    }
+
     public static void Preflight(string root, VerifiedUpdate update)
     {
         var fullRoot = Path.GetFullPath(root);
@@ -150,12 +188,17 @@ internal static class TransactionalInstaller
         {
             var destination = UpdateProtocol.ResolveUnder(fullRoot, relative);
             EnsureDestinationChainIsSafe(fullRoot, destination);
-            var existed = File.Exists(destination);
-            entries.Add(new BackupEntry(relative, existed));
+            var isDirectory = Directory.Exists(destination);
+            var existed = File.Exists(destination) || isDirectory;
+            entries.Add(new BackupEntry(relative, existed, isDirectory));
             if (!existed) continue;
             var backup = UpdateProtocol.ResolveUnder(backupRoot, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
-            File.Copy(destination, backup, overwrite: false);
+            if (isDirectory) CopyDirectory(destination, backup);
+            else
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                File.Copy(destination, backup, overwrite: false);
+            }
         }
 
         var transaction = new UpdateTransaction(fullRoot, backupRoot, entries, recordPath);
@@ -177,6 +220,7 @@ internal static class TransactionalInstaller
                 var destination = UpdateProtocol.ResolveUnder(fullRoot, relative);
                 ClearReadOnly(destination);
                 if (File.Exists(destination)) File.Delete(destination);
+                else if (Directory.Exists(destination)) Directory.Delete(destination, recursive: true);
             }
 
             foreach (var file in update.Files)

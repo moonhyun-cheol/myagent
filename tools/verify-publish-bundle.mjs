@@ -4,7 +4,7 @@
  * Usage: node tools/verify-publish-bundle.mjs [--app-dir PATH]
  */
 import { checkDeployParity } from './deploy-parity.mjs';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,24 +46,7 @@ const checks = [
     path: 'MYAgent.Updater.exe',
     label: 'transactional update helper (MYAgent.Updater.exe)',
   },
-  {
-    id: 'launcher',
-    path: 'WorkKitLauncher.exe',
-    label: 'Work Kit Launcher (WorkKitLauncher.exe)',
-  },
-  {
-    id: 'launcher_ui',
-    paths: [
-      'bin/work-kit-launcher/web/index.html',
-      'ui/work-kit-launcher/dist/index.html',
-    ],
-    label: 'Work Kit Launcher UI',
-  },
-  {
-    id: 'launcher_manifest',
-    path: 'launcher-manifest.json',
-    label: 'launcher-manifest.json',
-  },
+
   {
     id: 'keys_bundle',
     path: 'core/config/defaults/keys-bundle.default.enc',
@@ -87,6 +70,50 @@ function resolveCheck(c) {
 
 let failed = 0;
 console.log(`verify-publish-bundle: ${appDir}\n`);
+
+const forbiddenLauncherMarkers = [
+  'WorkKitLauncher.exe',
+  'work-kit-launcher',
+  'WorkKitLauncher',
+  'launcher-manifest.json',
+  'launcher-stable.json',
+  'install-launcher',
+  'launcher-publish',
+];
+
+function findForbiddenLauncherPaths(dir, base = '') {
+  const hits = [];
+  for (const name of readdirSync(dir)) {
+    const rel = base ? `${base}/${name}` : name;
+    const full = path.join(dir, name);
+    const norm = rel.replace(/\\/g, '/');
+    if (forbiddenLauncherMarkers.some((m) => norm.includes(m))) hits.push(norm);
+    if (statSync(full).isDirectory()) hits.push(...findForbiddenLauncherPaths(full, rel));
+  }
+  return hits;
+}
+
+const launcherHits = findForbiddenLauncherPaths(appDir);
+if (launcherHits.length) {
+  for (const rel of launcherHits.slice(0, 40)) {
+    console.error(`  FAIL launcher residue present: ${rel}`);
+  }
+  if (launcherHits.length > 40) {
+    console.error(`  FAIL … and ${launcherHits.length - 40} more launcher residue path(s)`);
+  }
+  failed += launcherHits.length;
+} else {
+  console.log('  OK   no launcher residue anywhere under stage app');
+}
+
+for (const rel of ['WorkKitLauncher.exe', 'bin/work-kit-launcher', 'ui/work-kit-launcher', 'launcher-manifest.json']) {
+  if (existsSync(path.join(appDir, rel))) {
+    console.error(`  FAIL removed launcher artifact is present: ${rel}`);
+    failed++;
+  } else {
+    console.log(`  OK   removed launcher artifact absent: ${rel}`);
+  }
+}
 
 for (const c of checks) {
   const r = resolveCheck(c);

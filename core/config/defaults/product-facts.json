@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-11T01:55:29.846Z",
+  "generated_at": "2026-09-11T04:03:40.376Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -11,9 +11,7 @@
     "rulebook_canonical": "../RULEBOOK/MY_CUSTOM_CODEX",
     "agents_md": "AGENTS.md",
     "ui_facts": "core/config/defaults/ui-facts.json",
-    "work_kit_launcher_ui": "ui/work-kit-launcher",
-    "work_kit_launcher_shell": "shell/WorkKitLauncher",
-    "launcher_manifest": "launcher-manifest.json"
+    "work_kit_settings": "ui/workspace/src/components/SettingsWorkKitsPage.tsx"
   },
   "memory_files": [
     "AGENTS.md",

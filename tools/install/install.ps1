@@ -272,14 +272,13 @@ MY Agent install complete
 Path: $targetFull
 
 Desktop shortcut: MY Agent.lnk
-Work kit launcher shortcut: MY Agent 관리자.lnk (if WorkKitLauncher.exe is present)
 
-1. Launch MY Agent 관리자 to pick a work kit, then MY Agent
-2. Or launch MY Agent.exe directly for chat
+1. Launch MY Agent.exe
+2. Open Settings → 작업 키트 to receive and apply work kits
 
 First run: optional activation and provider setup.
 Organization skills are installed separately through their signed module stream.
-Work kits are chosen in WorkKitLauncher, not in MY Agent Settings → Skills.
+Work kits are managed in MY Agent Settings → 작업 키트.
 Slim zip: first install may need internet for Node. Optional extras (ffmpeg, Playwright, OSS sidecars) download only if checked. Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
@@ -304,13 +303,7 @@ if (-not (Test-Path -LiteralPath $productExe)) {
       $shortcut.WindowStyle = 7
       $shortcut.Save()
       Write-Host "Desktop shortcut: $shortcutPath"
-      . (Join-Path $PSScriptRoot 'install-launcher-shortcut.ps1')
-      try {
-        $managerShortcut = Install-WorkKitLauncherDesktopShortcut -AppRoot $targetFull
-        Write-Host "Desktop shortcut: $managerShortcut"
-      } catch {
-        Write-Warning "MY Agent manager shortcut was skipped: $($_.Exception.Message)"
-      }
+
     }
   } catch {
     Write-Warning "Desktop shortcut was skipped (folder access / OneDrive). Launch MYAgent.exe from $targetFull"
@@ -319,4 +312,4 @@ if (-not (Test-Path -LiteralPath $productExe)) {
 
 Write-Host ''
 Write-Host "Install complete: $targetFull"
-Write-Host 'Next: run MY Agent 관리자 to apply a kit, then MY Agent'
+Write-Host 'Next: run MY Agent, then open Settings -> 작업 키트 as needed'

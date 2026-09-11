@@ -90,14 +90,8 @@ const layout = {
   ui_facts: existsSync(path.join(root, 'core/config/defaults/ui-facts.json'))
     ? 'core/config/defaults/ui-facts.json'
     : null,
-  work_kit_launcher_ui: existsSync(path.join(root, 'ui/work-kit-launcher'))
-    ? 'ui/work-kit-launcher'
-    : null,
-  work_kit_launcher_shell: existsSync(path.join(root, 'shell/WorkKitLauncher'))
-    ? 'shell/WorkKitLauncher'
-    : null,
-  launcher_manifest: existsSync(path.join(root, 'launcher-manifest.json'))
-    ? 'launcher-manifest.json'
+  work_kit_settings: existsSync(path.join(root, 'ui/workspace/src/components/SettingsWorkKitsPage.tsx'))
+    ? 'ui/workspace/src/components/SettingsWorkKitsPage.tsx'
     : null,
 };
 

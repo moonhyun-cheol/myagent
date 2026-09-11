@@ -55,7 +55,6 @@ if (norm.status !== 0) process.exit(norm.status ?? 1);
 import { checkDeployParity } from './deploy-parity.mjs';
 import { publishShell } from './shell-publish.mjs';
 import { publishUpdater } from './updater-publish.mjs';
-import { publishWorkKitLauncher } from './launcher-publish.mjs';
 
 const build = spawnSync(process.execPath, [path.join(root, 'tools', 'build.mjs')], {
   cwd: root,
@@ -91,6 +90,8 @@ const skipDirs = new Set([
   '.cursor',
   // Dev scratch — previously shipped ~340 MB into slim zip (gitignored, copyTree did not skip).
   '.tmp',
+  // Local soft-delete trash (gitignored). Must never ship; can contain retired launcher paths.
+  '.cqr-pa',
   'test-results',
   '.my_agent_remote',
 ]);
@@ -116,6 +117,8 @@ const skipRelPrefixes = [
   'runtime/oss-sidecars',
   'bin/my-agent',
   'bin/work-kit-launcher',
+  'ui/work-kit-launcher',
+  'shell/WorkKitLauncher',
   '.github',
   'activation-server',
 ];
@@ -147,6 +150,7 @@ function shouldCopyData(norm) {
 function shouldCopy(rel) {
   const norm = rel.replace(/\\/g, '/');
   if (norm === 'install.bat') return false;
+  if (norm === 'WorkKitLauncher.exe' || norm === 'launcher-manifest.json' || norm === 'channels/launcher-stable.json') return false;
   if (norm.includes('tools/test-')) return false;
   const parts = norm.split('/');
   if (parts.some((seg) => skipAnySegment.has(seg))) return false;
@@ -281,27 +285,6 @@ if (!updater.ok) {
 cpSync(updater.executable, path.join(appDir, 'MYAgent.Updater.exe'));
 console.log('publish: update helper -> app/MYAgent.Updater.exe');
 
-const launcher = publishWorkKitLauncher({ root, label: 'publish' });
-if (!launcher.ok) {
-  console.error(launcher.reason);
-  process.exit(1);
-}
-cpSync(launcher.executable, path.join(appDir, 'WorkKitLauncher.exe'));
-const stagedLauncherUi = path.join(appDir, 'ui', 'work-kit-launcher', 'dist');
-if (existsSync(launcher.uiDist) && existsSync(path.join(launcher.uiDist, 'index.html'))) {
-  mkdirSync(path.dirname(stagedLauncherUi), { recursive: true });
-  if (existsSync(stagedLauncherUi)) rmSync(stagedLauncherUi, { recursive: true, force: true });
-  cpSync(launcher.uiDist, stagedLauncherUi, { recursive: true });
-}
-if (!nodeDeferred) {
-  const stagedLauncherDir = path.join(appDir, 'bin', 'work-kit-launcher');
-  mkdirSync(path.join(appDir, 'bin'), { recursive: true });
-  if (existsSync(stagedLauncherDir)) rmSync(stagedLauncherDir, { recursive: true, force: true });
-  cpSync(launcher.outDir, stagedLauncherDir, { recursive: true });
-  console.log('publish: work-kit launcher -> app/WorkKitLauncher.exe + bin/work-kit-launcher');
-} else {
-  console.log('publish: slim — WorkKitLauncher.exe at app root; UI from ui/work-kit-launcher/dist');
-}
 
 const stagedTmp = path.join(appDir, '.tmp');
 if (existsSync(stagedTmp)) {
@@ -334,11 +317,10 @@ const readme = `MY Agent v${ver}
 zip 구조: install.bat (루트) + app\\ (본체)
 
 1. install.bat — 설치 폴더 선택 · 바탕화면 바로가기
-2. WorkKitLauncher.exe (MY Agent 관리자) — 작업 키트 목록·받기·적용 후 MY Agent 실행
-3. MYAgent.exe — 채팅·에이전트 (적용된 키트 반영)
+2. MYAgent.exe — 채팅·에이전트·설정에서 작업 키트 관리
 
 설치 후 채팅·범용 스킬·브라우저 자동화·심층리서치를 사용할 수 있습니다.
-작업 키트는 MY Agent 관리자에서 고릅니다. MY Agent 설정→스킬에는 작업 키트 UI가 없습니다.
+작업 키트는 MY Agent 설정→작업 키트에서 받고 적용합니다.
 
 업데이트: UPDATE.bat (delta zip, data/ 보존)
 관리자 명령: tools\commands\

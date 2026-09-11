@@ -62,14 +62,6 @@ function New-CqrDesktopShortcut {
   $shortcut.IconLocation = "$productExe,0"
 
   $shortcut.Save()
-  . (Join-Path $PSScriptRoot 'install\install-launcher-shortcut.ps1')
-  try {
-    $managerShortcut = Install-WorkKitLauncherDesktopShortcut -AppRoot $AppRoot
-    Write-Host "Desktop shortcut: $managerShortcut"
-  } catch {
-    Write-Warning "MY Agent manager shortcut was skipped: $($_.Exception.Message)"
-  }
-
   return $shortcutPath
 }
 

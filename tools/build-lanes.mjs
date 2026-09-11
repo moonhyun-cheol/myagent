@@ -60,10 +60,7 @@ function laneDefinitions(root) {
         'ui/workspace/src/components/ConfirmModal.tsx',
         'ui/workspace/src/components/ChatPane.tsx',
         'ui/workspace/src/lib/confirmDialog.ts',
-        'shell/WorkKitLauncher/MainWindow.xaml',
-        'ui/work-kit-launcher/src/App.tsx',
-        'ui/work-kit-launcher/src/components/ProfileLibrary.tsx',
-        'launcher-manifest.json',
+        'ui/workspace/src/components/SettingsWorkKitsPage.tsx',
       ],
       outputs: [
         'core/config/defaults/routing.json',

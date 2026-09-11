@@ -2224,6 +2224,9 @@ export interface WorkKitShelf {
   description?: string;
   pull: Array<'agent-plugins' | 'skills'>;
   plugins: { enable: Record<string, boolean> };
+  features?: {
+    enable?: Record<string, { required?: boolean }>;
+  };
   hints?: { needs_organization_module?: boolean };
   origin: 'locker' | 'bundled' | 'catalog';
   install_status?: ShelfInstallStatus;
@@ -2253,6 +2256,8 @@ export interface ProfileApplyResult {
   toggled: Array<{ id: string; enabled: boolean }>;
   pulled_plugins?: string[];
   pulled_skills?: string[];
+  installed_features?: string[];
+  enabled_features?: string[];
   warnings: string[];
 }
 
@@ -2288,8 +2293,10 @@ export async function fetchProfiles(): Promise<{
   /** @deprecated use overlays */
   profiles: AgentProfile[];
   applied: AgentProfileApplied | null;
+  applied_kits: AgentProfileApplied[];
   applied_work_kit?: AppliedWorkKitSummary | null;
   can_restore: boolean;
+  organization_features: OrganizationFeatureStatus[];
 }> {
   const res = await fetch('/profiles');
   const data = await res.json().catch(() => ({}));
@@ -2306,8 +2313,10 @@ export async function fetchProfiles(): Promise<{
     overlays,
     profiles: overlays,
     applied: data.applied ?? null,
+    applied_kits: Array.isArray(data.applied_kits) ? data.applied_kits : (data.applied ? [data.applied] : []),
     applied_work_kit: data.applied_work_kit ?? null,
     can_restore: data.can_restore === true,
+    organization_features: Array.isArray(data.organization_features) ? data.organization_features : [],
   };
 }
 
@@ -2379,6 +2388,17 @@ export async function applyWorkKitProfile(group: string, id: string): Promise<Pr
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로필 적용 실패 (${res.status})`);
+  return data as ProfileApplyResult;
+}
+
+export async function unapplyWorkKitProfile(group: string, id: string): Promise<ProfileApplyResult> {
+  const res = await fetch('/profiles/unapply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group, id, confirm: true }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `적용 해제 실패 (${res.status})`);
   return data as ProfileApplyResult;
 }
 
