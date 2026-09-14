@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { createServer } from '../ui/workspace/node_modules/vite/dist/node/index.js';
 import { DocumentStore } from '../core/dist/documents/document-store.js';
+import { ProjectDocumentStore } from '../core/dist/documents/project-document-store.js';
 import { documentRoute } from '../core/dist/documents/document-route.js';
 const chromiumPath = [
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -17,6 +18,17 @@ const temp=mkdtempSync(path.join(os.tmpdir(),'document-acceptance-'));
 let store=new DocumentStore(path.join(temp,'workspace'));
 let server,browser,page;const errors=[];
 try {
+  mkdirSync(path.join(temp,'project'));
+  const projectStore=new ProjectDocumentStore(path.join(temp,'project-documents.sqlite'));
+  const projectDoc=projectStore.save(path.join(temp,'project'),null,{title:'docs/shared.md',markdown:'# 공유 문서',revision:0,notes:[]});
+  projectStore.addAsset(path.join(temp,'project'),projectDoc.id,{id:'11111111-1111-1111-1111-111111111111',name:'fixture.bin',mime:'application/octet-stream',bytes:Buffer.from([0,1,255])});
+  projectStore.share(path.join(temp,'project'),projectDoc.id,'b');
+  assert.equal(projectStore.listSharedFor('b')[0].readOnly,true);
+  assert.equal(projectStore.getShared('b',projectDoc.id).markdown,'# 공유 문서');
+  assert.equal(projectStore.bundle(path.join(temp,'project'),projectDoc.id).attachments[0].base64,'AAH/');
+  projectStore.share(path.join(temp,'project'),projectDoc.id,'b',true);
+  assert.equal(projectStore.listSharedFor('b').length,0);
+  projectStore.close();
   const first=store.save('a',null,{title:'업무.md',markdown:'# 문서\n\n3~5일 ~범위~ ~~취소~~\n\n|항목|값|\n|---|---|\n|A|B|\n\n```text\n  공백\n```\n\n[링크](https://example.com)',revision:0});
   assert.throws(()=>store.get('b',first.id),e=>e.status===404);
   assert.throws(()=>store.save('a',first.id,{...first,revision:0}),e=>e.status===409);
@@ -105,5 +117,6 @@ try {
   assert.equal(await page.getByLabel('문서명').isDisabled(),true);
   console.log('PASS document portability UI: share, attachment snapshot, bundle download, confirmed project move, read-only recipient');
   assert.deepEqual(errors,[]);
+  console.log('PASS project documents: file-backed read-only share, attachment snapshot, bundle, revoke');
   console.log('PASS documents: disk restart, transactional revision conflict, ownership, size limit, junction refusal, real API, rendered table/code/tilde, selection request, autosave, reload, explicit agent review, conflict draft preservation, download, session isolation/new document');
 } catch(error) { console.error('DOCUMENT DIAGNOSTIC',JSON.stringify({errors,body:await page?.locator('body').innerText()}));throw error; } finally {await browser?.close();await server?.close();store.close();rmSync(temp,{recursive:true,force:true});}

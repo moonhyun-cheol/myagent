@@ -53,7 +53,11 @@ export type DocumentTab = {
   id: string;
   title: string;
   path: string | null;
-  source: 'draft' | 'workspace' | 'import';
+  source: 'draft' | 'workspace' | 'import' | 'shared' | 'collaboration';
+  /** Document API identity for portability/version/annotation operations. */
+  documentId?: string | null;
+  revision?: number;
+  readOnly?: boolean;
   content: string;
   dirty: boolean;
   selection: string;

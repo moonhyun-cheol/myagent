@@ -69,6 +69,7 @@ import { flattenWorkspaceFiles, QuickOpenModal } from './QuickOpenModal';
 import { SessionAttachmentGallery } from './SessionAttachmentGallery';
 import { MessageMarkdown } from './MessageMarkdown';
 import { focusHistoryBackground, navigateHistory, tabToComposer, type HistoryCursor } from '../lib/chatHistoryNavigation';
+import { useAnchoredOverlay } from '../lib/useAnchoredOverlay';
 
 const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
 
@@ -292,16 +293,6 @@ export function ChatPane() {
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
-  useEffect(() => {
-    const receiveDocument = (event: Event) => {
-      const detail = (event as CustomEvent<{ session: string; text: string }>).detail;
-      if (detail?.session === activeSessionId && typeof detail.text === 'string') {
-        setDraft((previous) => (previous ? `${previous}\n\n${detail.text}` : detail.text));
-      }
-    };
-    window.addEventListener('my-agent-document-request', receiveDocument);
-    return () => window.removeEventListener('my-agent-document-request', receiveDocument);
-  }, [activeSessionId]);
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
   // 세션별 입력 초안 분리: 미전송 초안이 다른 채팅으로 전환할 때 따라가지 않도록
@@ -385,34 +376,12 @@ export function ChatPane() {
       setPolicySaving(false);
     }
   };
-  useLayoutEffect(() => {
-    if (!policyOpen) return;
-    const panel = policyRef.current;
-    const trigger = policyTriggerRef.current;
-    if (!panel || !trigger) return;
-    const position = () => {
-      const rect = trigger.getBoundingClientRect();
-      const width = document.documentElement.clientWidth;
-      const height = window.innerHeight;
-      const below = height - rect.bottom - 14;
-      const above = rect.top - 14;
-      const upward = below < Math.min(panel.scrollHeight, 260) && above > below;
-      panel.style.maxHeight = `${Math.max(0, upward ? above : below)}px`;
-      panel.style.left = `${Math.max(8, Math.min(rect.left, width - panel.offsetWidth - 8))}px`;
-      panel.style.top = `${upward ? Math.max(8, rect.top - panel.offsetHeight - 6) : rect.bottom + 6}px`;
-    };
-    position();
-    const observer = new ResizeObserver(position);
-    observer.observe(panel);
-    observer.observe(trigger.closest('.chat-settings-header') ?? trigger);
-    window.addEventListener('resize', position);
-    window.addEventListener('scroll', position, true);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', position);
-      window.removeEventListener('scroll', position, true);
-    };
-  }, [policyOpen, policyTarget]);
+  useAnchoredOverlay({
+    open: policyOpen,
+    anchorRef: policyTriggerRef,
+    overlayRef: policyRef,
+    maxHeight: 260,
+  });
   useEffect(() => {
     if (!policyOpen) return;
     const panel = policyRef.current;

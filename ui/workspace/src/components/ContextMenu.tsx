@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { clampOverlayPoint } from '../lib/useAnchoredOverlay';
 
 export interface ContextMenuItem {
   id: string;
@@ -82,12 +83,35 @@ export function ContextMenuPortal({
   useLayoutEffect(() => {
     if (!menu || !ref.current) return;
     const el = ref.current;
-    const pad = 8;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const left = Math.min(menu.x, window.innerWidth - w - pad);
-    const top = Math.min(menu.y, window.innerHeight - h - pad);
-    setPos({ left: Math.max(pad, left), top: Math.max(pad, top) });
+    setPos({ left: 0, top: 0 });
+    let frame = 0;
+    let remainingFrames = 0;
+    const position = () => setPos(clampOverlayPoint(menu.x, menu.y, el));
+    const tick = () => {
+      position();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) frame = requestAnimationFrame(tick);
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      remainingFrames = 4;
+      frame = requestAnimationFrame(tick);
+    };
+
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(document.documentElement);
+    observer.observe(el);
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('scroll', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('scroll', schedule);
+    };
   }, [menu]);
 
   useEffect(() => {
@@ -116,7 +140,7 @@ export function ContextMenuPortal({
       ref={ref}
       role="menu"
       className="fixed z-[300] min-w-[210px] overflow-visible rounded-xl border border-line bg-panel py-1 shadow-[0_16px_48px_rgba(0,0,0,0.45)]"
-      style={{ left: pos.left, top: pos.top }}
+      style={{ left: pos.left, top: pos.top, visibility: pos.left === 0 && pos.top === 0 ? 'hidden' : 'visible' }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {menu.items.map((item) => (

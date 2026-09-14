@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-11T06:37:12.417Z",
+  "generated_at": "2026-09-14T04:32:00.804Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
@@ -41,17 +41,13 @@
     ],
     "document": [
       "ui/workspace/src/components/MarkdownDocument.tsx",
+      "ui/workspace/src/components/DocumentCollaborationPanel.tsx",
+      "ui/workspace/src/components/DocumentPortability.tsx",
       "ui/workspace/src/lib/documentFile.ts",
       "ui/workspace/src/lib/documentMemo.ts",
       "ui/workspace/src/components/workspacePreviewModes.ts",
       "ui/workspace/src/store/workspaceStore.ts",
-      "core/config/defaults/document-scratch.json"
-    ],
-    "collaborative_document": [
-      "ui/workspace/src/components/DocumentPane.tsx",
-      "ui/workspace/src/components/DocumentPortability.tsx",
-      "ui/workspace/src/lib/documentMarkdown.ts",
-      "ui/workspace/src/lib/documentNotes.ts",
+      "core/config/defaults/document-scratch.json",
       "core/src/documents/document-store.ts",
       "core/src/documents/project-document-store.ts",
       "core/src/documents/document-route.ts"

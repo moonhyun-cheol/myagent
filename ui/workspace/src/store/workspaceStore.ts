@@ -29,6 +29,7 @@ import {
   normalizeRelPath,
 } from '../lib/documentFile';
 import type { DocumentTab, DocumentMemo } from '../lib/documentFile';
+import { documentApi, type DocumentRecord } from '../api/documentClient';
 import type { Edge, Node } from '@xyflow/react';
 import {
   clearStoredSessionId,
@@ -2237,7 +2238,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         });
         if (choice === 'cancel' || choice === null) return 'cancelled';
         if (choice === 'save') {
-          if (tab.source !== 'workspace' || !tab.path) {
+          if (tab.source === 'collaboration' && tab.documentId) {
+            const session = get().activeSessionId;
+            if (!session) return 'cancelled';
+            try {
+              const latest = await documentApi<DocumentRecord>(session, `/${tab.documentId}`);
+              if (tab.revision !== latest.revision) throw new Error('다른 편집에서 문서가 변경되었습니다. 최신본을 다시 여세요.');
+              await documentApi<DocumentRecord>(session, `/${tab.documentId}`, 'PUT', {
+                title: latest.title,
+                markdown: tab.content,
+                revision: latest.revision,
+                notes: latest.notes,
+              });
+            } catch (error) {
+              const status = error instanceof Error ? error.message : String(error);
+              set({ documentTabs: get().documentTabs.map((item) => item.id === tab.id ? { ...item, status } : item) });
+              return 'cancelled';
+            }
+          } else if (tab.source !== 'workspace' || !tab.path) {
             set({
               activeDocumentTabId: tabId,
               mode: 'document',
@@ -2248,9 +2266,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               ),
             });
             return 'need-project-save';
+          } else {
+            await get().saveDocument();
+            if (get().documentTabs.find((item) => item.id === tabId)?.dirty) return 'cancelled';
           }
-          await get().saveDocument();
-          if (get().documentTabs.find((item) => item.id === tabId)?.dirty) return 'cancelled';
         }
       }
       const nextTabs = get().documentTabs.filter((item) => item.id !== tabId);

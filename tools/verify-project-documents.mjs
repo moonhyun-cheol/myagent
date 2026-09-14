@@ -69,15 +69,23 @@ try {
     res,
     new URL(req.url, 'http://localhost'),
     req.method ?? 'GET',
-    (id) => id === 'session',
+    (id) => id === 'session' || id === 'recipient',
     () => legacy,
-    { workspaceRootForSession: () => root, projectDocuments: projects },
+    {
+      workspaceRootForSession: (id) => id === 'session' ? root : null,
+      projectDocuments: projects,
+      sessions: () => [{ id: 'session', title: '소유 챗' }, { id: 'recipient', title: '수신 챗' }],
+      attachments: () => [{ id: '11111111-1111-1111-1111-111111111111', name: 'fixture.bin' }],
+      attachment: (_session, id) => id === '11111111-1111-1111-1111-111111111111'
+        ? { id, name: 'fixture.bin', mime: 'application/octet-stream', bytes: Buffer.from([0, 1, 255]) }
+        : null,
+    },
   ));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}/workspace/documents`;
-  const request = (suffix = '', method = 'GET', body) => fetch(base + suffix, {
+  const request = (suffix = '', method = 'GET', body, session = 'session') => fetch(base + suffix, {
     method,
-    headers: { 'X-CQR-Session': 'session', 'Content-Type': 'application/json' },
+    headers: { 'X-CQR-Session': session, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const response = await request();
@@ -88,17 +96,33 @@ try {
   assert.equal(payload.documents.length, 2);
   const createdResponse = await request('', 'POST', {
     title: '회의/결정.md',
-    markdown: '# 결정\n',
+    markdown: `# 결정\n\n[첨부](/attachments/11111111-1111-1111-1111-111111111111)\n`,
     revision: 0,
     notes: [],
   });
   assert.equal(createdResponse.status, 200);
   const created = await createdResponse.json();
-  assert.equal(readFileSync(path.join(root, '회의', '결정.md'), 'utf8'), '# 결정\n');
+  assert.equal(readFileSync(path.join(root, '회의', '결정.md'), 'utf8'), `# 결정\n\n[첨부](/attachments/11111111-1111-1111-1111-111111111111)\n`);
+  const blockedShare = await request(`/${created.id}/share`, 'POST', { targetSession: 'recipient' });
+  assert.equal(blockedShare.status, 409);
+  const storedAttachment = await request(`/${created.id}/attachments`, 'POST', { attachmentId: '11111111-1111-1111-1111-111111111111' });
+  assert.equal(storedAttachment.status, 200);
+  const shared = await request(`/${created.id}/share`, 'POST', { targetSession: 'recipient' });
+  assert.equal(shared.status, 200);
+  const recipientList = await request('', 'GET', undefined, 'recipient');
+  assert.equal(recipientList.status, 200);
+  const recipientPayload = await recipientList.json();
+  assert.equal(recipientPayload.documents.find((item) => item.id === created.id).readOnly, true);
+  const recipientDocument = await request(`/${created.id}`, 'GET', undefined, 'recipient');
+  assert.equal(recipientDocument.status, 200);
+  assert.equal((await recipientDocument.json()).readOnly, true);
+  const bundleResponse = await request(`/${created.id}/bundle`);
+  assert.equal(bundleResponse.status, 200);
+  assert.equal((await bundleResponse.json()).attachments[0].base64, 'AAH/');
   const put = await request(`/${created.id}`, 'PUT', { ...created, markdown: '# 결정 완료\n' });
   assert.equal(put.status, 200);
   assert.equal(readFileSync(path.join(root, '회의', '결정.md'), 'utf8'), '# 결정 완료\n');
-  console.log('PASS project document collaboration: root discovery, direct file source, external/model sync, notes detach, stale revision, rename and API create/update');
+  console.log('PASS project document collaboration: root discovery, direct file source, notes/version sync, route attachment guard, read-only cross-chat share, bundle, API create/update');
 } finally {
   await new Promise((resolve) => server ? server.close(resolve) : resolve());
   projects.close();

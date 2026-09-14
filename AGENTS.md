@@ -33,11 +33,11 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 - **Org module / Features:** base overlay in company repo; Automaton slash via Organization Feature (`data/organization-features/`) after ops Work Kit apply (ADR-RE-011 / R-625). Settings → 스킬 for module check/apply.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.
-- **Document AI memo (R-620):** Preview「문서」→ 선택 → AI에게 묻기. Answer stays in floating AI memo (draggable; collapse → red corner reopen). **Not** ChatPane bubbles. Call uses ask + `uiHidden` / `documentMemo.ts`.
+- **Unified Document surface:** Preview「문서」하나에서 파일 탭·읽기·원문 편집·diff·AI 메모와 공유·첨부 사본·묶음·강조/참조·협업 요청을 제공한다. 프로젝트 Markdown이 본문 SSOT이고, 루트 없는 기존 SQLite 문서도 같은 표면에서 보존한다. 저장된 `codocument`는 `document`로 전환된다 (ADR-RE-014).
 - **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
 - **Sidebar / skills (update 38):** resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
 - **Update 51:** WorkKitLauncher retired — work-kit management lives in Settings → 작업 키트; `/launcher/*` 404; launcher update stream/install paths removed; core delta delete-list cleans legacy launcher files; shell catalog-only companion (no WorkKitLauncher spawn).
-- **Update 50:** CQR_PA tool-call batches (`activityGroupId`), full redacted activity retention, grouped subtask cancellation, unified intermediate-work collapse, project-root Markdown-backed document collaboration, updater permission preflight/failure recovery hardening, and first-install per-user permission probing/fallback. Preview「문서」remains separate.
+- **Update 50:** CQR_PA tool-call batches (`activityGroupId`), full redacted activity retention, grouped subtask cancellation, unified intermediate-work collapse, project-root Markdown-backed document collaboration, updater permission preflight/failure recovery hardening, and first-install per-user permission probing/fallback. The former separate collaboration surface is unified into「문서」by ADR-RE-014.
 - **Update 49:** consecutive tool-failure run stop, work-log `<details>` collapse, caption dblclick restore, narrow chat-first layout.
 - **Update 45:** CQR_PA port — automation content outcomes (`success|warning|failed|blocked`) on runs/feed UI; General Work Principles + risk-proportionate verification / active_task acceptance wording.
 - **Update 44:** Document toolbar「더보기」menu uses a fixed portal so overflow parents no longer clip it; includes update-43 UI theme/UX polish already on main.
@@ -70,7 +70,7 @@ Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wi
 - Evidence/TODO: `agent-evidence-store.ts`, `agent-todo-ledger.ts`, `agent-context-assembler.ts`, `agent-continuation-snapshot.ts`
 - Tools: `core/src/agent/agent-tool-definitions.ts`, `apply-patch.ts`
 - Document AI memo: `ui/workspace/src/components/MarkdownDocument.tsx`, `lib/documentMemo.ts`
-- Collaborative Document workspace: `ui/workspace/src/components/DocumentPane.tsx`, `core/src/documents/`
+- Document surface: `ui/workspace/src/components/MarkdownDocument.tsx`, `DocumentCollaborationPanel.tsx`, `DocumentPortability.tsx`, `core/src/documents/`
 - Chat Markdown/navigation: `ui/workspace/src/components/MessageMarkdown.tsx`, `lib/chatHistoryNavigation.ts`
 - Shell updates: `shell/CqrPa.Shell/UpdatePollingService.cs`, `WorkEnvironmentUpdatePollingService.cs`
 - Update gate: `core/src/system/update-gate.ts`

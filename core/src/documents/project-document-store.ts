@@ -128,7 +128,9 @@ export class ProjectDocumentStore {
     this.db = new DatabaseSync(databasePath);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS project_documents (id TEXT PRIMARY KEY, root TEXT NOT NULL, path TEXT NOT NULL, revision INTEGER NOT NULL, hash TEXT NOT NULL, notes TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(root,path));
-      CREATE TABLE IF NOT EXISTS project_document_versions (id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(id,revision));`);
+      CREATE TABLE IF NOT EXISTS project_document_versions (id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(id,revision));
+      CREATE TABLE IF NOT EXISTS project_document_grants (id TEXT NOT NULL, session TEXT NOT NULL, PRIMARY KEY(id,session));
+      CREATE TABLE IF NOT EXISTS project_document_assets (document TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(document,id));`);
   }
 
   close(): void {
@@ -260,6 +262,79 @@ export class ProjectDocumentStore {
     this.db.prepare('INSERT OR REPLACE INTO project_document_versions VALUES (?,?,?)')
       .run(doc.id, doc.revision, JSON.stringify(doc));
     return doc;
+  }
+
+  /**
+   * Share a project document to a target chat as read-only (or revoke with remove=true).
+   * The owner is whoever resolves the document's project root; only the owning root may share.
+   */
+  share(projectRoot: string, id: string, target: string, remove = false): void {
+    const root = normalizedRoot(projectRoot);
+    const row = this.row(id);
+    if (!row || path.normalize(row.root) !== path.normalize(root)) {
+      throw new DocumentError(404, '현재 프로젝트에서 협업문서를 찾을 수 없습니다.');
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(target)) throw new DocumentError(400, '잘못된 대상 챗입니다.');
+    if (remove) this.db.prepare('DELETE FROM project_document_grants WHERE id=? AND session=?').run(id, target);
+    else this.db.prepare('INSERT OR IGNORE INTO project_document_grants VALUES (?,?)').run(id, target);
+  }
+
+  hasAsset(id: string, asset: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM project_document_assets WHERE document=? AND id=?').get(id, asset));
+  }
+
+  /** Persist an attachment copy so shared/bundled documents survive the origin chat. */
+  addAsset(projectRoot: string, id: string, asset: { id: string; name: string; mime: string; bytes: Buffer }): void {
+    const root = normalizedRoot(projectRoot);
+    const row = this.row(id);
+    if (!row || path.normalize(row.root) !== path.normalize(root)) {
+      throw new DocumentError(404, '현재 프로젝트에서 협업문서를 찾을 수 없습니다.');
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(asset.id) || asset.name.length > 255 || asset.mime.length > 200 || asset.bytes.length > 20_000_000) {
+      throw new DocumentError(400, '첨부 형식/크기 오류입니다.');
+    }
+    const total = this.db.prepare('SELECT COALESCE(SUM(length(bytes)),0) AS size FROM project_document_assets WHERE document=? AND id<>?').get(id, asset.id) as { size: number };
+    if (total.size + asset.bytes.length > 50_000_000) throw new DocumentError(413, '문서 첨부 합계는 50MB 이하입니다.');
+    this.db.prepare('INSERT OR REPLACE INTO project_document_assets VALUES (?,?,?,?,?)').run(id, asset.id, asset.name, asset.mime, asset.bytes);
+  }
+
+  /** Export document body + persisted attachment copies as a self-contained bundle. */
+  bundle(projectRoot: string, id: string): { format: 'document-bundle'; version: 1; document: ProjectDocumentRecord; attachments: Array<{ id: string; name: string; mime: string; sha256: string; base64: string }> } {
+    const document = this.get(projectRoot, id);
+    const attachments = (this.db.prepare('SELECT id,name,mime,bytes FROM project_document_assets WHERE document=? ORDER BY id').all(id) as unknown as { id: string; name: string; mime: string; bytes: Uint8Array }[]).map((a) => ({
+      id: a.id,
+      name: a.name,
+      mime: a.mime,
+      sha256: createHash('sha256').update(a.bytes).digest('hex'),
+      base64: Buffer.from(a.bytes).toString('base64'),
+    }));
+    return { format: 'document-bundle', version: 1, document, attachments };
+  }
+
+  /** Project documents shared to a recipient chat, regardless of that chat's own workspace. */
+  listSharedFor(session: string): Array<Pick<ProjectDocumentRecord, 'id' | 'title' | 'path' | 'revision' | 'updatedAt' | 'source'> & { readOnly: true }> {
+    const rows = this.db.prepare(
+      'SELECT d.* FROM project_documents d JOIN project_document_grants g ON g.id=d.id WHERE g.session=?',
+    ).all(session) as MetaRow[];
+    const out: Array<Pick<ProjectDocumentRecord, 'id' | 'title' | 'path' | 'revision' | 'updatedAt' | 'source'> & { readOnly: true }> = [];
+    for (const row of rows) {
+      try {
+        const doc = this.ensureCurrent(row.root, row.path, row);
+        out.push({ id: doc.id, title: doc.path, path: doc.path, revision: doc.revision, updatedAt: doc.updatedAt, source: 'project', readOnly: true });
+      } catch {
+        // Origin folder/file gone — skip stale grant.
+      }
+    }
+    return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.path.localeCompare(b.path));
+  }
+
+  /** Read a document shared to the recipient chat as read-only, resolving its origin root. */
+  getShared(session: string, id: string): ProjectDocumentRecord & { readOnly: true } {
+    const granted = this.db.prepare('SELECT 1 FROM project_document_grants WHERE id=? AND session=?').get(id, session);
+    if (!granted) throw new DocumentError(404, '이 챗에 공유된 문서를 찾을 수 없습니다.');
+    const row = this.row(id);
+    if (!row) throw new DocumentError(404, '공유 문서 원본을 찾을 수 없습니다.');
+    return { ...this.ensureCurrent(row.root, row.path, row), readOnly: true };
   }
 
   private row(id: string): MetaRow | undefined {
