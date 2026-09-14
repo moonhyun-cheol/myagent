@@ -23,7 +23,15 @@ import {
   sha256Bytes,
   verifySignedEnvelope,
 } from './update/update-signing.mjs';
-import { buildGitHubReleasePlan, coreUpdateTag, formatGitHubReleaseTitle, isCoreUpdateAssetName } from './update/github-release-plan.mjs';
+import {
+  buildGitHubReleasePlan,
+  compareSemVer,
+  coreUpdateTag,
+  formatGitHubReleaseTitle,
+  isCoreUpdateAssetName,
+  parseSemVer,
+  validateUpdateProgression,
+} from './update/github-release-plan.mjs';
 
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-secure-update-'));
 
@@ -140,9 +148,54 @@ try {
     }),
     /unsafe GitHub default branch/,
   );
+  assert.throws(
+    () => buildGitHubReleasePlan({
+      repository: 'moonhyun-cheol/MY_CUSTOM_CODEX',
+      defaultBranch: 'main',
+      channel: 'stable',
+      updateSequence: 8,
+      version: '1.0.0',
+      zipPath: 'MYAgent-v0.9.9-delta.zip',
+      feedPath: 'update-feed-stable.json',
+    }),
+    /MYAgent-v1.0.0-delta.zip/,
+  );
 
   assert.equal(coreUpdateTag(7), 'update-7');
   assert.equal(isCoreUpdateAssetName('MYAgent-v0.9.1-beta-delta.zip'), true);
+  assert.equal(compareSemVer('1.1.5', '1.1.4'), 1);
+  assert.equal(compareSemVer('1.1.4', '1.1.4'), 0);
+  assert.throws(() => parseSemVer('1.1'), /invalid SemVer/);
+  assert.throws(() => parseSemVer('1.1.5-beta.01'), /numeric prerelease/);
+  const currentFeed = {
+    document: {
+      update_sequence: 52,
+      version: '1.1.4',
+      channel: 'stable',
+      asset: { repository: 'moonhyun-cheol/myagent' },
+    },
+  };
+  assert.equal(validateUpdateProgression({
+    currentFeed,
+    nextSequence: 53,
+    nextVersion: '1.1.5',
+    expectedChannel: 'stable',
+    expectedRepository: 'moonhyun-cheol/myagent',
+  }), 'next-update');
+  assert.throws(() => validateUpdateProgression({ currentFeed, nextSequence: 54, nextVersion: '1.1.5' }), /exactly 53/);
+  assert.throws(() => validateUpdateProgression({ currentFeed, nextSequence: 53, nextVersion: '1.1.3' }), /rollback/);
+  assert.equal(validateUpdateProgression({
+    currentFeed,
+    nextSequence: 52,
+    nextVersion: '1.1.4',
+    resume: true,
+  }), 'resume-current');
+  assert.throws(() => validateUpdateProgression({
+    currentFeed,
+    nextSequence: 52,
+    nextVersion: '1.1.5',
+    resume: true,
+  }), /already-published version/);
 
   console.log('verify-secure-update: ok');
 } finally {
