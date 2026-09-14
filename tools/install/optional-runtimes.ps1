@@ -171,6 +171,20 @@ function Install-SelectedOptionalRuntimes {
     repomix      = 'Installing Repomix (repo pack)...'
     ast_grep     = 'Installing ast-grep (structural search)...'
   }
+
+  # Optional runtimes are best-effort: a failed/aborted optional (offline,
+  # proxy, antivirus, or download timeout) must never abort the core install.
+  # Run each optional bootstrap in an isolated child PowerShell process so a
+  # child `exit` or terminating error cannot kill this installer, then downgrade
+  # any non-zero result to a warning. Only the core (Node, npm deps) hard-fails.
+  $psHost = $null
+  try { $psHost = (Get-Process -Id $PID -ErrorAction SilentlyContinue).Path } catch { }
+  if (-not $psHost -or -not (Test-Path -LiteralPath $psHost)) {
+    $psHost = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  }
+  if (-not (Test-Path -LiteralPath $psHost)) { $psHost = 'powershell.exe' }
+  $optionalFailures = New-Object System.Collections.Generic.List[string]
+
   foreach ($id in @(Get-OptionalRuntimeIds)) {
     if (@($Selected) -notcontains $id) {
       Write-Host ""
@@ -186,7 +200,18 @@ function Install-SelectedOptionalRuntimes {
     }
     Write-Host ""
     Write-Host $labels[$id]
-    & $scriptPath -Root $Root
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $psHost -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Root $Root
+    $code = $LASTEXITCODE
+    if ($null -eq $code) { $code = 0 }
+    if ($code -ne 0) {
+      Write-Warning "optional runtime '$id' did not finish (exit $code). The core app is still installed; add it later from Settings > Features or by re-running the installer with internet access."
+      [void]$optionalFailures.Add("$id (exit $code)")
+    }
+  }
+
+  if ($optionalFailures.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("Optional runtimes skipped or incomplete: " + ($optionalFailures -join ', '))
+    Write-Host "These are optional. The core app is installed. Re-run the installer or use Settings > Features (with internet) to add them."
   }
 }

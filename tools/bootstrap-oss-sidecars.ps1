@@ -7,6 +7,9 @@ param(
   [Parameter(Mandatory = $true)][string]$Root,
   [switch]$SkipIfExists,
   [switch]$SkipAstGrep,
+  [switch]$OnlyMarkitdown,
+  [switch]$OnlyRepomix,
+  [switch]$OnlyAstGrep,
   [string]$AstGrepVersion = '0.45.0',
   [int]$PipTimeoutSec = 900,
   [int]$NpmTimeoutSec = 900,
@@ -27,6 +30,14 @@ $repomixPkg = Join-Path $ossRoot 'node_modules\repomix\package.json'
 $binDir = Join-Path $ossRoot 'bin'
 $sgExe = Join-Path $ossRoot 'bin\ast-grep.exe'
 
+$onlyCount = @($OnlyMarkitdown, $OnlyRepomix, $OnlyAstGrep).Where({ $_.IsPresent }).Count
+if ($onlyCount -gt 1) {
+  throw 'Only one of -OnlyMarkitdown, -OnlyRepomix, or -OnlyAstGrep may be specified.'
+}
+$installMarkitdown = ($onlyCount -eq 0) -or $OnlyMarkitdown
+$installRepomix = ($onlyCount -eq 0) -or $OnlyRepomix
+$installAstGrep = (($onlyCount -eq 0) -or $OnlyAstGrep) -and -not $SkipAstGrep
+
 $bundleVersion = 4
 $installedBundleVersion = 0
 if (Test-Path -LiteralPath $marker) {
@@ -36,7 +47,7 @@ if (Test-Path -LiteralPath $marker) {
     $installedBundleVersion = 0
   }
 }
-if ($installedBundleVersion -lt 2 -and (Test-Path -LiteralPath $venvDir)) {
+if ($installMarkitdown -and $installedBundleVersion -lt 2 -and (Test-Path -LiteralPath $venvDir)) {
   Write-Host 'bootstrap-oss-sidecars: refreshing Python sidecar environment'
   Remove-Item -LiteralPath $venvDir -Recurse -Force
 }
@@ -81,10 +92,11 @@ function Resolve-BootstrapNpm([string]$AppRoot) {
 }
 
 # --- Python venv: markitdown ---
-$py = Resolve-BootstrapPython $Root
-if (-not $py) {
-  $warnings.Add('No Python for oss-sidecars venv (python-embed / pipeline-venv / PATH)')
-} else {
+$py = if ($installMarkitdown) { Resolve-BootstrapPython $Root } else { $null }
+if ($installMarkitdown) {
+  if (-not $py) {
+    $warnings.Add('No Python for oss-sidecars venv (python-embed / pipeline-venv / PATH)')
+  } else {
   try {
     if (-not (Test-Path -LiteralPath $venvPy)) {
       Write-Host "bootstrap-oss-sidecars: creating venv ($py)"
@@ -104,15 +116,17 @@ if (-not $py) {
   } catch {
     $warnings.Add("Python sidecars: $($_.Exception.Message)")
   }
+  }
 }
 
 # --- Node: repomix under runtime/oss-sidecars ---
-$npm = Resolve-BootstrapNpm $Root
-if (-not $npm) {
-  $warnings.Add('npm missing — skip repomix')
-} elseif (-not (Test-Path -LiteralPath $pkgTemplate)) {
-  $warnings.Add('tools/oss-sidecars-package.json missing — skip repomix')
-} else {
+$npm = if ($installRepomix) { Resolve-BootstrapNpm $Root } else { $null }
+if ($installRepomix) {
+  if (-not $npm) {
+    $warnings.Add('npm missing — skip repomix')
+  } elseif (-not (Test-Path -LiteralPath $pkgTemplate)) {
+    $warnings.Add('tools/oss-sidecars-package.json missing — skip repomix')
+  } else {
   try {
     Copy-Item -LiteralPath $pkgTemplate -Destination (Join-Path $ossRoot 'package.json') -Force
     Write-Host 'bootstrap-oss-sidecars: npm install repomix (internet)'
@@ -122,10 +136,11 @@ if (-not $npm) {
   } catch {
     $warnings.Add("repomix: $($_.Exception.Message)")
   }
+  }
 }
 
 # --- ast-grep portable binary ---
-if (-not $SkipAstGrep) {
+if ($installAstGrep) {
   $sgExe = Join-Path $binDir 'ast-grep.exe'
   if (-not (Test-Path -LiteralPath $sgExe)) {
     try {

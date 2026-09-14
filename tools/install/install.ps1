@@ -274,11 +274,11 @@ Path: $targetFull
 Desktop shortcut: MY Agent.lnk
 
 1. Launch MY Agent.exe
-2. Open Settings → 작업 키트 to receive and apply work kits
+2. Use the composer + menu to turn a conversation skill on or off
 
 First run: optional activation and provider setup.
 Organization skills are installed separately through their signed module stream.
-Work kits are managed in MY Agent Settings → 작업 키트.
+Conversation skills are selected only from the composer + menu.
 Slim zip: first install may need internet for Node. Optional extras (ffmpeg, Playwright, OSS sidecars) download only if checked. Token-gated MCP is not auto-installed.
 "@
 Set-Content -Path (Join-Path $targetFull 'INSTALL-DONE.txt') -Value $readme -Encoding UTF8
@@ -312,4 +312,4 @@ if (-not (Test-Path -LiteralPath $productExe)) {
 
 Write-Host ''
 Write-Host "Install complete: $targetFull"
-Write-Host 'Next: run MY Agent, then open Settings -> 작업 키트 as needed'
+Write-Host 'Next: run MY Agent, then use the composer + menu to select a skill as needed'
