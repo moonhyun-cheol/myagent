@@ -279,6 +279,31 @@ export class UserMemoryStore {
     return entry;
   }
 
+  /** Repair proposals saved by an older runtime under a model-guessed project id. */
+  reassignPendingProjectProposals(sourceSessionId: string, projectId: string): number {
+    if (!sourceSessionId || !projectId) return 0;
+    const index = this.loadIndex();
+    const stale = index.entries.filter((entry) =>
+      entry.scope === 'project'
+      && lifecycle(entry) === 'pending'
+      && entry.source_session_id === sourceSessionId
+      && entry.project_id !== projectId);
+    if (!stale.length) return 0;
+    const destinationTexts = new Set(index.entries
+      .filter((entry) => entry.scope === 'project' && entry.project_id === projectId)
+      .map((entry) => normalizeForDedupe(entry.text)));
+    let changed = 0;
+    for (const entry of stale) {
+      if (destinationTexts.has(normalizeForDedupe(entry.text))) continue;
+      entry.project_id = projectId;
+      entry.updated_at = new Date().toISOString();
+      destinationTexts.add(normalizeForDedupe(entry.text));
+      changed++;
+    }
+    if (changed) this.saveIndex(index);
+    return changed;
+  }
+
   update(id: string, patch: { text?: string; enabled?: boolean }): MemoryEntry | null {
     const index = this.loadIndex();
     const entry = index.entries.find((e) => e.id === id);

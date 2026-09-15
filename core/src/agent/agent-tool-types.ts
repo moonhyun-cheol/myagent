@@ -24,6 +24,8 @@ export interface AgentToolContext {
   browserSession?: PlaywrightSession | null;
   cqrRoot?: string;
   sessionId?: string;
+  /** Authoritative project/workspace scope resolved from the current session. */
+  memoryProjectId?: string | null;
   allowLocalhost?: boolean;
   /** Restricts background/scheduled executions to isolated browser sessions. */
   browserRouting?: 'interactive' | 'background';

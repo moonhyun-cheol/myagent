@@ -634,6 +634,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     browserSession,
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,
+    memoryProjectId: opts.memoryProjectId,
     evidenceStore,
     allowLocalhost: opts.playwrightAllowLocalhost,
     browserRouting: opts.browserRouting,

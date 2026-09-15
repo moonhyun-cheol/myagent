@@ -28,6 +28,7 @@ import {
   hasDevWorkspace,
   tryGetDevWorkspaceRoot,
   resolveSessionContextScope,
+  resolveMemoryProjectId,
   resolveWorkspaceRootForSession,
   resolveWorkspaceRootsForSession,
   buildWorkspaceContext,
@@ -340,6 +341,7 @@ export async function runWorkspaceCodeAgent(opts: {
     cqrRoot,
     configPath,
     sessionId,
+    memoryProjectId: resolveMemoryProjectId(sessionStore, sessionId),
     playwrightHeadless: browserRouting === 'background' ? true : overrides.playwright_headless,
     browserRouting,
     // Code agent default ON for 127.0.0.1 dev E2E; set user-overrides false to lock.

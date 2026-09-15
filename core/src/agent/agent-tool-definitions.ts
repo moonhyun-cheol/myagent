@@ -156,7 +156,6 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
         properties: {
           text: { type: 'string', description: 'Candidate memory text (<=500 chars)' },
           scope: { type: 'string', enum: ['global', 'project', 'session'] },
-          project_id: { type: 'string', description: 'Required when scope is project' },
           reason: { type: 'string', description: 'Why this should be remembered' },
         },
         required: ['text', 'scope'],

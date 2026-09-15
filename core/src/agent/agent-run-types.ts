@@ -64,6 +64,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   attachmentContext?: string;
   cqrRoot: string;
   sessionId?: string;
+  /** Authoritative project/workspace id for project-scoped memory proposals. */
+  memoryProjectId?: string | null;
   playwrightHeadless?: boolean;
   playwrightAllowLocalhost?: boolean;
   /** Browser routing boundary. Background runs cannot address shell-owned visible tabs. */

@@ -364,9 +364,12 @@ async function executeAgentToolInner(
         const scope: MemoryScope = scopeRaw === 'project' || scopeRaw === 'session' ? scopeRaw : 'global';
         const text = String(args.text ?? '').trim();
         const reason = String(args.reason ?? '').trim();
-        const projectId = typeof args.project_id === 'string' ? args.project_id.trim() : '';
+        const projectId = scope === 'project' ? ctx.memoryProjectId?.trim() || '' : '';
         try {
           const store = getUserMemoryStore(path.join(ctx.cqrRoot, 'data'));
+          if (scope === 'project' && projectId) {
+            store.reassignPendingProjectProposals(ctx.sessionId, projectId);
+          }
           const entry = store.propose({
             text,
             scope,
@@ -382,6 +385,7 @@ async function executeAgentToolInner(
               pending: true,
               id: entry.id,
               scope: entry.scope,
+              project_id: entry.project_id ?? null,
               status: entry.status,
               guidance: 'Candidate saved as pending. It will not enter prompts until the user approves it in 메모리 관리.',
             }),
