@@ -23,7 +23,6 @@ import {
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
-  type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
@@ -556,6 +555,7 @@ export function ChatPane() {
   const openedSessionRef = useRef<string | null>(null);
   const turnAnchorRefs = useRef<Map<string, HTMLElement>>(new Map());
   const wasBusyRef = useRef(false);
+  const chatPaneRef = useRef<HTMLElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -957,44 +957,53 @@ export function ChatPane() {
     return () => document.removeEventListener('paste', onDocPaste, true);
   }, [handlePaste]);
 
-  const onComposerDragEnter = useCallback((e: ReactDragEvent) => {
+  const onComposerDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const types = [...e.dataTransfer.types];
+    const dataTransfer = e.dataTransfer;
+    if (!dataTransfer) return;
+    const types = [...dataTransfer.types];
     if (!types.includes('Files') && !types.includes(ASSET_MIME)) return;
     dragDepthRef.current += 1;
     setDragActive(true);
   }, []);
 
-  const onComposerDragLeave = useCallback((e: ReactDragEvent) => {
+  const onComposerDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setDragActive(false);
   }, []);
 
-  const onComposerDragOver = useCallback((e: ReactDragEvent) => {
+  const onComposerDragOver = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const types = [...e.dataTransfer.types];
+    const dataTransfer = e.dataTransfer;
+    if (!dataTransfer) return;
+    const types = [...dataTransfer.types];
     if (types.includes('Files') || types.includes(ASSET_MIME)) {
-      e.dataTransfer.dropEffect = 'copy';
+      dataTransfer.dropEffect = 'copy';
     }
   }, []);
 
   const onComposerDrop = useCallback(
-    (e: ReactDragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       dragDepthRef.current = 0;
       setDragActive(false);
+      const dataTransfer = e.dataTransfer;
+      if (!dataTransfer) {
+        flashPasteHint('드롭 데이터를 읽지 못했습니다. 다시 놓거나 첨부 버튼을 사용해 주세요.');
+        return;
+      }
       // Internal workspace result dragged from the result gallery.
-      const assetId = e.dataTransfer.getData(ASSET_MIME);
+      const assetId = dataTransfer.getData(ASSET_MIME);
       if (assetId) {
         void attachAssetToComposer(assetId);
         return;
       }
-      const files = filesFromDataTransfer(e.dataTransfer);
+      const files = filesFromDataTransfer(dataTransfer);
       if (!files.length) {
         flashPasteHint('드롭한 파일을 읽지 못했습니다. 다시 놓거나 첨부 버튼을 사용해 주세요.');
         return;
@@ -1003,6 +1012,24 @@ export function ChatPane() {
     },
     [attachAssetToComposer, flashPasteHint, ingestFiles],
   );
+
+  // Bind native capture listeners directly to the pane. React's delegated drag
+  // handlers can be bypassed by nested editors/WebView content that consumes the
+  // native event first; the clip button does not traverse this external-drop path.
+  useEffect(() => {
+    const pane = chatPaneRef.current;
+    if (!pane) return;
+    pane.addEventListener('dragenter', onComposerDragEnter, true);
+    pane.addEventListener('dragleave', onComposerDragLeave, true);
+    pane.addEventListener('dragover', onComposerDragOver, true);
+    pane.addEventListener('drop', onComposerDrop, true);
+    return () => {
+      pane.removeEventListener('dragenter', onComposerDragEnter, true);
+      pane.removeEventListener('dragleave', onComposerDragLeave, true);
+      pane.removeEventListener('dragover', onComposerDragOver, true);
+      pane.removeEventListener('drop', onComposerDrop, true);
+    };
+  }, [onComposerDragEnter, onComposerDragLeave, onComposerDragOver, onComposerDrop]);
 
   const attachDisabled = pasting;
 
@@ -1038,11 +1065,8 @@ export function ChatPane() {
 
   return (
     <section
+      ref={chatPaneRef}
       className="relative flex h-full flex-col bg-ink"
-      onDragEnterCapture={onComposerDragEnter}
-      onDragLeaveCapture={onComposerDragLeave}
-      onDragOverCapture={onComposerDragOver}
-      onDropCapture={onComposerDrop}
     >
       <SessionAttachmentGallery key={activeSessionId ?? 'none'} sessionId={activeSessionId}
         onOpen={(url, name) => openImagePreview({ src: url, title: name, prompt: '' })}

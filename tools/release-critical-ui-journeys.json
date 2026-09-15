@@ -14,6 +14,17 @@
       ]
     },
     {
+      "id": "chat-file-drag-drop",
+      "surface": "chat",
+      "verification": "contract-and-bundle",
+      "verifier": "tools/verify-chat-file-drop-ui.mjs",
+      "preserves": [
+        "external file drops reach the chat attachment path even when nested content consumes drag events",
+        "WebView2 file-item fallback remains available when the standard file list is empty",
+        "unreadable drops show a visible explanation instead of failing silently"
+      ]
+    },
+    {
       "id": "rendered-document-editing",
       "surface": "document",
       "verification": "browser",
