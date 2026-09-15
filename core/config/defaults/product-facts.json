@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-14T05:12:12.496Z",
+  "generated_at": "2026-09-14T07:47:38.774Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -11,7 +11,7 @@
     "rulebook_canonical": "../RULEBOOK/MY_CUSTOM_CODEX",
     "agents_md": "AGENTS.md",
     "ui_facts": "core/config/defaults/ui-facts.json",
-    "work_kit_settings": "ui/workspace/src/components/SettingsWorkKitsPage.tsx"
+    "skill_toggle": "ui/workspace/src/components/ChatPane.tsx"
   },
   "memory_files": [
     "AGENTS.md",

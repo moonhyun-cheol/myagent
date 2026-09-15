@@ -368,7 +368,7 @@
       "baseline": 75,
       "priority": "P3",
       "evidence": {
-        "pathChecks": ["ui/workspace/src/components/ErrorReportMenu.tsx"],
+        "pathChecks": ["core/src/support/error-report-service.ts"],
         "verifies": ["verify:error-report-dry"]
       },
       "hardFailIf": [],

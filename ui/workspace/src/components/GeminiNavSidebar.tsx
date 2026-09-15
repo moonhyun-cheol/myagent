@@ -20,7 +20,7 @@ import {
   type ProviderPublic,
 } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { ErrorReportMenu } from './ErrorReportMenu';
+import { DeveloperPatchNotesMenu } from './DeveloperPatchNotesMenu';
 import { AutomationFeedModal } from './AutomationFeedModal';
 import { promoteInAppBrowserTab } from '../lib/inAppBrowserBridge';
 import { SettingsModal } from './SettingsModal';
@@ -130,7 +130,7 @@ export function GeminiNavSidebar({
             active={settingsOpen}
             onClick={() => setSettingsOpen(true)}
           />
-          <span title="메시지 및 오류 보고"><ErrorReportMenu compact /></span>
+          <span title="개발자 패치노트"><DeveloperPatchNotesMenu compact /></span>
         </div>
       </nav>
 

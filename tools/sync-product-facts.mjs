@@ -90,8 +90,8 @@ const layout = {
   ui_facts: existsSync(path.join(root, 'core/config/defaults/ui-facts.json'))
     ? 'core/config/defaults/ui-facts.json'
     : null,
-  work_kit_settings: existsSync(path.join(root, 'ui/workspace/src/components/SettingsWorkKitsPage.tsx'))
-    ? 'ui/workspace/src/components/SettingsWorkKitsPage.tsx'
+  skill_toggle: existsSync(path.join(root, 'ui/workspace/src/components/ChatPane.tsx'))
+    ? 'ui/workspace/src/components/ChatPane.tsx'
     : null,
 };
 
