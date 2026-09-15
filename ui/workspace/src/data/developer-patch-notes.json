@@ -2,6 +2,38 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "chat-file-drop-reliability",
+      "status": "development",
+      "title": "채팅 파일 끌어놓기 안정성 개선",
+      "detail": "파일을 채팅창에 끌어놓을 때 내부 화면 요소가 이벤트를 가로채더라도 첨부로 인식하고, 읽을 수 없는 경우에는 이유를 안내합니다.",
+      "area": "chat",
+      "created_at": "2026-09-15",
+      "release": {
+        "version": null,
+        "update_sequence": null
+      },
+      "source_paths": [
+        "ui/workspace/src/components/ChatPane.tsx",
+        "ui/workspace/src/lib/clipboardImages.ts"
+      ]
+    },
+    {
+      "id": "work-timeline-item-folding",
+      "status": "development",
+      "title": "진행 중 작업을 항목별로 접기",
+      "detail": "AI가 작업 중일 때도 중간 응답과 각 작업 묶음을 따로 접거나 펼쳐 필요한 내용만 확인할 수 있습니다.",
+      "area": "chat",
+      "created_at": "2026-09-15",
+      "release": {
+        "version": null,
+        "update_sequence": null
+      },
+      "source_paths": [
+        "ui/workspace/src/components/ToolActivityLog.tsx",
+        "tools/verify-tool-activity-group-ui.mjs"
+      ]
+    },
+    {
       "id": "document-ai-collaboration",
       "status": "released",
       "title": "문서 AI 공동편집 흐름 개선",
