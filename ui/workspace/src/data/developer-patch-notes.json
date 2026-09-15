@@ -3,14 +3,14 @@
   "notes": [
     {
       "id": "chat-file-drop-reliability",
-      "status": "development",
+      "status": "released",
       "title": "채팅 파일 끌어놓기 안정성 개선",
       "detail": "파일을 채팅창에 끌어놓을 때 내부 화면 요소가 이벤트를 가로채더라도 첨부로 인식하고, 읽을 수 없는 경우에는 이유를 안내합니다.",
       "area": "chat",
       "created_at": "2026-09-15",
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.9",
+        "update_sequence": 57
       },
       "source_paths": [
         "ui/workspace/src/components/ChatPane.tsx",
@@ -19,66 +19,18 @@
     },
     {
       "id": "work-timeline-item-folding",
-      "status": "development",
+      "status": "released",
       "title": "진행 중 작업을 항목별로 접기",
       "detail": "AI가 작업 중일 때도 중간 응답과 각 작업 묶음을 따로 접거나 펼쳐 필요한 내용만 확인할 수 있습니다.",
       "area": "chat",
       "created_at": "2026-09-15",
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.9",
+        "update_sequence": 57
       },
       "source_paths": [
         "ui/workspace/src/components/ToolActivityLog.tsx",
         "tools/verify-tool-activity-group-ui.mjs"
-      ]
-    },
-    {
-      "id": "document-ai-collaboration",
-      "status": "released",
-      "title": "문서 AI 공동편집 흐름 개선",
-      "detail": "문서에서 선택한 구간의 수정을 AI에 요청하고, 변경안을 비교한 뒤 직접 적용하거나 거절할 수 있습니다.",
-      "area": "documents",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.8",
-        "update_sequence": 56
-      },
-      "source_paths": [
-        "ui/workspace/src/components/MarkdownDocument.tsx",
-        "ui/workspace/src/components/DocumentCollaborationPanel.tsx"
-      ]
-    },
-    {
-      "id": "mixed-dpi-menu-positioning",
-      "status": "released",
-      "title": "여러 모니터에서 메뉴 위치 안정화",
-      "detail": "화면 배율이 다른 모니터로 창을 옮겨도 우클릭 메뉴와 추가 메뉴가 현재 창 안의 올바른 위치에 열립니다.",
-      "area": "workspace",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.8",
-        "update_sequence": 56
-      },
-      "source_paths": [
-        "ui/workspace/src/lib/useAnchoredOverlay.ts",
-        "ui/workspace/src/components/ContextMenu.tsx"
-      ]
-    },
-    {
-      "id": "optional-runtime-install-resilience",
-      "status": "released",
-      "title": "선택 구성 요소 설치 안정성 개선",
-      "detail": "선택 구성 요소 설치에 문제가 생겨도 핵심 앱 설치는 계속 진행되며 프로젝트 설정 파일을 임의로 바꾸지 않습니다.",
-      "area": "installation",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.8",
-        "update_sequence": 56
-      },
-      "source_paths": [
-        "tools/bootstrap-playwright.ps1",
-        "tools/install/install.ps1"
       ]
     }
   ]
