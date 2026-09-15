@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { clampOverlayPoint } from '../lib/useAnchoredOverlay';
+import { overlayViewport, usePointOverlay } from '../lib/useAnchoredOverlay';
 
 export interface ContextMenuItem {
   id: string;
@@ -34,8 +34,49 @@ export function useContextMenu() {
 
 function ContextMenuEntry({ item, onClose }: { item: ContextMenuItem; onClose: () => void }) {
   const hasChildren = !item.disabled && Boolean(item.children?.length);
+  const entryRef = useRef<HTMLDivElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!hasChildren) return;
+    const entry = entryRef.current;
+    const submenu = submenuRef.current;
+    if (!entry || !submenu) return;
+    let frame = 0;
+    let remainingFrames = 0;
+    const position = () => {
+      const viewport = overlayViewport();
+      const rect = entry.getBoundingClientRect();
+      const openLeft = rect.right + submenu.offsetWidth + 8 > viewport.right;
+      const top = Math.max(viewport.top - rect.top + 8, Math.min(0, viewport.bottom - rect.top - submenu.offsetHeight - 8));
+      // Mutate both horizontal sides in the same layout pass. A state update can
+      // leave the initial right-opening position visible for one frame while a
+      // WebView2 window is settling after a mixed-DPI resize.
+      submenu.style.left = openLeft ? 'auto' : '100%';
+      submenu.style.right = openLeft ? '100%' : 'auto';
+      submenu.style.top = `${Math.round(top)}px`;
+    };
+    const tick = () => {
+      position();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) frame = requestAnimationFrame(tick);
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      remainingFrames = 4;
+      frame = requestAnimationFrame(tick);
+    };
+    schedule();
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+    };
+  }, [hasChildren]);
   return (
-    <div className="group relative">
+    <div ref={entryRef} className="group relative">
       <button
         type="button"
         role="menuitem"
@@ -56,8 +97,10 @@ function ContextMenuEntry({ item, onClose }: { item: ContextMenuItem; onClose: (
       </button>
       {hasChildren ? (
         <div
+          ref={submenuRef}
           role="menu"
-          className="invisible absolute left-full top-0 z-[301] min-w-[210px] rounded-xl border border-line bg-panel py-1 opacity-0 shadow-[0_16px_48px_rgba(0,0,0,0.45)] group-hover:visible group-hover:opacity-100"
+          className="invisible absolute z-[301] min-w-[210px] rounded-xl border border-line bg-panel py-1 opacity-0 shadow-[0_16px_48px_rgba(0,0,0,0.45)] group-hover:visible group-hover:opacity-100"
+          style={{ left: '100%', top: 0 }}
         >
           {item.children!.map((child) => (
             <ContextMenuEntry key={child.id} item={child} onClose={onClose} />
@@ -78,41 +121,7 @@ export function ContextMenuPortal({
   footer?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ left: 0, top: 0 });
-
-  useLayoutEffect(() => {
-    if (!menu || !ref.current) return;
-    const el = ref.current;
-    setPos({ left: 0, top: 0 });
-    let frame = 0;
-    let remainingFrames = 0;
-    const position = () => setPos(clampOverlayPoint(menu.x, menu.y, el));
-    const tick = () => {
-      position();
-      remainingFrames -= 1;
-      if (remainingFrames > 0) frame = requestAnimationFrame(tick);
-    };
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      remainingFrames = 4;
-      frame = requestAnimationFrame(tick);
-    };
-
-    schedule();
-    const observer = new ResizeObserver(schedule);
-    observer.observe(document.documentElement);
-    observer.observe(el);
-    window.addEventListener('resize', schedule);
-    window.visualViewport?.addEventListener('resize', schedule);
-    window.visualViewport?.addEventListener('scroll', schedule);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      window.removeEventListener('resize', schedule);
-      window.visualViewport?.removeEventListener('resize', schedule);
-      window.visualViewport?.removeEventListener('scroll', schedule);
-    };
-  }, [menu]);
+  const pos = usePointOverlay(Boolean(menu), menu?.x ?? 0, menu?.y ?? 0, ref);
 
   useEffect(() => {
     if (!menu) return;
@@ -140,7 +149,7 @@ export function ContextMenuPortal({
       ref={ref}
       role="menu"
       className="fixed z-[300] min-w-[210px] overflow-visible rounded-xl border border-line bg-panel py-1 shadow-[0_16px_48px_rgba(0,0,0,0.45)]"
-      style={{ left: pos.left, top: pos.top, visibility: pos.left === 0 && pos.top === 0 ? 'hidden' : 'visible' }}
+      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden' }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {menu.items.map((item) => (

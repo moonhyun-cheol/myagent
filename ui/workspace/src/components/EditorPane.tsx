@@ -1,9 +1,11 @@
 import Editor from '@monaco-editor/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { FileNode } from '../types';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import { readWorkspaceFsFile } from '../api/myAgentClient';
 import { useTheme } from '../lib/theme';
+import { usePointOverlay } from '../lib/useAnchoredOverlay';
 
 const FILES_PANEL_OPEN_KEY = 'my-agent-workspace-files-panel-open';
 const LEGACY_FILES_PANEL_OPEN_KEY = 'cqr-workspace-files-panel-open';
@@ -108,6 +110,8 @@ export function EditorPane() {
   const editorSaving = useWorkspaceStore((s) => s.editorSaving);
   const [filesPanelOpen, setFilesPanelOpen] = useState(readFilesPanelOpenPref);
   const [contextMenu, setContextMenu] = useState<EditorContextMenuState | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuPosition = usePointOverlay(Boolean(contextMenu), contextMenu?.x ?? 0, contextMenu?.y ?? 0, contextMenuRef);
 
   useEffect(() => {
     try {
@@ -336,10 +340,11 @@ export function EditorPane() {
           </div>
         </div>
       </div>
-      {contextMenu ? (
+      {contextMenu ? createPortal(
         <div
-          className="fixed z-50 min-w-36 rounded border border-line bg-panel p-1 text-[11px] shadow-xl"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          ref={contextMenuRef}
+          className="fixed z-[300] min-w-36 rounded border border-line bg-panel p-1 text-[11px] shadow-xl"
+          style={{ left: contextMenuPosition?.left ?? 0, top: contextMenuPosition?.top ?? 0, visibility: contextMenuPosition ? 'visible' : 'hidden' }}
           onClick={(event) => event.stopPropagation()}
           role="menu"
         >
@@ -416,7 +421,8 @@ export function EditorPane() {
               탭 닫기
             </button>
           ) : null}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

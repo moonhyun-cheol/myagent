@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from 'react';
+import { useLayoutEffect, useState, type RefObject } from 'react';
 
 export interface OverlayViewport {
   left: number;
@@ -29,6 +29,57 @@ export function clampOverlayPoint(
     left: Math.max(viewport.left + padding, Math.min(x, viewport.right - overlay.offsetWidth - padding)),
     top: Math.max(viewport.top + padding, Math.min(y, viewport.bottom - overlay.offsetHeight - padding)),
   };
+}
+
+/** Re-clamps a pointer-positioned overlay while a native WebView2 window settles. */
+export function usePointOverlay(
+  open: boolean,
+  x: number,
+  y: number,
+  overlayRef: RefObject<HTMLElement | null>,
+): { left: number; top: number } | null {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !overlayRef.current) {
+      setPosition(null);
+      return;
+    }
+    const overlay = overlayRef.current;
+    let frame = 0;
+    let remainingFrames = 0;
+    const measure = () => {
+      if (overlay.isConnected) setPosition(clampOverlayPoint(x, y, overlay));
+    };
+    const tick = () => {
+      measure();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) frame = requestAnimationFrame(tick);
+    };
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      remainingFrames = 4;
+      frame = requestAnimationFrame(tick);
+    };
+
+    setPosition(null);
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(document.documentElement);
+    observer.observe(overlay);
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('scroll', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('scroll', schedule);
+    };
+  }, [open, overlayRef, x, y]);
+
+  return position;
 }
 
 interface AnchoredOverlayOptions {

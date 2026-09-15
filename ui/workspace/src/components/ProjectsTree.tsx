@@ -17,7 +17,8 @@ import {
   Trash,
   TreeStructure,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import {
   archiveSession,
   createProject,
@@ -43,6 +44,7 @@ import { pickPortableSessionFile } from '../lib/sessionImport';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
 import { openScopeSettings, ScopeSettingsModalHost } from './ScopeSettingsModal';
+import { useAnchoredOverlay } from '../lib/useAnchoredOverlay';
 
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
@@ -122,6 +124,30 @@ function useExclusiveSidebarMenu(menuId: string) {
   };
 
   return { menuOpen, setMenuOpen, openMenu, toggleMenu };
+}
+
+function SidebarMenuPopup({ open, menuId, anchorRef, widthClass, children }: {
+  open: boolean;
+  menuId: string;
+  anchorRef: RefObject<HTMLElement | null>;
+  widthClass: string;
+  children: ReactNode;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useAnchoredOverlay({ open, anchorRef, overlayRef, align: 'end', maxHeight: 480 });
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={overlayRef}
+      data-sidebar-menu-id={menuId}
+      role="menu"
+      className={`fixed z-[300] overflow-y-auto rounded-lg border border-line bg-panel p-1 text-text shadow-xl ${widthClass}`}
+      style={{ visibility: 'hidden' }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
 }
 
 function useSidebarMenuShortcuts(
@@ -752,6 +778,7 @@ function TreeNode({
   const [labelColor, setLabelColor] = useState<ProjectColor>(node.color ?? 'gray');
   const menuId = `workspace-node:${node.id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   useSidebarMenuShortcuts(
     menuOpen,
     () => { setMenuOpen(false); onNewChat(node.id); },
@@ -833,6 +860,7 @@ function TreeNode({
         </button>
         <div className="relative">
           <button
+            ref={menuAnchorRef}
             type="button"
             className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
             title="더보기"
@@ -841,8 +869,7 @@ function TreeNode({
           >
             <DotsThree size={14} weight="bold" />
           </button>
-          {menuOpen ? (
-            <div className="absolute right-0 top-7 z-30 w-44 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+          <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-44">
               <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
               <div className="grid grid-cols-8 gap-1 px-2 pb-2">
                 {PROJECT_COLORS.map((color) => (
@@ -868,8 +895,7 @@ function TreeNode({
                   </button>
                 ) : null}
               </div>
-            </div>
-          ) : null}
+          </SidebarMenuPopup>
         </div>
       </div>
 
@@ -969,6 +995,7 @@ function ProjectBlock({
 }) {
   const menuId = `project:${id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   const [labelColor, setLabelColor] = useState(color);
   useSidebarMenuShortcuts(
     menuOpen,
@@ -1003,11 +1030,10 @@ function ProjectBlock({
           <PencilSimple size={12} />
         </button>
         <div className="relative">
-          <button type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={toggleMenu}>
+          <button ref={menuAnchorRef} type="button" className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" title="더보기" onClick={toggleMenu}>
             <DotsThree size={14} weight="bold" />
           </button>
-          {menuOpen ? (
-            <div className="absolute right-0 top-7 z-30 w-44 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+          <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-44">
               <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
               <div className="grid grid-cols-8 gap-1 px-2 pb-2">
                 {PROJECT_COLORS.map((nextColor) => (
@@ -1023,8 +1049,7 @@ function ProjectBlock({
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
               </div>
-            </div>
-          ) : null}
+          </SidebarMenuPopup>
         </div>
       </div>
       {!collapsed ? (
@@ -1188,6 +1213,7 @@ function SessionRow({
   const unseen = useWorkspaceStore((s) => Boolean(s.unseenCompletions[session.id]));
   const menuId = `session:${session.id}`;
   const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   useSidebarMenuShortcuts(
@@ -1270,6 +1296,7 @@ function SessionRow({
       ) : null}
       <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
         <button
+          ref={menuAnchorRef}
           type="button"
           className="rounded p-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
           title="더보기"
@@ -1278,8 +1305,7 @@ function SessionRow({
         >
           <DotsThree size={14} weight="bold" />
         </button>
-        {menuOpen ? (
-          <div className="absolute right-0 top-6 z-30 w-36 rounded-lg border border-line bg-panel p-1 text-text shadow-xl">
+        <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-36">
             {onTogglePin ? (
               <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '대화 고정 해제' : '이 묶음에 대화 고정'}</button>
             ) : null}
@@ -1299,8 +1325,7 @@ function SessionRow({
               <Archive size={13} weight={session.archived ? 'fill' : 'regular'} />{session.archived ? '보관 해제' : '보관'}
             </button>
             <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
-          </div>
-        ) : null}
+        </SidebarMenuPopup>
       </div>
     </div>
   );
