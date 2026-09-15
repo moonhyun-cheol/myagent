@@ -92,9 +92,10 @@ const facts = {
       'ui/workspace/src/components/ChatPane.tsx',
     ],
   },
-  work_kits: {
-    settings_page: 'ui/workspace/src/components/SettingsWorkKitsPage.tsx',
-    serve_path: '/',
+  skills: {
+    toggle_surface: 'ui/workspace/src/components/ChatPane.tsx',
+    trigger: 'composer +',
+    selectable_api: '/skills/selectable',
   },
 };
 

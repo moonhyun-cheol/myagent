@@ -18,6 +18,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const preflightDone = process.env.MY_AGENT_BUILD_PREFLIGHT_DONE === '1';
+if (!preflightDone) {
+  const preflightArgs = [path.join(root, 'tools', 'release-preflight.mjs')];
+  if (process.env.MY_AGENT_RELEASE_ALLOW_DIRTY === '1') preflightArgs.push('--allow-dirty');
+  const preflight = spawnSync(process.execPath, preflightArgs, { cwd: root, stdio: 'inherit', env: process.env });
+  if (preflight.status !== 0) process.exit(preflight.status ?? 1);
+}
 const outDir = path.join(root, 'deploy', 'output');
 const stageDir = path.join(outDir, 'stage');
 const appDir = path.join(stageDir, 'app');

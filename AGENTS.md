@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-09 / 제품 캡처 1.1.4, update 44):** 외부
+**RULEBOOK 지식 기준 (2026-09-14 / 제품 캡처 1.1.5, update 53):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, 작업 키트 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
@@ -14,29 +14,30 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 - `core/config/defaults/ui-facts.json` — shell title bar / confirm / ChatPane paths
 - `core/config/defaults/product-facts.json` — API routes + layout roots
-- `manifest.json` — version `1.1.4`, `update_sequence` **51**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
+- `manifest.json` — version `1.1.5`, `update_sequence` **53**. Public label `MY Agent {version} (update {N})`. Clients follow monotonic sequence, not SemVer alone.
 
 ## Product layout
 
 | Area | Path |
 |------|------|
 | Product UI | `ui/workspace` at `/` |
-| Work kits UI | `ui/workspace/src/components/SettingsWorkKitsPage.tsx` in Settings |
+| Conversation skill toggle | `ui/workspace/src/components/ChatPane.tsx` composer `+` |
 | Shell | `shell/CqrPa.Shell` (`MainWindow.xaml`) |
 | Core API | `core/src/routes/dispatch.ts` |
 | RULEBOOK (authority) | `../RULEBOOK/MY_CUSTOM_CODEX` — **not in this repo** (ADR-RE-008) |
 
 ## Critical product facts
 
-- **Work kits:** Settings → 작업 키트 — catalog feed, per-shelf install, apply = pull + enable + optional `features.enable` (no runtime pin). Org skills via composer `+` / `/skills/selectable`.
+- **Skills:** user-facing activation is only the composer `+` picker backed by `/skills/selectable`; selecting the active skill again turns it off. Work-kit catalog/install internals have no Settings surface.
 - **Updates (3 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; org module folder swap; work-kit catalog refresh. The former launcher stream is retired. Idle gate defers Yes/No while chat session turns are alive (`session_busy`) or UI reports work (`workspace_busy`). See R-605/R-618 and the WorkKit integration ADR.
 - **Org module / Features:** base overlay in company repo; Automaton slash via Organization Feature (`data/organization-features/`) after ops Work Kit apply (ADR-RE-011 / R-625). Settings → 스킬 for module check/apply.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.
-- **Unified Document surface:** Preview「문서」하나에서 파일 탭·읽기·원문 편집·diff·AI 메모와 공유·첨부 사본·묶음·강조/참조·협업 요청을 제공한다. 프로젝트 Markdown이 본문 SSOT이고, 루트 없는 기존 SQLite 문서도 같은 표면에서 보존한다. 저장된 `codocument`는 `document`로 전환된다 (ADR-RE-014).
-- **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `원문 편집`/`읽기`/`변경 비교`; default open view = `preview`.
+- **Unified Document surface:** Preview「문서」하나에서 읽기·렌더링 편집·원문 편집·diff를 제공한다. 현재 열린 프로젝트 Markdown이 AI 공동편집 대상이며, 선택→composer 확인→requestId 결속 제안→비교→명시 적용/거절 순서다. 적용 전 tab/revision/baseContent/diskConflict 불일치는 자동 적용을 차단한다. AI 메모는 비수정 질의이고, 타챗 공유·첨부·이전 SQLite 문서는 더보기의 별도 이식 기능이다. 프로젝트 Markdown이 본문 SSOT다 (ADR-RE-014).
+- **Document status strip (update 37):** path + source badge + editable/dirty + dump hint; views `읽기`/`렌더링 편집`/`원문 편집`/`변경 비교`; default open view = `preview`.
 - **Sidebar / skills (update 38):** resizable nav sidebar; composer `+` organization skill picker via `/skills/selectable`.
-- **Update 51:** WorkKitLauncher retired — work-kit management lives in Settings → 작업 키트; `/launcher/*` 404; launcher update stream/install paths removed; core delta delete-list cleans legacy launcher files; shell catalog-only companion (no WorkKitLauncher spawn).
+- **Update 51:** WorkKitLauncher retired; `/launcher/*` 404; launcher update stream/install paths removed; core delta delete-list cleans legacy launcher files; work-kit catalog/install internals are not exposed as a Settings management page.
+- **Install asset invariant:** `MYAgent-v{version}-install.zip` is an offline bundle with root `install.bat` plus `app/`. The BAT must reach `app/tools/install/install-ui.ps1` and `install.ps1`. An `app/`-only ZIP is invalid even when the payload binaries exist. Inspect the final ZIP root before publishing or replacing a release asset.
 - **Update 50:** CQR_PA tool-call batches (`activityGroupId`), full redacted activity retention, grouped subtask cancellation, unified intermediate-work collapse, project-root Markdown-backed document collaboration, updater permission preflight/failure recovery hardening, and first-install per-user permission probing/fallback. The former separate collaboration surface is unified into「문서」by ADR-RE-014.
 - **Update 49:** consecutive tool-failure run stop, work-log `<details>` collapse, caption dblclick restore, narrow chat-first layout.
 - **Update 45:** CQR_PA port — automation content outcomes (`success|warning|failed|blocked`) on runs/feed UI; General Work Principles + risk-proportionate verification / active_task acceptance wording.
@@ -51,7 +52,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 
 1. **Do not invent file state** — `read_file` / ui-facts / product-facts before asserting paths or UI.
 2. **Title bar ≠ ChatPane** — shell vs workspace are different targets (`ui-facts.json`).
-3. **Single product UI** — `ui/workspace` at `/`, including Settings → 작업 키트. `/launcher/*` is removed/404.
+3. **Single product UI** — `ui/workspace` at `/`; conversation skills are toggled only from the composer `+`. `/launcher/*` is removed/404.
 4. **Done = evidence** — disk mutate + verification; UI features need click/screen path, not `tsc` alone.
 5. **Live agent** — no `evaluateOutcomeGate`, no OpenGate injection, no planner/reviewer chain (ADR-RE-006).
 6. **Failure plane** — tool failures must not demote to plain chat.
@@ -60,6 +61,8 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 9. **Document memo ≠ chat** — memo Q&A must not appear as chat bubbles (R-620).
 10. **Chat rendering/navigation** — user/assistant text uses safe Markdown; message action payloads remain exact source text. Background keyboard navigation must ignore composer inputs, buttons, links, and other editable controls.
 11. **Per-execution cancel** — stop buttons cover `run_terminal`/`run_tests`/`run_diagnostics` only. A cancel must not abort the parent chat or sibling executions. File side effects are not rolled back.
+12. **Install ZIP entry point** — a full install asset must contain root `install.bat` and `app/`; verify the final archive, not only the staged `app/`. `app/`-only is not a valid installer.
+13. **UI replacement preserves journeys** — merging, replacing, or removing a UI surface requires migrating every user interaction, not only its data/API path. Register release-critical outcomes in `tools/release-critical-ui-journeys.json`; the verifier must exercise the replacement and the final bundle where applicable. Do not delete the old surface until those journeys pass.
 
 Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wins** (ADR-RE-002).
 

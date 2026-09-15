@@ -1,0 +1,50 @@
+{
+  "schema": "my-agent-release-critical-ui-journeys/v1",
+  "policy": "A UI surface may be merged, replaced, or removed only after every preserved capability is exercised through its replacement. Add new release-critical interactions here with an outcome-level verifier.",
+  "journeys": [
+    {
+      "id": "unified-intermediate-work",
+      "surface": "chat",
+      "verification": "browser",
+      "verifier": "tools/verify-tool-activity-group-ui.mjs",
+      "preserves": [
+        "responses and tool calls remain in one chronological surface",
+        "live work expands and completed work collapses",
+        "group cancellation does not cancel sibling or parent work"
+      ]
+    },
+    {
+      "id": "rendered-document-editing",
+      "surface": "document",
+      "verification": "browser",
+      "verifier": "tools/verify-rendered-document-ui.mjs",
+      "preserves": [
+        "rendered Markdown remains directly editable",
+        "selection and context-menu AI handoff remain usable"
+      ]
+    },
+    {
+      "id": "ai-document-collaboration",
+      "surface": "document",
+      "verification": "contract-and-bundle",
+      "verifier": "tools/verify-ai-document-collaboration.mjs",
+      "preserves": [
+        "selected text can start a user-confirmed AI edit request",
+        "only the assistant turn bound to that request becomes the proposal",
+        "revision or content drift blocks automatic proposal application",
+        "chat sharing and legacy import remain separate document portability actions"
+      ]
+    },
+    {
+      "id": "unified-document-and-detach",
+      "surface": "document-shell",
+      "verification": "contract-and-bundle",
+      "verifier": "tools/verify-preview-explorer.mjs",
+      "preserves": [
+        "one document surface retains rendered editing",
+        "the active document panel can detach into a shell window",
+        "release UI assets contain the user-visible entry points"
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
 const checkOnly = args.has('--check-only');
 const allowDirty = args.has('--allow-dirty') || process.env.MY_AGENT_RELEASE_ALLOW_DIRTY === '1';
+const criticalUiJourneyManifest = 'tools/release-critical-ui-journeys.json';
 
 function fail(message) {
   throw new Error(message);
@@ -77,6 +78,12 @@ try {
   }
   assertFresh(status);
 
+  // Fresh output only proves that dist matches source. The journey registry is
+  // the durable compatibility contract for UI merges, replacements, and removals;
+  // each entry must prove the preserved user outcome through the replacement.
+  runNode('tools/verify-release-critical-ui-journeys.mjs');
+  const criticalUiJourneys = readJson(criticalUiJourneyManifest).journeys;
+
   if (versionState.manifest.name === 'MY_CUSTOM_CODEX') {
     runNode('tools/verify-public-boundary.mjs', ['--strict']);
   } else {
@@ -92,6 +99,13 @@ try {
     channel: versionState.channel,
     update_sequence: versionState.sequence,
     built,
+    critical_ui_journey_manifest: criticalUiJourneyManifest,
+    critical_ui_journeys: criticalUiJourneys.map(({ id, surface, verification, verifier }) => ({
+      id,
+      surface,
+      verification,
+      verifier,
+    })),
     lane_hashes: Object.fromEntries(
       RELEASE_BUILD_LANES.map((lane) => [
         lane,

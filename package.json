@@ -86,6 +86,7 @@
     "verify:conversation-image-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-conversation-image-catalog.mjs",
     "verify:work-timeline": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-work-timeline.mjs",
     "verify:tool-activity-groups-ui": "node tools/verify-tool-activity-group-ui.mjs",
+    "verify:release-critical-ui": "node tools/verify-release-critical-ui-journeys.mjs",
     "verify:service-orchestration": "node tools/verify-service-orchestration.mjs",
     "verify:agent-profiles": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-agent-profiles.mjs",
     "sync:work-kit-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/sync-work-kit-catalog.mjs",

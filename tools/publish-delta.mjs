@@ -24,7 +24,14 @@ const stageDir = path.join(outDir, 'delta-stage');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const ver = manifest.version ?? '1.0.0';
 const secureUpdate = process.env.MY_AGENT_SECURE_UPDATE === '1';
-const preflightDone = process.env.MY_AGENT_BUILD_PREFLIGHT_DONE === '1';
+let preflightDone = process.env.MY_AGENT_BUILD_PREFLIGHT_DONE === '1';
+if (!preflightDone) {
+  const preflightArgs = [path.join(root, 'tools', 'release-preflight.mjs')];
+  if (process.env.MY_AGENT_RELEASE_ALLOW_DIRTY === '1') preflightArgs.push('--allow-dirty');
+  const preflight = spawnSync(process.execPath, preflightArgs, { cwd: root, stdio: 'inherit', env: process.env });
+  if (preflight.status !== 0) process.exit(preflight.status ?? 1);
+  preflightDone = true;
+}
 
 const build = spawnSync(
   process.execPath,

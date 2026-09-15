@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-09-14T05:12:12.397Z",
+  "generated_at": "2026-09-14T07:47:38.693Z",
   "note": "Build-generated. Code agent must prefer this over memory. Re-run: node tools/sync-ui-facts.mjs",
   "shell": {
     "main_window": "shell/CqrPa.Shell/MainWindow.xaml",
@@ -61,8 +61,9 @@
       "ui/workspace/src/components/ChatPane.tsx"
     ]
   },
-  "work_kits": {
-    "settings_page": "ui/workspace/src/components/SettingsWorkKitsPage.tsx",
-    "serve_path": "/"
+  "skills": {
+    "toggle_surface": "ui/workspace/src/components/ChatPane.tsx",
+    "trigger": "composer +",
+    "selectable_api": "/skills/selectable"
   }
 }
