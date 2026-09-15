@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import type { ToolActivity, WorkTimelineItem } from '../types';
 
 const duration = (ms: number) => {
@@ -59,6 +59,7 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
   const [now, setNow] = useState(Date.now);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState(live);
   const wasLive = useRef(live);
 
@@ -154,6 +155,10 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
   const toolGroupCount = displayItems.filter((item) => item.kind === 'tool-group').length;
   let responseNumber = 0;
   let toolGroupNumber = 0;
+  const itemToggle = (id: string) => (event: SyntheticEvent<HTMLDetailsElement>) => {
+    const collapsed = !event.currentTarget.open;
+    setCollapsedItems((old) => old[id] === collapsed ? old : { ...old, [id]: collapsed });
+  };
 
   return (
     <details
@@ -172,33 +177,46 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
         {displayItems.map((item) => {
           if (item.kind === 'response') {
             responseNumber += 1;
+            const itemId = `response:${item.id}`;
             return (
-              <section key={item.id} className="mb-3 min-w-0" data-timeline-kind="response">
-                <p className="mb-1 font-medium text-text">응답 {responseNumber}</p>
-                <div className="whitespace-pre-wrap break-words text-text/80">{item.text}</div>
-                {item.id === 'stream-preview' && live ? <p className="mt-1 text-[11px] text-muted">생성 중</p> : null}
-              </section>
+              <details
+                key={item.id}
+                className="mb-3 min-w-0"
+                data-timeline-kind="response"
+                open={!collapsedItems[itemId]}
+                onToggle={itemToggle(itemId)}
+              >
+                <summary className="cursor-pointer select-none font-medium text-text marker:text-muted">
+                  응답 {responseNumber}{item.id === 'stream-preview' && live ? ' · 생성 중' : ''}
+                </summary>
+                <div className="mt-1 whitespace-pre-wrap break-words border-l border-line/70 pl-3 text-text/80">{item.text}</div>
+              </details>
             );
           }
           toolGroupNumber += 1;
+          const itemId = `tool-group:${item.id}`;
           const state = groupState(item.rows);
           const stateLabel = state === 'running'
             ? live ? '실행 중' : '연결 종료 · 완료 상태 미수신'
             : ({ success: '완료', failed: '실패', cancelled: '사용자/실행 취소' } as const)[state];
           return (
-            <section
+            <details
               key={item.id}
               className="mb-3 min-w-0"
               data-timeline-kind="tool-group"
               data-activity-group-id={item.id}
               data-tool-state={state}
+              open={!collapsedItems[itemId]}
+              onToggle={itemToggle(itemId)}
             >
-              <div className={`mb-1 flex items-center gap-2 ${state === 'failed' ? 'text-danger' : 'text-text'}`}>
+              <summary className={`mb-1 cursor-pointer select-none marker:text-muted ${state === 'failed' ? 'text-danger' : 'text-text'}`}>
+                <span className="inline-flex w-[calc(100%-1rem)] items-center gap-2 align-middle">
                 <span className="min-w-0">
                   <span className="font-medium">작업 {toolGroupNumber}</span> · {item.rows.length}개 도구 · {stateLabel} · {groupElapsed(item.rows)}
                 </span>
                 {cancelGroupButton(toolGroupNumber, item.rows)}
-              </div>
+                </span>
+              </summary>
               <div className="space-y-2 border-l border-line/70 pl-3">
                 {item.rows.map((row) => (
                   <div key={row.id} className="min-w-0" data-timeline-kind="tool" data-tool-state={row.state}>
@@ -216,7 +234,7 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
                   </div>
                 ))}
               </div>
-            </section>
+            </details>
           );
         })}
       </div>

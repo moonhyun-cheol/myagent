@@ -78,9 +78,18 @@ try {
   const details = page.locator('[data-work-timeline]');
   await details.waitFor();
   assert.equal(await details.getAttribute('open'), '');
-  assert.match(await details.locator('summary').innerText(), /응답 1 · 작업 2 · 진행 중/);
+  assert.match(await details.locator(':scope > summary').innerText(), /응답 1 · 작업 2 · 진행 중/);
   assert.equal(await details.locator('[data-timeline-kind="tool-group"]').count(), 2);
   assert.equal(await details.locator('[data-activity-group-id="batch-1"] [data-timeline-kind="tool"]').count(), 2);
+  const responseItem = details.locator('[data-timeline-kind="response"]').first();
+  const firstWorkItem = details.locator('[data-timeline-kind="tool-group"]').first();
+  assert.equal(await responseItem.evaluate((element) => element.open), true);
+  assert.equal(await firstWorkItem.evaluate((element) => element.open), true);
+  await responseItem.locator(':scope > summary').click();
+  await firstWorkItem.locator(':scope > summary').click();
+  assert.equal(await responseItem.evaluate((element) => element.open), false, 'a live response can be folded independently');
+  assert.equal(await firstWorkItem.evaluate((element) => element.open), false, 'a live work group can be folded independently');
+  await firstWorkItem.locator(':scope > summary').click();
   const groupCancel = details.getByRole('button', { name: '작업 1 중단 후 이어가기' });
   await groupCancel.click();
   await page.waitForFunction(() => document.body.innerText.includes('중단 요청 중'));
@@ -88,11 +97,11 @@ try {
   assert.deepEqual([...cancelled].sort(), ['a','b']);
   await page.evaluate(() => window.complete());
   await page.waitForFunction(() => !document.querySelector('[data-work-timeline]')?.open);
-  assert.match(await details.locator('summary').innerText(), /응답 1 · 작업 2 · 완료/);
-  await details.locator('summary').click();
+  assert.match(await details.locator(':scope > summary').innerText(), /응답 1 · 작업 2 · 완료/);
+  await details.locator(':scope > summary').click();
   assert.match(await details.innerText(), /first output/);
   assert.deepEqual(errors, []);
-  console.log('PASS grouped tool batches, unified auto-collapse, and group subtask cancellation UI');
+  console.log('PASS independently foldable responses/work groups, unified auto-collapse, and group subtask cancellation UI');
 } finally {
   await browser?.close();
   await server.close();
