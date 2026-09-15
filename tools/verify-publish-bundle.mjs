@@ -106,6 +106,14 @@ if (launcherHits.length) {
   console.log('  OK   no launcher residue anywhere under stage app');
 }
 
+const stagedRulebook = path.join(appDir, 'rulebook');
+if (existsSync(stagedRulebook)) {
+  console.error('  FAIL rulebook must not be included in the product payload');
+  failed++;
+} else {
+  console.log('  OK   rulebook absent from product payload');
+}
+
 for (const rel of ['WorkKitLauncher.exe', 'bin/work-kit-launcher', 'ui/work-kit-launcher', 'launcher-manifest.json']) {
   if (existsSync(path.join(appDir, rel))) {
     console.error(`  FAIL removed launcher artifact is present: ${rel}`);

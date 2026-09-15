@@ -101,6 +101,8 @@ const skipDirs = new Set([
   '.cqr-pa',
   'test-results',
   '.my_agent_remote',
+  // RULEBOOK is maintained outside the product payload (ADR-RE-008).
+  'rulebook',
 ]);
 
 /**
