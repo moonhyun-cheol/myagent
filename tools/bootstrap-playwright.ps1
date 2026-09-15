@@ -112,11 +112,12 @@ $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '0'
 
 Push-Location $Root
 try {
-  Write-Host "bootstrap-playwright: installing playwright package (node=$nodeExe)"
+  Write-Host "bootstrap-playwright: installing playwright package without changing package.json/package-lock.json (node=$nodeExe)"
   $npmCli = Join-Path $Root 'runtime\node\node_modules\npm\bin\npm-cli.js'
   $code = 1
+  $playwrightInstallArgs = @('install', 'playwright@^1.52.0', '--no-save', '--package-lock=false', '--no-fund', '--no-audit')
   if (Test-Path -LiteralPath $npmCli) {
-    $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList @($npmCli, 'install', 'playwright@^1.52.0', '--save-optional', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
+    $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList (@($npmCli) + $playwrightInstallArgs) -TimeoutSec $NpmTimeoutSec
   }
   if ($code -eq 124) {
     Write-Error "bootstrap-playwright: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."
@@ -127,7 +128,7 @@ try {
     if (-not $sysNpm -or -not $sysNpm.Source) {
       Write-Error 'bootstrap-playwright: npm not found (portable npm-cli missing and no system npm). Run tools\bootstrap-node-if-needed.ps1 first.'
     }
-    $code = Invoke-CqrNativeTimed -FilePath $sysNpm.Source -ArgumentList @('install', 'playwright@^1.52.0', '--save-optional', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
+    $code = Invoke-CqrNativeTimed -FilePath $sysNpm.Source -ArgumentList $playwrightInstallArgs -TimeoutSec $NpmTimeoutSec
     if ($code -eq 124) {
       Write-Error "bootstrap-playwright: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."
     }

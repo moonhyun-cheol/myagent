@@ -5,7 +5,8 @@ $files = @(
   'tools/bootstrap-oss-sidecars.ps1',
   'tools/bootstrap-markitdown-if-needed.ps1',
   'tools/bootstrap-repomix-if-needed.ps1',
-  'tools/bootstrap-ast-grep-if-needed.ps1'
+  'tools/bootstrap-ast-grep-if-needed.ps1',
+  'tools/bootstrap-playwright.ps1'
 )
 foreach ($relativePath in $files) {
   $tokens = $null
@@ -60,4 +61,21 @@ foreach ($receiver in $receivers) {
   }
 }
 
-Write-Host "optional sidecar installer parameter contract: PASS ($($receivers.Count) receiver script(s))"
+# Playwright is an optional runtime, not an installer-time manifest edit. Keep
+# the package in node_modules while preventing npm from rewriting the shipped
+# package.json or package-lock.json. Both portable-npm and system-npm branches
+# share this argument list, so this contract covers both paths.
+$playwrightBootstrap = [IO.File]::ReadAllText(
+  (Join-Path $root 'tools/bootstrap-playwright.ps1'),
+  [Text.UTF8Encoding]::new($false)
+)
+foreach ($requiredFlag in @('--no-save', '--package-lock=false')) {
+  if ($playwrightBootstrap -notmatch [regex]::Escape("'$requiredFlag'")) {
+    throw "bootstrap-playwright.ps1 is missing $requiredFlag (would allow package manifest/lockfile mutation)"
+  }
+}
+if ($playwrightBootstrap -match "'--save(?:-optional|-dev|-prod)?'") {
+  throw 'bootstrap-playwright.ps1 contains a manifest-mutating npm --save flag'
+}
+
+Write-Host "optional sidecar installer parameter + Playwright manifest contract: PASS ($($receivers.Count) receiver script(s))"
