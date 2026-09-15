@@ -1815,8 +1815,8 @@ export function ChatPane() {
                 </button>
                 <button
                   type="button"
-                  title={skillMode && skillLabel ? `조직 스킬: ${skillLabel}` : '조직 스킬 선택'}
-                  aria-label="조직 스킬 선택"
+                  title={skillMode && skillLabel ? `스킬: ${skillLabel}` : '스킬 선택'}
+                  aria-label="스킬 선택"
                   aria-expanded={skillPickerOpen}
                   data-testid="organization-skill-button"
                   ref={skillButtonRef}
@@ -1866,7 +1866,7 @@ export function ChatPane() {
                     ref={skillPickerRef}
                     tabIndex={-1}
                   >
-                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">조직 스킬</div>
+                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">스킬</div>
                     {skillMode ? (
                       <button
                         type="button"
@@ -1904,7 +1904,7 @@ export function ChatPane() {
                         </div>
                         {skill.description ? <div className={`mt-1 text-xs ${skillMode === skill.mode ? 'text-white' : 'text-muted'}`}>{skill.description}</div> : null}
                       </button>
-                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 조직 스킬이 없습니다.</div>}
+                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 스킬이 없습니다.</div>}
                   </div>
                 ) : null}
               </div>

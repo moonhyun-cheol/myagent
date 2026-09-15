@@ -69,6 +69,8 @@
     "verify:session-durability": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-session-durability.mjs && node tools/verify-session-sqlite.mjs && node tools/verify-chat-run-race.mjs",
     "verify:subtask-cancel": "node tools/verify-subtask-cancel.mjs",
     "verify:documents": "node tools/verify-documents.mjs",
+    "verify:rendered-document-ui": "node tools/verify-rendered-document-ui.mjs",
+    "verify:ai-document-collaboration": "node tools/verify-ai-document-collaboration.mjs",
     "verify:project-documents": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-project-documents.mjs",
     "verify:message-markdown-ui": "node tools/verify-message-markdown-ui.mjs",
     "verify:chat-history-navigation": "node tools/verify-chat-history-navigation.mjs && node tools/verify-chat-history-navigation-browser.mjs",

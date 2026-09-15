@@ -64,6 +64,16 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [setTerminalOpen]);
+  const detachPreview = () => {
+    const bridge = (window as typeof window & {
+      chrome?: { webview?: { postMessage: (message: unknown) => void } };
+    }).chrome?.webview;
+    if (bridge) {
+      bridge.postMessage({ type: 'preview.detach', mode });
+      return;
+    }
+    window.open(`${window.location.origin}/?preview=${encodeURIComponent(mode)}`, '_blank', 'popup,width=960,height=720');
+  };
   const body = <div id={`${tabId}-body`} role="tabpanel" aria-labelledby={`${tabId}-${mode}`} className="relative h-full min-h-0" data-work-panel-body>
     {mode === 'objects' && <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} todoError={todoError} />}
     {(mode === 'document' || mode === 'canvas') && <MarkdownDocument />}
@@ -80,6 +90,7 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
         ><Icon size={14} />{label}</button>)}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
+        {controls && <button type="button" onClick={detachPreview} aria-label="현재 작업 패널을 새 창으로 열기" title="다른 디스플레이로 옮길 수 있는 별도 창" className="rounded-md px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-text">새 창</button>}
         <button type="button" onClick={() => setTerminalOpen(!terminalOpen)} aria-label="터미널" aria-pressed={terminalOpen}
           title={terminalOpen ? '터미널 접기 (Ctrl+`)' : '터미널 열기 (Ctrl+`)'}
           className={`inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs ${terminalOpen || terminalAttention || terminalBusy ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-hover'}`}>

@@ -274,7 +274,7 @@ public partial class MainWindow : Window
     {
         var allowedModes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "objects", "canvas", "media", "browser",
+            "objects", "document", "canvas", "media", "browser",
         };
         var safeMode = mode is not null && allowedModes.Contains(mode) ? mode : "objects";
         var preview = new Window

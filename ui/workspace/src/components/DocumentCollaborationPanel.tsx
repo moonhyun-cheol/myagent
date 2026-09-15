@@ -7,11 +7,12 @@ import { DocumentPortability } from './DocumentPortability';
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 /** Bridges file-backed Markdown tabs to the document collaboration API without creating a second editor surface. */
-export function DocumentCollaborationPanel({ active, dirty, selection, onNotesChange }: {
+export function DocumentCollaborationPanel({ active, dirty, selection, onNotesChange, visible }: {
   active: DocumentTab | null;
   dirty: boolean;
   selection: { from: number; to: number; quote: string } | null;
   onNotesChange: (notes: DocumentNote[]) => void;
+  visible: boolean;
 }) {
   const session = useWorkspaceStore((state) => state.activeSessionId);
   const [options, setOptions] = useState<DocumentListResponse | null>(null);
@@ -133,15 +134,18 @@ export function DocumentCollaborationPanel({ active, dirty, selection, onNotesCh
     }
   };
 
-  if (!session) return null;
+  if (!session || !visible) return null;
   return (
-    <div className="shrink-0 border-b border-line bg-panel-2/40 px-3 py-1.5 text-[11px] text-muted" data-testid="document-collaboration">
+    <div className="shrink-0 border-b border-line bg-panel-2/40 px-3 py-2 text-[11px] text-muted" data-testid="document-support-panel">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <strong className="text-text">문서 공유·가져오기</strong>
+        <span>AI 공동편집과 별개의 문서 이식·주석 기능입니다.</span>
+      </div>
       <div className="flex flex-wrap items-center gap-2">
-        <strong className="text-text">협업</strong>
         <label className="flex items-center gap-1">
-          공유받은 문서
+          다른 채팅에서 공유된 문서
           <select
-            aria-label="공유받은 문서"
+            aria-label="다른 채팅에서 공유된 문서"
             className="rounded border border-line bg-panel px-2 py-1 text-text"
             defaultValue=""
             disabled={opening || shared.length === 0}
@@ -152,9 +156,9 @@ export function DocumentCollaborationPanel({ active, dirty, selection, onNotesCh
           </select>
         </label>
         <label className="flex items-center gap-1">
-          기존 협업문서
+          이전 문서 가져오기
           <select
-            aria-label="기존 협업문서"
+            aria-label="이전 문서 가져오기"
             className="rounded border border-line bg-panel px-2 py-1 text-text"
             defaultValue=""
             disabled={opening || stored.length === 0}
@@ -175,7 +179,7 @@ export function DocumentCollaborationPanel({ active, dirty, selection, onNotesCh
             onChanged={() => void refresh()}
           />
         ) : active?.source === 'workspace' ? (
-          <span>문서 협업 정보를 연결하는 중…</span>
+          <span>문서 이식 정보를 연결하는 중…</span>
         ) : (
           <span>공유·첨부·묶음은 프로젝트에 저장한 문서에서 사용할 수 있습니다.</span>
         )}

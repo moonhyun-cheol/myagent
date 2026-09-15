@@ -32,3 +32,7 @@
 .document-pane [role=alert] { padding: 8px; color: var(--color-danger); }
 .document-pane [role=toolbar] button:focus-visible { outline: 2px solid var(--focus-ring); }
 @media (pointer: coarse) { .document-bubble button, .document-pane button { min-height: 44px; } }
+.rendered-document-editor { padding: 0; }
+.rendered-document-editor .document-editor-shell { min-height: 100%; }
+.rendered-document-editor .tiptap { min-height: 100%; border: 0; border-radius: 0; padding: 20px; }
+.rendered-document-editor .tiptap[contenteditable=false] { cursor: default; }

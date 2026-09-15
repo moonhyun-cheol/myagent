@@ -26,7 +26,7 @@ export function documentRecoveryRelPath(sessionId: string, tabId: string): strin
 
 export const DOCUMENT_SCRATCH = scratchConfig as DocumentScratchConfig;
 
-export type DocumentView = 'source' | 'preview' | 'diff';
+export type DocumentView = 'source' | 'rendered' | 'preview' | 'diff';
 
 export type DocumentMemoRange = {
   startLineNumber: number;
