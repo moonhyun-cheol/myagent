@@ -1,25 +1,12 @@
 import { CheckCircle, NotePencil, X } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import { fetchAgentHealth } from '../api/myAgentClient';
+import patchNotesDocument from '../data/developer-patch-notes.json';
 
-const PATCH_NOTES = [
-  {
-    title: '문서 공동편집 UI 복원',
-    detail: '단일 문서 화면에서 렌더링 편집, 우클릭 AI 작업, 선택 구간 전달과 새 창 분리를 다시 사용할 수 있습니다.',
-  },
-  {
-    title: '멀티윈도우 메뉴 배치 안정화',
-    detail: '서로 다른 배율의 모니터에서도 우클릭·추가 메뉴를 현재 창 기준으로 재측정하고 화면 안에 배치합니다.',
-  },
-  {
-    title: '핵심 UI 회귀 배포 차단',
-    detail: '사용자 여정 레지스트리와 릴리스 사전 검사를 통해 통합·리팩터링 중 빠진 상호작용을 게시 전에 차단합니다.',
-  },
-  {
-    title: '설치 안정성 개선',
-    detail: '선택 런타임 실패는 코어 설치를 중단하지 않으며 Playwright 설치가 프로젝트 manifest를 변경하지 않습니다.',
-  },
-] as const;
+const PATCH_NOTE_STATUS_LABEL = {
+  development: '개발 중',
+  released: '배포됨',
+} as const;
 
 export function DeveloperPatchNotesMenu({ compact = false }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -92,11 +79,18 @@ export function DeveloperPatchNotesMenu({ compact = false }: { compact?: boolean
           </div>
 
           <div className="max-h-[360px] space-y-3 overflow-y-auto px-4 py-3">
-            {PATCH_NOTES.map((note) => (
-              <article key={note.title} className="flex gap-2.5">
+            {patchNotesDocument.notes.map((note) => (
+              <article key={note.id} className="flex gap-2.5">
                 <CheckCircle size={16} weight="fill" className="mt-0.5 shrink-0 text-accent" />
                 <div className="min-w-0">
-                  <h3 className="text-xs font-semibold text-text">{note.title}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-semibold text-text">{note.title}</h3>
+                    <span className="rounded-full border border-line px-1.5 py-0.5 text-[9px] text-muted">
+                      {note.status === 'released' && note.release.version
+                        ? `v${note.release.version} · update ${note.release.update_sequence}`
+                        : PATCH_NOTE_STATUS_LABEL.development}
+                    </span>
+                  </div>
                   <p className="mt-1 text-[11px] leading-5 text-muted">{note.detail}</p>
                 </div>
               </article>

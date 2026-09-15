@@ -1,0 +1,53 @@
+{
+  "schema": "my-agent-developer-patch-notes/v1",
+  "notes": [
+    {
+      "id": "document-ai-collaboration",
+      "status": "development",
+      "title": "문서 AI 공동편집 흐름 개선",
+      "detail": "문서에서 선택한 구간의 수정을 AI에 요청하고, 변경안을 비교한 뒤 직접 적용하거나 거절할 수 있습니다.",
+      "area": "documents",
+      "created_at": "2026-09-15",
+      "release": {
+        "version": null,
+        "update_sequence": null
+      },
+      "source_paths": [
+        "ui/workspace/src/components/MarkdownDocument.tsx",
+        "ui/workspace/src/components/DocumentCollaborationPanel.tsx"
+      ]
+    },
+    {
+      "id": "mixed-dpi-menu-positioning",
+      "status": "development",
+      "title": "여러 모니터에서 메뉴 위치 안정화",
+      "detail": "화면 배율이 다른 모니터로 창을 옮겨도 우클릭 메뉴와 추가 메뉴가 현재 창 안의 올바른 위치에 열립니다.",
+      "area": "workspace",
+      "created_at": "2026-09-15",
+      "release": {
+        "version": null,
+        "update_sequence": null
+      },
+      "source_paths": [
+        "ui/workspace/src/lib/useAnchoredOverlay.ts",
+        "ui/workspace/src/components/ContextMenu.tsx"
+      ]
+    },
+    {
+      "id": "optional-runtime-install-resilience",
+      "status": "development",
+      "title": "선택 구성 요소 설치 안정성 개선",
+      "detail": "선택 구성 요소 설치에 문제가 생겨도 핵심 앱 설치는 계속 진행되며 프로젝트 설정 파일을 임의로 바꾸지 않습니다.",
+      "area": "installation",
+      "created_at": "2026-09-15",
+      "release": {
+        "version": null,
+        "update_sequence": null
+      },
+      "source_paths": [
+        "tools/bootstrap-playwright.ps1",
+        "tools/install/install.ps1"
+      ]
+    }
+  ]
+}

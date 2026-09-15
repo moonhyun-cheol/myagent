@@ -82,7 +82,9 @@ try {
   // the durable compatibility contract for UI merges, replacements, and removals;
   // each entry must prove the preserved user outcome through the replacement.
   runNode('tools/verify-release-critical-ui-journeys.mjs');
+  runNode('tools/verify-developer-patch-notes.mjs');
   const criticalUiJourneys = readJson(criticalUiJourneyManifest).journeys;
+  const developerPatchNotes = readJson('ui/workspace/src/data/developer-patch-notes.json').notes;
 
   if (versionState.manifest.name === 'MY_CUSTOM_CODEX') {
     runNode('tools/verify-public-boundary.mjs', ['--strict']);
@@ -106,6 +108,7 @@ try {
       verification,
       verifier,
     })),
+    developer_patch_notes: developerPatchNotes.map(({ id, status, release }) => ({ id, status, release })),
     lane_hashes: Object.fromEntries(
       RELEASE_BUILD_LANES.map((lane) => [
         lane,

@@ -63,6 +63,7 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 11. **Per-execution cancel** — stop buttons cover `run_terminal`/`run_tests`/`run_diagnostics` only. A cancel must not abort the parent chat or sibling executions. File side effects are not rolled back.
 12. **Install ZIP entry point** — a full install asset must contain root `install.bat` and `app/`; verify the final archive, not only the staged `app/`. `app/`-only is not a valid installer.
 13. **UI replacement preserves journeys** — merging, replacing, or removing a UI surface requires migrating every user interaction, not only its data/API path. Register release-critical outcomes in `tools/release-critical-ui-journeys.json`; the verifier must exercise the replacement and the final bundle where applicable. Do not delete the old surface until those journeys pass.
+14. **Agent-authored patch notes** — every completed user-visible behavior change must add or update one `development` entry in `ui/workspace/src/data/developer-patch-notes.json` in the same work unit. Write user outcomes only; exclude commits, paths, test machinery, internal IDs, and refactors with no user effect. Consolidate duplicates. Never mark `released` without the exact released `manifest.json` version and `update_sequence`; run `npm run verify:developer-patch-notes`.
 
 Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wins** (ADR-RE-002).
 
