@@ -2,7 +2,7 @@
 /** Smoke: OpenClaw gate signing + workflow map + optional /health. */
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, verify as cryptoVerify } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,13 +75,110 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
 }
 
 {
-  const { formatAutomatonEnvelope } = await import('../core/dist/automaton/format-result.js');
+  const {
+    formatAutomatonEnvelope,
+    formatAutomatonEnvelopeWithContract,
+  } = await import('../core/dist/automaton/format-result.js');
   const text = formatAutomatonEnvelope('organization-tool', {
     status: 'ok',
     route: 'openclaw_adapter',
     result: { excel_file: 'report.xlsx' },
   });
   assert.match(text, /report\.xlsx/);
+
+  const authoritativeCtr = [
+    '======작업 완료======',
+    'CTR 리포트 (TAC_BOONIE)',
+    '기간: 2026-01-01 ~ 2026-09-14',
+    '데이터: 120행 / RAW 3개',
+    '파일:',
+    "'C:/reports/CTR\\_TAC.xlsx'",
+  ].join('\n');
+  const passthrough = formatAutomatonEnvelopeWithContract(
+    'downloadtable_ctr',
+    {
+      status: 'ok',
+      message: authoritativeCtr,
+      result: {
+        stdout: 'engine: internal',
+        artifacts: [{ path: 'C:/internal/debug.json', role: 'debug' }],
+      },
+    },
+    { profile: 'discord', template_id: 'ctr-report', fallback_profile: 'files' },
+    'CTR',
+  );
+  assert.equal(passthrough, authoritativeCtr);
+  assert.doesNotMatch(passthrough, /engine:|debug\.json|status:/i);
+
+  const stockMessage = [
+    '스탁: M스탁',
+    '모델명: TAC-123',
+    '사이즈: 32X30',
+    '수량: 12',
+    '',
+    '출처: BMS gdslist (https://example.invalid/gdslist)',
+  ].join('\n');
+  const stockPassthrough = formatAutomatonEnvelopeWithContract(
+    'us_sample_stock_lookup',
+    { status: 'ok', result: { output: { result: { message: stockMessage, qty: 12 } } } },
+    { profile: 'discord', template_id: 'us-sample-stock', fallback_profile: 'quantity', fields: ['qty'] },
+    '미국샘플재고',
+  );
+  assert.equal(stockPassthrough, stockMessage);
+
+  const quantity = formatAutomatonEnvelopeWithContract(
+    'us_sample_stock_lookup',
+    {
+      status: 'ok',
+      result: {
+        output: {
+          result: { qty: 12, json_output: 'C:/internal/result.json' },
+        },
+        artifacts: [{ name: 'debug', path: 'C:/internal/debug.json' }],
+      },
+    },
+    { profile: 'quantity', fields: ['qty'] },
+    '미국 샘플 재고',
+  );
+  assert.equal(quantity, '미국 샘플 재고는 12개입니다.');
+  assert.doesNotMatch(quantity, /json|internal|artifact/i);
+
+  const files = formatAutomatonEnvelopeWithContract(
+    'downloadtable_po_review',
+    {
+      status: 'ok',
+      result: {
+        artifacts: [
+          { name: '최종 발주검토', path: 'C:/output/review.xlsx', role: 'final' },
+          { name: '중간 JSON', path: 'C:/output/debug.json', role: 'intermediate' },
+          { name: '실행 로그', path: 'C:/output/run.xlsx', role: 'log' },
+        ],
+      },
+    },
+    { profile: 'files', allowed_extensions: ['.xlsx'] },
+    '발주검토자료',
+  );
+  assert.match(files, /작업을 완료했습니다/);
+  assert.match(files, /review\.xlsx/);
+  assert.doesNotMatch(files, /debug\.json|run\.xlsx/);
+
+  const missingFile = formatAutomatonEnvelopeWithContract(
+    'downloadtable_po_review',
+    { status: 'ok', result: { artifacts: [{ path: 'C:/output/debug.json' }] } },
+    { profile: 'files', allowed_extensions: ['.xlsx'] },
+    '발주검토자료',
+  );
+  assert.match(missingFile, /최종 파일을 확인하지 못했습니다/);
+  assert.doesNotMatch(missingFile, /작업을 완료했습니다/);
+}
+
+{
+  const orchestratorSource = readFileSync(
+    path.join(root, 'core', 'src', 'chat', 'chat-orchestrator.ts'),
+    'utf8',
+  );
+  assert.match(orchestratorSource, /responseProfile\s*!==\s*'auto'/);
+  assert.match(orchestratorSource, /publishStatus\(result\.content\)/);
 }
 
 {
@@ -127,7 +224,10 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     formatAdapterProgressMessage,
     loadAdapterConnection,
   } = await import('../core/dist/automaton/adapter-connection.js');
-  const { buildAutomatonAckContent } = await import('../core/dist/automaton/automaton-ack.js');
+  const {
+    buildAutomatonAckContent,
+    formatUnsupportedAutomatonBatch,
+  } = await import('../core/dist/automaton/automaton-ack.js');
 
   try {
     const conn = loadAdapterConnection(sandbox);
@@ -147,12 +247,40 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     assert.doesNotMatch(progress, /중앙 허브/);
     assert.doesNotMatch(progress, /전달 경로/);
     assert.doesNotMatch(progress, /쪽지 수신자/);
-    const ack = buildAutomatonAckContent('/발주검토자료 CRGO_PT', 'downloadtable_po_review');
-    assert.match(ack, /접수:/);
-    assert.match(ack, /상태:/);
-    assert.doesNotMatch(ack, /중앙 허브/);
-    assert.doesNotMatch(ack, /전달 경로/);
-    assert.doesNotMatch(ack, /쪽지 수신자/);
+    const requestId = '7d722b55-3788-4514-b50e-9fc4ef6878ac';
+    const ack = buildAutomatonAckContent('/발주검토자료 CRGO_PT, TAC_BOONIE', 'downloadtable_po_review', {
+      requestId,
+      response: {
+        profile: 'discord',
+        template_id: 'po-review',
+        fallback_profile: 'files',
+        ack: {
+          enabled: true,
+          command_id: 'downloadtable_po_review',
+          batch_time_hint: '수 분 이상 (데이터 범위에 따라 달라질 수 있음)',
+        },
+        batch: { supported: true, label_ko: '발주검토자료', cap: null },
+      },
+    });
+    assert.equal(ack, [
+      '처리 접수 완료',
+      '- command: downloadtable_po_review',
+      '- batch: 2건 (한 번에 실행, 상한 무제한)',
+      '- 2건 배치 접수 · 완료까지 수 분 이상 (데이터 범위에 따라 달라질 수 있음) 소요될 수 있습니다.',
+      `- request_id: \`${requestId}\``,
+      '작업이 길어질 수 있어 백그라운드에서 실행합니다.',
+      '결과가 준비되면 이 채널로 안내됩니다.',
+    ].join('\n'));
+    assert.doesNotMatch(ack, /중앙 허브|전달 경로|쪽지 수신자|상태:/);
+    assert.equal(
+      formatUnsupportedAutomatonBatch('/모델가계도 TAC, CRGO', {
+        profile: 'discord',
+        template_id: 'model-genealogy',
+        fallback_profile: 'text',
+        batch: { supported: false, label_ko: '모델가계도' },
+      }),
+      '모델가계도: 이 명령은 쉼표(,) 배치 입력을 지원하지 않습니다. 한 번에 하나씩 요청하세요.',
+    );
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
@@ -204,9 +332,12 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     resetOpenClawWorkflowMapCache();
     const built = buildOpenClawRawRequest('downloadtable_ctr', '/CTR COMBAT_SHRT', cfg, {
       cqrRoot: sandbox,
+      requestId: 'fixed-request-id',
       nopsUserId: 'JEWEL9505',
     });
     const args = built.rawRequest.args;
+    assert.equal(built.requestId, 'fixed-request-id');
+    assert.equal(built.rawRequest.request_id, 'fixed-request-id');
     assert.equal(built.rawRequest.nopspro_user_id, 'JEWEL9505');
     assert.ok(args && typeof args === 'object');
     assert.equal(args.nopspro_user_id, 'JEWEL9505');

@@ -1,5 +1,7 @@
+import path from 'node:path';
 import type { AutomatonErrorCode } from './errors.js';
 import { AutomatonDispatchError } from './errors.js';
+import { getAutomatonToolEntry, type AutomatonResponseContract } from './tool-catalog.js';
 
 export function formatAutomatonError(err: unknown): string {
   if (err instanceof AutomatonDispatchError) {
@@ -68,6 +70,29 @@ export function stripAutomatonEngineStatus(text: string): string {
   s = s.replace(ENGINE_STATUS_PREFIX, '').trim();
   if (/completed successfully/i.test(s) && /\|\s*status=/i.test(s)) return '';
   return s;
+}
+
+export function pickAutomatonAuthoritativeMessage(payload: Record<string, unknown>): string {
+  const result = asRecord(payload.result) ?? payload;
+  const output = asRecord(result.output) ?? {};
+  const deep = asRecord(output.result) ?? asRecord(result.result) ?? result;
+  const adapter = asRecord(payload.adapter) ?? {};
+  const adapterResult = asRecord(adapter.result) ?? {};
+  const candidates = [
+    payload.message,
+    deep.message,
+    output.message,
+    result.message,
+    adapter.message,
+    adapterResult.message,
+    payload.user_message,
+  ];
+  for (const raw of candidates) {
+    if (raw == null) continue;
+    const text = String(raw).replace(/\r\n?/g, '\n').trim();
+    if (text) return text;
+  }
+  return '';
 }
 
 /**
@@ -143,9 +168,125 @@ function formatArtifactPaths(result: Record<string, unknown>): string[] {
   return lines;
 }
 
+function valueAtPath(root: Record<string, unknown>, fieldPath: string): unknown {
+  let current: unknown = root;
+  for (const segment of fieldPath.split('.').filter(Boolean)) {
+    const record = asRecord(current);
+    if (!record || !(segment in record)) return undefined;
+    current = record[segment];
+  }
+  return current;
+}
+
+function responseField(
+  envelope: Record<string, unknown>,
+  deep: Record<string, unknown>,
+  fieldPath: string,
+): unknown {
+  const explicit = fieldPath.match(/^(envelope|result|deep)\.(.+)$/);
+  if (explicit?.[1] === 'envelope') return valueAtPath(envelope, explicit[2]);
+  if (explicit?.[1] === 'result') return valueAtPath(asRecord(envelope.result) ?? {}, explicit[2]);
+  return valueAtPath(deep, explicit?.[2] ?? fieldPath);
+}
+
+interface UserArtifact {
+  name: string;
+  location: string;
+}
+
+function collectUserArtifacts(
+  envelope: Record<string, unknown>,
+  allowedExtensions: string[] | undefined,
+): UserArtifact[] {
+  const result = asRecord(envelope.result) ?? {};
+  const nested = asRecord(result.result) ?? result;
+  const deep = pickAutomatonDeepResult(envelope);
+  const candidates: UserArtifact[] = [];
+  const add = (rawLocation: unknown, rawName?: unknown): void => {
+    const location = nonEmptyString(rawLocation, 1_000);
+    if (!location) return;
+    const clean = location.split(/[?#]/, 1)[0];
+    const ext = path.extname(clean).toLowerCase();
+    const allow = (allowedExtensions?.length
+      ? allowedExtensions
+      : ['.xlsx', '.xls', '.csv', '.pdf', '.zip', '.docx', '.png', '.jpg', '.jpeg'])
+      .map((item) => item.toLowerCase());
+    if (!allow.includes(ext)) return;
+    const name = nonEmptyString(rawName, 160) || path.basename(clean) || '결과 파일';
+    if (!candidates.some((item) => item.location === location)) candidates.push({ name, location });
+  };
+
+  for (const owner of [result, nested, deep]) {
+    add(owner.excel_file);
+    add(owner.output_file);
+    add(owner.file_path);
+    for (const raw of Array.isArray(owner.artifacts) ? owner.artifacts : []) {
+      const artifact = asRecord(raw);
+      if (!artifact) continue;
+      const role = nonEmptyString(artifact.role ?? artifact.kind ?? artifact.type, 40).toLowerCase();
+      if (role && ['log', 'debug', 'intermediate', 'temp', 'temporary', 'json'].includes(role)) continue;
+      add(artifact.path ?? artifact.url, artifact.name);
+    }
+  }
+  return candidates;
+}
+
+/** Generic manifest-driven response renderer shared by every Automation command. */
+export function formatAutomatonEnvelopeWithContract(
+  toolId: string,
+  envelope: Record<string, unknown>,
+  contract: AutomatonResponseContract,
+  descriptionKo = toolId,
+): string | null {
+  const deep = pickAutomatonDeepResult(envelope);
+  const label = contract.label_ko?.trim() || descriptionKo.trim() || toolId;
+
+  if (contract.profile === 'auto') return null;
+  if (contract.profile === 'discord') {
+    const authoritative = pickAutomatonAuthoritativeMessage(envelope);
+    if (authoritative) return authoritative;
+    const fallback = contract.fallback_profile ?? 'text';
+    if (fallback === 'auto') return null;
+    return formatAutomatonEnvelopeWithContract(
+      toolId,
+      envelope,
+      { ...contract, profile: fallback },
+      descriptionKo,
+    );
+  }
+  if (contract.profile === 'status') return `${label} 작업을 완료했습니다.`;
+
+  if (contract.profile === 'files') {
+    const artifacts = collectUserArtifacts(envelope, contract.allowed_extensions);
+    if (!artifacts.length) return `${label} 작업은 끝났지만 전달할 최종 파일을 확인하지 못했습니다.`;
+    return [
+      `${label} 작업을 완료했습니다.`,
+      '',
+      '첨부 파일:',
+      ...artifacts.map((artifact) => `- [${artifact.name}](${artifact.location})`),
+    ].join('\n');
+  }
+
+  if (contract.profile === 'quantity') {
+    const qtyPath = contract.fields?.[0] || 'qty';
+    const qty = responseField(envelope, deep, qtyPath);
+    if (qty == null || String(qty).trim() === '') return `${label} 수량을 확인하지 못했습니다.`;
+    return `${label}는 ${String(qty).trim()}개입니다.`;
+  }
+
+  const narrative = pickAutomatonUserFacingText(envelope);
+  if (narrative) return narrative;
+  const values = (contract.fields ?? [])
+    .map((field) => [field, responseField(envelope, deep, field)] as const)
+    .filter(([, value]) => value != null && String(value).trim() !== '');
+  if (values.length) return values.map(([field, value]) => `${field}: ${String(value).trim()}`).join('\n');
+  return `${label} 작업은 끝났지만 전달할 결과 본문을 확인하지 못했습니다.`;
+}
+
 export function formatAutomatonEnvelope(
   toolId: string,
   envelope: Record<string, unknown>,
+  cqrRoot?: string,
 ): string {
   const status = String(envelope.status ?? 'unknown');
 
@@ -172,6 +313,17 @@ export function formatAutomatonEnvelope(
       '(Python 3.14: `pyarrow>=24` wheel 필요 — `requirements-direct-commands.txt` 참고)',
       '반품 분석은 수 분~수십 분 걸릴 수 있습니다.',
     ].join('\n');
+  }
+
+  const tool = getAutomatonToolEntry(toolId, cqrRoot);
+  if (tool?.response) {
+    const contracted = formatAutomatonEnvelopeWithContract(
+      toolId,
+      envelope,
+      tool.response,
+      tool.description_ko,
+    );
+    if (contracted != null) return contracted;
   }
 
   const result = asRecord(envelope.result) ?? {};

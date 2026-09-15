@@ -46,6 +46,8 @@ export interface AutomatonDispatchOptions {
   fallbackLocal?: boolean;
   /** Product root so org overlay tools (slash commands) resolve. */
   cqrRoot?: string;
+  /** Correlation id already shown in the ACK; remote dispatch must reuse it. */
+  requestId?: string;
 }
 
 let sharedSession: AutomatonMcpSession | null = null;
@@ -135,7 +137,7 @@ async function dispatchAutomatonToolAsync(
   return {
     tool: matchedTool,
     envelope,
-    content: formatAutomatonEnvelope(matchedTool, envelope),
+    content: formatAutomatonEnvelope(matchedTool, envelope, options?.cqrRoot),
   };
 }
 
@@ -161,7 +163,7 @@ async function dispatchAutomatonToolSync(
     return {
       tool: matchedTool,
       envelope,
-      content: formatAutomatonEnvelope(matchedTool, envelope),
+      content: formatAutomatonEnvelope(matchedTool, envelope, options?.cqrRoot),
     };
   } finally {
     stopPolling();

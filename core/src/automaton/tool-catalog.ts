@@ -3,6 +3,41 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadOrganizationAutomatonTools } from './organization-automaton-manifest.js';
 
+export type AutomatonResponseProfile = 'auto' | 'text' | 'quantity' | 'files' | 'status' | 'discord';
+export type AutomatonFallbackProfile = Exclude<AutomatonResponseProfile, 'discord'>;
+
+export interface AutomatonAckContract {
+  enabled?: boolean;
+  /** Stable command id shown in the ACK. Defaults to the manifest tool id. */
+  command_id?: string;
+  /** Shown only for comma batches. */
+  batch_time_hint?: string;
+}
+
+export interface AutomatonBatchContract {
+  supported: boolean;
+  label_ko?: string;
+  /** null means unlimited. */
+  cap?: number | null;
+}
+
+export interface AutomatonResponseContract {
+  /** Reusable renderer selected by manifest authors; no command-specific formatter is required. */
+  profile: AutomatonResponseProfile;
+  /** Discord SoT template identity. The service payload.message remains authoritative. */
+  template_id?: string;
+  /** Safe legacy renderer used only when an authoritative Discord message is absent. */
+  fallback_profile?: AutomatonFallbackProfile;
+  /** Dot paths are resolved from the deep business result first (for example qty or form_fields.SKU). */
+  fields?: string[];
+  /** Optional concise success label; defaults to description_ko. */
+  label_ko?: string;
+  /** File profile allowlist. Extensions are lowercase and include the leading dot. */
+  allowed_extensions?: string[];
+  ack?: AutomatonAckContract;
+  batch?: AutomatonBatchContract;
+}
+
 export interface AutomatonToolManifestEntry {
   id: string;
   description_ko: string;
@@ -16,6 +51,7 @@ export interface AutomatonToolManifestEntry {
   intent_examples?: string[];
   default_command?: string;
   long_running?: boolean;
+  response?: AutomatonResponseContract;
 }
 
 interface AutomatonToolsManifest {
@@ -65,7 +101,7 @@ export function loadAutomatonToolManifest(cqrRoot?: string): AutomatonToolsManif
   const orgTools = loadOrganizationAutomatonTools(key);
   cachedKey = key;
   cached = {
-    version: 2,
+    version: 3,
     tools: mergeAutomatonTools(coreTools, orgTools),
   };
   return cached;

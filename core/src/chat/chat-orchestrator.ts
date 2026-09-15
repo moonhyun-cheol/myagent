@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ServerResponse } from 'node:http';
 import type { AttachmentService } from '../attachments/attachment-service.js';
@@ -50,7 +51,11 @@ import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
 import { dispatchAutomatonTool } from '../automaton/adapter.js';
-import { buildAutomatonAckContent } from '../automaton/automaton-ack.js';
+import {
+  buildAutomatonAckContent,
+  formatUnsupportedAutomatonBatch,
+} from '../automaton/automaton-ack.js';
+import { getAutomatonToolEntry } from '../automaton/tool-catalog.js';
 import { loadAdapterConnection } from '../automaton/adapter-connection.js';
 import { resolveOpenClawAdapterConfig } from '../automaton/openclaw-adapter-client.js';
 import { isAutomatonTool } from '../automaton/tool-map.js';
@@ -231,7 +236,26 @@ export class ChatOrchestrator {
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)
       : undefined;
-    const ack = buildAutomatonAckContent(message, tool);
+    const requestId = randomUUID();
+    const response = getAutomatonToolEntry(tool, this.cqrRoot)?.response;
+    const unsupportedBatch = formatUnsupportedAutomatonBatch(message, response);
+    if (unsupportedBatch) {
+      this.sessionStore.append(sessionId, {
+        role: 'assistant',
+        content: unsupportedBatch,
+        at: new Date().toISOString(),
+        model: `automaton/${tool}`,
+        mode: 'automaton_direct',
+      });
+      return {
+        role: 'assistant',
+        content: unsupportedBatch,
+        mode: 'automaton_direct',
+        routing,
+        model: `automaton/${tool}`,
+      };
+    }
+    const ack = buildAutomatonAckContent(message, tool, { requestId, response });
     options?.onStatus?.('명령어 접수');
     const beforeLen = this.sessionStore.load(sessionId)?.messages.length ?? 0;
     this.sessionStore.append(sessionId, {
@@ -250,6 +274,7 @@ export class ChatOrchestrator {
       openclaw,
       fallbackLocal: defaults.openclaw_fallback_local !== false && Boolean(automatonRoot),
       statusMessageIndex,
+      requestId,
     });
     return {
       role: 'assistant',
@@ -270,6 +295,7 @@ export class ChatOrchestrator {
       openclaw: ReturnType<typeof resolveOpenClawAdapterConfig>;
       fallbackLocal: boolean;
       statusMessageIndex?: number;
+      requestId: string;
     },
   ): Promise<void> {
     const connection = loadAdapterConnection(this.cqrRoot);
@@ -309,16 +335,19 @@ export class ChatOrchestrator {
         preferRemote: Boolean(job.openclaw),
         fallbackLocal: job.fallbackLocal,
         cqrRoot: this.cqrRoot,
+        requestId: job.requestId,
         onStatus: publishStatus,
       });
       if (result?.content?.trim()) {
         const envelopeStatus = String(result.envelope?.status ?? '').trim().toLowerCase();
-        if (
+        const responseProfile = getAutomatonToolEntry(job.tool, this.cqrRoot)?.response?.profile ?? 'auto';
+        const failed = Boolean(
           envelopeStatus
-          && !['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(envelopeStatus)
-        ) {
-          publishStatus(result.content);
-        }
+          && !['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(envelopeStatus),
+        );
+        // Declarative response profiles own the final user answer. Legacy `auto`
+        // commands keep the historical NOPSPro-only success behavior.
+        if (failed || responseProfile !== 'auto') publishStatus(result.content);
       }
     } catch (err: unknown) {
       const content = [

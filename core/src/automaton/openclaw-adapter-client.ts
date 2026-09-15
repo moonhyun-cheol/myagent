@@ -117,6 +117,8 @@ export async function probeOpenClawAdapterHealth(baseUrl: string): Promise<{
 
 export interface OpenClawRawRequestBuildOptions {
   cqrRoot?: string;
+  /** Correlation id generated before ACK; production reuses it in the remote request. */
+  requestId?: string;
   /** Test injection. Production omits this and reads the local NOPSPro login. */
   nopsUserId?: string;
 }
@@ -142,7 +144,7 @@ export function buildOpenClawRawRequest(
     );
   }
 
-  const requestId = `cqr-${randomUUID()}`;
+  const requestId = options?.requestId?.trim() || `cqr-${randomUUID()}`;
   const transactionId = `txn-${randomUUID()}`;
   const requestedText = message.trim();
   const args = {
@@ -195,6 +197,7 @@ export function buildOpenClawRawRequest(
 function formatOpenClawResult(
   toolId: string,
   adapterBody: Record<string, unknown>,
+  cqrRoot?: string,
 ): AutomatonDispatchResult {
   const status = String(adapterBody.status ?? 'unknown');
   const result = (adapterBody.result ?? {}) as Record<string, unknown>;
@@ -261,7 +264,7 @@ function formatOpenClawResult(
         : undefined),
     // Keep full tree under result so pickAutomatonUserFacingText sees output.summary.
     result: nested,
-  });
+  }, cqrRoot);
 
   return {
     tool: toolId,
@@ -412,6 +415,7 @@ export async function dispatchAutomatonToolRemote(
 
   const built = buildOpenClawRawRequest(matchedTool, message, activeCfg, {
     cqrRoot,
+    requestId: options?.requestId,
   });
   const useCqrEntry = activeCfg.useCqrEntry !== false;
   const timeoutMs = Math.max(
@@ -500,7 +504,7 @@ export async function dispatchAutomatonToolRemote(
       reason_code: parsed.reason_code ?? 'GATE_CONTEXT_DENIED',
       user_message: parsed.user_message ?? text.slice(0, 500),
       ...parsed,
-    });
+    }, options?.cqrRoot);
   }
   if (!res.ok && !parsed.status) {
     throw new AutomatonDispatchError(
@@ -531,7 +535,7 @@ export async function dispatchAutomatonToolRemote(
       ...finalStatus,
       job_id: jobId,
       status_contract: finalStatus.status_contract || parsed.status_contract || 'adapter-job-v1',
-    });
+    }, options?.cqrRoot);
   }
 
   options?.onStatus?.(formatAdapterProgressMessage(connection, {
@@ -542,5 +546,5 @@ export async function dispatchAutomatonToolRemote(
     resultPath: String(parsed.result_path || '').trim() || undefined,
     deliveryStatus: String(parsed.delivery_status || '').trim() || undefined,
   }));
-  return formatOpenClawResult(matchedTool, parsed);
+  return formatOpenClawResult(matchedTool, parsed, options?.cqrRoot);
 }

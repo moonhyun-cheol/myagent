@@ -3,6 +3,8 @@ import path from 'node:path';
 import { resolveOrganizationModuleRoot } from '../skills/organization-module-root.js';
 import { loadFeatureAutomatonTools } from '../features/organization-feature-loader.js';
 
+import type { AutomatonResponseContract } from './tool-catalog.js';
+
 export interface OrganizationAutomatonToolEntry {
   id: string;
   description_ko: string;
@@ -16,6 +18,7 @@ export interface OrganizationAutomatonToolEntry {
   intent_examples?: string[];
   default_command?: string;
   long_running?: boolean;
+  response?: AutomatonResponseContract;
 }
 
 interface AutomatonToolsManifestDoc {
