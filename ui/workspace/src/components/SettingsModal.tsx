@@ -6,7 +6,6 @@ import {
   Plugs,
   PuzzlePiece,
   Robot,
-  Toolbox,
   Stack,
   X,
   type Icon,
@@ -20,7 +19,6 @@ import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
 import { SettingsSkillsPage } from './SettingsSkillsPage';
 import { SettingsWorkspacePage } from './SettingsWorkspacePage';
-import { SettingsWorkKitsPage } from './SettingsWorkKitsPage';
 
 interface SettingsSectionProps {
   readOnly: boolean;
@@ -45,16 +43,8 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     group: '일반',
     label: '일반',
     icon: GearSix,
-    keywords: ['일반', '프로그램', '트레이', '업데이트', '파일 연결', '연결 프로그램', 'applications', 'file association', '설치 폴더', 'install root', 'MY_AGENT_ROOT', '관리자', '작업 키트'],
+    keywords: ['일반', '프로그램', '트레이', '업데이트', '파일 연결', '연결 프로그램', 'applications', 'file association', '설치 폴더', 'install root', 'MY_AGENT_ROOT', '관리자'],
     render: ({ readOnly }) => <SettingsGeneralPage readOnly={readOnly} />,
-  },
-  {
-    id: 'work-kits',
-    group: '확장',
-    label: '작업 키트',
-    icon: Toolbox,
-    keywords: ['작업 키트', 'work kit', '카탈로그', '받기', '적용', '적용 해제'],
-    render: ({ readOnly }) => <SettingsWorkKitsPage readOnly={readOnly} />,
   },
   {
     id: 'models',

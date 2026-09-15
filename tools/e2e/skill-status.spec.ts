@@ -25,7 +25,7 @@ test.beforeEach(async ({ page, baseURL }) => {
     if (url.pathname === '/skills') return route.fulfill({ json: { skills } });
     if (url.pathname === '/skills/selectable') return route.fulfill({ json: { skills: skills.filter((skill) => skill.selectable) } });
     if (url.pathname === '/organization-module') return route.fulfill({ json: { can_check_remote: false } });
-    return route.continue();
+    return route.abort('connectionrefused');
   });
   await page.goto('/');
   await expect(page.getByTestId('skill-status-bar')).toBeVisible();
@@ -34,13 +34,6 @@ test.beforeEach(async ({ page, baseURL }) => {
 async function choose(page: Page, label: string) {
   await page.getByTestId('organization-skill-button').click();
   await page.getByTestId('organization-skill-menu').getByRole('button', { name: label, exact: true }).click();
-}
-
-async function openSkills(page: Page) {
-  await page.getByRole('button', { name: '설정', exact: true }).click();
-  await page.getByRole('button', { name: '스킬', exact: true }).click();
-  await page.getByText('고급 · 스킬 관리', { exact: true }).click();
-  await expect(page.getByTestId('organization-skill-chips')).toBeVisible();
 }
 
 async function expectTextContrast(locator: Locator) {
@@ -67,19 +60,14 @@ async function expectTextContrast(locator: Locator) {
   return ratio;
 }
 
-test('selection, switching and clear stay synchronized with settings', async ({ page }) => {
+test('composer plus is the only conversation skill toggle surface', async ({ page }) => {
   const bar = page.getByTestId('skill-status-bar');
   await expect(bar).toHaveAttribute('data-active', 'false');
   await expect(bar).toContainText('스킬 미적용');
   await expectTextContrast(bar);
-  await openSkills(page);
-  await expect(page.getByTestId('organization-skill-chips').locator('[data-active="true"]')).toHaveCount(0);
-  await expect(page.getByTestId('organization-skill-chips')).toContainText('현재 대화: 스킬 미적용');
-  // Non-selectable org skills (sample/brand) must not appear in Settings chips.
-  await expect(page.getByTestId('organization-skill-sample')).toHaveCount(0);
-  await expect(page.getByTestId('organization-skill-brand')).toHaveCount(0);
-  await expect(page.getByTestId('organization-skill-research')).toBeVisible();
-  await expect(page.getByTestId('organization-skill-concept')).toBeVisible();
+  await page.getByRole('button', { name: '설정', exact: true }).click();
+  await expect(page.getByTestId('settings-nav-work-kits')).toHaveCount(0);
+  await expect(page.getByTestId('organization-skill-chips')).toHaveCount(0);
   await page.getByRole('button', { name: '설정 닫기' }).click();
 
   await choose(page, '시장조사');
@@ -88,25 +76,11 @@ test('selection, switching and clear stay synchronized with settings', async ({ 
   await expect(bar).toContainText('시장조사');
   const activeContrast = await expectTextContrast(bar);
   await expectTextContrast(page.getByTestId('skill-status-action'));
-  await openSkills(page);
-  const chips = page.getByTestId('organization-skill-chips');
-  await expect(chips.locator('[data-active="true"]')).toHaveCount(1);
-  await expect(page.getByTestId('organization-skill-research')).toContainText('적용 중');
-  await expect(page.getByTestId('organization-skill-concept')).toContainText('미적용');
-  await expectTextContrast(page.getByTestId('organization-skill-research'));
-  await expectTextContrast(page.getByTestId('organization-skill-research').locator('span').last());
-  await page.getByRole('button', { name: '설정 닫기' }).click();
 
   await choose(page, '컨셉 RA');
   await expect(bar).toContainText('컨셉 RA');
-  await openSkills(page);
-  await expect(page.getByTestId('organization-skill-concept')).toHaveAttribute('data-active', 'true');
-  await expect(page.getByTestId('organization-skill-research')).toHaveAttribute('data-active', 'false');
-  await page.getByRole('button', { name: '설정 닫기' }).click();
   await page.getByTestId('skill-status-action').click();
   await expect(bar).toContainText('스킬 미적용');
-  await openSkills(page);
-  await expect(chips.locator('[data-active="true"]')).toHaveCount(0);
   console.log(`Active status contrast: ${activeContrast.toFixed(2)}:1`);
 });
 
@@ -144,8 +118,8 @@ test('long skill labels wrap at narrower desktop width', async ({ page }) => {
   await expect(bar).toContainText(longLabel.trim());
   await expect(page.getByTestId('skill-status-action')).toBeVisible();
   expect(await bar.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-  await openSkills(page);
-  const chips = page.getByTestId('organization-skill-chips');
-  expect(await chips.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-  await expect(page.getByTestId('organization-skill-research')).toContainText('적용 중');
+  await page.getByTestId('organization-skill-button').click();
+  const selected = page.getByTestId('organization-skill-menu').getByRole('button', { pressed: true });
+  await expect(selected).toContainText('적용 중');
+  expect(await selected.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 });
