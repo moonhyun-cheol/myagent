@@ -3,7 +3,7 @@
   "notes": [
     {
       "id": "agent-shared-webview-browser-session",
-      "status": "development",
+      "status": "released",
       "title": "AI 브라우저 작업을 오른쪽 웹 패널과 공유",
       "detail": "AI가 웹 페이지를 탐색하면 숨겨진 오른쪽 웹 패널의 브라우저 세션을 우선 사용하고, 같은 페이지와 진행 상태를 화면에서 이어서 확인할 수 있습니다. 공유 세션을 사용할 수 없을 때는 독립 브라우저로 전환합니다.",
       "area": "browser",
@@ -13,13 +13,13 @@
         "shell/CqrPa.Shell/MainWindow.BrowserTabs.cs"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.11",
+        "update_sequence": 59
       }
     },
     {
       "id": "session-timeline-disclosure-defaults",
-      "status": "development",
+      "status": "released",
       "title": "중간 응답·작업 접힘 기본값 정리",
       "detail": "중간 응답은 기본으로 펼치고 작업 묶음은 기본으로 접습니다. 진행 중·완료로 바뀌어도 직접 접거나 펼친 선택은 유지되며, 대화·턴 기준으로 다시 들어와도 그대로 복원됩니다.",
       "area": "chat",
@@ -29,57 +29,9 @@
         "tools/verify-tool-activity-group-ui.mjs"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.11",
+        "update_sequence": 59
       }
-    },
-    {
-      "id": "manual-work-kit-skill-updates",
-      "status": "released",
-      "title": "작업 키트와 스킬 업데이트를 필요할 때만 확인",
-      "detail": "MY Agent를 실행할 때 작업 키트나 스킬 업데이트를 자동으로 확인·적용하지 않아 시작 흐름을 방해하지 않습니다. 앱 자체 업데이트 확인은 기존 설정대로 유지됩니다.",
-      "area": "settings",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.10",
-        "update_sequence": 58
-      },
-      "source_paths": [
-        "shell/CqrPa.Shell/App.xaml.cs",
-        "ui/workspace/src/components/SettingsSkillsPage.tsx"
-      ]
-    },
-    {
-      "id": "chat-file-drop-reliability",
-      "status": "released",
-      "title": "채팅 파일 끌어놓기 안정성 개선",
-      "detail": "파일을 채팅창에 끌어놓을 때 내부 화면 요소가 이벤트를 가로채더라도 첨부로 인식하고, 읽을 수 없는 경우에는 이유를 안내합니다.",
-      "area": "chat",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.10",
-        "update_sequence": 58
-      },
-      "source_paths": [
-        "ui/workspace/src/components/ChatPane.tsx",
-        "ui/workspace/src/lib/clipboardImages.ts"
-      ]
-    },
-    {
-      "id": "work-timeline-item-folding",
-      "status": "released",
-      "title": "진행 중 작업을 항목별로 접기",
-      "detail": "AI가 작업 중일 때도 중간 응답과 각 작업 묶음을 따로 접거나 펼쳐 필요한 내용만 확인할 수 있습니다.",
-      "area": "chat",
-      "created_at": "2026-09-15",
-      "release": {
-        "version": "1.1.10",
-        "update_sequence": 58
-      },
-      "source_paths": [
-        "ui/workspace/src/components/ToolActivityLog.tsx",
-        "tools/verify-tool-activity-group-ui.mjs"
-      ]
     }
   ]
 }
