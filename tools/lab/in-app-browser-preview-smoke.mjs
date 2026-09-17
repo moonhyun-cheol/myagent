@@ -79,12 +79,12 @@ try {
   await page.getByRole('button',{name:'작업 패널 확대',exact:true}).click();
   assert.equal(await width(),1200);assert.equal(await separator.count(),0);
   await page.getByRole('button',{name:'분할 보기로 복원'}).click();assert.equal(await width(),saved);
-  await page.getByRole('button',{name:'작업 패널 닫기',exact:true}).click();await surface(false);
+  await page.getByRole('button',{name:'오른쪽 패널 접기',exact:true}).click();await surface(false);
   assert.equal(await address.isVisible(),false);
   assert.equal(await page.getByRole('textbox',{name:'채팅 초안'}).inputValue(),'유지할 초안');
   await page.getByRole('button',{name:'작업 패널 열기',exact:true}).click();await surface(true);assert.equal(await width(),saved);
-  await page.getByRole('button',{name:'문서',exact:true}).click();await surface(false);
-  await page.getByRole('button',{name:'웹',exact:true}).click();await surface(true);
+  await page.getByRole('tab',{name:'문서',exact:true}).click();await surface(false);
+  await page.getByRole('tab',{name:'웹',exact:true}).click();await surface(true);
   await page.getByRole('button',{name:'터미널',exact:true}).click();
   const terminalSeparator=page.getByRole('separator',{name:'터미널 높이'});await terminalSeparator.waitFor();
   await terminalSeparator.focus();await terminalSeparator.press('ArrowUp');assert.equal(await terminalSeparator.getAttribute('aria-valuenow'),'216');
@@ -115,7 +115,7 @@ try {
     const a=await address.boundingBox();assert(a.width>60,'address remains editable');
     const slot=await page.locator('[data-native-browser-slot]').boundingBox();assert(slot.width>0&&slot.height>0);
     if(viewport.width<1026){
-      assert.equal(await separator.count(),0);await page.getByRole('button',{name:'채팅으로 돌아가기'}).click();await surface(false);
+      assert.equal(await separator.count(),0);await page.getByRole('button',{name:'오른쪽 패널 접기',exact:true}).click();await surface(false);
       await page.getByRole('button',{name:'작업 패널 열기',exact:true}).click();await surface(true);
     }else assert.equal(await width(),saved,'narrow window does not overwrite saved width');
   }

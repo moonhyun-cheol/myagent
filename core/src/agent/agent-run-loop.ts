@@ -114,8 +114,6 @@ import {
   toolOutputAlreadyHasCorrection,
 } from './tool-self-correction.js';
 import { assertDevWorkspaceRootReadable } from '../security/dev-workspace-guard.js';
-import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
-import { visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import { PlaywrightSession } from '../browser/playwright-session.js';
 import { applyToolSchemaCompat } from './tool-schema-compat.js';
 import {
@@ -196,17 +194,13 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   assertDevWorkspaceRootReadable(opts.workspaceRoot);
   const guard = { allowNas };
 
-  const playwrightAvailable = isPlaywrightAvailable(opts.cqrRoot);
-  const browserAvailable = playwrightAvailable || visibleBrowserConnected();
   let autopilot = resolveAutopilotEnabled(
     process.env,
     typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
     opts.userMessage,
     { codeSession: true },
   );
-  const toolPack =
-    opts.forceToolPack
-    ?? (browserAvailable ? 'files+browser' : 'files');
+  const toolPack = opts.forceToolPack ?? 'files+browser';
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
@@ -342,6 +336,23 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   });
   const mutatedPathsThisRun = new Set<string>();
   let browserSession: PlaywrightSession | null = null;
+  let isolatedBrowserSession: PlaywrightSession | null = null;
+  const getIsolatedBrowserSession = async (): Promise<PlaywrightSession | null> => {
+    if (browserSession && !browserSession.usesSharedWebView()) return browserSession;
+    if (isolatedBrowserSession) return isolatedBrowserSession;
+    try {
+      isolatedBrowserSession = await PlaywrightSession.open({
+        cqrRoot: opts.cqrRoot,
+        headless: opts.playwrightHeadless !== false,
+        urlGuard: { allowLocalhost: opts.playwrightAllowLocalhost === true },
+        signal: opts.signal,
+        preferSharedWebView: false,
+      });
+      return isolatedBrowserSession;
+    } catch {
+      return null;
+    }
+  };
   /** Filled before step loop so `finish` reads live counters (not prepare-time copies). */
   let stepState: AgentRunStepState | null = null;
   let finished = false;
@@ -611,13 +622,14 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const readBodiesFetchedThisRun = new Set<string>();
   let readBeforeWriteAutoHeals = 0;
   let steps = 0;
-  if (playwrightAvailable && packIncludesBrowser(toolPack)) {
+  if (packIncludesBrowser(toolPack)) {
     try {
       browserSession = await PlaywrightSession.open({
         cqrRoot: opts.cqrRoot,
         headless: opts.playwrightHeadless !== false,
         urlGuard: { allowLocalhost: opts.playwrightAllowLocalhost === true },
         signal: opts.signal,
+        preferSharedWebView: opts.browserRouting !== 'background',
       });
     } catch {
       browserSession = null;
@@ -632,6 +644,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const toolCtx: AgentToolContext = {
     onToolActivity: opts.onToolActivity,
     browserSession,
+    getIsolatedBrowserSession,
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,
     memoryProjectId: opts.memoryProjectId,
@@ -832,6 +845,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     } catch {
       /* ignore */
     }
-    await browserSession?.close();
+    const isolatedToClose = isolatedBrowserSession as PlaywrightSession | null;
+    await isolatedToClose?.close();
+    if (isolatedToClose !== browserSession) await browserSession?.close();
   }
 }

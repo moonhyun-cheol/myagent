@@ -100,7 +100,10 @@ export function applyPlaywrightEnv(cqrRoot: string): void {
 }
 
 export async function importPlaywright(cqrRoot: string): Promise<{
-  chromium: { launch(opts: { headless: boolean }): Promise<unknown> };
+  chromium: {
+    launch(opts: { headless: boolean }): Promise<unknown>;
+    connectOverCDP?(endpoint: string): Promise<unknown>;
+  };
 }> {
   applyPlaywrightEnv(cqrRoot);
   try {

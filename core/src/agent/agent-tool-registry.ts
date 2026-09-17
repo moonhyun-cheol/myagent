@@ -2,8 +2,6 @@
  * Code-agent tool registry surface (definitions + pack getters + local plugins).
  * Definitions live in agent-tool-definitions.ts; plugins in data/agent-plugins.
  */
-import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
-import { visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import {
   BROWSER_AGENT_TOOLS,
   CODE_AGENT_TOOL_NAMES,
@@ -70,9 +68,7 @@ async function mergeMcpTools(
 
 /** Sync merge of last-known empty; async enrich happens when listing for a run. */
 export function getCodeAgentTools(cqrRoot: string): AgentToolDefinition[] {
-  const base = !isPlaywrightAvailable(cqrRoot) && !visibleBrowserConnected()
-    ? [...CODE_AGENT_TOOLS]
-    : [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS];
+  const base = [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS];
   return mergePluginTools(cqrRoot, base);
 }
 
@@ -86,7 +82,7 @@ export function getCodeAgentToolsByPack(
   cqrRoot: string,
   pack: AgentToolPack,
 ): AgentToolDefinition[] {
-  const base = getCodeAgentToolsForPack(pack, isPlaywrightAvailable(cqrRoot) || visibleBrowserConnected(), cqrRoot);
+  const base = getCodeAgentToolsForPack(pack, true, cqrRoot);
   return mergePluginTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 

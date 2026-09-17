@@ -233,6 +233,18 @@ function PolicyChoices({ testId, label, value, options, disabled, onSelect }: {
   </div>;
 }
 
+function LiveDuration({ startedAt, completedAt, live = false }: { startedAt?: string; completedAt?: string; live?: boolean }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!live || completedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [live, completedAt]);
+  return <>{formatWorkDuration(startedAt, completedAt, now) ?? '00:00'}</>;
+}
+
+const copyMarkdownText = async (text: string) => { await navigator.clipboard.writeText(text); return true; };
+
 export function ChatPane() {
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
@@ -256,6 +268,7 @@ export function ChatPane() {
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
+  const composerSessionPromotionId = useWorkspaceStore((s) => s.composerSessionPromotionId);
   const activeQueue = messageQueue.filter((item) => item.sessionId === activeSessionId);
   const activeProjectId = useWorkspaceStore((s) => s.activeProjectId);
   const activeWorkspaceProjectId = useWorkspaceStore((s) => s.activeWorkspaceProjectId);
@@ -308,8 +321,12 @@ export function ChatPane() {
     }
     if (prev) draftsBySessionRef.current.set(prev, draft);
     draftSessionRef.current = next;
+    if (prev === null && next && next === composerSessionPromotionId) {
+      draftsBySessionRef.current.set(next, draft);
+      return;
+    }
     setDraft(next ? draftsBySessionRef.current.get(next) ?? '' : '');
-  }, [activeSessionId, draft]);
+  }, [activeSessionId, composerSessionPromotionId, draft]);
   const composerPrefill = useWorkspaceStore((s) => s.composerPrefill);
   const composerFocusNonce = useWorkspaceStore((s) => s.composerFocusNonce);
   const clearComposerPrefill = useWorkspaceStore((s) => s.clearComposerPrefill);
@@ -321,7 +338,6 @@ export function ChatPane() {
     window.setTimeout(() => draftInputRef.current?.focus(), 0);
   }, [composerFocusNonce, composerPrefill, clearComposerPrefill]);
   const [messageReferences, setMessageReferences] = useState<MessageReference[]>([]);
-  const [clockNow, setClockNow] = useState(() => Date.now());
   const [pasteHint, setPasteHint] = useState<string | null>(null);
   const [pasting, setPasting] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
@@ -534,13 +550,6 @@ export function ChatPane() {
     setMessageReferences([]);
   }, [activeSessionId]);
 
-  useEffect(() => {
-    if (!busy) return;
-    setClockNow(Date.now());
-    const timer = window.setInterval(() => setClockNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [busy]);
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const historyCursorRef = useRef<HistoryCursor | null>(null);
   useEffect(() => { historyCursorRef.current = null; }, [activeSessionId]);
@@ -562,7 +571,8 @@ export function ChatPane() {
   const workspacePromptBypassRef = useRef<string | null>(null);
   const { menu, openAt, close } = useContextMenu();
 
-  const visibleChat = chat.filter((turn) => !isChatTurnUiHidden(turn, chat));
+  const visibleChat = useMemo(() => chat.filter((turn) => !isChatTurnUiHidden(turn, chat)), [chat]);
+  const modelLabels = useMemo(() => new Map(modelOptions.map((option) => [option.id, option.label])), [modelOptions]);
   const hasChatTurns = visibleChat.length > 0;
   const latestUserTurnId = [...visibleChat].reverse().find((t) => t.role === 'user')?.id ?? null;
   const latestAssistantTurnId =
@@ -1323,8 +1333,8 @@ export function ChatPane() {
         <button
           type="button"
           aria-pressed={previewPaneOpen}
-          aria-label={previewPaneOpen ? '작업 패널 닫기' : '작업 패널 열기'}
-          title={previewPaneOpen ? '작업 패널 닫기' : '작업 패널 열기'}
+          aria-label={previewPaneOpen ? '오른쪽 패널 접기' : '오른쪽 패널 펼치기'}
+          title={previewPaneOpen ? '오른쪽 패널 접기' : '오른쪽 패널 펼치기'}
           onClick={() => setPreviewPaneOpen(!previewPaneOpen)}
           className="chat-setting-control chat-icon-control"
         >
@@ -1403,7 +1413,7 @@ export function ChatPane() {
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
             </div>
           ) : null}
-          {visibleChat.map((turn) => (
+          {visibleChat.map((turn, turnIndex) => (
             <div
               key={turn.id}
               ref={(el) => {
@@ -1415,7 +1425,7 @@ export function ChatPane() {
               <span className="text-[10px] uppercase tracking-[0.14em] text-muted">
                 {turn.role === 'user'
                   ? 'You'
-                  : String(modelOptions.find((option) => option.id === turn.model)?.label ?? turn.model ?? 'Assistant')
+                  : String(modelLabels.get(turn.model ?? '') ?? turn.model ?? 'Assistant')
                       .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
               </span>
               <div
@@ -1429,11 +1439,12 @@ export function ChatPane() {
               >
                 {turn.role === 'assistant' && (turn.thought?.trim() || turn.streamPreview?.trim() || turn.toolActivity?.length) ? (
                   <ToolActivityLog
+                    storageKey={activeSessionId ? `${activeSessionId}:${turn.id}` : undefined}
                     rows={turn.toolActivity ?? []}
                     timeline={turn.workTimeline}
                     modelResponse={turn.thought}
                     streamPreview={turn.streamPreview}
-                    live={busy && !turn.completedAt && turn.id === [...chat].reverse().find((item) => item.role === 'assistant')?.id}
+                    live={busy && !turn.completedAt && turn.id === latestAssistantTurnId}
                   />
                 ) : null}
                 {turn.attachmentNames?.length ? (
@@ -1488,10 +1499,10 @@ export function ChatPane() {
                 ) : null}
                 {!turn.text || turn.text === '작업 중…'
                   ? busy && turn.role === 'assistant' && !turn.imageUrls?.length
-                    ? `작업 중 · ${formatWorkDuration(turn.startedAt, undefined, clockNow) ?? '00:00'}`
+                    ? <>작업 중 · <LiveDuration startedAt={turn.startedAt} live={busy} /></>
                     : ''
                   : turn.role === 'assistant'
-                    ? <MessageMarkdown text={turn.text} onOpenUrl={openExternalUrl} copyText={async (text) => { await navigator.clipboard.writeText(text); return true; }} />
+                    ? <MessageMarkdown text={turn.text} onOpenUrl={openExternalUrl} copyText={copyMarkdownText} />
                     : renderMessageText(turn.text)}
               </div>
               {turn.role === 'assistant' && (conversationDisplay.showTokens || conversationDisplay.showTime)
@@ -1510,7 +1521,7 @@ export function ChatPane() {
                     if (conversationDisplay.showTime) {
                       const done = formatClockTime(turn.completedAt);
                       if (done) parts.push(`완료 ${done}`);
-                      const dur = formatWorkDuration(turn.startedAt, turn.completedAt, clockNow);
+                      const dur = turn.completedAt ? formatWorkDuration(turn.startedAt, turn.completedAt) : null;
                       if (dur) parts.push(`소요 ${dur}`);
                     }
                     return parts.length ? (
@@ -1642,17 +1653,17 @@ export function ChatPane() {
               </div>
             ) : null}
             {pendingAttachments.length > 0 ? (
-              <div className="flex flex-wrap gap-2 border-b border-line/60 px-3 pt-3">
-                {pendingAttachments.map((a) => (
+              <div className="composer-attachments flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
+                {pendingAttachments.map((a, index) => (
                   <div
                     key={a.id}
-                    className="group relative flex items-center gap-2 overflow-hidden rounded-xl border border-line bg-panel-2 px-2 py-1.5"
+                    className="group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-lg bg-panel-2 px-2 py-1"
                   >
                     {isImageAttachment(a.mime, a.name) ? (
                       <button type="button" aria-label={`${a.name} 크게 보기`}
                         onClick={() => openImagePreview({ src: a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, title: a.name, prompt: '' })}
                         onContextMenu={(e) => openImageMenu(e, a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, a.name, '')}>
-                        <img src={a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`} alt={a.name} className="h-10 w-10 rounded-md object-cover" />
+                        <img src={a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`} alt={a.name} className="h-10 w-14 rounded-md object-contain" />
                       </button>
                     ) : isVideoAttachment(a.mime, a.name) ? (
                       <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-accent">
@@ -1664,7 +1675,7 @@ export function ChatPane() {
                       </span>
                     )}
                     <span className="max-w-[120px] truncate text-[11px] text-muted" title={a.name}>
-                      {a.name}
+                      {a.name}{pendingAttachments.filter((item) => item.name === a.name).length > 1 ? ` · ${pendingAttachments.slice(0, index + 1).filter((item) => item.name === a.name).length}` : ''}
                     </span>
                     <button
                       type="button"

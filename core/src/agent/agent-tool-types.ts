@@ -22,6 +22,8 @@ export interface AgentToolContext {
   activityGroupId?: string;
   onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
   browserSession?: PlaywrightSession | null;
+  /** Opens a separate Chromium only when an explicit target=isolated call needs it. */
+  getIsolatedBrowserSession?: () => Promise<PlaywrightSession | null>;
   cqrRoot?: string;
   sessionId?: string;
   /** Authoritative project/workspace scope resolved from the current session. */

@@ -37,16 +37,17 @@ try {
 
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
   assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'general_project');
+  const originalUpdatedAt = sessions.load('chat-a').updated_at;
   sessions.setWorkspaceProject('chat-a', workspace.id);
-  // project_id remains the active peer scope; workspace_project_id is only a
-  // dormant binding until this conversation is moved to the workspace scope.
-  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  // Binding changes execution only, not ownership, model/memory, or ordering.
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
+  assert.equal(sessions.load('chat-a').project_id, general.id);
+  assert.equal(sessions.load('chat-a').updated_at, originalUpdatedAt);
   assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'general_project');
   assert.equal(sessions.load('chat-a')?.workspace_project_id, workspace.id);
   assert.equal(sessions.list()[0]?.workspace_project_id, workspace.id);
 
-  // Workspace roots and top-level projects are peer scopes. A session resolves
-  // exactly one of them; workspace binding is not an extra preference layer.
+  // Model and memory inherit from conversation ownership, not the execution binding.
   projects.setScopeSettings(general.id, { preferred_model: 'openai/project-model' });
   projects.setScopeSettings(workspace.id, {
     preferred_model: 'openai/workspace-model',
@@ -55,10 +56,10 @@ try {
   assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), general.id);
   assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'openai/project-model');
   sessions.setProject('chat-a', null);
-  assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'workspace_tree');
+  assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'standalone');
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
-  assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), workspace.id);
-  assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'openai/workspace-model');
+  assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), null);
+  assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'auto');
   assert.deepEqual(resolveWorkspaceRootsForSession(sessions, projects, 'chat-a'), [
     path.resolve(workspaceDir),
     path.resolve(extraDir),
@@ -91,6 +92,17 @@ try {
   sessions.setScopeSettings('chat-a', { preferred_model: null, allowed_paths: [] });
   sessions.setWorkspaceProject('chat-a', null);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  // Explicit disconnect survives reload even when ownership itself has a root.
+  sessions.setProject('chat-a', workspace.id);
+  assert.equal(resolveWorkspaceRootForSession(new SessionStore(sessionsDir, temp), projects, 'chat-a'), null);
+  assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), workspace.id);
+  sessions.setScopeSettings('chat-a', { allowed_paths: [extraDir] });
+  sessions.setWorkspaceProject('chat-a', null);
+  assert.deepEqual(sessions.load('chat-a').allowed_paths, []);
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  // Existing records without the explicit marker retain the old inheritance.
+  sessions.ensure('legacy', { project_id: workspace.id });
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'legacy'), path.resolve(workspaceDir));
 
   // Public SSE thought deltas are normalized onto the matching assistant
   // response, survive disk reload, and stay separate from model-facing content.

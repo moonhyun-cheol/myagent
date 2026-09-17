@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { ArrowsInSimple, ArrowsOutSimple, TerminalWindow, X } from '@phosphor-icons/react';
+import { ArrowsInSimple, ArrowsOutSimple, TerminalWindow, CaretRight } from '@phosphor-icons/react';
 import type { WorkspaceMode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { BrowserPane } from './BrowserPane';
@@ -100,7 +100,7 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
           {!controls.narrow && <button type="button" onClick={controls.toggleExpanded} aria-label={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} title={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} className="rounded-md p-2 text-muted hover:bg-hover">
             {controls.expanded ? <ArrowsInSimple size={16} /> : <ArrowsOutSimple size={16} />}
           </button>}
-          <button type="button" onClick={controls.close} aria-label={controls.narrow ? '채팅으로 돌아가기' : '작업 패널 닫기'} title="채팅으로 돌아가기" className="rounded-md p-2 text-muted hover:bg-hover"><X size={16} /></button>
+          <button type="button" onClick={controls.close} aria-label="오른쪽 패널 접기" title="오른쪽 패널 접기 · 내용은 유지됩니다" className="rounded-md p-2 text-muted hover:bg-hover"><CaretRight size={16} /></button>
         </>}
       </div>
     </div>

@@ -40,6 +40,13 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 .terminal-summary[data-attention='true'] { background: var(--color-selected); border-top-color: var(--color-accent); }
 .terminal-surface pre { overflow-wrap: anywhere; }
 .terminal-surface details summary { font-size: 12px; color: var(--color-muted); }
+/* Panel-local hierarchy: main navigation, subordinate navigation, utilities. */
+[data-preview-pane] > div > [role='tablist'] .ui-tab { border-radius: 0; border-width: 0 0 2px; padding-bottom: 6px; }
+[data-preview-pane] > div > [role='tablist'] .ui-tab[aria-selected='true'] { background: transparent; }
+.workspace-results [role='tablist'] .ui-tab { min-height: 30px; border: 0; font-size: 11px; }
+.workspace-results [role='tablist'] .ui-tab[aria-selected='true'] { color: var(--color-text); background: var(--surface-raised); padding-bottom: 6px; font-weight: 600; }
+.chat-composer > .border-b { border-bottom: 0; }
+.composer-attachments { flex-wrap: nowrap; }
 /* Compatibility for existing status text while components adopt semantic tokens. */
 :where(.text-red-100,.text-red-200,.text-red-300,.text-red-400,.text-red-600,.text-red-700,.text-rose-300,.text-rose-700) { color: var(--color-danger); }
 :where(.text-amber-50,.text-amber-100,.text-amber-200,.text-amber-300,.text-amber-400,.text-yellow-300) { color: var(--color-warning); }

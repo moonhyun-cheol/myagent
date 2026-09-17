@@ -480,7 +480,10 @@ export class SessionStore {
     const rec = this.load(id);
     if (!rec) return null;
     rec.workspace_project_id = workspaceProjectId ? sanitizeId(workspaceProjectId) : null;
-    rec.updated_at = new Date().toISOString();
+    rec.workspace_binding_explicit = true;
+    // A different binding must not retain grants/relative bases from the old folder.
+    rec.allowed_paths = [];
+    // Binding is not conversation activity: preserve ordering within its owner.
     this.save(rec);
     return rec;
   }

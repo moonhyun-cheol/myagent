@@ -28,7 +28,7 @@ export function resolveSessionScopeProjectId(
   sessionId: string,
 ): string | null {
   const session = sessionStore.load(sessionId);
-  return session?.project_id ?? session?.workspace_project_id ?? null;
+  return session?.project_id ?? (session?.workspace_binding_explicit ? null : session?.workspace_project_id) ?? null;
 }
 
 /** Project id whose memory applies to this session (workspace node or general project). */
@@ -109,7 +109,7 @@ export function resolveSessionContextScope(
     const kind = projectStore.resolveKind(project);
     return kind === 'project' ? 'general_project' : 'workspace_tree';
   }
-  if (session?.workspace_project_id) return 'workspace_tree';
+  if (!session?.workspace_binding_explicit && session?.workspace_project_id) return 'workspace_tree';
   return 'standalone';
 }
 
@@ -123,7 +123,9 @@ export function resolveWorkspaceRootsForSession(
   if (explicitRoots.some((candidate) => candidate.trim())) {
     return [...new Set(explicitRoots.map((candidate) => candidate.trim()).filter(Boolean))];
   }
-  const projectId = resolveSessionScopeProjectId(sessionStore, sessionId);
+  const projectId = session?.workspace_binding_explicit
+    ? session.workspace_project_id ?? null
+    : resolveSessionScopeProjectId(sessionStore, sessionId);
   if (!projectId) return [];
   return projectStore.resolveAllowedPathsForProject(projectId);
 }
@@ -181,11 +183,11 @@ export function shouldAttachWorkspaceContext(
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
   // Code mode receives a filesystem tree only through explicit tree membership.
   if (mode === 'web_dev') {
-    return scope === 'workspace_tree'
-      && Boolean(resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId));
+    return Boolean(resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId));
   }
   if (mode !== 'chat') return false;
-  return scope === 'general_project' || scope === 'workspace_tree';
+  return scope === 'general_project' || scope === 'workspace_tree'
+    || Boolean(resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId));
 }
 
 function buildProjectContext(
@@ -229,8 +231,7 @@ function buildWorkspaceTreeContext(
   const kind = projectStore.resolveKind(project);
   if (kind !== 'workspace_root' && kind !== 'folder') return '';
 
-  const root = projectStore.resolveWorkspaceRootForProject(contextProjectId);
-  if (!root) return '';
+  const root = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
 
   const siblings = sessionStore
     .listByProject(contextProjectId)
@@ -240,12 +241,12 @@ function buildWorkspaceTreeContext(
     .filter(Boolean);
 
   const parts: string[] = [
-    buildDevWorkspaceContext(root, {}, {
+    root ? buildDevWorkspaceContext(root, {}, {
       tier: 'agent',
       includeRepoMap: true,
       repoMapMaxChars: 6_000,
       focusMessage,
-    }),
+    }) : '',
   ];
   const location =
     kind === 'workspace_root'
@@ -286,6 +287,10 @@ export function buildWorkspaceContext(
   if (scope === 'general_project') {
     const projectCtx = buildProjectContext(sessionStore, projectStore, sessionId);
     if (projectCtx) parts.push(projectCtx);
+  }
+  const executionRoot = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
+  if (scope !== 'workspace_tree' && executionRoot) {
+    parts.push(buildDevWorkspaceContext(executionRoot, {}, { tier: 'agent', includeRepoMap: true, repoMapMaxChars: 6_000, focusMessage }));
   }
   if (scope === 'workspace_tree') {
     const wsCtx = buildWorkspaceTreeContext(sessionStore, projectStore, sessionId, focusMessage);

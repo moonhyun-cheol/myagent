@@ -54,7 +54,7 @@ function displayUrl(url: string): string {
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
-  return <div className="m-3 rounded-lg border border-dashed border-line bg-ink/50 px-3 py-4 text-center text-[11px] text-muted">{children}</div>;
+  return <div className="m-3 px-3 py-4 text-center text-xs text-muted">{children}</div>;
 }
 
 function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; showDownloadAction: boolean }) {
@@ -117,23 +117,23 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
     <section className="workspace-results flex h-full min-h-0 flex-col bg-panel" aria-label="작업 내역">
       <header className="shrink-0 border-b border-line px-3 py-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0"><h2 className="truncate text-sm font-semibold text-text" title={filesRoot || '폴더 미연결'}>{filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '현재 대화'}</h2><p className="mt-1 text-xs text-muted">{activeDefinition.description}</p></div>
+          <div className="min-w-0"><p className="mb-1 text-[10px] text-muted">작업 폴더</p><h2 className="truncate text-sm font-medium text-text" title={filesRoot || '폴더 미연결'}>{filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '현재 대화'}</h2><p className="mt-1 text-xs text-muted">{activeDefinition.description}</p></div>
           <button type="button" data-testid="open-workspace-explorer" disabled={!filesRoot} onClick={openExplorer} title={filesRoot ? `탐색기에서 열기 · ${filesRoot}` : '작업 폴더를 먼저 연결하세요.'} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[10px] text-muted hover:border-accent/60 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"><FolderOpen size={13} weight="bold" />탐색기</button>
         </div>
         {explorerMessage ? <p className="mt-2 truncate text-[10px] text-muted" title={explorerMessage}>{explorerMessage}</p> : null}
-        {filesRoot ? <details className="mt-2 text-xs text-muted"><summary>전체 경로</summary><p className="break-all py-1 font-mono">{filesRoot}</p></details> : null}
+        {filesRoot ? <details className="mt-2 text-xs text-muted"><summary className="w-full cursor-pointer py-1">전체 경로 보기</summary><p className="break-all py-1 font-mono">{filesRoot}</p></details> : null}
       </header>
 
       <nav className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2 py-2" aria-label="작업 내역 보기" role="tablist" onKeyDown={navigateTabs}>
         {WORKSPACE_OBJECT_TABS.map(({ id, label, icon: Icon }) => {
           const selected = id === activeTab;
           const count = id === 'recent' ? workAssets.length : id === 'todo' ? todoItems.length : undefined;
-          return <button key={id} id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} tabIndex={selected ? 0 : -1} type="button" aria-selected={selected} role="tab" onClick={() => setActiveTab(id)} className="ui-tab"><Icon size={14} weight={selected ? 'fill' : 'regular'} />{label}{count !== undefined ? <span>{count}</span> : null}</button>;
+          return <button key={id} id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} tabIndex={selected ? 0 : -1} type="button" aria-selected={selected} role="tab" onClick={() => setActiveTab(id)} className="ui-tab"><Icon size={14} weight={selected ? 'fill' : 'regular'} />{label}{count !== undefined && count > 0 ? <span>{count}</span> : null}</button>;
         })}
       </nav>
 
       <div id={`${tabId}-body`} className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`}>
-        {activeTab === 'recent' ? <>
+        {activeTab === 'recent' && references.length === 0 && !browserLoadedUrl && workAssets.length === 0 ? <EmptyState>참조 링크와 생성·변경 파일이 여기에 표시됩니다.</EmptyState> : activeTab === 'recent' ? <>
           <section className="border-b border-line">
             <div className="flex items-center justify-between px-3 py-2.5"><div className="flex items-center gap-1.5"><LinkSimple size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">참조 링크</h3></div><span className="text-[10px] text-muted">{browserHistory.length}</span></div>
             {references.length === 0 ? <EmptyState>이 세션에서 참조한 링크가 없습니다.</EmptyState> : references.map((url) => <button key={url} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-ink" onClick={() => openBrowserReference(url)} title={url}><LinkSimple size={14} className="shrink-0 text-muted" /><span className="min-w-0 flex-1 truncate text-[11px] text-muted">{displayUrl(url)}</span><ArrowSquareOut size={13} className="shrink-0 text-muted" /></button>)}

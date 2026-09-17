@@ -12,6 +12,7 @@ interface ToolActivityLogProps {
   live: boolean;
   modelResponse?: string;
   streamPreview?: string;
+  storageKey?: string;
 }
 
 type DisplayItem =
@@ -19,7 +20,19 @@ type DisplayItem =
   | { kind: 'tool-group'; id: string; rows: ToolActivity[] };
 
 /** Chronological model-response and execution events, followed by the final answer in the chat bubble. */
-export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPreview }: ToolActivityLogProps) {
+export function ToolActivityLog(props: ToolActivityLogProps) {
+  return <TimelineBody key={props.storageKey} {...props} />;
+}
+
+function readCollapsed(key?: string): Record<string, boolean> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(`my-agent.timeline.v1:${key}`) ?? '{}');
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'boolean')) : {};
+  } catch { return {}; }
+}
+
+function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, storageKey }: ToolActivityLogProps) {
   const running = rows.some((row) => row.state === 'running');
   const byId = new Map(rows.map((row) => [row.id, row]));
   const seenTools = new Set<string>();
@@ -59,9 +72,16 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
   const [now, setNow] = useState(Date.now);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
-  const [expanded, setExpanded] = useState(live);
-  const wasLive = useRef(live);
+  const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>(() => storageKey ? readCollapsed(storageKey) : {});
+  const choices = useRef(collapsedItems);
+  const setCollapsed = (id: string, collapsed: boolean) => {
+    if (choices.current[id] === collapsed) return;
+    choices.current = { ...choices.current, [id]: collapsed };
+    setCollapsedItems(choices.current);
+    if (storageKey) {
+      try { localStorage.setItem(`my-agent.timeline.v1:${storageKey}`, JSON.stringify(choices.current)); } catch { /* optional preference */ }
+    }
+  };
 
   const cancel = async (row: ToolActivity) => {
     if (pending[row.id] || row.cancelRequested) return;
@@ -126,12 +146,7 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
     return () => window.clearInterval(timer);
   }, [running]);
 
-  useEffect(() => {
-    if (live) setExpanded(true);
-    else if (wasLive.current) setExpanded(false);
-    wasLive.current = live;
-  }, [live]);
-
+  // Live/completed transitions never override the user's disclosure choices.
   if (!displayItems.length) return null;
 
   const label = (row: ToolActivity) => row.state === 'running'
@@ -157,15 +172,15 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
   let toolGroupNumber = 0;
   const itemToggle = (id: string) => (event: SyntheticEvent<HTMLDetailsElement>) => {
     const collapsed = !event.currentTarget.open;
-    setCollapsedItems((old) => old[id] === collapsed ? old : { ...old, [id]: collapsed });
+    setCollapsed(id, collapsed);
   };
 
   return (
     <details
       className="my-2 w-full min-w-0 text-xs"
       data-work-timeline
-      open={expanded}
-      onToggle={(event) => setExpanded(event.currentTarget.open)}
+      open={!(collapsedItems.outer ?? false)}
+      onToggle={itemToggle('outer')}
     >
       <summary className="cursor-pointer select-none rounded-lg border border-line/80 bg-ink/20 px-3 py-2 text-text marker:text-muted">
         <span className="font-medium">중간 추론 및 작업 로그</span>
@@ -206,7 +221,7 @@ export function ToolActivityLog({ rows, timeline, live, modelResponse, streamPre
               data-timeline-kind="tool-group"
               data-activity-group-id={item.id}
               data-tool-state={state}
-              open={!collapsedItems[itemId]}
+              open={!(collapsedItems[itemId] ?? true)}
               onToggle={itemToggle(itemId)}
             >
               <summary className={`mb-1 cursor-pointer select-none marker:text-muted ${state === 'failed' ? 'text-danger' : 'text-text'}`}>

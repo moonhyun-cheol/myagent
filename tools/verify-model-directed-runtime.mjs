@@ -58,7 +58,7 @@ for (const source of [runLoop, stepLoop, mar, workspaceAgent]) {
   assert.doesNotMatch(source, /mutationsOverride|filterToolsForWorkMode|AgentWorkMode|SurfacePlane|PROSE_FORCED_TOOL_RETRY|inferToolFromUserMessage/);
 }
 assert.match(runLoop, /agentTools = await getCodeAgentToolsByPackAsync/);
-assert.match(runLoop, /playwrightAvailable \? 'files\+browser' : 'files'/);
+assert.match(runLoop, /const toolPack = opts\.forceToolPack \?\? 'files\+browser'/);
 assert.doesNotMatch(runLoop, /evaluateTurnStart\(/);
 assert.doesNotMatch(runLoop, /evaluateProseTurn\(/);
 assert.doesNotMatch(runLoop, /persistConstraintsFromAssistantText\(/);

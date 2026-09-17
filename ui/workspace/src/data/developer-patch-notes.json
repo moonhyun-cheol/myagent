@@ -2,6 +2,22 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "agent-shared-webview-browser-session",
+      "status": "development",
+      "title": "AI 브라우저 작업을 오른쪽 웹 패널과 공유",
+      "detail": "AI가 웹 페이지를 탐색하면 숨겨진 오른쪽 웹 패널의 브라우저 세션을 우선 사용하고, 같은 페이지와 진행 상태를 화면에서 이어서 확인할 수 있습니다. 공유 세션을 사용할 수 없을 때는 독립 브라우저로 전환합니다.",
+      "area": "browser",
+      "created_at": "2026-09-17",
+      "source_paths": [
+        "core/src/browser/playwright-session.ts",
+        "shell/CqrPa.Shell/MainWindow.BrowserTabs.cs"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "manual-work-kit-skill-updates",
       "status": "released",
       "title": "작업 키트와 스킬 업데이트를 필요할 때만 확인",

@@ -29,13 +29,10 @@ export function isClipboardImageFile(file: File | null | undefined): boolean {
 export function filesFromDataTransfer(data: DataTransfer | null | undefined): File[] {
   if (!data) return [];
   const out: File[] = [];
-  const seen = new Set<string>();
+  // files and items are alternative representations, not duplicate file lists.
+  // Equal names/sizes/timestamps do not mean equal content.
   const pushFile = (file: File | null) => {
-    if (!file) return;
-    const key = `${file.name}:${file.size}:${file.lastModified || 0}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(file);
+    if (file) out.push(file);
   };
 
   for (const file of Array.from(data.files ?? [])) pushFile(file);
@@ -64,7 +61,6 @@ export function stampPasteName(mime: string): string {
 export function filesFromClipboard(data: DataTransfer | null | undefined): File[] {
   if (!data) return [];
   const out: File[] = [];
-  const seen = new Set<string>();
 
   const pushFile = (file: File | null, mimeHint?: string) => {
     if (!file || !isClipboardImageFile(file)) return;
@@ -73,9 +69,6 @@ export function filesFromClipboard(data: DataTransfer | null | undefined): File[
       file.name && file.name !== 'image.png' && !/^image\./i.test(file.name)
         ? file.name
         : stampPasteName(mime);
-    const key = `${name}:${file.size}:${file.lastModified || 0}`;
-    if (seen.has(key)) return;
-    seen.add(key);
     if (file.name === name && file.type) {
       out.push(file);
       return;

@@ -63,8 +63,7 @@ import {
   queryRepoMap,
   searchEmbeddingIndexAsync,
 } from './index/public.js';
-import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOL_NAMES, CODE_AGENT_TOOLS } from './agent-tool-definitions.js';
-import { isPlaywrightAvailable } from '../browser/playwright-probe.js';
+import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOLS } from './agent-tool-definitions.js';
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
@@ -111,9 +110,7 @@ import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-
 import type { MemoryScope } from '../memory/user-memory-store.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
-  const base = cqrRoot && (isPlaywrightAvailable(cqrRoot) || visibleBrowserConnected())
-    ? [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS].map((t) => t.function.name)
-    : [...CODE_AGENT_TOOL_NAMES];
+  const base = [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS].map((t) => t.function.name);
   if (!cqrRoot) return base;
   try {
     const pluginNames = listEnabledPluginToolDefinitions(cqrRoot).map((t) => t.function.name);
@@ -140,6 +137,44 @@ function visibleTabId(args: Record<string, unknown>): string | undefined {
 function assertVisibleBrowserAllowed(ctx?: AgentToolContext): void {
   if (ctx?.browserRouting === 'background') {
     throw new Error('BACKGROUND_VISIBLE_BROWSER_FORBIDDEN');
+  }
+}
+
+function browserExecutionTarget(
+  args: Record<string, unknown>,
+  ctx?: AgentToolContext,
+): 'visible' | 'isolated' {
+  if (args.target === 'visible' || args.target === 'isolated') return args.target;
+  return ctx?.browserRouting === 'background' || !visibleBrowserConnected() ? 'isolated' : 'visible';
+}
+
+async function isolatedBrowserSession(
+  args: Record<string, unknown>,
+  ctx?: AgentToolContext,
+) {
+  if (args.target === 'isolated' && ctx?.getIsolatedBrowserSession) {
+    return ctx.getIsolatedBrowserSession();
+  }
+  return ctx?.browserSession ?? null;
+}
+
+async function ensureVisibleLock(
+  args: Record<string, unknown>,
+  ctx: AgentToolContext | undefined,
+  bridge: NonNullable<ReturnType<typeof getVisibleBrowserBridge>>,
+  tabId?: string,
+): Promise<void> {
+  const owner = ctx?.sessionId ?? 'default';
+  if (args.target === 'visible') {
+    bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+    return;
+  }
+  const lease = bridge.lockFor(owner, tabId);
+  try {
+    await bridge.request('tab.control.acquire', { tab_id: lease.tab_id, owner });
+  } catch (error) {
+    bridge.unlockFor(owner, lease.tab_id);
+    throw error;
   }
 }
 
@@ -1152,15 +1187,21 @@ async function executeAgentToolInner(
         return { label: 'browser unlock visible', output: JSON.stringify(bridge.unlockFor(owner, resolvedTabId), null, 2) };
       }
       case 'browser_snapshot': {
-        assertVisibleBrowserAllowed(ctx);
-        if (args.target !== 'visible') throw new Error('BROWSER_SNAPSHOT_TARGET_MUST_BE_VISIBLE');
-        const bridge = getVisibleBrowserBridge();
-        if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
-        const snapshot = await bridge.request('snapshot', withVisibleTab(args));
-        return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
+        const target = browserExecutionTarget(args, ctx);
+        if (target === 'visible') {
+          assertVisibleBrowserAllowed(ctx);
+          const bridge = getVisibleBrowserBridge();
+          if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+          const snapshot = await bridge.request('snapshot', withVisibleTab(args));
+          return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
+        }
+        const session = await isolatedBrowserSession(args, ctx);
+        if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
+        const snapshot = await session.snapshot();
+        return { label: 'browser snapshot isolated', output: JSON.stringify(snapshot, null, 2) };
       }
       case 'browser_navigate': {
-        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const target = browserExecutionTarget(args, ctx);
         const url = String(args.url ?? '');
         if (isPlaceholderNavUrl(url)) {
           return {
@@ -1173,18 +1214,18 @@ async function executeAgentToolInner(
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const tabId = visibleTabId(args);
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          await ensureVisibleLock(args, ctx, bridge, tabId);
           const parsed = assertAllowedBrowserUrl(url, { allowLocalhost: ctx?.allowLocalhost === true });
           const result = await bridge.request('navigate', withVisibleTab(args, { url: parsed.toString() }));
           return { label: `navigate visible ${url}`, output: JSON.stringify(result, null, 2) };
         }
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const nav = await session.navigate(url);
         return { label: `navigate isolated ${url}`, output: JSON.stringify(nav, null, 2) };
       }
       case 'browser_screenshot': {
-        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const target = browserExecutionTarget(args, ctx);
         if (target === 'visible') {
           assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
@@ -1204,33 +1245,33 @@ async function executeAgentToolInner(
           const shot = { path: absolute, relative, url: `/${relative}`, page_url: result.url };
           return { label: `screenshot ${relative}`, output: JSON.stringify(shot, null, 2) };
         }
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const rel = typeof args.path === 'string' ? args.path : undefined;
         const shot = await session.screenshot(workspaceRoot, rel, ctx?.sessionId, guard);
         return { label: `screenshot ${shot.relative}`, output: JSON.stringify(shot, null, 2) };
       }
       case 'browser_click': {
-        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const target = browserExecutionTarget(args, ctx);
         if (target === 'visible') {
           assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const tabId = visibleTabId(args);
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          await ensureVisibleLock(args, ctx, bridge, tabId);
           const result = await bridge.request('click', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''),
           }));
           return { label: `click visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const selector = String(args.selector ?? '');
         if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
         return { label: `click isolated ${selector}`, output: await session.click(selector) };
       }
       case 'browser_drag': {
-        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const target = browserExecutionTarget(args, ctx);
         const targetPosition = args.target_position === 'before' || args.target_position === 'after'
           ? args.target_position
           : 'center';
@@ -1239,7 +1280,7 @@ async function executeAgentToolInner(
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const tabId = visibleTabId(args);
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          await ensureVisibleLock(args, ctx, bridge, tabId);
           const result = await bridge.request('drag', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''),
             source_ref: String(args.source_ref ?? ''),
@@ -1251,7 +1292,7 @@ async function executeAgentToolInner(
             output: JSON.stringify(result, null, 2),
           };
         }
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const sourceSelector = String(args.source_selector ?? '');
         const targetSelector = String(args.target_selector ?? '');
@@ -1262,20 +1303,20 @@ async function executeAgentToolInner(
         };
       }
       case 'browser_fill': {
-        const target = args.target === 'visible' ? 'visible' : 'isolated';
+        const target = browserExecutionTarget(args, ctx);
         const value = String(args.value ?? '');
         if (target === 'visible') {
           assertVisibleBrowserAllowed(ctx);
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const tabId = visibleTabId(args);
-          bridge.assertLockedBy(ctx?.sessionId ?? 'default', tabId);
+          await ensureVisibleLock(args, ctx, bridge, tabId);
           const result = await bridge.request('fill', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''), value,
           }));
           return { label: `fill visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const selector = String(args.selector ?? '');
         if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
@@ -1283,7 +1324,7 @@ async function executeAgentToolInner(
       }
       case 'browser_evaluate': {
         if (args.target === 'visible') throw new Error('VISIBLE_BROWSER_RAW_EVALUATE_FORBIDDEN');
-        const session = ctx?.browserSession;
+        const session = await isolatedBrowserSession({ ...args, target: 'isolated' }, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const expression = String(args.expression ?? '');
         const result = await session.evaluate(expression);

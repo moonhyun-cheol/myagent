@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private string _activeBrowserTabId = DefaultBrowserTab;
     private int _browserTabSequence;
     private CoreWebView2Environment? _browserEnv;
+    private int? _browserCdpPort;
     private bool _browserSurfaceAvailable;
     private Rect _browserSurface;
     private Forms.NotifyIcon? _trayIcon;
@@ -71,6 +72,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) => _windowPlacement.StartTracking();
         Loaded += OnLoaded;
         Closing += OnWindowClosing;
+        Closed += (_, _) => DeleteBrowserCdpPortFile();
         Application.Current.SessionEnding += (_, _) => _allowExit = true;
         LocationChanged += (_, _) => MaximizeWorkArea.OnUserMovedOrResized(this);
         SizeChanged += (_, _) => MaximizeWorkArea.OnUserMovedOrResized(this);
@@ -435,6 +437,9 @@ public partial class MainWindow : Window
                 WebView.AllowExternalDrop = true;
             }
             StartupStatusText.Text = "작업 화면을 불러오는 중…";
+            // Prepare the right-side browser while its panel is still collapsed.
+            // Agent Playwright sessions attach to this same WebView2 over loopback CDP.
+            await EnsureBrowserAsync(EnsurePrimaryTab());
             var workspaceCore = WebView.CoreWebView2
                 ?? throw new InvalidOperationException("WebView2 코어가 준비되지 않았습니다.");
             workspaceCore.Navigate($"http://127.0.0.1:{_port}/");

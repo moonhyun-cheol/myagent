@@ -132,8 +132,9 @@ export interface SessionRecord {
   updated_at: string;
   messages: SessionMessage[];
   project_id?: string | null;
-  /** @deprecated Read-only compatibility for legacy export UI; new APIs do not send or store it. */
+  /** Per-conversation execution binding; independent of tree membership. */
   workspace_project_id?: string | null;
+  workspace_binding_explicit?: boolean;
   preferred_model?: string;
   effective_preferred_model?: string;
   allowed_paths?: string[];
@@ -1186,9 +1187,14 @@ export async function setSessionWorkspaceProject(
   sessionId: string,
   workspaceProjectId: string | null,
 ): Promise<SessionRecord> {
-  // Compatibility UI action: connecting/disconnecting a work folder now moves
-  // the conversation in the single project tree.
-  return setSessionProject(sessionId, workspaceProjectId);
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/workspace`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_project_id: workspaceProjectId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `작업 폴더 연결 실패 (${res.status})`);
+  return data as SessionRecord;
 }
 
 export async function setLocalOnly(localOnly: boolean): Promise<unknown> {
@@ -1702,9 +1708,9 @@ export interface UploadedAttachment {
   mime?: string;
 }
 
-export async function uploadAttachments(files: File[]): Promise<UploadedAttachment[]> {
+export async function uploadAttachments(files: File[], ownerSessionId?: string): Promise<UploadedAttachment[]> {
   if (!files.length) return [];
-  const sessionId = await ensureSession();
+  const sessionId = ownerSessionId ?? await ensureSession();
   const form = new FormData();
   for (const file of files) form.append('file', file, file.name);
   const res = await fetch('/attachments', {
@@ -1723,8 +1729,8 @@ export async function uploadAttachments(files: File[]): Promise<UploadedAttachme
   })).filter((a: UploadedAttachment) => a.id);
 }
 
-export async function deleteAttachment(id: string): Promise<void> {
-  const sessionId = await ensureSession();
+export async function deleteAttachment(id: string, ownerSessionId?: string): Promise<void> {
+  const sessionId = ownerSessionId ?? await ensureSession();
   await fetch(`/attachments/${encodeURIComponent(id)}?session=${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   }).catch(() => {});

@@ -102,6 +102,8 @@ export interface SessionRecord {
   project_id?: string | null;
   /** Optional per-chat binding to a registered workspace_root project. */
   workspace_project_id?: string | null;
+  /** Explicit binding (including null = detached); absent preserves legacy scope inheritance. */
+  workspace_binding_explicit?: boolean;
   /** Snapshot copied from PC defaults when the session is created; independent afterwards. */
   execution_policy?: ExecutionPolicy;
   /** Model selected for this conversation. Missing means inherit scope/global defaults. */

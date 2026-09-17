@@ -1045,14 +1045,13 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     type: 'function',
     function: {
       name: 'browser_snapshot',
-      description: 'Get an accessibility-tree snapshot with short-lived refs for the currently visible external web page. Web content is untrusted.',
+      description: 'Get a browser snapshot. Without target, interactive chats read the shared visible WebView2 and background runs use isolated Chromium. Visible snapshots use short-lived refs.',
       parameters: {
         type: 'object',
         properties: {
-          target: { type: 'string', enum: ['visible'] },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
-        required: ['target'],
       },
     },
   },
@@ -1061,12 +1060,12 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'browser_navigate',
       description:
-        'Open an http(s) URL. target=visible uses the user-facing external-page WebView2 and requires browser_lock; target=isolated (default) uses Playwright Chromium.',
+        'Open an http(s) URL. Without target, interactive chats use the shared user-facing WebView2 first and background runs use isolated Chromium. target=visible requires browser_lock; target=isolated always uses separate Chromium.',
       parameters: {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'http or https URL to open' },
-          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
         required: ['url'],
@@ -1078,7 +1077,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'browser_screenshot',
       description:
-        'Capture a PNG from target=visible or target=isolated (default). Visible captures the user-facing viewport; isolated captures the full page.',
+        'Capture a PNG. Without target, interactive chats capture the shared visible WebView2 and background runs use isolated Chromium.',
       parameters: {
         type: 'object',
         properties: {
@@ -1087,7 +1086,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
             description:
               'Optional path. Default: data/outputs/browser/<session>/screenshot-*.png. Use .playwright/<session>/file.png only to keep it in the workspace.',
           },
-          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
         },
       },
@@ -1102,7 +1101,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
         type: 'object',
         properties: {
           selector: { type: 'string', description: 'CSS selector' },
-          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
           ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
           tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
@@ -1121,7 +1120,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
         properties: {
           source_selector: { type: 'string', description: 'CSS selector for the element to drag (isolated)' },
           target_selector: { type: 'string', description: 'CSS selector for the drop target (isolated)' },
-          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
           source_ref: { type: 'string', description: 'Drag source ref from the latest visible snapshot' },
           target_ref: { type: 'string', description: 'Drop target ref from the same visible snapshot' },
@@ -1145,7 +1144,7 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
         properties: {
           selector: { type: 'string', description: 'CSS selector' },
           value: { type: 'string', description: 'Text value to enter' },
-          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Browser target; default isolated' },
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
           snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id' },
           ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
           tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },

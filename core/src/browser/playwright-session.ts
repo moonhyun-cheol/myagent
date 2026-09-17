@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { assertPathUnder } from '../security/path-guard.js';
 import { resolveDevWorkspaceRelPath } from '../security/dev-workspace-guard.js';
@@ -83,8 +83,13 @@ type PwPage = {
   setDefaultNavigationTimeout(ms: number): void;
 };
 
+type PwBrowserContext = {
+  pages(): PwPage[];
+};
+
 type PwBrowser = {
   newPage(): Promise<PwPage>;
+  contexts(): PwBrowserContext[];
   close(): Promise<void>;
 };
 
@@ -94,6 +99,8 @@ export interface PlaywrightSessionOptions {
   urlGuard?: UrlGuardOptions;
   /** Parent/stop-button signal; when it aborts, in-flight actions reject and the session closes. */
   signal?: AbortSignal;
+  /** CQR_PA compatibility: attach to the shell WebView2 CDP endpoint before launching Chromium. */
+  preferSharedWebView?: boolean;
 }
 
 export class PlaywrightSession {
@@ -106,14 +113,17 @@ export class PlaywrightSession {
   private readonly headless: boolean;
   private readonly urlGuard: UrlGuardOptions;
   private readonly signal?: AbortSignal;
+  private readonly preferSharedWebView: boolean;
+  private sharedWebView = false;
 
   constructor(
     private readonly cqrRoot: string,
-    opts?: Pick<PlaywrightSessionOptions, 'headless' | 'urlGuard' | 'signal'>,
+    opts?: Pick<PlaywrightSessionOptions, 'headless' | 'urlGuard' | 'signal' | 'preferSharedWebView'>,
   ) {
     this.headless = opts?.headless !== false;
     this.urlGuard = opts?.urlGuard ?? {};
     this.signal = opts?.signal;
+    this.preferSharedWebView = opts?.preferSharedWebView !== false;
   }
 
   /**
@@ -159,12 +169,31 @@ export class PlaywrightSession {
   private async ensureBrowser(): Promise<PwPage> {
     if (this.page) return this.page;
     const pw = await importPlaywright(this.cqrRoot);
-    this.browser = (await pw.chromium.launch({ headless: this.headless })) as PwBrowser;
-    this.page = await this.browser.newPage();
+    const bridgePort = this.preferSharedWebView ? readWebViewBridgePort(this.cqrRoot) : null;
+    if (bridgePort && pw.chromium.connectOverCDP) {
+      try {
+        this.browser = (await pw.chromium.connectOverCDP(`http://127.0.0.1:${bridgePort}`)) as PwBrowser;
+        const context = this.browser.contexts()[0];
+        this.page = context?.pages()[0] ?? null;
+        this.sharedWebView = this.page !== null;
+      } catch {
+        this.browser = null;
+        this.page = null;
+      }
+    }
+    if (!this.page) {
+      this.browser = (await pw.chromium.launch({ headless: this.headless })) as PwBrowser;
+      this.page = await this.browser.newPage();
+      this.sharedWebView = false;
+    }
     this.page.setDefaultTimeout(ACTION_TIMEOUT_MS);
     this.page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
     this.attachDiagnostics(this.page);
     return this.page;
+  }
+
+  usesSharedWebView(): boolean {
+    return this.sharedWebView;
   }
 
   private pushDiagnostic(entry: Omit<BrowserDiagnosticEntry, 'at'>): void {
@@ -208,18 +237,21 @@ export class PlaywrightSession {
   }
 
   async close(): Promise<void> {
-    try {
-      await this.page?.close();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await this.browser?.close();
-    } catch {
-      /* ignore */
+    if (!this.sharedWebView) {
+      try {
+        await this.page?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await this.browser?.close();
+      } catch {
+        /* ignore */
+      }
     }
     this.page = null;
     this.browser = null;
+    this.sharedWebView = false;
     this.invalidateSnapshot();
   }
 
@@ -586,6 +618,17 @@ export class PlaywrightSession {
     } catch {
       return String(result);
     }
+  }
+}
+
+function readWebViewBridgePort(cqrRoot: string): number | null {
+  const file = path.join(cqrRoot, 'data', 'in-app-browser-cdp-port.txt');
+  if (!existsSync(file)) return null;
+  try {
+    const port = Number.parseInt(readFileSync(file, 'utf8').trim(), 10);
+    return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+  } catch {
+    return null;
   }
 }
 

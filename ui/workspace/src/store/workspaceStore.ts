@@ -427,6 +427,8 @@ interface WorkspaceState {
   activeDocumentTabId: string | null;
   /** ChatPane watches this to seed the composer (Ask AI). */
   composerPrefill: string | null;
+  /** Creating the first attachment's session is not a navigation away from its text draft. */
+  composerSessionPromotionId: string | null;
   composerFocusNonce: number;
   /** ChatPane watches this to move keyboard focus onto the conversation history after a session opens. */
   historyFocusNonce: number;
@@ -707,9 +709,46 @@ function appendProgressStep(steps: string[] | undefined, text: string): string[]
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
+  // Composer attachments are drafts, not part of the refreshed server transcript.
+  const attachmentDrafts = new Map<string | null, PendingAttachment[]>();
+  let navigationRevision = 0;
+  let explorerRevision = 0;
+  const workspaceRevisions = new Map<string, number>();
+  const workspaceSaves = new Map<string, Promise<unknown>>();
+  let attachmentSessionCreation: { revision: number; promise: Promise<string> } | null = null;
+  const readAttachmentDraft = (sid: string | null) =>
+    get().activeSessionId === sid ? get().pendingAttachments : attachmentDrafts.get(sid) ?? [];
+  const writeAttachmentDraft = (sid: string | null, items: PendingAttachment[]) => {
+    if (items.length) attachmentDrafts.set(sid, items);
+    else attachmentDrafts.delete(sid);
+    if (get().activeSessionId === sid) set({ pendingAttachments: items });
+  };
+  const ensureAttachmentSession = async () => {
+    const active = get().activeSessionId;
+    if (active) return active;
+    const revision = navigationRevision;
+    if (attachmentSessionCreation?.revision !== revision) {
+      attachmentSessionCreation = { revision, promise: createSession(get().activeProjectId) };
+    }
+    const creation = attachmentSessionCreation;
+    try {
+      const sid = await creation.promise;
+      if (navigationRevision === revision && !get().activeSessionId) {
+        set({ activeSessionId: sid, composerSessionPromotionId: sid });
+      }
+      // createSession stores its id; a late upload must not redirect another chat.
+      const current = get().activeSessionId;
+      if (current) setStoredSessionId(current);
+      else clearStoredSessionId();
+      return sid;
+    } finally {
+      if (attachmentSessionCreation === creation) attachmentSessionCreation = null;
+    }
+  };
   const cacheActiveSessionView = () => {
     const state = get();
     const sid = state.activeSessionId;
+    writeAttachmentDraft(sid, state.pendingAttachments);
     if (!sid) return;
     sessionViewCache.set(sid, {
       activeProjectId: state.activeProjectId,
@@ -775,6 +814,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const reviewSessions = { ...get().queueReviewSessions };
     delete reviewSessions[sid];
     saveMessageQueue(remaining);
+    const composerAttachments = get().pendingAttachments;
     set({
       messageQueue: remaining,
       queueReviewSessions: reviewSessions,
@@ -787,6 +827,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     void get().sendAiMessage(next.text, next.model, {
       uiSurface: next.uiSurface === 'document-memo' ? 'document-memo' : 'chat',
     });
+    // Existing-session dispatch consumes queue attachments synchronously, not the draft.
+    writeAttachmentDraft(sid, composerAttachments);
   };
 
   const finishJob = async (sid: string, expected: LiveJob) => {
@@ -1287,6 +1329,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     editorSaving: false,
     ...emptyDocumentState(),
     composerPrefill: null,
+    composerSessionPromotionId: null,
     composerFocusNonce: 0,
     historyFocusNonce: 0,
     canvasNodes: [],
@@ -1301,7 +1344,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     modelOptions: [{ id: 'auto', label: '기본 (자동)' }],
     apiOnline: null,
     apiError: null,
-    previewPaneOpen: true,
+    previewPaneOpen: (() => { try { return localStorage.getItem('my-agent.work-panel-open.v1') !== '0'; } catch { return true; } })(),
     terminalOpen: readTerminalOpenPref(),
     terminalBusy: false,
     terminalLog: '',
@@ -1443,27 +1486,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
     setSessionWorkspaceProject: async (workspaceProjectId) => {
-      let sessionId = get().activeSessionId;
-      if (!sessionId) {
-        sessionId = await createSession(workspaceProjectId);
-        set({ activeSessionId: sessionId });
-        setStoredSessionId(sessionId);
+      if (get().busy) throw new Error('진행 중인 작업이 끝난 뒤 작업 폴더를 변경하세요.');
+      if (get().openTabs.some((tab) => tab.id.startsWith('file:') && tab.dirty)) {
+        throw new Error('수정 중인 파일을 저장한 뒤 작업 폴더를 변경하세요.');
       }
-      const rec = await saveSessionWorkspaceProject(sessionId, workspaceProjectId);
+      const sessionId = await ensureAttachmentSession();
+      const revision = (workspaceRevisions.get(sessionId) ?? 0) + 1;
+      workspaceRevisions.set(sessionId, revision);
+      const save = (workspaceSaves.get(sessionId) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() => saveSessionWorkspaceProject(sessionId, workspaceProjectId));
+      workspaceSaves.set(sessionId, save);
+      const rec = await save;
+      if (workspaceRevisions.get(sessionId) !== revision) return;
       const projectId = rec.project_id ?? null;
-      const derivedWorkspaceProjectId = await resolveWorkspaceRootProjectId(projectId);
+      const derivedWorkspaceProjectId = rec.workspace_project_id ?? null;
+      const cached = sessionViewCache.get(sessionId);
+      if (cached) sessionViewCache.set(sessionId, { ...cached, activeProjectId: projectId, activeWorkspaceProjectId: derivedWorkspaceProjectId });
+      if (get().activeSessionId !== sessionId) return;
       const remainingTabs = get().openTabs.filter((tab) => !tab.id.startsWith('file:'));
       set({
         activeProjectId: projectId,
         activeWorkspaceProjectId: derivedWorkspaceProjectId,
         files: [],
         filesRoot: null,
-        filesMessage: '작업 폴더를 불러오는 중…',
+        filesMessage: derivedWorkspaceProjectId ? '작업 폴더를 불러오는 중…' : '폴더를 연결하세요',
         openTabs: remainingTabs,
         activeTabId: remainingTabs[0]?.id ?? null,
         activeFileId: null,
         editorContent: remainingTabs[0]?.content ?? '',
       });
+      cacheActiveSessionView();
       await get().refreshExplorer();
     },
     setSessionProject: async (projectId) => {
@@ -1471,7 +1524,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (!sessionId) throw new Error('이동할 대화 세션이 없습니다.');
       const rec = await saveSessionProject(sessionId, projectId);
       const membershipProjectId = rec.project_id ?? null;
-      const workspaceRootProjectId = await resolveWorkspaceRootProjectId(membershipProjectId);
+      const workspaceRootProjectId = rec.workspace_binding_explicit
+        ? rec.workspace_project_id ?? null : await resolveWorkspaceRootProjectId(membershipProjectId);
+      if (get().activeSessionId !== sessionId) return;
       set({
         activeProjectId: membershipProjectId,
         activeWorkspaceProjectId: workspaceRootProjectId,
@@ -1487,7 +1542,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
     setLicenseMode: (licenseMode) => set({ licenseMode }),
-    setPreviewPaneOpen: (previewPaneOpen) => set({ previewPaneOpen }),
+    setPreviewPaneOpen: (previewPaneOpen) => {
+      try { localStorage.setItem('my-agent.work-panel-open.v1', previewPaneOpen ? '1' : '0'); } catch { /* optional preference */ }
+      set({ previewPaneOpen });
+    },
     setTerminalOpen: (terminalOpen) => {
       try {
         localStorage.setItem(TERMINAL_OPEN_KEY, terminalOpen ? '1' : '0');
@@ -1570,21 +1628,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     addPendingAttachments: (items) => {
       if (!items.length) return;
-      set({ pendingAttachments: [...get().pendingAttachments, ...items] });
+      writeAttachmentDraft(get().activeSessionId, [...get().pendingAttachments, ...items]);
     },
 
     removePendingAttachment: async (id) => {
+      const sid = get().activeSessionId;
       const target = get().pendingAttachments.find((a) => a.id === id);
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      set({ pendingAttachments: get().pendingAttachments.filter((a) => a.id !== id) });
-      await deleteAttachment(id);
+      if (!target) return;
+      if (target.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(target.previewUrl);
+      writeAttachmentDraft(sid, get().pendingAttachments.filter((a) => a.id !== id));
+      await deleteAttachment(id, sid ?? undefined);
     },
 
     clearPendingAttachments: () => {
       for (const a of get().pendingAttachments) {
-        if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+        if (a.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(a.previewUrl);
       }
-      set({ pendingAttachments: [] });
+      writeAttachmentDraft(get().activeSessionId, []);
     },
 
     addContextPath: (raw) => {
@@ -1677,7 +1737,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (get().licenseMode && get().licenseMode !== 'full') {
         throw new Error('라이선스 필요');
       }
-      const uploaded = await uploadAttachments(files);
+      const sid = await ensureAttachmentSession();
+      const uploaded = await uploadAttachments(files, sid);
       const items: PendingAttachment[] = uploaded.map((u, i) => {
         const file = files[i];
         const mime = u.mime || file?.type || '';
@@ -1688,10 +1749,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           id: u.id,
           name: u.name,
           mime: u.mime || mime || undefined,
-          previewUrl: isImage && file ? URL.createObjectURL(file) : undefined,
+          previewUrl: isImage ? `/attachments/${encodeURIComponent(u.id)}?session=${encodeURIComponent(sid)}` : undefined,
         };
       });
-      get().addPendingAttachments(items);
+      writeAttachmentDraft(sid, [...readAttachmentDraft(sid), ...items]);
     },
 
     uploadClipboardImages: async (files) => get().uploadFiles(files),
@@ -1737,7 +1798,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     startNewChat: async (projectId = null, legacyWorkspaceProjectId = null) => {
-      get().clearPendingAttachments();
+      const revision = ++navigationRevision;
       cacheActiveSessionView();
       const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
       const id = await createSession(membershipProjectId);
@@ -1746,6 +1807,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         fetchDefaultModelOverride().catch(() => 'auto'),
         resolveWorkspaceRootProjectId(membershipProjectId),
       ]);
+      if (revision !== navigationRevision) {
+        const current = get().activeSessionId;
+        if (current) setStoredSessionId(current);
+        else clearStoredSessionId();
+        return;
+      }
+      cacheActiveSessionView();
       const policy = rec.execution_policy ?? {
         reasoning: 'auto' as const,
         autopilot: 'auto' as const,
@@ -1755,6 +1823,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const selectedModel = rec.preferred_model ?? globalDefaultModel;
       set({
         activeSessionId: id,
+        composerSessionPromotionId: null,
+        pendingAttachments: attachmentDrafts.get(id) ?? [],
         activeProjectId: rec.project_id ?? membershipProjectId,
         activeWorkspaceProjectId: workspaceRootProjectId,
         chat: [],
@@ -1781,11 +1851,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     clearActiveChat: () => {
-      get().clearPendingAttachments();
+      ++navigationRevision;
       cacheActiveSessionView();
       clearStoredSessionId();
       set({
         activeSessionId: null,
+        composerSessionPromotionId: null,
+        pendingAttachments: attachmentDrafts.get(null) ?? [],
         activeProjectId: null,
         activeWorkspaceProjectId: null,
         chat: [],
@@ -1806,7 +1878,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     loadChatSession: async (sessionId) => {
-      get().clearPendingAttachments();
+      const loadRevision = ++navigationRevision;
+      const bindingRevision = workspaceRevisions.get(sessionId) ?? 0;
       if (get().unseenCompletions[sessionId]) {
         const seen = { ...get().unseenCompletions };
         delete seen[sessionId];
@@ -1822,6 +1895,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const snapshot = cached;
         set({
           activeSessionId: sessionId,
+          composerSessionPromotionId: null,
+          pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: snapshot?.activeProjectId ?? null,
           activeWorkspaceProjectId: snapshot?.activeWorkspaceProjectId ?? null,
           chat: live?.chat ?? snapshot?.chat ?? [],
@@ -1837,6 +1912,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // Do not leave the previous conversation visible while the first fetch is pending.
         set({
           activeSessionId: sessionId,
+          composerSessionPromotionId: null,
+          pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: null,
           activeWorkspaceProjectId: null,
           chat: [],
@@ -1856,7 +1933,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       void fetchSession(sessionId).then(async (rec) => {
         const messages = rec.messages ?? [];
         const membershipProjectId = rec.project_id ?? null;
-        const workspaceRootProjectId = await resolveWorkspaceRootProjectId(membershipProjectId);
+        const workspaceRootProjectId = rec.workspace_binding_explicit
+          ? rec.workspace_project_id ?? null
+          : await resolveWorkspaceRootProjectId(membershipProjectId ?? rec.workspace_project_id ?? null);
+        if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
         const selectedModel = rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto';
@@ -1999,8 +2079,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     refreshExplorer: async () => {
+      const revision = ++explorerRevision;
+      const sessionId = get().activeSessionId;
+      const bindingRevision = workspaceRevisions.get(sessionId ?? '') ?? 0;
+      const isCurrent = () => revision === explorerRevision && get().activeSessionId === sessionId
+        && bindingRevision === (workspaceRevisions.get(sessionId ?? '') ?? 0);
       try {
         const data = await fetchWorkspaceFsTree(3);
+        if (!isCurrent()) return;
         if (!data.root) {
           set({
             files: [],
@@ -2015,6 +2101,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           filesMessage: data.tree.length ? null : '작업 폴더가 비어 있습니다.',
         });
       } catch (err) {
+        if (!isCurrent()) return;
         const message = err instanceof Error ? err.message : String(err);
         set({ files: [], filesRoot: null, filesMessage: message });
       }
@@ -2897,6 +2984,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         for (const attachment of pending) {
           if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
         }
+        writeAttachmentDraft(sid, []);
         set({ messageQueue: queue, pendingAttachments: [], pendingContextPaths: [] });
         return;
       }
@@ -2972,6 +3060,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       };
       liveJobs.set(sid, job);
       setStoredSessionId(sid);
+      writeAttachmentDraft(sid, []);
       set({
         pendingAttachments: [],
         pendingContextPaths: [],

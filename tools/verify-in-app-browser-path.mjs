@@ -30,8 +30,29 @@ mustInclude('ui/workspace/src/components/BrowserPane.tsx', [
 mustInclude('shell/CqrPa.Shell/MainWindow.xaml.cs', [
   'case "inAppBrowser.open"',
   'OpenInAppBrowser',
+  'await EnsureBrowserAsync(EnsurePrimaryTab());',
 ]);
-mustInclude('shell/CqrPa.Shell/MainWindow.xaml', ['InAppBrowserPanel']);
+mustInclude('shell/CqrPa.Shell/MainWindow.BrowserTabs.cs', [
+  '--remote-debugging-port=',
+  'in-app-browser-cdp-port.txt',
+  'PublishBrowserCdpPort();',
+  'if (!tab.Requested)',
+]);
+mustInclude('shell/CqrPa.Shell/MainWindow.xaml', ['InAppBrowserPanel', 'Visibility="Collapsed"']);
+mustInclude('core/src/agent/agent-tool-registry.ts', [
+  '[...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS]',
+  'getCodeAgentToolsForPack(pack, true, cqrRoot)',
+]);
+mustInclude('core/src/agent/agent-tool-definitions.ts', [
+  "name: 'browser_navigate'",
+  "name: 'browser_snapshot'",
+  "name: 'browser_click'",
+]);
+mustInclude('core/src/browser/playwright-session.ts', [
+  'connectOverCDP',
+  'in-app-browser-cdp-port.txt',
+  'this.sharedWebView = this.page !== null',
+]);
 
-console.log('verify-in-app-browser-path: PASS (structural call-path witness)');
-console.log('manual: launch START.bat → chat https link click → right browser panel visible');
+console.log('verify-in-app-browser-path: PASS (tool schema + shared WebView2 CDP path)');
+console.log('manual: launch app → keep panel closed → Agent navigate/snapshot/click → confirm the same page in the opened panel');
