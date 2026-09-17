@@ -37,6 +37,8 @@ if (nodeMode !== 'bundled' && nodeMode !== 'deferred') {
 }
 const nodeDeferred = nodeMode === 'deferred';
 const skipNode = skipNodeFlag || nodeDeferred;
+// Offline install: bundle core production node_modules into the zip unless opted out.
+const skipVendor = process.argv.includes('--no-vendor-node-modules');
 const manifest = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const ver = manifest.version ?? '1.0.0';
 
@@ -206,6 +208,68 @@ if (!skipNode && !nodeDeferred) {
   if (existsSync(nodeDst)) rmSync(nodeDst, { recursive: true, force: true });
   cpSync(nodeSrc, nodeDst, { recursive: true });
   console.log('publish: bundled runtime/node -> stage');
+}
+
+// --- Offline core node_modules bundling ----------------------------------
+// Restricted / air-gapped PCs cannot reach registry.npmjs.org, so the three
+// production deps (@modelcontextprotocol/sdk, mammoth, pdf-parse — all pure JS,
+// no native build) are vendored into the zip under a short `nm/` dir. `nm` is
+// intentionally short to keep paths under the 260-char Compress-Archive limit.
+// install.ps1 restores `nm` -> node_modules before the npm step, so
+// bootstrap-npm-deps sees the sdk and skips npm entirely (zero network).
+// devDependencies and optionalDependencies (Playwright) are excluded here just
+// like the runtime bootstrap, so this never pulls the ~300MB browser download.
+if (!skipVendor) {
+  const vendorBuild = path.join(outDir, 'vendor-build');
+  if (existsSync(vendorBuild)) rmSync(vendorBuild, { recursive: true, force: true });
+  mkdirSync(vendorBuild, { recursive: true });
+  cpSync(path.join(root, 'package.json'), path.join(vendorBuild, 'package.json'));
+  const lockSrc = path.join(root, 'package-lock.json');
+  if (existsSync(lockSrc)) cpSync(lockSrc, path.join(vendorBuild, 'package-lock.json'));
+
+  const vendorEnv = {
+    ...process.env,
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+    npm_config_cache: path.join(vendorBuild, '.npm-cache'),
+  };
+  const installArgs = ['install', '--omit=dev', '--omit=optional', '--no-fund', '--no-audit'];
+  const portableNode = path.join(root, 'runtime', 'node', 'node.exe');
+  const portableNpmCli = path.join(root, 'runtime', 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  let vend;
+  if (existsSync(portableNode) && existsSync(portableNpmCli)) {
+    vend = spawnSync(portableNode, [portableNpmCli, ...installArgs], {
+      cwd: vendorBuild,
+      env: vendorEnv,
+      stdio: 'inherit',
+    });
+  } else {
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    vend = spawnSync(npmCmd, installArgs, {
+      cwd: vendorBuild,
+      env: vendorEnv,
+      stdio: 'inherit',
+      shell: true,
+    });
+  }
+  if (vend.status !== 0) {
+    console.error(
+      'publish: vendoring core node_modules failed — offline install would break. '
+      + 'Fix network/dependencies at build time, or pass --no-vendor-node-modules to skip.',
+    );
+    process.exit(vend.status ?? 1);
+  }
+  const vendModules = path.join(vendorBuild, 'node_modules');
+  const sdkPkg = path.join(vendModules, '@modelcontextprotocol', 'sdk', 'package.json');
+  if (!existsSync(sdkPkg)) {
+    console.error('publish: vendored node_modules missing @modelcontextprotocol/sdk — aborting.');
+    process.exit(1);
+  }
+  const vendorDst = path.join(appDir, 'nm');
+  if (existsSync(vendorDst)) rmSync(vendorDst, { recursive: true, force: true });
+  cpSync(vendModules, vendorDst, { recursive: true });
+  console.log('publish: vendored core node_modules -> stage/app/nm (offline install)');
+} else {
+  console.log('publish: --no-vendor-node-modules — offline core deps NOT bundled (install needs network)');
 }
 
 const deployDefaultsPath = path.join(appDir, 'core', 'config', 'defaults', 'deploy-defaults.json');

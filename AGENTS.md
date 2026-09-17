@@ -29,8 +29,8 @@ RULEBOOK 본문을 제품 repo에 복사하거나 `rulebook/` 디렉터리를 �
 ## Critical product facts
 
 - **Skills:** user-facing activation is only the composer `+` picker backed by `/skills/selectable`; selecting the active skill again turns it off. Work-kit catalog/install internals have no Settings surface.
-- **Updates (3 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; org module folder swap; work-kit catalog refresh. The former launcher stream is retired. Idle gate defers Yes/No while chat session turns are alive (`session_busy`) or UI reports work (`workspace_busy`). See R-605/R-618 and the WorkKit integration ADR.
-- **Org module / Features:** base overlay in company repo; Automaton slash via Organization Feature (`data/organization-features/`) after ops Work Kit apply (ADR-RE-011 / R-625). Settings → 스킬 for module check/apply.
+- **Updates (3 streams — do not merge):** core `channels/stable.json` + idle gate + `MYAgent.Updater`; org module folder swap; work-kit catalog refresh. The former launcher stream is retired. Only the core stream checks automatically at app startup; work-kit catalog and skill/org-module updates are not polled or applied on startup/Settings entry. Idle gate defers core update Yes/No while chat session turns are alive (`session_busy`) or UI reports work (`workspace_busy`). See R-605/R-618 and the WorkKit integration ADR.
+- **Org module / Features:** base overlay in company repo; Automaton slash via Organization Feature (`data/organization-features/`) after ops Work Kit apply (ADR-RE-011 / R-625). Organization-module API/install contracts remain available, but opening Settings → 스킬 does not automatically check or apply them.
 - **Workspace behavior:** `execution_policy.workspace_behavior` = `agent`|`plan`|`ask`. No regex re-judging from message text. Folder bind does not rewrite `chat`→`web_dev` (RC-013). Default project chat is a soft agent plane (RC-014).
 - **Reasoning UI:** Korean 자동/최소/낮음/중간/높음/매우 높음/최고 → wire `auto|minimal|low|medium|high|xhigh|max`; options filtered to the selected model’s supported efforts.
 - **Unified Document surface:** Preview「문서」하나에서 읽기·렌더링 편집·원문 편집·diff를 제공한다. 현재 열린 프로젝트 Markdown이 AI 공동편집 대상이며, 선택→composer 확인→requestId 결속 제안→비교→명시 적용/거절 순서다. 적용 전 tab/revision/baseContent/diskConflict 불일치는 자동 적용을 차단한다. AI 메모는 비수정 질의이고, 타챗 공유·첨부·이전 SQLite 문서는 더보기의 별도 이식 기능이다. 프로젝트 Markdown이 본문 SSOT다 (ADR-RE-014).
@@ -76,5 +76,5 @@ Full P0 list: RULEBOOK `docs/02_ALWAYS_ON_RULES.md`. On conflict, **live code wi
 - Document AI memo: `ui/workspace/src/components/MarkdownDocument.tsx`, `lib/documentMemo.ts`
 - Document surface: `ui/workspace/src/components/MarkdownDocument.tsx`, `DocumentCollaborationPanel.tsx`, `DocumentPortability.tsx`, `core/src/documents/`
 - Chat Markdown/navigation: `ui/workspace/src/components/MessageMarkdown.tsx`, `lib/chatHistoryNavigation.ts`
-- Shell updates: `shell/CqrPa.Shell/UpdatePollingService.cs`, `WorkEnvironmentUpdatePollingService.cs`
+- Shell updates: `shell/CqrPa.Shell/UpdatePollingService.cs`
 - Update gate: `core/src/system/update-gate.ts`

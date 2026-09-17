@@ -59,14 +59,24 @@ if (-not $npmViaNode -and -not $npmCmd) {
   Write-Error 'bootstrap-npm-deps: npm not found. Run tools\bootstrap-node-if-needed.ps1 first, or install Node.js 22+.'
 }
 
+# Core install must be deterministic and offline-safe: only the three production
+# dependencies (sdk/mammoth/pdf-parse). Playwright lives in optionalDependencies,
+# and `--omit=dev` alone does NOT exclude optionalDependencies, so without
+# `--omit=optional` this step pulls playwright and triggers a ~hundreds-of-MB
+# browser download even when the user unchecked "Browser tools" in the installer.
+# On a restricted/offline PC that download fails and aborts the whole install.
+# Playwright is installed only by its dedicated bootstrap when the checklist
+# selects it. Also hard-skip any stray browser download at this step.
+$env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+
 Push-Location $Root
 try {
   if ($npmViaNode) {
     Write-Host "bootstrap-npm-deps: installing production dependencies (node=$nodeExe npm-cli)"
-    $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList @($npmCli, 'install', '--omit=dev', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
+    $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList @($npmCli, 'install', '--omit=dev', '--omit=optional', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
   } else {
     Write-Host "bootstrap-npm-deps: installing production dependencies (npm=$npmCmd)"
-    $code = Invoke-CqrNativeTimed -FilePath $npmCmd -ArgumentList @('install', '--omit=dev', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
+    $code = Invoke-CqrNativeTimed -FilePath $npmCmd -ArgumentList @('install', '--omit=dev', '--omit=optional', '--no-fund', '--no-audit') -TimeoutSec $NpmTimeoutSec
   }
   if ($code -eq 124) {
     Write-Error "bootstrap-npm-deps: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."

@@ -9,7 +9,6 @@ public partial class App : Application
     private ApiProcessHost? _api;
     private SingleInstanceGuard? _singleInstance;
     private UpdatePollingService? _updatePolling;
-    private WorkEnvironmentUpdatePollingService? _workEnvironmentPolling;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -72,19 +71,6 @@ public partial class App : Application
                 }
             };
         }
-        _workEnvironmentPolling = new WorkEnvironmentUpdatePollingService(win, _api.Port);
-        win.WorkEnvironmentPolling = _workEnvironmentPolling;
-        win.ContentRendered += async (_, _) =>
-        {
-            try
-            {
-                await _workEnvironmentPolling.StartAsync(CancellationToken.None);
-            }
-            catch (OperationCanceledException)
-            {
-                /* app closing */
-            }
-        };
         win.Show();
     }
 
@@ -151,7 +137,6 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _updatePolling?.Dispose();
-        _workEnvironmentPolling?.Dispose();
         _singleInstance?.Dispose();
         _api?.Dispose();
         base.OnExit(e);

@@ -38,7 +38,6 @@ public partial class MainWindow : Window
     private bool _workspaceLoading;
 
     internal UpdatePollingService? UpdatePolling { get; set; }
-    internal WorkEnvironmentUpdatePollingService? WorkEnvironmentPolling { get; set; }
 
     internal string CqrRoot => _cqrRoot;
 
@@ -244,7 +243,6 @@ public partial class MainWindow : Window
                         pollIntervalMs = pollMs;
                     }
                     UpdatePolling?.ApplySettings(enabled, pollIntervalMs);
-                    WorkEnvironmentPolling?.ApplySettings(enabled, pollIntervalMs);
                     break;
                 }
                 case "filePicker.open":

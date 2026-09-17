@@ -49,6 +49,7 @@ import { useAnchoredOverlay } from '../lib/useAnchoredOverlay';
 const COLLAPSED_KEY = 'my-agent-workspace-collapsed-nodes';
 const LEGACY_COLLAPSED_KEY = 'cqr-workspace-collapsed-nodes';
 const PINNED_NODES_KEY = 'my-agent-workspace-pinned-nodes';
+const STANDALONE_COLLAPSED_ID = '__standalone_sessions__';
 const SESSION_PREVIEW_LIMIT = 5;
 const PROJECT_COLORS: ProjectColor[] = ['gray', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'pink'];
 const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
@@ -555,6 +556,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       .filter((project) => !q || project.title.toLowerCase().includes(q) || project.sessions.some(matchSession))
       .map((project) => ({ id: project.id, kind: 'project' as const, project })),
   ], pinnedNodes);
+  const standaloneCollapsed = collapsed.has(STANDALONE_COLLAPSED_ID) && !q;
 
   return (
     <div className={embedded ? "border-t border-line" : "flex h-full min-h-0 flex-col"}>
@@ -585,24 +587,34 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       <div className={embedded ? "flex flex-col px-2 py-1.5" : "flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1.5"}>
         {(tree?.standalone_sessions ?? []).filter(matchSession).length > 0 ? (
           <div className="mb-1">
-            <div className="flex h-8 items-center gap-1 rounded-md px-1 text-[12px] text-muted">
+            <button
+              type="button"
+              className="flex h-8 w-full items-center gap-1 rounded-md px-1 text-left text-[12px] text-muted transition hover:bg-ink hover:text-text"
+              onClick={() => toggle(STANDALONE_COLLAPSED_ID)}
+              aria-expanded={!standaloneCollapsed}
+              aria-label={standaloneCollapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
+              title={standaloneCollapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
+            >
+              {standaloneCollapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
               <TreeKindIcon kind="standalone" color={PROJECT_COLOR_HEX.gray} title="개인 작업" />
               <span className="font-medium">개인 작업</span>
-            </div>
-            <div className="ml-[11px] border-l border-line/70 pl-1">
-              <SessionPreviewList
-                sessions={[...(tree?.standalone_sessions ?? [])]
-                  .filter(matchSession)
-                  .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))}
-                activeSessionId={activeSessionId}
-                indent={20}
-                pinnedSessionIds={pinned}
-                revealAll={Boolean(q)}
-                onSelect={(session) => void onSelectSession(session.id)}
-                onDelete={(id) => void onDeleteSession(id)}
-                onTogglePin={togglePin}
-              />
-            </div>
+            </button>
+            {!standaloneCollapsed ? (
+              <div className="ml-[11px] border-l border-line/70 pl-1">
+                <SessionPreviewList
+                  sessions={[...(tree?.standalone_sessions ?? [])]
+                    .filter(matchSession)
+                    .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))}
+                  activeSessionId={activeSessionId}
+                  indent={20}
+                  pinnedSessionIds={pinned}
+                  revealAll={Boolean(q)}
+                  onSelect={(session) => void onSelectSession(session.id)}
+                  onDelete={(id) => void onDeleteSession(id)}
+                  onTogglePin={togglePin}
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
         {topLevelNodes.map((entry) => {

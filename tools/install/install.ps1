@@ -258,6 +258,29 @@ $selectedOptionals = Resolve-OptionalRuntimeSelection -Root $targetFull -Optiona
 Save-OptionalRuntimeSelection -Root $targetFull -Selected $selectedOptionals
 Install-SelectedOptionalRuntimes -Root $targetFull -Selected $selectedOptionals
 
+# Offline core dependencies: publish bundles the production node_modules under
+# `nm`. Restore them so bootstrap-npm-deps can skip npm entirely on
+# restricted/air-gapped PCs (no registry.npmjs.org reachability needed).
+$vendoredModules = Join-Path $targetFull 'nm'
+$targetNodeModules = Join-Path $targetFull 'node_modules'
+$vendoredSdk = Join-Path $vendoredModules '@modelcontextprotocol\sdk\package.json'
+$installedSdk = Join-Path $targetNodeModules '@modelcontextprotocol\sdk\package.json'
+if ((Test-Path -LiteralPath $vendoredSdk) -and -not (Test-Path -LiteralPath $installedSdk)) {
+  Write-Host ''
+  Write-Host 'Restoring bundled runtime npm dependencies (offline)...'
+  try {
+    New-Item -ItemType Directory -Force -Path $targetNodeModules | Out-Null
+    Copy-Item -LiteralPath (Join-Path $vendoredModules '*') -Destination $targetNodeModules -Recurse -Force
+    Write-Host "Runtime npm dependencies restored offline -> $targetNodeModules"
+  } catch {
+    Write-Host "WARN: could not restore bundled node_modules ($($_.Exception.Message)); will try npm install."
+  }
+}
+# Drop the vendored copy once node_modules has the sdk, to avoid doubling disk use.
+if ((Test-Path -LiteralPath $vendoredModules) -and (Test-Path -LiteralPath $installedSdk)) {
+  Remove-Item -LiteralPath $vendoredModules -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $bootstrapNpmDeps = Join-Path $targetFull 'tools\bootstrap-npm-deps-if-needed.ps1'
 if (Test-Path -LiteralPath $bootstrapNpmDeps) {
   Write-Host ''

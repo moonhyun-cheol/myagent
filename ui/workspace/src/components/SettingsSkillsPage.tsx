@@ -1,10 +1,7 @@
 import { Archive, FolderOpen, Package, Trash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  applyOrganizationModule,
-  checkOrganizationModule,
   deleteSkill,
-  fetchOrganizationModule,
   importSkillPackage,
   listSkills,
   type SkillListItem,
@@ -48,26 +45,11 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const [message, setMessage] = useState('');
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const pickerRequestRef = useRef<{ id: string; purpose: 'skillZip' } | null>(null);
-  const canCheckRemoteRef = useRef(false);
-  const initialRemoteCheckDoneRef = useRef(false);
-
-  const syncOrgModuleSilently = useCallback(async () => {
-    if (readOnly || !canCheckRemoteRef.current) return;
-    try {
-      const update = await checkOrganizationModule();
-      if (!update) return;
-      await applyOrganizationModule();
-    } catch {
-      /* background sync */
-    }
-  }, [readOnly]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
       setSkills(await listSkills());
-      const status = await fetchOrganizationModule();
-      canCheckRemoteRef.current = status.can_check_remote === true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '스킬 목록을 불러오지 못했습니다.');
     } finally {
@@ -76,20 +58,8 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      await refresh();
-      if (cancelled || initialRemoteCheckDoneRef.current) return;
-      initialRemoteCheckDoneRef.current = true;
-      if (canCheckRemoteRef.current) {
-        await syncOrgModuleSilently();
-        if (!cancelled) await refresh();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [refresh, syncOrgModuleSilently]);
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     const webview = getShellWebView();

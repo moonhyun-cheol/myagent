@@ -137,6 +137,14 @@ for (const c of checks) {
   failed++;
 }
 
+// Offline vendored core deps (nm/) — informational; --no-vendor-node-modules skips it.
+const vendoredSdk = path.join(appDir, 'nm', '@modelcontextprotocol', 'sdk', 'package.json');
+if (existsSync(vendoredSdk)) {
+  console.log('  OK   offline core node_modules bundled (nm/@modelcontextprotocol/sdk)');
+} else {
+  console.warn('  WARN offline core node_modules NOT bundled (nm/) — install needs network for npm deps');
+}
+
 const deployPath = path.join(appDir, 'core/config/defaults/deploy-defaults.json');
 if (existsSync(deployPath)) {
   const deploy = JSON.parse(readFileSync(deployPath, 'utf8'));
