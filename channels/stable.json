@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 59,
+    "update_sequence": 60,
     "minimum_supported_sequence": 1,
-    "version": "1.1.11",
+    "version": "1.1.12",
     "channel": "stable",
-    "published_at": "2026-09-17T06:48:04.996Z",
+    "published_at": "2026-09-17T07:10:00.465Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-59",
-      "name": "MYAgent-v1.1.11-delta.zip",
-      "size": 278803608,
-      "sha256": "8a11ce7c9677efee828c8eb1b8944b4aee51d9240f5750db528dd9242629a636"
+      "release_tag": "update-60",
+      "name": "MYAgent-v1.1.12-delta.zip",
+      "size": 278803694,
+      "sha256": "be22d9ee703560701969ce40b7b9645753f5a5a3795110250ee334fe377cd034"
     },
-    "payload_manifest_sha256": "848cda743e7ffdb132c9798c678456753806e2396d02ca701fbb18be89e0180f",
-    "release_notes": ""
+    "payload_manifest_sha256": "703cb6ecc79681e97972dfe6c0c79c7939e9dd328c213a076e866c01bf155d7c",
+    "release_notes": "## 이번 연속 업데이트 누적 내용\n\n### update 59\n- AI 브라우저 작업이 오른쪽 웹 패널의 WebView2 세션을 우선 사용하며, 같은 페이지와 진행 상태를 화면에서 이어서 확인할 수 있습니다.\n- 공유 브라우저를 사용할 수 없을 때는 독립 Chromium으로 전환합니다.\n- 대화의 소속과 실행 작업 폴더를 분리하고, 다른 채팅을 보고 돌아와도 미전송 첨부와 미리보기가 유지되도록 했습니다.\n- 오른쪽 작업 패널 접기, 파일 드롭·첨부 표시, 작업 화면의 시각 계층과 긴 대화 렌더링을 정리했습니다.\n\n### update 60\n- 바깥 `중간 추론 및 작업 로그`는 실행 중 자동으로 펼쳐지고 완료되면 자동으로 접힙니다.\n- 내부 `응답`은 기본 펼침, `작업`은 기본 접힘으로 표시됩니다.\n- 사용자가 바꾼 내부 응답·작업의 펼침 상태는 완료 전환과 다른 채팅 재진입 뒤에도 유지됩니다.\n- 이전 배포에서 저장된 잘못된 접힘 선호가 새 기본값을 뒤집지 않도록 초기화했습니다."
   },
-  "signature": "OIAKA7adt+wvFhcBtk91Eic+Dsxe2CBoOUuV7nRQ10sDAV28Lur5FqypbJDH5bQI0mg9D11jFvDA69d8URNoE/Sf1eF6QDQ+dTABlggntqxFxOHxwjiZq9QEA7rClox5SiAvxbSUcoQFtpM5wuQubEi5/Qn2DKCW+P3EOAO9+ug5TcfoqPljqj7vJYEvy4Ni3i83yueHiFtzZSv9dUPwaHXlZEPTZmPq3E1VF0HpUOt4ch1wANmzfum23ewCItCm4ii+KprFnUZf/sWJZiDlyN1ZP+OcO/jnbhyPvDlNYl6DHLWFNW4yZAlhRe7qTnJgib8Ht1aYpQ7PaNUcwtPdH54w+7vSZsF+3J26rH/JBldthwFYFTmPepuOMJaBaTIdvVaB7IIPwljLsQh4/+j7I/JIqRQRYDwR4kW7bcKAaW0zm7tTyFe6DjpW3xKJ/zoyNKzUs7vAUkgoHG/DbTzelpAAAN1ZFINTPRB0qqAqtGDNr0/XOqL9YJud4bsdh6IT"
+  "signature": "XtyDx5ekY3eV9RZmhGXIGLUyCFQmAtSH+VYUr0CJXWlRK0O8jLyVIGqgNNdKmphFE72FY5Wpk2mYLfH/JtbOsJrT6hacMYJ/lX0mH+gp36f1RKMDWs0LEWqHPvEXrcVvNylsygjymIWO+uAmyqRpYsSO4r7CJugKheZqGKCkcDZf9DkmBRn7bMXDVA1BLp2XEEb81MgeHkz5uWVyjNyL2q0kjqXSZOr3t8aJjF9uIxMvB6ukqk1FYp/kNPHvCp4mywWRgVWiic3Nz4ouYJfcQK7zCMtBHsUFOK4fHxC9bhXbS8SNRg2GiIKy2rMt6QaWVV3/I0y3yvFGyrxbPUG8x1gtEzj9wdxoaNPdmUkPQTa4HZmZbXyij7K3KrQEMazxoXE5hIvRy0q7SLeAgvU4tmM5EnWf+khZC0KMmwvB1WvJ5N2UdAs7zuUstjcmdnqtzkboscLkCKx6bDtthRsRS/dfzlf5HBxYpzcgtquaCJGY18PXusivi8l9WUPwDPhZ"
 }
