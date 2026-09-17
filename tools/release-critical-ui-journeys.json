@@ -9,7 +9,8 @@
       "verifier": "tools/verify-tool-activity-group-ui.mjs",
       "preserves": [
         "responses and tool calls remain in one chronological surface",
-        "live work expands and completed work collapses",
+        "responses default expanded and work groups default collapsed while remaining independently foldable",
+        "live-to-complete transitions do not override the user's disclosure choices",
         "group cancellation does not cancel sibling or parent work"
       ]
     },

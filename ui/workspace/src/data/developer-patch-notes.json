@@ -18,6 +18,22 @@
       }
     },
     {
+      "id": "session-timeline-disclosure-defaults",
+      "status": "development",
+      "title": "중간 응답·작업 접힘 기본값 정리",
+      "detail": "중간 응답은 기본으로 펼치고 작업 묶음은 기본으로 접습니다. 진행 중·완료로 바뀌어도 직접 접거나 펼친 선택은 유지되며, 대화·턴 기준으로 다시 들어와도 그대로 복원됩니다.",
+      "area": "chat",
+      "created_at": "2026-09-17",
+      "source_paths": [
+        "ui/workspace/src/components/ToolActivityLog.tsx",
+        "tools/verify-tool-activity-group-ui.mjs"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "manual-work-kit-skill-updates",
       "status": "released",
       "title": "작업 키트와 스킬 업데이트를 필요할 때만 확인",
