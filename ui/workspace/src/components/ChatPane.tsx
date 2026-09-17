@@ -1413,7 +1413,7 @@ export function ChatPane() {
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
             </div>
           ) : null}
-          {visibleChat.map((turn, turnIndex) => (
+          {visibleChat.map((turn) => (
             <div
               key={turn.id}
               ref={(el) => {
