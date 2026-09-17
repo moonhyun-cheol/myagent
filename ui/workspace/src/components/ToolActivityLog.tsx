@@ -24,9 +24,11 @@ export function ToolActivityLog(props: ToolActivityLogProps) {
   return <TimelineBody key={props.storageKey} {...props} />;
 }
 
+const TIMELINE_PREFERENCE_VERSION = 'v2';
+
 function readCollapsed(key?: string): Record<string, boolean> {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(`my-agent.timeline.v1:${key}`) ?? '{}');
+    const value: unknown = JSON.parse(localStorage.getItem(`my-agent.timeline.${TIMELINE_PREFERENCE_VERSION}:${key}`) ?? '{}');
     return value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'boolean')) : {};
   } catch { return {}; }
@@ -73,13 +75,14 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>(() => storageKey ? readCollapsed(storageKey) : {});
+  const [outerOpen, setOuterOpen] = useState(live);
   const choices = useRef(collapsedItems);
   const setCollapsed = (id: string, collapsed: boolean) => {
     if (choices.current[id] === collapsed) return;
     choices.current = { ...choices.current, [id]: collapsed };
     setCollapsedItems(choices.current);
     if (storageKey) {
-      try { localStorage.setItem(`my-agent.timeline.v1:${storageKey}`, JSON.stringify(choices.current)); } catch { /* optional preference */ }
+      try { localStorage.setItem(`my-agent.timeline.${TIMELINE_PREFERENCE_VERSION}:${storageKey}`, JSON.stringify(choices.current)); } catch { /* optional preference */ }
     }
   };
 
@@ -146,7 +149,12 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
     return () => window.clearInterval(timer);
   }, [running]);
 
-  // Live/completed transitions never override the user's disclosure choices.
+  useEffect(() => {
+    setOuterOpen(live);
+  }, [live]);
+
+  // The outer log follows execution state: visible while work is live, folded once complete.
+  // Inner response/work disclosures are independent and retain their user-selected state.
   if (!displayItems.length) return null;
 
   const label = (row: ToolActivity) => row.state === 'running'
@@ -179,8 +187,8 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
     <details
       className="my-2 w-full min-w-0 text-xs"
       data-work-timeline
-      open={!(collapsedItems.outer ?? false)}
-      onToggle={itemToggle('outer')}
+      open={outerOpen}
+      onToggle={(event) => setOuterOpen(event.currentTarget.open)}
     >
       <summary className="cursor-pointer select-none rounded-lg border border-line/80 bg-ink/20 px-3 py-2 text-text marker:text-muted">
         <span className="font-medium">중간 추론 및 작업 로그</span>

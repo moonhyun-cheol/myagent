@@ -29,12 +29,16 @@ try{
   const timeline=page.locator('[data-work-timeline]');await timeline.waitFor();
   const response=timeline.locator('[data-timeline-kind="response"]'),work=timeline.locator('[data-timeline-kind="tool-group"]');
   assert.equal(await timeline.evaluate(el=>el.open),true);assert.equal(await response.evaluate(el=>el.open),true);assert.equal(await work.evaluate(el=>el.open),false);
-  await response.locator('summary').click();await work.locator('summary').click();
   await page.evaluate(()=>testStore.setState({busy:false,chat:testStore.getState().chat.map(item=>({...item,completedAt:new Date().toISOString(),toolActivity:item.toolActivity?.map(row=>({...row,state:'success',finishedAt:Date.now(),updatedAt:Date.now()}))}))}));
-  assert.equal(await response.evaluate(el=>el.open),false);assert.equal(await work.evaluate(el=>el.open),true);
+  assert.equal(await timeline.evaluate(el=>el.open),false);
+  await timeline.locator('summary').first().click();
+  assert.equal(await response.evaluate(el=>el.open),true);assert.equal(await work.evaluate(el=>el.open),false);
+  await response.locator('summary').click();await work.locator('summary').click();
   await page.evaluate(()=>testStore.setState({activeSessionId:'other-session'}));await page.evaluate(()=>testStore.setState({activeSessionId:'timeline-session'}));
+  assert.equal(await timeline.evaluate(el=>el.open),false);
+  await timeline.locator('summary').first().click();
   assert.equal(await response.evaluate(el=>el.open),false);assert.equal(await work.evaluate(el=>el.open),true);
   const renderTimings=[];
   for(const count of [100,500,1000]){const ms=await page.evaluate(async n=>{const turns=Array.from({length:n},(_,i)=>({id:`perf-${n}-${i}`,role:i%2?'assistant':'user',text:`합성 대화 ${i}`}));const start=performance.now();testStore.setState({activeSessionId:'perf-session',chat:turns,busy:false});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return performance.now()-start;},count);assert.equal(await page.locator('[data-chat-bubble="true"]').count(),count);assert.ok(ms<5000,`${count} turns: ${ms}ms`);renderTimings.push({count,ms:Math.round(ms)});}
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,timeline:'response-open/work-closed defaults; user choice survives completion and re-entry',renderTimings},null,2));
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,timeline:'outer open while live/closed on completion; response-open/work-closed defaults; inner user choice survives re-entry',renderTimings},null,2));
 }finally{await browser?.close();await server.close();}

@@ -96,12 +96,15 @@ try {
   for (let tries=0; tries<20 && cancelled.length<2; tries+=1) await page.waitForTimeout(50);
   assert.deepEqual([...cancelled].sort(), ['a','b']);
   await page.evaluate(() => window.complete());
-  // Completing the run must not override the user's outer disclosure choice (stays open).
-  await page.waitForFunction(() => document.querySelector('[data-work-timeline]')?.open === true);
+  // The outer log follows execution state and folds when the run completes.
+  await page.waitForFunction(() => document.querySelector('[data-work-timeline]')?.open === false);
   assert.match(await details.locator(':scope > summary').innerText(), /응답 1 · 작업 2 · 완료/);
+  await details.locator(':scope > summary').click();
+  assert.equal(await responseItem.evaluate((element) => element.open), false, 'the response keeps the user-selected folded state');
+  assert.equal(await firstWorkItem.evaluate((element) => element.open), true, 'the work group keeps the user-selected expanded state');
   assert.match(await details.innerText(), /first output/);
   assert.deepEqual(errors, []);
-  console.log('PASS default response/work disclosure, independent live folding, no auto-collapse override, and group subtask cancellation UI');
+  console.log('PASS outer live/open and complete/closed behavior, response/work defaults, inner choice retention, and group subtask cancellation UI');
 } finally {
   await browser?.close();
   await server.close();
