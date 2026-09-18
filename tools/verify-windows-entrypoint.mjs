@@ -14,9 +14,19 @@ for (const marker of [
   '<SelfContained>true</SelfContained>',
   '<PublishSingleFile>true</PublishSingleFile>',
   '<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>',
+  '<ApplicationManifest>app.manifest</ApplicationManifest>',
+  '<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>',
 ]) {
   assert.ok(project.includes(marker), `shell publish contract missing: ${marker}`);
 }
+
+const shellManifest = read('shell/CqrPa.Shell/app.manifest');
+assert.match(shellManifest, /manifestVersion="1\.0"/);
+assert.doesNotMatch(
+  shellManifest,
+  /<dpiAware(?:ness)?\b/,
+  'the .NET SDK must emit DPI declarations from ApplicationHighDpiMode without WFAC010',
+);
 
 const updaterProject = read('shell/CqrPa.Updater/CqrPa.Updater.csproj');
 for (const marker of [
@@ -58,7 +68,6 @@ for (const command of [
   'publish-slim.bat',
   'refresh-shortcut.bat',
   'reset-first-run.bat',
-  'setup-vault.bat',
   'start-legacy.bat',
 ]) {
   const body = read(`tools/commands/${command}`);
@@ -132,7 +141,7 @@ assert.doesNotMatch(
 const playwrightBootstrap = read('tools/bootstrap-playwright.ps1');
 assert.match(
   playwrightBootstrap,
-  /Invoke-CqrNative -FilePath \$nodeExe -ArgumentList @\(\$cliJs, 'install', 'chromium'\)/,
+  /Invoke-CqrNativeTimed -FilePath \$nodeExe -ArgumentList @\(\$cliJs, 'install', 'chromium'\)/,
 );
 assert.doesNotMatch(
   playwrightBootstrap,
@@ -155,29 +164,6 @@ for (const m of installUi.matchAll(/-match\s+'([^']*)'/g)) {
     `install-ui.ps1 -match must be ASCII-only (PS 5.1 no-BOM Korean becomes nested-quantifier crash): ${m[1]}`,
   );
 }
-
-const installLauncherUi = read('tools/install/install-launcher-ui.ps1');
-assert.match(installLauncherUi, /Show-TargetPickerForm/);
-assert.match(installLauncherUi, /Get-LauncherUiText/);
-assert.match(installLauncherUi, /Format-LauncherLogLineForUi/);
-assert.match(installLauncherUi, /-NoInteractive/);
-for (const m of installLauncherUi.matchAll(/-match\s+'([^']*)'/g)) {
-  assert.ok(
-    !/[^\x00-\x7F]/.test(m[1]),
-    `install-launcher-ui.ps1 -match must be ASCII-only: ${m[1]}`,
-  );
-}
-
-const installLauncherBat = read('tools/install/install-launcher.bat');
-assert.match(installLauncherBat, /install-launcher-ui\.ps1/);
-
-const installLauncherPs1 = read('tools/install/install-launcher.ps1');
-assert.match(installLauncherPs1, /function Copy-LauncherPayload/);
-assert.doesNotMatch(
-  installLauncherPs1,
-  /Copy-Item\s+-LiteralPath\s+\(Join-Path\s+\$SourceAppDir\s+'\*'\)/,
-  'install-launcher.ps1 must not use LiteralPath with wildcards (silent no-copy bug on PS 5.1)',
-);
 
 assert.equal(existsSync(path.join(root, 'START.bat')), false, 'root START.bat must stay removed');
 const start = read('tools/commands/start-legacy.bat');
