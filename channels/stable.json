@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 60,
+    "update_sequence": 61,
     "minimum_supported_sequence": 1,
-    "version": "1.1.12",
+    "version": "1.1.13",
     "channel": "stable",
-    "published_at": "2026-09-17T07:10:00.465Z",
+    "published_at": "2026-09-18T05:09:39.740Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-60",
-      "name": "MYAgent-v1.1.12-delta.zip",
-      "size": 278803694,
-      "sha256": "be22d9ee703560701969ce40b7b9645753f5a5a3795110250ee334fe377cd034"
+      "release_tag": "update-61",
+      "name": "MYAgent-v1.1.13-delta.zip",
+      "size": 278818414,
+      "sha256": "f32da50ec2854a207e3e6a3cea9c0e84ff33af56eb0d24c9f32a52b3456bf214"
     },
-    "payload_manifest_sha256": "703cb6ecc79681e97972dfe6c0c79c7939e9dd328c213a076e866c01bf155d7c",
-    "release_notes": "## 이번 연속 업데이트 누적 내용\n\n### update 59\n- AI 브라우저 작업이 오른쪽 웹 패널의 WebView2 세션을 우선 사용하며, 같은 페이지와 진행 상태를 화면에서 이어서 확인할 수 있습니다.\n- 공유 브라우저를 사용할 수 없을 때는 독립 Chromium으로 전환합니다.\n- 대화의 소속과 실행 작업 폴더를 분리하고, 다른 채팅을 보고 돌아와도 미전송 첨부와 미리보기가 유지되도록 했습니다.\n- 오른쪽 작업 패널 접기, 파일 드롭·첨부 표시, 작업 화면의 시각 계층과 긴 대화 렌더링을 정리했습니다.\n\n### update 60\n- 바깥 `중간 추론 및 작업 로그`는 실행 중 자동으로 펼쳐지고 완료되면 자동으로 접힙니다.\n- 내부 `응답`은 기본 펼침, `작업`은 기본 접힘으로 표시됩니다.\n- 사용자가 바꾼 내부 응답·작업의 펼침 상태는 완료 전환과 다른 채팅 재진입 뒤에도 유지됩니다.\n- 이전 배포에서 저장된 잘못된 접힘 선호가 새 기본값을 뒤집지 않도록 초기화했습니다."
+    "payload_manifest_sha256": "19893347f06dfbc24646e132f839df6f54900ed6a1e31f9b398b8224df08604c",
+    "release_notes": "## update 61\n\n- Windows ?먯깋湲곗뿉??PDF, Excel, ?띿뒪?? ?대?吏 ???뚯씪??梨꾪똿 ?낅젰李쎌뿉 諛붾줈 ?쒕∼??泥⑤??????덉뒿?덈떎.\n- ?ㅼ튂???ъ슜??ZIP쨌?묒꽦 ?ㅽ궗???낅젰李?+ 硫붾돱?먯꽌 ?좏깮?섍퀬 ??붿뿉 ?곸슜?????덉뒿?덈떎.\n- 留롮? 紐⑤뜽怨?湲?紐⑤뜽紐낆씠 ?섎━吏 ?딅룄濡??ㅽ겕濡ㅒ룹옄??諛⑺뼢쨌?ㅻ낫???먯깋??吏?먰븯??紐⑤뜽 ?좏깮李쎌쑝濡?媛쒖꽑?덉뒿?덈떎.\n- 湲??湲??붿껌怨??묒뾽 ?⑤꼸???붾㈃ ?먯쑀瑜?以꾩씠怨??묒뾽쨌臾몄꽌쨌誘몃뵒?는룹쎒 ?먯깋怨??대뜑 ?뺣낫瑜??뺣룉?덉뒿?덈떎.\n- 臾댁쓳??釉뚮씪?곗? ?묒뾽?????뺤껜瑜?諛⑹??섍퀬 ?쒗븳 ?쒓컙쨌痍⑥냼쨌?곹깭 蹂듦뎄 諛??ъ떆???덈궡瑜?異붽??덉뒿?덈떎.\n- ?듭떖 npm ?섏〈?깆쓣 ?꾩껜 ?ㅼ튂 ZIP?먯꽌 ?ㅽ봽?쇱씤 蹂듭썝?섍퀬, ?쒗뭹쨌Node쨌?고???寃利앷낵 ?ㅽ뙣쨌以묐떒 蹂듦뎄瑜?媛뺥솕?덉뒿?덈떎."
   },
-  "signature": "XtyDx5ekY3eV9RZmhGXIGLUyCFQmAtSH+VYUr0CJXWlRK0O8jLyVIGqgNNdKmphFE72FY5Wpk2mYLfH/JtbOsJrT6hacMYJ/lX0mH+gp36f1RKMDWs0LEWqHPvEXrcVvNylsygjymIWO+uAmyqRpYsSO4r7CJugKheZqGKCkcDZf9DkmBRn7bMXDVA1BLp2XEEb81MgeHkz5uWVyjNyL2q0kjqXSZOr3t8aJjF9uIxMvB6ukqk1FYp/kNPHvCp4mywWRgVWiic3Nz4ouYJfcQK7zCMtBHsUFOK4fHxC9bhXbS8SNRg2GiIKy2rMt6QaWVV3/I0y3yvFGyrxbPUG8x1gtEzj9wdxoaNPdmUkPQTa4HZmZbXyij7K3KrQEMazxoXE5hIvRy0q7SLeAgvU4tmM5EnWf+khZC0KMmwvB1WvJ5N2UdAs7zuUstjcmdnqtzkboscLkCKx6bDtthRsRS/dfzlf5HBxYpzcgtquaCJGY18PXusivi8l9WUPwDPhZ"
+  "signature": "fHklGaBRcMZqafNvZRlfrNuVOsx57CkDnVYfw4cLiCg9dsf6TlMA1xmk7PkmG4JG5sYvhqtlsJ+MiNbAky0yI141PObRuYLAY0A0Z++2y3jOSUoXQQ/d6bdiy3P4R8ZcY/RNcYy219d+ziuIQb9IMBKpOf5Bz56fLCax8HZWmav0bm1MhCY2lTZs66EAbVWGEWmD7wBdf6a0ucOJDmc702rs/jpy5mDmVNDwyJRa5ttLeovUXe0tiPkEl8iLx9Az0vuxAIOMOIkJDZJlyaDUm5/b7OHxYzzQGeMGWwzQQApKHSzwDHAid+NdM2TNXDKvUyPILAXVFlj7Zs+wH5Kln4hZsNNy2xf3Sc5V/D4TIGsIJjdi1yXBjTEWb2Hq+EfkJcXHc24S/sWQZGIGks1l/d5nCzKsFKj+GW7eRs7RiR0WflQXPKArkqPteI6WZM2AEZSa44JHqMctkEe2CG95uAwSc//3h+KKsvFAm+Kx80Vv4tTBjZIoDVTsNqehxwGK"
 }
