@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 
 namespace CqrPa.Shell;
@@ -6,59 +7,108 @@ namespace CqrPa.Shell;
 public partial class MainWindow
 {
     private VisibleBrowserAutomationClient? _visibleBrowserAutomation;
+    private IReadOnlyDictionary<string, object?> _visibleBrowserStateCache =
+        new Dictionary<string, object?>
+        {
+            ["id"] = "visible-browser",
+            ["kind"] = "visible",
+            ["connected"] = true,
+            ["available"] = false,
+            ["visible"] = false,
+            ["tabs"] = Array.Empty<object>(),
+        };
+    private long _visibleBrowserStateUpdatedAt;
+    private DispatcherTimer? _visibleBrowserHeartbeat;
 
     private void StartVisibleBrowserAutomation()
     {
         if (_visibleBrowserAutomation is not null) return;
+        RefreshVisibleBrowserStateCache();
+        _visibleBrowserHeartbeat = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background,
+            (_, _) => RefreshVisibleBrowserStateCache(), Dispatcher);
+        _visibleBrowserHeartbeat.Start();
         _visibleBrowserAutomation = new VisibleBrowserAutomationClient(_port, ExecuteVisibleBrowserCommandAsync);
         _visibleBrowserAutomation.Start();
-        Closed += (_, _) => _visibleBrowserAutomation?.Dispose();
+        Closed += (_, _) =>
+        {
+            _visibleBrowserHeartbeat?.Stop();
+            _visibleBrowserAutomation?.Dispose();
+        };
     }
 
-    private Task<object> ExecuteVisibleBrowserCommandAsync(JsonElement command) => Dispatcher.InvokeAsync(async () =>
+    private Task<object> ExecuteVisibleBrowserCommandAsync(JsonElement command, CancellationToken cancellationToken)
     {
         var action = command.TryGetProperty("action", out var actionProperty) ? actionProperty.GetString() : null;
-        var payload = command.TryGetProperty("payload", out var payloadProperty) ? payloadProperty : default;
-        return action switch
+        if (action == "targets") return Task.FromResult(BrowserAutomationCachedState());
+        return Dispatcher.InvokeAsync(async () =>
         {
-            "targets" => BrowserAutomationState(),
-            "navigate" => await AutomateBrowserNavigateAsync(payload),
-            "snapshot" => await CaptureBrowserSnapshotAsync(payload),
-            "click" => await AutomateBrowserClickAsync(payload),
-            "drag" => await AutomateBrowserDragAsync(payload),
-            "fill" => await AutomateBrowserFillAsync(payload),
-            "screenshot" => await CaptureBrowserScreenshotAsync(payload),
-            "tab.create" => BrowserTabCreate(payload),
-            "tab.close" => BrowserTabClose(payload),
-            "tab.activate" => BrowserTabActivate(payload),
-            "tab.list" => BrowserTabList(),
-            "tab.control.acquire" => BrowserTabControlAcquire(payload),
-            "tab.control.release" => BrowserTabControlRelease(payload),
-            _ => throw new InvalidOperationException("VISIBLE_BROWSER_ACTION_UNSUPPORTED"),
-        };
-    }).Task.Unwrap();
+            cancellationToken.ThrowIfCancellationRequested();
+            var payload = command.TryGetProperty("payload", out var payloadProperty) ? payloadProperty : default;
+            var result = action switch
+            {
+                "navigate" => await AutomateBrowserNavigateAsync(payload),
+                "snapshot" => await CaptureBrowserSnapshotAsync(payload),
+                "click" => await AutomateBrowserClickAsync(payload),
+                "drag" => await AutomateBrowserDragAsync(payload),
+                "fill" => await AutomateBrowserFillAsync(payload),
+                "screenshot" => await CaptureBrowserScreenshotAsync(payload),
+                "tab.create" => BrowserTabCreate(payload),
+                "tab.close" => BrowserTabClose(payload),
+                "tab.activate" => BrowserTabActivate(payload),
+                "tab.list" => BrowserTabList(),
+                "tab.control.acquire" => BrowserTabControlAcquire(payload),
+                "tab.control.release" => BrowserTabControlRelease(payload),
+                _ => throw new InvalidOperationException("VISIBLE_BROWSER_ACTION_UNSUPPORTED"),
+            };
+            cancellationToken.ThrowIfCancellationRequested();
+            RefreshVisibleBrowserStateCache();
+            return result;
+        }, DispatcherPriority.Normal, cancellationToken).Task.Unwrap();
+    }
 
     private static string? PayloadTabId(JsonElement payload) =>
         payload.ValueKind == JsonValueKind.Object && payload.TryGetProperty("tab_id", out var property)
             ? property.GetString()
             : null;
 
-    private object BrowserAutomationState()
+    private IReadOnlyDictionary<string, object?> BuildBrowserAutomationState()
     {
         var tab = PeekActiveTab();
-        return new
+        return new Dictionary<string, object?>
         {
-            id = "visible-browser",
-            kind = "visible",
-            connected = true,
-            available = tab?.Core is not null,
-            visible = tab?.Core is not null && tab.Panel.IsVisible && tab.View.IsVisible,
-            url = tab?.Core?.Source ?? tab?.Url ?? string.Empty,
-            loading = tab?.Loading ?? false,
-            title = tab?.Title ?? "현재 인앱 웹 페이지",
-            active_tab_id = _activeBrowserTabId,
-            tabs = BrowserTabSummaries(),
+            ["id"] = "visible-browser",
+            ["kind"] = "visible",
+            ["connected"] = true,
+            ["available"] = tab?.Core is not null,
+            ["visible"] = tab?.Core is not null && tab.Panel.IsVisible && tab.View.IsVisible,
+            ["url"] = tab?.Core?.Source ?? tab?.Url ?? string.Empty,
+            ["loading"] = tab?.Loading ?? false,
+            ["title"] = tab?.Title ?? "현재 인앱 웹 페이지",
+            ["active_tab_id"] = _activeBrowserTabId,
+            ["tabs"] = BrowserTabSummaries(),
         };
+    }
+
+    private void RefreshVisibleBrowserStateCache()
+    {
+        if (!Dispatcher.CheckAccess()) return;
+        Volatile.Write(ref _visibleBrowserStateCache, BuildBrowserAutomationState());
+        Interlocked.Exchange(ref _visibleBrowserStateUpdatedAt, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    }
+
+    private object BrowserAutomationCachedState()
+    {
+        var updatedAt = Interlocked.Read(ref _visibleBrowserStateUpdatedAt);
+        var ageMs = Math.Max(0, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - updatedAt);
+        var responsive = updatedAt > 0 && ageMs <= 5_000;
+        var state = new Dictionary<string, object?>(Volatile.Read(ref _visibleBrowserStateCache))
+        {
+            ["ui_responsive"] = responsive,
+            ["degraded"] = !responsive,
+            ["state_age_ms"] = ageMs,
+            ["restart_hint"] = responsive ? null : "브라우저 창이 응답하지 않습니다. MY Agent 창을 다시 시작해 주세요.",
+        };
+        return state;
     }
 
     private object BrowserTabState(BrowserTab tab) => new

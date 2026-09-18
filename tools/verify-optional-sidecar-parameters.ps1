@@ -61,21 +61,20 @@ foreach ($receiver in $receivers) {
   }
 }
 
-# Playwright is an optional runtime, not an installer-time manifest edit. Keep
-# the package in node_modules while preventing npm from rewriting the shipped
-# package.json or package-lock.json. Both portable-npm and system-npm branches
-# share this argument list, so this contract covers both paths.
+# Playwright is isolated under runtime/playwright/package. It may maintain its
+# own dedicated package.json, but must not mutate the shipped root manifest or
+# create a lockfile that changes the release dependency graph.
 $playwrightBootstrap = [IO.File]::ReadAllText(
   (Join-Path $root 'tools/bootstrap-playwright.ps1'),
   [Text.UTF8Encoding]::new($false)
 )
-foreach ($requiredFlag in @('--no-save', '--package-lock=false')) {
-  if ($playwrightBootstrap -notmatch [regex]::Escape("'$requiredFlag'")) {
-    throw "bootstrap-playwright.ps1 is missing $requiredFlag (would allow package manifest/lockfile mutation)"
+foreach ($requiredText in @("runtime\playwright\package", "'--package-lock=false'")) {
+  if ($playwrightBootstrap -notmatch [regex]::Escape($requiredText)) {
+    throw "bootstrap-playwright.ps1 is missing isolated-package contract text: $requiredText"
   }
 }
-if ($playwrightBootstrap -match "'--save(?:-optional|-dev|-prod)?'") {
-  throw 'bootstrap-playwright.ps1 contains a manifest-mutating npm --save flag'
+if ($playwrightBootstrap.Contains("Join-Path `$Root 'node_modules\playwright") -or $playwrightBootstrap -match "'--save(?:-optional|-dev|-prod)?'") {
+  throw 'bootstrap-playwright.ps1 may not install Playwright into or mutate the shipped root dependency graph'
 }
 
 Write-Host "optional sidecar installer parameter + Playwright manifest contract: PASS ($($receivers.Count) receiver script(s))"

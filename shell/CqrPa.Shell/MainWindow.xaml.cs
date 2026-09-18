@@ -48,6 +48,7 @@ public partial class MainWindow : Window
         _port = port;
         _api = api;
         InitializeComponent();
+        InitializeExternalFileDrop();
         var cachedTheme = LoadShellThemePreference();
         ApplyShellTheme(cachedTheme.Preference, cachedTheme.Dark, persist: false);
         _windowPlacement = new WindowPlacementStore(
@@ -256,6 +257,12 @@ public partial class MainWindow : Window
                         () => OpenWorkspaceFilePicker(pickerRequest),
                         System.Windows.Threading.DispatcherPriority.Background);
                     break;
+                case "composer.externalDrop.accept":
+                    _ = UploadExternalFileDropAsync(root.Clone());
+                    break;
+                case "composer.externalDrop.reject":
+                    RejectExternalFileDrop(root);
+                    break;
                 case "preview.detach":
                     var previewMode = root.TryGetProperty("mode", out var modeProperty)
                         ? modeProperty.GetString()
@@ -434,7 +441,11 @@ public partial class MainWindow : Window
                 initializedCore.NavigationCompleted += OnWorkspaceNavigationCompleted;
                 initializedCore.NewWindowRequested += OnWorkspaceNewWindowRequested;
                 WebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
-                WebView.AllowExternalDrop = true;
+                // Explorer/OLE drops are owned by the WPF shell bridge. CompositionControl
+                // does not reliably expose external files as DOM File objects on every
+                // WebView2 runtime, so enabling both routes would be unreliable and could
+                // upload the same drop twice.
+                WebView.AllowExternalDrop = false;
             }
             StartupStatusText.Text = "작업 화면을 불러오는 중…";
             // Prepare the right-side browser while its panel is still collapsed.

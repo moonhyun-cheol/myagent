@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { UserSkillError, UserSkillStore } from '../core/dist/skills/user-skill-store.js';
+import { getSkillSystemPromptByMode, listSelectableSkills } from '../core/dist/skills/skill-registry.js';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const skillsUi = readFileSync(path.join(projectRoot, 'ui/workspace/src/components/SettingsSkillsPage.tsx'), 'utf8');
@@ -73,6 +74,9 @@ try {
   assert.equal(installed.install_kind, 'package');
   assert.equal(installed.file_count, 3);
   assert.match(store.readPrompt('rulebook') ?? '', /# Rulebook/);
+  const selectable = listSelectableSkills(root);
+  assert.ok(selectable.some((skill) => skill.mode === 'user:rulebook' && skill.source === 'user'));
+  assert.match(getSkillSystemPromptByMode('user:rulebook', root) ?? '', /# Rulebook/);
   const installedRoot = path.join(root, 'data', 'skills', 'packages', 'rulebook');
   assert.equal(readFileSync(path.join(installedRoot, 'references', 'schema.md'), 'utf8'), '# Schema\n');
   assert.equal(readdirSync(installedRoot, { recursive: true }).some((entry) => String(entry).toLowerCase().endsWith('.zip')), false);
@@ -100,6 +104,7 @@ try {
 
   assert.equal(store.delete('rulebook'), true);
   assert.equal(store.readPrompt('rulebook'), null);
+  assert.equal(listSelectableSkills(root).some((skill) => skill.mode === 'user:rulebook'), false);
 
   const unsafeZip = path.join(root, 'unsafe.zip');
   writeFileSync(unsafeZip, storedZip([

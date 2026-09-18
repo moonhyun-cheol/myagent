@@ -72,7 +72,7 @@ import type { ErrorReportSettings } from '../config/user-overrides.js';
 import { computeMachineId } from '../license/machine-id.js';
 import {
   listAllSkills,
-  listSelectableOrganizationSkills,
+  listSelectableSkills,
   isBundledSkillId,
   getSkillSystemPromptByMode,
 } from '../skills/skill-registry.js';
@@ -2178,7 +2178,7 @@ export async function dispatchApiRequest(
 
       if (method === 'GET' && url.pathname === '/skills/selectable') {
         license.assertFeature('chat');
-        return sendJson(res, 200, { skills: listSelectableOrganizationSkills(cqrRoot) });
+        return sendJson(res, 200, { skills: listSelectableSkills(cqrRoot) });
       }
 
       if (method === 'POST' && url.pathname === '/skills') {

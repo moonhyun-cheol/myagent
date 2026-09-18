@@ -5,6 +5,7 @@ import path from 'node:path';
 // Exercise the freshly built UI, not the potentially older bundle served by a
 // running desktop instance. API reads may continue; all writes are blocked.
 const dist = path.resolve('ui/workspace/dist');
+const userSkill = { id: 'brand-manual-hub', label: '브랜드 매뉴얼 허브', mode: 'user:brand-manual-hub', source: 'user', editable: false, selectable: true, description: '설치형 사용자 스킬' };
 const skills = [
   { id: 'sample', label: '샘플 사이즈', selectable: false },
   { id: 'research', label: '시장조사', selectable: true },
@@ -23,7 +24,7 @@ test.beforeEach(async ({ page, baseURL }) => {
     if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: await readFile(path.join(dist, 'index.html')) });
     if (/^\/assets\/[\w.-]+$/.test(url.pathname)) return route.fulfill({ path: path.join(dist, url.pathname) });
     if (url.pathname === '/skills') return route.fulfill({ json: { skills } });
-    if (url.pathname === '/skills/selectable') return route.fulfill({ json: { skills: skills.filter((skill) => skill.selectable) } });
+    if (url.pathname === '/skills/selectable') return route.fulfill({ json: { skills: [userSkill, ...skills.filter((skill) => skill.selectable)] } });
     if (url.pathname === '/organization-module') return route.fulfill({ json: { can_check_remote: false } });
     return route.abort('connectionrefused');
   });
@@ -59,6 +60,15 @@ async function expectTextContrast(locator: Locator) {
   expect(ratio).toBeGreaterThanOrEqual(4.5);
   return ratio;
 }
+
+test('installed user skill is grouped and selectable from the composer', async ({ page }) => {
+  await page.getByTestId('organization-skill-button').click();
+  const menu = page.getByTestId('organization-skill-menu');
+  await expect(menu.getByTestId('skill-group-user')).toContainText('사용자 스킬');
+  await expect(menu.getByTestId('skill-group-organization')).toContainText('조직 스킬');
+  await menu.getByRole('button', { name: '브랜드 매뉴얼 허브', exact: false }).click();
+  await expect(page.getByTestId('skill-status-bar')).toContainText('브랜드 매뉴얼 허브');
+});
 
 test('composer plus is the only conversation skill toggle surface', async ({ page }) => {
   const bar = page.getByTestId('skill-status-bar');

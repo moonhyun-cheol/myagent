@@ -5,6 +5,58 @@ function Get-OptionalRuntimeIds {
   return @('playwright', 'ffmpeg', 'markitdown', 'repomix', 'ast_grep')
 }
 
+function Test-OptionalRuntimeCommand {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [string[]]$ArgumentList = @('--version')
+  )
+  if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) { return $false }
+  try {
+    if (-not (Get-Command Invoke-CqrNativeTimed -ErrorAction SilentlyContinue)) {
+      . (Join-Path $Root 'tools\cqr-native.ps1')
+    }
+    return (Invoke-CqrNativeTimed -FilePath $FilePath -ArgumentList $ArgumentList -TimeoutSec 20 -WorkingDirectory $Root) -eq 0
+  } catch {
+    return $false
+  }
+}
+
+function Test-OptionalRuntimeInstalled {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][string]$Id
+  )
+  switch ($Id) {
+    'playwright' {
+      $pkg = Join-Path $Root 'runtime\playwright\package\node_modules\playwright\package.json'
+      $marker = Join-Path $Root 'runtime\playwright\browsers\.chromium-installed'
+      $versionOk = $false
+      if (Test-Path -LiteralPath $pkg) {
+        try { $versionOk = ([string]((Get-Content -LiteralPath $pkg -Raw | ConvertFrom-Json).version) -eq '1.52.0') } catch { $versionOk = $false }
+      }
+      $browser = @(Get-ChildItem -LiteralPath (Join-Path $Root 'runtime\playwright\browsers') -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @('chrome.exe', 'headless_shell.exe') } | Select-Object -First 1)
+      return $versionOk -and (Test-Path -LiteralPath $marker) -and $browser.Count -gt 0
+    }
+    'ffmpeg' { return Test-OptionalRuntimeCommand -Root $Root -FilePath (Join-Path $Root 'runtime\ffmpeg\ffmpeg.exe') -ArgumentList @('-version') }
+    'markitdown' { return Test-OptionalRuntimeCommand -Root $Root -FilePath (Join-Path $Root 'runtime\oss-sidecars\venv\Scripts\markitdown.exe') -ArgumentList @('--help') }
+    'repomix' {
+      $packageRoot = Join-Path $Root 'runtime\oss-sidecars\node_modules\repomix'
+      $pkgPath = Join-Path $packageRoot 'package.json'
+      $nodeExe = Join-Path $Root 'runtime\node\node.exe'
+      if (-not (Test-Path -LiteralPath $pkgPath) -or -not (Test-Path -LiteralPath $nodeExe)) { return $false }
+      try {
+        $pkg = [IO.File]::ReadAllText($pkgPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+        $binRel = if ($pkg.bin -is [string]) { [string]$pkg.bin } else { [string]$pkg.bin.repomix }
+        if (-not $binRel) { return $false }
+        return Test-OptionalRuntimeCommand -Root $Root -FilePath $nodeExe -ArgumentList @((Join-Path $packageRoot $binRel), '--version')
+      } catch { return $false }
+    }
+    'ast_grep' { return Test-OptionalRuntimeCommand -Root $Root -FilePath (Join-Path $Root 'runtime\oss-sidecars\bin\ast-grep.exe') -ArgumentList @('--version') }
+    default { return $false }
+  }
+}
+
 function Expand-OptionalRuntimeId([string]$Id) {
   $clean = ([string]$Id).Trim().ToLowerInvariant()
   if ($clean -eq 'oss_sidecars') { return @('markitdown', 'repomix', 'ast_grep') }
@@ -57,7 +109,9 @@ function Read-OptionalRuntimeSelection([string]$Root) {
 }
 
 function Get-DefaultOptionalRuntimeIds([string]$Root) {
-  $fallback = @('repomix', 'ast_grep')
+  # Missing/corrupt catalog data must not trigger any implicit network install.
+  # A valid catalog below may still opt in explicitly safe defaults.
+  $fallback = @()
   $catalog = Get-OptionalRuntimeCatalog $Root
   if (-not $catalog) { return $fallback }
   $out = New-Object System.Collections.Generic.List[string]
@@ -65,7 +119,8 @@ function Get-DefaultOptionalRuntimeIds([string]$Root) {
     $id = [string]$item.id
     if ($id -and [bool]$item.default_selected) { [void]$out.Add($id) }
   }
-  if ($out.Count -eq 0) { return $fallback }
+  # A valid catalog may intentionally select nothing. Fall back only when the
+  # catalog itself is unavailable or invalid, not when its default set is empty.
   return @($out)
 }
 
@@ -108,7 +163,9 @@ function ConvertTo-JsonStringArray([string[]]$Items) {
 function Save-OptionalRuntimeSelection {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
-    [string[]]$Selected = @()
+    [string[]]$Selected = @(),
+    [string[]]$Installed = @(),
+    [string[]]$Failed = @()
   )
   $valid = Get-OptionalRuntimeIds
   $sel = New-Object System.Collections.Generic.List[string]
@@ -128,13 +185,19 @@ function Save-OptionalRuntimeSelection {
   $stamp = Get-Date -Format o
   $json = @"
 {
-  "version": 1,
+  "version": 2,
   "selected": $(ConvertTo-JsonStringArray @($sel)),
+  "requested": $(ConvertTo-JsonStringArray @($sel)),
+  "installed": $(ConvertTo-JsonStringArray @($Installed)),
+  "failed": $(ConvertTo-JsonStringArray @($Failed)),
   "skipped": $(ConvertTo-JsonStringArray @($skipped)),
   "updated_at": "$stamp"
 }
 "@
-  [IO.File]::WriteAllText((Get-OptionalRuntimeSelectionPath $Root), $json.Trim() + "`n", [Text.UTF8Encoding]::new($false))
+  $destPath = Get-OptionalRuntimeSelectionPath $Root
+  $tempPath = $destPath + '.tmp'
+  [IO.File]::WriteAllText($tempPath, $json.Trim() + "`n", [Text.UTF8Encoding]::new($false))
+  Move-Item -LiteralPath $tempPath -Destination $destPath -Force
 }
 
 function Resolve-OptionalRuntimeSelection {
@@ -148,7 +211,13 @@ function Resolve-OptionalRuntimeSelection {
   if ($AllOptional) { return Get-OptionalRuntimeIds }
   if ($OptionalRuntimes) { return ConvertTo-OptionalRuntimeIdList $OptionalRuntimes }
   if ($env:MY_AGENT_INSTALL_OPTIONAL) { return ConvertTo-OptionalRuntimeIdList $env:MY_AGENT_INSTALL_OPTIONAL }
-  if ($ApplyCatalogDefaults) { return Get-DefaultOptionalRuntimeIds $Root }
+  if ($ApplyCatalogDefaults) {
+    $existing = Read-OptionalRuntimeSelection $Root
+    if ($existing) {
+      return ConvertTo-OptionalRuntimeIdList (@($existing.selected) -join ',')
+    }
+    return Get-DefaultOptionalRuntimeIds $Root
+  }
   return @()
 }
 
@@ -184,11 +253,13 @@ function Install-SelectedOptionalRuntimes {
   }
   if (-not (Test-Path -LiteralPath $psHost)) { $psHost = 'powershell.exe' }
   $optionalFailures = New-Object System.Collections.Generic.List[string]
+  $optionalInstalled = New-Object System.Collections.Generic.List[string]
 
   foreach ($id in @(Get-OptionalRuntimeIds)) {
     if (@($Selected) -notcontains $id) {
       Write-Host ""
       Write-Host "[SKIP] $id (not selected)"
+      if (Test-OptionalRuntimeInstalled -Root $Root -Id $id) { [void]$optionalInstalled.Add($id) }
       continue
     }
     $rel = $map[$id]
@@ -196,16 +267,32 @@ function Install-SelectedOptionalRuntimes {
     if (-not (Test-Path -LiteralPath $scriptPath)) {
       Write-Host ""
       Write-Host "WARN: missing $rel — skip $id"
+      [void]$optionalFailures.Add($id)
       continue
     }
     Write-Host ""
     Write-Host $labels[$id]
-    & $psHost -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Root $Root
-    $code = $LASTEXITCODE
-    if ($null -eq $code) { $code = 0 }
-    if ($code -ne 0) {
+    $code = 1
+    $previousErrorAction = $ErrorActionPreference
+    try {
+      # Child tools legitimately write progress/notices to stderr. Keep those
+      # records visible without allowing one optional installer to terminate the
+      # required product transaction.
+      $ErrorActionPreference = 'Continue'
+      & $psHost -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Root $Root 2>&1 |
+        ForEach-Object { Write-Host ([string]$_) }
+      if ($null -ne $LASTEXITCODE) { $code = [int]$LASTEXITCODE }
+    } catch {
+      Write-Warning "optional runtime '$id' could not start: $($_.Exception.Message)"
+      $code = 1
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($code -ne 0 -or -not (Test-OptionalRuntimeInstalled -Root $Root -Id $id)) {
       Write-Warning "optional runtime '$id' did not finish (exit $code). The core app is still installed; add it later from Settings > Features or by re-running the installer with internet access."
-      [void]$optionalFailures.Add("$id (exit $code)")
+      [void]$optionalFailures.Add($id)
+    } else {
+      [void]$optionalInstalled.Add($id)
     }
   }
 
@@ -214,4 +301,5 @@ function Install-SelectedOptionalRuntimes {
     Write-Host ("Optional runtimes skipped or incomplete: " + ($optionalFailures -join ', '))
     Write-Host "These are optional. The core app is installed. Re-run the installer or use Settings > Features (with internet) to add them."
   }
+  return [pscustomobject]@{ Installed = @($optionalInstalled); Failed = @($optionalFailures) }
 }

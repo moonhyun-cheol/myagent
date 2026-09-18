@@ -1,16 +1,15 @@
 import {
   ArrowSquareOut,
+  CaretRight,
   Check,
   Code,
   DownloadSimple,
   FileText,
-  FolderOpen,
   Image as ImageIcon,
   LinkSimple,
 } from '@phosphor-icons/react';
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { navigateTabs } from '../lib/tabNavigation';
-import { openWorkspaceRootInExplorer } from '../api/myAgentClient';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
 import type { WorkspaceAsset } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -87,7 +86,6 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
 export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = [], todoError = null }: { showDownloadActions?: boolean; todoItems?: TodoProgressItem[]; todoError?: string | null }) {
   const tabId = useId();
   const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>('recent');
-  const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
   const [instructionDraft, setInstructionDraft] = useState('');
   const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
   const assets = useWorkspaceStore((state) => state.assets);
@@ -108,23 +106,20 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
     localStorage.setItem(PINNED_INSTRUCTIONS_KEY, JSON.stringify(next));
   };
   const openBrowserReference = (url: string) => { navigateBrowser(url); setMode('browser'); };
-  const openExplorer = () => {
-    setExplorerMessage(null);
-    void openWorkspaceRootInExplorer().then(({ root }) => setExplorerMessage(`탐색기에서 열림 · ${root}`)).catch((error) => setExplorerMessage(error instanceof Error ? error.message : String(error)));
-  };
 
   return (
     <section className="workspace-results flex h-full min-h-0 flex-col bg-panel" aria-label="작업 내역">
-      <header className="shrink-0 border-b border-line px-3 py-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0"><p className="mb-1 text-[10px] text-muted">작업 폴더</p><h2 className="truncate text-sm font-medium text-text" title={filesRoot || '폴더 미연결'}>{filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '현재 대화'}</h2><p className="mt-1 text-xs text-muted">{activeDefinition.description}</p></div>
-          <button type="button" data-testid="open-workspace-explorer" disabled={!filesRoot} onClick={openExplorer} title={filesRoot ? `탐색기에서 열기 · ${filesRoot}` : '작업 폴더를 먼저 연결하세요.'} className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[10px] text-muted hover:border-accent/60 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"><FolderOpen size={13} weight="bold" />탐색기</button>
-        </div>
-        {explorerMessage ? <p className="mt-2 truncate text-[10px] text-muted" title={explorerMessage}>{explorerMessage}</p> : null}
-        {filesRoot ? <details className="mt-2 text-xs text-muted"><summary className="w-full cursor-pointer py-1">전체 경로 보기</summary><p className="break-all py-1 font-mono">{filesRoot}</p></details> : null}
+      <header className="workspace-folder-card">
+        <p className="workspace-folder-label">작업 폴더</p>
+        <h2 className="workspace-folder-name" title={filesRoot || '폴더 미연결'}>{filesRoot?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '현재 대화'}</h2>
+        <p className="workspace-folder-description">{activeDefinition.description}</p>
+        {filesRoot ? <details className="workspace-path-details">
+          <summary><CaretRight className="workspace-path-caret" size={14} weight="bold" /><span>전체 경로 보기</span></summary>
+          <p className="workspace-path-value">{filesRoot}</p>
+        </details> : null}
       </header>
 
-      <nav className="flex shrink-0 flex-wrap gap-1 border-b border-line px-2 py-2" aria-label="작업 내역 보기" role="tablist" onKeyDown={navigateTabs}>
+      <nav className="workspace-subnav" aria-label="작업 내역 보기" role="tablist" onKeyDown={navigateTabs}>
         {WORKSPACE_OBJECT_TABS.map(({ id, label, icon: Icon }) => {
           const selected = id === activeTab;
           const count = id === 'recent' ? workAssets.length : id === 'todo' ? todoItems.length : undefined;

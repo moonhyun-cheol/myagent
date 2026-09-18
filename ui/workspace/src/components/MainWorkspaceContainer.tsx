@@ -1,10 +1,10 @@
 import { useEffect, useId, useState } from 'react';
-import { ArrowsInSimple, ArrowsOutSimple, TerminalWindow, CaretRight } from '@phosphor-icons/react';
+import { ArrowSquareOut, ArrowsInSimple, ArrowsOutSimple, FolderOpen, TerminalWindow, CaretRight } from '@phosphor-icons/react';
 import type { WorkspaceMode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { listAutomationFeed, markAutomationFeedRead, openWorkspaceRootInExplorer } from '../api/myAgentClient';
 import { BrowserPane } from './BrowserPane';
 import { APP_PREFERENCES_CHANGED_EVENT, syncMinimizeToTrayOnClose } from '../lib/appPreferences';
-import { listAutomationFeed, markAutomationFeedRead } from '../api/myAgentClient';
 import { subscribeInAppBrowserActivation } from '../lib/inAppBrowserBridge';
 import { ChatPane } from './ChatPane';
 import { GeminiNavSidebar, type AppSurface } from './GeminiNavSidebar';
@@ -38,7 +38,9 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
   const setTerminalOpen = useWorkspaceStore(s => s.setTerminalOpen);
   const refreshExplorer = useWorkspaceStore(s => s.refreshExplorer);
   const activeSessionId = useWorkspaceStore(s => s.activeSessionId);
+  const filesRoot = useWorkspaceStore(s => s.filesRoot);
   const busy = useWorkspaceStore(s => s.busy);
+  const [explorerMessage, setExplorerMessage] = useState('');
   const { items: todoItems, error: todoError } = useSessionTodos(activeSessionId, busy);
   useEffect(() => { void refreshExplorer(); }, [refreshExplorer]);
   useEffect(() => {
@@ -74,6 +76,12 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
     }
     window.open(`${window.location.origin}/?preview=${encodeURIComponent(mode)}`, '_blank', 'popup,width=960,height=720');
   };
+  const openExplorer = () => {
+    setExplorerMessage('');
+    void openWorkspaceRootInExplorer()
+      .then(({ root }) => setExplorerMessage(`탐색기에서 열림 · ${root}`))
+      .catch((error) => setExplorerMessage(error instanceof Error ? error.message : String(error)));
+  };
   const body = <div id={`${tabId}-body`} role="tabpanel" aria-labelledby={`${tabId}-${mode}`} className="relative h-full min-h-0" data-work-panel-body>
     {mode === 'objects' && <WorkspaceObjectsPane showDownloadActions todoItems={todoItems} todoError={todoError} />}
     {(mode === 'document' || mode === 'canvas') && <MarkdownDocument />}
@@ -81,28 +89,30 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
     {mode === 'browser' && <BrowserPane />}
   </div>;
   return <section className="flex h-full min-h-0 min-w-0 flex-col bg-panel" aria-label="작업 패널" data-preview-pane tabIndex={-1}>
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-b border-line px-2 py-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-0.5" role="tablist" aria-label="작업 패널 보기" onKeyDown={navigateTabs}>
+    <div className="work-panel-header">
+      <div className="work-panel-main-tabs" role="tablist" aria-label="작업 패널 보기" onKeyDown={navigateTabs}>
         {WORKSPACE_PREVIEW_MODES.map(({ id, label, icon: Icon, disabled, disabledReason }) => <button
           key={id} type="button" onClick={() => { if (isAvailableWorkspacePreviewMode(id)) setMode(id); }}
           disabled={disabled} title={disabledReason} role="tab" id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} aria-selected={mode === id} tabIndex={mode === id ? 0 : -1}
           className="ui-tab"
         ><Icon size={14} />{label}</button>)}
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        {controls && <button type="button" onClick={detachPreview} aria-label="현재 작업 패널을 새 창으로 열기" title="다른 디스플레이로 옮길 수 있는 별도 창" className="rounded-md px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-text">새 창</button>}
+      <div className="work-panel-tools" role="toolbar" aria-label="작업 패널 도구">
+        {controls && <button type="button" onClick={detachPreview} aria-label="현재 작업 패널을 새 창으로 열기" title="새 창으로 열기" className="work-panel-tool-button"><ArrowSquareOut size={16} /></button>}
         <button type="button" onClick={() => setTerminalOpen(!terminalOpen)} aria-label="터미널" aria-pressed={terminalOpen}
-          title={terminalOpen ? '터미널 접기 (Ctrl+`)' : '터미널 열기 (Ctrl+`)'}
-          className={`inline-flex min-h-8 items-center gap-1 rounded-md px-2 text-xs ${terminalOpen || terminalAttention || terminalBusy ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-hover'}`}>
-          <TerminalWindow size={16} />{terminalBusy ? '실행 중' : '터미널'}
+          title={terminalBusy ? '터미널 · 실행 중' : terminalOpen ? '터미널 접기 (Ctrl+`)' : '터미널 열기 (Ctrl+`)'}
+          data-active={terminalOpen || terminalAttention || terminalBusy} data-busy={terminalBusy} className="work-panel-tool-button">
+          <TerminalWindow size={16} />
         </button>
+        <button type="button" data-testid="open-workspace-explorer" disabled={!filesRoot} onClick={openExplorer} aria-label="작업 폴더를 탐색기에서 열기" title={filesRoot ? `탐색기에서 열기 · ${filesRoot}` : '작업 폴더를 먼저 연결하세요.'} className="work-panel-tool-button"><FolderOpen size={16} /></button>
         {controls && <>
-          {!controls.narrow && <button type="button" onClick={controls.toggleExpanded} aria-label={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} title={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} className="rounded-md p-2 text-muted hover:bg-hover">
+          {!controls.narrow && <button type="button" onClick={controls.toggleExpanded} aria-label={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} title={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} className="work-panel-tool-button">
             {controls.expanded ? <ArrowsInSimple size={16} /> : <ArrowsOutSimple size={16} />}
           </button>}
-          <button type="button" onClick={controls.close} aria-label="오른쪽 패널 접기" title="오른쪽 패널 접기 · 내용은 유지됩니다" className="rounded-md p-2 text-muted hover:bg-hover"><CaretRight size={16} /></button>
+          <button type="button" onClick={controls.close} aria-label="오른쪽 패널 접기" title="오른쪽 패널 접기 · 내용은 유지됩니다" className="work-panel-tool-button"><CaretRight size={16} /></button>
         </>}
       </div>
+      {explorerMessage ? <span className="sr-only" role="status" aria-live="polite">{explorerMessage}</span> : null}
     </div>
     <div className="min-h-0 flex-1">
       <ResizableSplit axis="vertical" reverse initial={200} min={120} max={520} className="h-full"

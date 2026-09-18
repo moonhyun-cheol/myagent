@@ -578,6 +578,12 @@ interface WorkspaceState {
   rejectMutateReview: (paths?: string[]) => Promise<void>;
   /** Upload any file type into pending attachments (images get preview chips). */
   uploadFiles: (files: File[]) => Promise<void>;
+  /** Complete the native shell handshake for Explorer file drops. */
+  acceptExternalFileDrop: (requestId: string) => Promise<void>;
+  /** Tell the shell that a native drop landed outside the composer or could not be accepted. */
+  rejectExternalFileDrop: (requestId: string) => void;
+  /** Adopt files uploaded by the shell into the owning conversation draft. */
+  adoptExternalFileDrop: (sessionId: string, items: Array<{ id: string; name: string; mime?: string }>) => void;
   /** @deprecated Prefer uploadFiles — kept for clipboard paste call sites. */
   uploadClipboardImages: (files: File[]) => Promise<void>;
   startNewChat: (projectId?: string | null, workspaceProjectId?: string | null) => Promise<void>;
@@ -1752,6 +1758,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           previewUrl: isImage ? `/attachments/${encodeURIComponent(u.id)}?session=${encodeURIComponent(sid)}` : undefined,
         };
       });
+      writeAttachmentDraft(sid, [...readAttachmentDraft(sid), ...items]);
+    },
+
+    acceptExternalFileDrop: async (requestId) => {
+      const sid = await ensureAttachmentSession();
+      const webview = (window as unknown as {
+        chrome?: { webview?: { postMessage: (message: unknown) => void } };
+      }).chrome?.webview;
+      if (!webview) throw new Error('앱 파일 드롭 브리지를 찾지 못했습니다.');
+      webview.postMessage({ type: 'composer.externalDrop.accept', requestId, sessionId: sid });
+    },
+
+    rejectExternalFileDrop: (requestId) => {
+      const webview = (window as unknown as {
+        chrome?: { webview?: { postMessage: (message: unknown) => void } };
+      }).chrome?.webview;
+      webview?.postMessage({ type: 'composer.externalDrop.reject', requestId });
+    },
+
+    adoptExternalFileDrop: (sid, uploaded) => {
+      const items: PendingAttachment[] = uploaded.map((item) => {
+        const mime = item.mime || '';
+        const name = item.name || '';
+        const isImage = mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg|ico)$/i.test(name);
+        return {
+          id: item.id,
+          name,
+          mime: mime || undefined,
+          previewUrl: isImage ? `/attachments/${encodeURIComponent(item.id)}?session=${encodeURIComponent(sid)}` : undefined,
+        };
+      }).filter((item) => item.id);
       writeAttachmentDraft(sid, [...readAttachmentDraft(sid), ...items]);
     },
 

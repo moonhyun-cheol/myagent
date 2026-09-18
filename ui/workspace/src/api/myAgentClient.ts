@@ -1349,9 +1349,9 @@ export async function listSkills(): Promise<SkillListItem[]> {
   return (data.skills ?? []) as SkillListItem[];
 }
 
-export async function listSelectableOrganizationSkills(): Promise<SkillListItem[]> {
+export async function listSelectableSkills(): Promise<SkillListItem[]> {
   const res = await fetch('/skills/selectable');
-  if (!res.ok) throw new Error(`선택 가능한 조직 스킬 목록 실패 (${res.status})`);
+  if (!res.ok) throw new Error(`선택 가능한 스킬 목록 실패 (${res.status})`);
   const data = await res.json();
   return (data.skills ?? []) as SkillListItem[];
 }

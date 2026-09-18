@@ -178,9 +178,18 @@ foreach ($w in $warnings) {
   Write-Warning "bootstrap-oss-sidecars: $w"
 }
 
+$requestedMissing = New-Object System.Collections.Generic.List[string]
+if ($installMarkitdown -and -not $stamp.markitdown) { [void]$requestedMissing.Add('markitdown') }
+if ($installRepomix -and -not $stamp.repomix) { [void]$requestedMissing.Add('repomix') }
+if ($installAstGrep -and -not $stamp.astGrep) { [void]$requestedMissing.Add('ast-grep') }
+if ($requestedMissing.Count -gt 0) {
+  Write-Error ('bootstrap-oss-sidecars: requested features are incomplete: ' + ($requestedMissing -join ', '))
+  exit 1
+}
+
 if (-not $stamp.markitdown -and -not $stamp.repomix -and -not $stamp.astGrep) {
   Write-Warning 'bootstrap-oss-sidecars: nothing installed (offline or missing runtimes)'
-  exit 0
+  exit 1
 }
 
 Write-Host "bootstrap-oss-sidecars: done (markitdown=$($stamp.markitdown) repomix=$($stamp.repomix) ast-grep=$($stamp.astGrep))"

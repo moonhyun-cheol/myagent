@@ -541,6 +541,7 @@ public partial class MainWindow
     private void UpdateTabState(BrowserTab tab, string? status = null)
     {
         if (status is not null) tab.Status = status;
+        RefreshVisibleBrowserStateCache();
         if (tab.Id == _activeBrowserTabId) PostBrowserState(tab.Status);
     }
 

@@ -12,6 +12,7 @@
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
+        AllowDrop="True"
         StateChanged="OnWindowStateChanged">
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="36"
@@ -146,7 +147,7 @@
     <Grid x:Name="BrowserLayout" Grid.Row="1" SizeChanged="OnBrowserLayoutSizeChanged">
       <!-- Composition workspace has no competing child HWND. The native page occupies
            only the reserved DOM slot, never an extra column or a duplicate toolbar. -->
-      <wv2:WebView2CompositionControl x:Name="WebView" />
+      <wv2:WebView2CompositionControl x:Name="WebView" AllowExternalDrop="False" />
 
       <Border x:Name="StartupOverlay"
               Background="{DynamicResource ShellWindowBrush}"

@@ -59,14 +59,21 @@ try {
     return route.fulfill({json:{}}); // No live API, files, or user sessions may be accessed.
   });
   await page.route('**/workspace?*', (route)=>route.fulfill({json:{workspace_trees:[{id:'workspace-fixture',kind:'workspace_root',title:'MY_CUSTOM_CODEX',folder_path:'C:/fixture/MY_CUSTOM_CODEX',children:[]}],projects:[]}}));
-  await page.route('**/skills/selectable',(route)=>route.fulfill({json:{skills:[{mode:'org:design',label:'디자인 검토',description:'검증용 스킬'}]}}));
+  let includeUserSkill=true;
+  await page.route('**/skills/selectable',(route)=>route.fulfill({json:{skills:[
+    ...(includeUserSkill ? [{id:'brand-manual-hub',mode:'user:brand-manual-hub',source:'user',label:'브랜드 매뉴얼 허브',description:'설치형 사용자 스킬'}] : []),
+    {id:'design',mode:'org:design',source:'organization',label:'디자인 검토',description:'검증용 조직 스킬'},
+  ]}}));
   const address=server.httpServer.address();
   await page.goto(`http://127.0.0.1:${address.port}/__chat_header_test`);
   const header=page.getByTestId('chat-settings-header');
   await header.waitFor();
   const test=(id)=>page.getByTestId(id);
   const dialog=test('chat-policy-popover');
-  const assertChoiceFocused=async(id)=>assert.equal(await test(id).locator('[aria-checked="true"]').evaluate((el)=>el===document.activeElement),true);
+  const assertChoiceFocused=async(id)=>{
+    await page.waitForFunction((testId)=>document.querySelector(`[data-testid="${testId}"] [aria-checked="true"]`)===document.activeElement,id);
+    assert.equal(await test(id).locator('[aria-checked="true"]').evaluate((el)=>el===document.activeElement),true);
+  };
   const choice=(id,value)=>test(id).locator(`[data-value="${value}"]`);
   const assertAnchored=async(trigger)=>{
     const anchor=await test(trigger).boundingBox(), panel=await dialog.boundingBox();
@@ -80,8 +87,25 @@ try {
   assert.match(await test('chat-reasoning-button').innerText(),/자동/,'show selected auto, not last effective high');
   assert.ok((await header.boundingBox()).height<=56,'desktop header must stay compact');
   assert.equal(await page.evaluate(()=>Boolean(window.testStore)),true,'isolated fixture must be mounted');
-  await test('chat-model-select').selectOption('sol', {timeout:5000});
+  await test('chat-model-select').click();
+  const modelMenu=test('chat-model-menu');
+  await modelMenu.getByRole('option',{name:'Sol',exact:true}).click();
+  await modelMenu.waitFor({state:'hidden'});
   assert.equal(await page.evaluate(()=>testStore.getState().selectedModel),'sol');
+  if (process.argv.includes('--model-menu-only')) {
+    await page.evaluate(()=>testStore.setState({selectedModel:'model-1',modelOptions:Array.from({length:30},(_,index)=>({id:'model-'+(index+1),label:'검증 모델 '+String(index+1).padStart(2,'0')+(index===29?' 매우 긴 모델 이름 '.repeat(8):''),access_mode:'managed'}))}));
+    await page.setViewportSize({width:480,height:360});
+    await test('chat-model-select').click();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const geometry=await modelMenu.evaluate((el)=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height,scrollHeight:el.scrollHeight,viewportHeight:innerHeight};});
+    assert.ok(geometry.top>=8&&geometry.bottom<=geometry.viewportHeight-8+1,`model menu outside viewport: ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.height<=360&&geometry.scrollHeight>geometry.height,'long model menu must be height-bounded and scrollable');
+    await modelMenu.getByRole('option',{name:/검증 모델 30/}).scrollIntoViewIfNeeded();
+    await modelMenu.getByRole('option',{name:/검증 모델 30/}).click();
+    assert.equal(await page.evaluate(()=>testStore.getState().selectedModel),'model-30');
+    assert.equal(await test('chat-model-select').getAttribute('title'),'검증 모델 30'+' 매우 긴 모델 이름 '.repeat(8));
+    console.log(JSON.stringify({ok:true,checks:['30-model bounded menu','viewport clamping','internal scrolling','long-label selection']},null,2));
+  } else {
   for(const [trigger,target,value] of [['chat-execution-policy','chat-workspace-behavior','plan'],['chat-reasoning-button','chat-reasoning-level','xhigh'],['chat-approval-button','chat-approval-level','ask']]){
     await test(trigger).click();await assertChoiceFocused(target);await assertAnchored(trigger);
     assert.equal(await dialog.getByRole('menu').count(),1,'only requested setting is shown');
@@ -98,7 +122,7 @@ try {
   assert.equal(await dialog.count(),1);assert.equal(await test('chat-workspace-behavior').count(),0);
   await assertAnchored('chat-reasoning-button');await test('chat-reasoning-button').click();await dialog.waitFor({state:'hidden'});
   // Menu arrows move focus without saving; Enter commits and restores trigger focus.
-  await test('chat-execution-policy').click();await page.keyboard.press('Home');
+  await test('chat-execution-policy').click();await assertChoiceFocused('chat-workspace-behavior');await page.keyboard.press('Home');
   assert.equal(await choice('chat-workspace-behavior','agent').evaluate(el=>el===document.activeElement),true);
   await page.keyboard.press('ArrowDown');await page.keyboard.press('End');await page.keyboard.press('ArrowUp');
   await page.keyboard.press('Enter');await dialog.waitFor({state:'hidden'});await assertFocused('chat-execution-policy');
@@ -115,6 +139,7 @@ try {
   // Approval mapping and required safety explanation are preserved.
   for(const [value,autopilot] of [['autopilot','on'],['delegate','auto'],['ask','off']]){
     await test('chat-approval-button').click();
+    await dialog.waitFor({state:'visible'});
     assert.match(await dialog.innerText(),/外部|외부 쓰기·삭제·롤백/);
     await choice('chat-approval-level',value).click();await dialog.waitFor({state:'hidden'});
     assert.equal(await page.evaluate(()=>testStore.getState().activeExecutionPolicy.autopilot),autopilot);
@@ -143,6 +168,7 @@ try {
   // Model capability, rather than a fixed list, determines the choices.
   await page.evaluate(()=>testStore.setState({modelOptions:[{id:'sol',label:'Sol',access_mode:'byok',reasoning_capability:{supported_efforts:['low','high'],auto_behavior:'app_resolved',source:'fallback'}}]}));
   await test('chat-reasoning-button').click();
+  await assertChoiceFocused('chat-reasoning-level');
   assert.deepEqual(await test('chat-reasoning-level').getByRole('menuitemradio').evaluateAll(items=>items.map(el=>el.dataset.value)),['auto','low','high']);
   await close();
   await test('chat-workspace-button').click();await assertFocused('chat-workspace-select');
@@ -158,6 +184,15 @@ try {
   await test('chat-workspace-select').selectOption('');await close();
   assert.equal(await test('chat-workspace-button').innerText(),'작업폴더 연결');
   await test('organization-skill-button').click();
+  assert.match(await test('skill-group-user').innerText(),/사용자 스킬/);
+  assert.match(await test('skill-group-organization').innerText(),/조직 스킬/);
+  await test('organization-skill-menu').getByRole('button',{name:'브랜드 매뉴얼 허브',exact:false}).click();
+  assert.equal(await page.evaluate(()=>testStore.getState().skillMode),'user:brand-manual-hub');
+  includeUserSkill=false;
+  await test('organization-skill-button').click();
+  await test('organization-skill-menu').getByRole('status').waitFor();
+  assert.equal(await page.evaluate(()=>testStore.getState().skillMode),null,'removed user skill must be cleared');
+  assert.match(await test('organization-skill-menu').getByRole('status').innerText(),/사용할 수 없어 해제/);
   await test('organization-skill-menu').getByRole('button',{name:'디자인 검토',exact:false}).click();
   await test('skill-status-bar').waitFor();assert.match(await test('skill-status-bar').innerText(),/디자인 검토/);
   assert.ok((await test('skill-status-bar').boundingBox()).height<=44);
@@ -172,8 +207,8 @@ try {
   await page.evaluate(()=>testStore.getState().setSkillMode('org:design','디자인 검토'));
   await test('skill-status-action').click();await test('skill-status-bar').waitFor({state:'hidden'});await assertFocused('organization-skill-button');
   await page.getByRole('button',{name:'모델 목록 새로고침',exact:true}).click();
-  await page.getByRole('button',{name:'Preview 열기',exact:true}).click();
-  assert.equal(await page.getByRole('button',{name:'Preview 닫기',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.getByRole('button',{name:'오른쪽 패널 펼치기',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'오른쪽 패널 접기',exact:true}).getAttribute('aria-pressed'),'true');
   await page.evaluate(()=>testStore.setState({busy:true}));
   assert.equal(await test('chat-model-select').isDisabled(),true);
   for(const [trigger,id] of [['chat-execution-policy','chat-workspace-behavior'],['chat-reasoning-button','chat-reasoning-level'],['chat-approval-button','chat-approval-level']]){
@@ -189,6 +224,17 @@ try {
   await page.evaluate(()=>testStore.setState({skillMode:'org:design',skillLabel:'아주 긴 조직 스킬 이름 '.repeat(6),selectedModel:'long',modelOptions:[{id:'long',label:'아주 긴 모델 이름 '.repeat(10),access_mode:'managed'}]}));
   const reflow=[];
   assert.equal(await test('chat-model-select').getAttribute('title'),'아주 긴 모델 이름 '.repeat(10));
+  // A long model list uses a bounded, scrollable portal instead of the native WebView dropdown.
+  await page.evaluate(()=>testStore.setState({selectedModel:'model-1',modelOptions:Array.from({length:30},(_,index)=>({id:'model-'+(index+1),label:'검증 모델 '+String(index+1).padStart(2,'0')+(index===29?' 매우 긴 모델 이름 '.repeat(8):''),access_mode:'managed'}))}));
+  await page.setViewportSize({width:480,height:360});
+  await test('chat-model-select').click();
+  const modelGeometry=await modelMenu.evaluate((el)=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height,scrollHeight:el.scrollHeight,viewportHeight:innerHeight};});
+  assert.ok(modelGeometry.top>=8&&modelGeometry.bottom<=modelGeometry.viewportHeight-8+1,`model menu outside viewport: ${JSON.stringify(modelGeometry)}`);
+  assert.ok(modelGeometry.height<=360&&modelGeometry.scrollHeight>modelGeometry.height,'long model menu must be height-bounded and scrollable');
+  await modelMenu.getByRole('option',{name:/검증 모델 30/}).scrollIntoViewIfNeeded();
+  await modelMenu.getByRole('option',{name:/검증 모델 30/}).click();
+  assert.equal(await page.evaluate(()=>testStore.getState().selectedModel),'model-30');
+  await page.evaluate(()=>testStore.setState({skillMode:'org:design',skillLabel:'아주 긴 조직 스킬 이름 '.repeat(6),selectedModel:'long',modelOptions:[{id:'long',label:'아주 긴 모델 이름 '.repeat(10),access_mode:'managed'}]}));
   // 720x450 is the CSS viewport of a 1440x900 window at 200% browser zoom.
   for(const [width,height] of [[1440,900],[720,450],[480,720],[320,640]]){
     await page.setViewportSize({width,height});
@@ -228,4 +274,5 @@ try {
   assert.deepEqual(errors,[]);
   assert.ok(await page.evaluate(()=>changes.some(([type])=>type==='refresh')));
   console.log(JSON.stringify({ok:true,checks:['model change','single-setting menus anchored to each trigger','auto label and model capabilities','focus/arrows/Home/End/Enter/Escape/Tab/outside click','policy failure rollback/retry','approval mapping and safety explanation','pending save and late completion','first session creation and session switch','workspace bind/unbind/failure','skill select/change/clear','refresh and Preview','busy/image state','live resize and split pane','short viewport scrolling','long labels','text contrast'],reflow},null,2));
+  }
 } finally { await browser?.close();await server.close(); }

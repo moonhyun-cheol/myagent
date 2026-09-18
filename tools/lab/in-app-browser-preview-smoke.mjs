@@ -11,7 +11,7 @@ import { chromium } from 'playwright';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workspace = path.join(root, 'ui/workspace');
 const { createServer } = await import(pathToFileURL(path.join(workspace, 'node_modules/vite/dist/node/index.js')).href);
-const inert = ['ImagePreviewModal', 'ConfirmModal', 'MarkdownDocument', 'MediaPane', 'SchedulerSurface', 'TerminalPane', 'WorkspaceObjectsPane'];
+const inert = ['ImagePreviewModal', 'ConfirmModal', 'MarkdownDocument', 'MediaPane', 'SchedulerSurface', 'TerminalPane'];
 const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"></head><body><div id="root" style="height:100vh"></div><script type="module">
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -23,7 +23,7 @@ window.chrome.webview={postMessage:m=>commands.push(m),addEventListener:(t,fn)=>
 window.emit=state=>{for(const fn of listeners)fn({data:{type:'inAppBrowser.state',visible:false,url:'',loading:false,status:'닫힘',canGoBack:false,canGoForward:false,...state}});};
 window.activate=url=>{for(const fn of listeners)fn({data:{type:'inAppBrowser.activate',url}});};
 window.testStore=store;
-store.setState({mode:'browser',previewPaneOpen:true,terminalOpen:false,activeSessionId:null,busy:false,browserInputUrl:'https://example.com',browserLoadedUrl:'https://example.com',browserHistory:['https://example.org','https://example.com'],browserHistoryIndex:1,browserReloadKey:0,
+store.setState({mode:'browser',previewPaneOpen:true,terminalOpen:false,activeSessionId:null,busy:false,filesRoot:'C:/MY_FULL_AI/MY_CUSTOM_CODEX',browserInputUrl:'https://example.com',browserLoadedUrl:'https://example.com',browserHistory:['https://example.org','https://example.com'],browserHistoryIndex:1,browserReloadKey:0,
 refreshExplorer:async()=>{},setBrowserInputUrl:url=>store.setState({browserInputUrl:url}),navigateBrowser:url=>store.setState({browserLoadedUrl:url,browserInputUrl:url}),reloadBrowser:()=>{},goBrowserBack:()=>{},goBrowserForward:()=>{}});
 const view=createRoot(document.getElementById('root'));view.render(React.createElement(MainWorkspaceContainer));
 </script></body></html>`;
@@ -75,6 +75,16 @@ try {
   await page.mouse.move(rect.x-97,rect.y+100,{steps:8});await page.mouse.up();await surface(true);
   const saved=await width();assert(saved>initial+90);
   await page.reload();await separator.waitFor();assert.equal(await width(),saved,'width survives reload');
+  await page.getByRole('tab',{name:'작업',exact:true}).click();await surface(false);
+  await page.locator('.workspace-folder-card').waitFor();
+  assert.equal(await page.locator('.workspace-folder-name').textContent(),'MY_CUSTOM_CODEX');
+  assert.equal(await page.locator('.workspace-folder-card [data-testid="open-workspace-explorer"]').count(),0);
+  const tools=page.locator('.work-panel-tools .work-panel-tool-button:not(:disabled)');
+  const toolBoxes=await tools.evaluateAll(nodes=>nodes.map(node=>{const rect=node.getBoundingClientRect();return [Math.round(rect.width),Math.round(rect.height)];}));
+  assert(toolBoxes.length>=4);assert(toolBoxes.every(([w,h])=>w===toolBoxes[0][0]&&h===toolBoxes[0][1]));
+  await page.getByText('전체 경로 보기',{exact:true}).click();
+  await page.getByText('C:/MY_FULL_AI/MY_CUSTOM_CODEX',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'웹',exact:true}).click();await surface(true);
   await page.getByRole('textbox',{name:'채팅 초안'}).fill('유지할 초안');
   await page.getByRole('button',{name:'작업 패널 확대',exact:true}).click();
   assert.equal(await width(),1200);assert.equal(await separator.count(),0);
@@ -120,5 +130,5 @@ try {
     }else assert.equal(await width(),saved,'narrow window does not overwrite saved width');
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS integrated work panel: one slot/toolbar, drag/keyboard/reset, width persistence, expand/restore, close/reopen, draft retention, tabs, terminal toggle/keyboard, scheduler activation, modal hiding, native commands/errors, 640/1000/1440px. Unrelated panes and native host are fixtures.');
+  console.log('PASS integrated work panel: unified icon toolbar, folder card/path accordion, one browser slot, drag/keyboard/reset, width persistence, expand/restore, close/reopen, draft retention, tabs, terminal toggle/keyboard, scheduler activation, modal hiding, native commands/errors, 640/1000/1440px. Unrelated panes and native host are fixtures.');
 } finally {await browser?.close();await server.close();}

@@ -6,12 +6,18 @@
 param(
   [Parameter(Mandatory = $true)][string]$Root,
   [switch]$SkipIfExists,
+  [switch]$AllowOnlineInstall,
   [int]$NpmTimeoutSec = 900
 )
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
 . (Join-Path $PSScriptRoot 'cqr-native.ps1')
+. (Join-Path $PSScriptRoot 'core-npm-deps.ps1')
+
+if (-not $AllowOnlineInstall) {
+  Write-Error 'CORE_ONLINE_INSTALL_DISABLED: use the complete installer with bundled nm dependencies.'
+}
 
 # Permission preflight: a blocked node_modules (antivirus / Controlled Folder
 # Access / inherited ACL) should fail fast, not stall mid-install.
@@ -19,9 +25,9 @@ if (-not (Test-CqrPathWritable (Join-Path $Root 'node_modules'))) {
   Write-Error "bootstrap-npm-deps: no write permission for '$(Join-Path $Root 'node_modules')'. Antivirus, Windows Controlled Folder Access, or inherited folder permissions are blocking create/delete. Allow this folder (or reinstall MY Agent to a per-user folder) and retry."
 }
 
-$mcpPkg = Join-Path $Root 'node_modules\@modelcontextprotocol\sdk\package.json'
-if ($SkipIfExists -and (Test-Path -LiteralPath $mcpPkg)) {
-  Write-Host "bootstrap-npm-deps: skipped (exists) -> $mcpPkg"
+$nodeExe = Join-Path $Root 'runtime\node\node.exe'
+if ($SkipIfExists -and (Test-CoreNpmDependencies -Root $Root -NodeExe $nodeExe -Quiet)) {
+  Write-Host 'bootstrap-npm-deps: skipped (all core dependencies load successfully)'
   exit 0
 }
 
@@ -31,7 +37,6 @@ if (-not (Test-Path -LiteralPath $pkgJson)) {
 }
 
 # Prefer portable Node from install bootstrap — target PCs often have no system npm.
-$nodeExe = Join-Path $Root 'runtime\node\node.exe'
 $npmCli = Join-Path $Root 'runtime\node\node_modules\npm\bin\npm-cli.js'
 $npmCmd = $null
 $npmViaNode = $false
@@ -83,11 +88,8 @@ try {
   }
   if ($code -ne 0) { exit $code }
 
-  if (-not (Test-Path -LiteralPath $mcpPkg)) {
-    Write-Error "bootstrap-npm-deps: @modelcontextprotocol/sdk still missing after npm install"
-  }
-
-  Write-Host "bootstrap-npm-deps OK -> $mcpPkg"
+  Assert-CoreNpmDependencies -Root $Root -NodeExe $nodeExe
+  Write-Host 'bootstrap-npm-deps OK -> all core dependencies load successfully'
   exit 0
 }
 finally {

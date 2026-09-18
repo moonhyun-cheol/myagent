@@ -4,6 +4,14 @@
   Run a native exe without PowerShell Stop treating stderr (npm notice/warn) as terminating.
   Returns the process exit code. stdout/stderr lines are written via Write-Host.
 #>
+function ConvertTo-CqrNativeArgument([string]$Value) {
+  if ($null -eq $Value -or $Value.Length -eq 0) { return '""' }
+  # Start-Process joins ArgumentList into one command line on Windows PowerShell
+  # 5.1. Quote every argument with the Windows argv escaping rules so paths with
+  # spaces and trailing backslashes survive that join unchanged.
+  return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
 function Invoke-CqrNative {
   param(
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -56,7 +64,9 @@ function Invoke-CqrNativeTimed {
     return 1
   }
   $spArgs = @{ FilePath = $FilePath; NoNewWindow = $true; PassThru = $true }
-  if ($ArgumentList -and $ArgumentList.Count -gt 0) { $spArgs.ArgumentList = $ArgumentList }
+  if ($ArgumentList -and $ArgumentList.Count -gt 0) {
+    $spArgs.ArgumentList = (@($ArgumentList | ForEach-Object { ConvertTo-CqrNativeArgument ([string]$_) }) -join ' ')
+  }
   if ($WorkingDirectory -and (Test-Path -LiteralPath $WorkingDirectory)) { $spArgs.WorkingDirectory = $WorkingDirectory }
   $proc = Start-Process @spArgs
   if (-not $proc.WaitForExit([int]([Math]::Max(1, $TimeoutSec) * 1000))) {

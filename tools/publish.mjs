@@ -259,10 +259,26 @@ if (!skipVendor) {
     process.exit(vend.status ?? 1);
   }
   const vendModules = path.join(vendorBuild, 'node_modules');
-  const sdkPkg = path.join(vendModules, '@modelcontextprotocol', 'sdk', 'package.json');
-  if (!existsSync(sdkPkg)) {
-    console.error('publish: vendored node_modules missing @modelcontextprotocol/sdk — aborting.');
-    process.exit(1);
+  const requiredCorePackages = [
+    path.join('@modelcontextprotocol', 'sdk', 'package.json'),
+    path.join('mammoth', 'package.json'),
+    path.join('pdf-parse', 'package.json'),
+  ];
+  for (const rel of requiredCorePackages) {
+    if (!existsSync(path.join(vendModules, rel))) {
+      console.error(`publish: vendored node_modules missing ${rel} — aborting.`);
+      process.exit(1);
+    }
+  }
+  const verifyCore = spawnSync(process.execPath, ['--input-type=module', '-e',
+    "await Promise.all([import('@modelcontextprotocol/sdk/client/index.js'), import('mammoth'), import('pdf-parse')]);"], {
+    cwd: vendorBuild,
+    env: vendorEnv,
+    stdio: 'inherit',
+  });
+  if (verifyCore.status !== 0) {
+    console.error('publish: vendored core dependencies failed the runtime load check — aborting.');
+    process.exit(verifyCore.status ?? 1);
   }
   const vendorDst = path.join(appDir, 'nm');
   if (existsSync(vendorDst)) rmSync(vendorDst, { recursive: true, force: true });
@@ -270,6 +286,8 @@ if (!skipVendor) {
   console.log('publish: vendored core node_modules -> stage/app/nm (offline install)');
 } else {
   console.log('publish: --no-vendor-node-modules — offline core deps NOT bundled (install needs network)');
+  const onlineMarker = path.join(appDir, 'tools', 'install', 'ALLOW-ONLINE-CORE-DEPS');
+  writeFileSync(onlineMarker, 'developer/slim package explicitly allows online core dependency install\n', 'utf8');
 }
 
 const deployDefaultsPath = path.join(appDir, 'core', 'config', 'defaults', 'deploy-defaults.json');
@@ -423,7 +441,7 @@ install 시 필수 다운로드 (인터넷 필요 · 모든 PC 동일 런타임 
 관리자: docs/DEPLOY.md — 활성화 서버 + allowlist
 `;
 writeFileSync(path.join(appDir, 'README-설치.txt'), readme, 'utf8');
-cpSync(path.join(root, 'install.bat'), path.join(stageDir, 'install.bat'));
+cpSync(path.join(root, 'tools', 'install', 'install.bat'), path.join(stageDir, 'install.bat'));
 const koreanInstall = path.join(root, '설치.bat');
 if (existsSync(koreanInstall)) {
   cpSync(koreanInstall, path.join(stageDir, '설치.bat'));
@@ -461,20 +479,25 @@ if (process.platform === 'win32') {
   process.exit(1);
 }
 
+const verifyArgs = [
+  path.join(root, 'tools', 'verify-publish-bundle.mjs'),
+  '--app-dir',
+  appDir,
+  '--zip-path',
+  zipPath,
+];
+if (skipNode) verifyArgs.push('--no-node');
+if (nodeDeferred) verifyArgs.push('--node-mode=deferred');
+if (skipVendor) verifyArgs.push('--no-vendor-node-modules');
+const verify = spawnSync(process.execPath, verifyArgs, { cwd: root, stdio: 'inherit' });
+if (verify.status !== 0) process.exit(verify.status ?? 1);
+
+// Update the latest pointer only after the actual archive—not merely stage/app—
+// has passed the root/app/offline-dependency inventory contract.
 if (slimZip) {
   writeFileSync(path.join(outDir, 'LATEST_SLIM_INSTALL_ZIP.txt'), zipPath + '\n');
 } else {
   writeFileSync(path.join(outDir, 'LATEST_INSTALL_ZIP.txt'), zipPath + '\n');
 }
-
-const verifyArgs = [
-  path.join(root, 'tools', 'verify-publish-bundle.mjs'),
-  '--app-dir',
-  appDir,
-];
-if (skipNode) verifyArgs.push('--no-node');
-if (nodeDeferred) verifyArgs.push('--node-mode=deferred');
-const verify = spawnSync(process.execPath, verifyArgs, { cwd: root, stdio: 'inherit' });
-if (verify.status !== 0) process.exit(verify.status ?? 1);
 
 console.log('Published ->', zipPath);

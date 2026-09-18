@@ -1151,9 +1151,19 @@ async function executeAgentToolInner(
       }
       case 'browser_targets': {
         const bridge = getVisibleBrowserBridge();
-        const visible = bridge?.isConnected()
-          ? await bridge.request('targets')
-          : { id: 'visible-browser', kind: 'visible', connected: false, available: false };
+        let visible: Record<string, unknown> = {
+          id: 'visible-browser', kind: 'visible', connected: false, available: false,
+        };
+        if (bridge?.isConnected()) {
+          try {
+            visible = await bridge.request('targets');
+          } catch (error) {
+            visible = {
+              id: 'visible-browser', kind: 'visible', available: false,
+              ...bridge.status(), error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
         const isolated = {
           id: 'isolated-browser', kind: 'isolated', connected: Boolean(ctx?.browserSession),
         };

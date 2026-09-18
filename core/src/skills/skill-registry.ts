@@ -34,6 +34,18 @@ function userSkillStore(cqrRoot:string):UserSkillStore{return new UserSkillStore
 export function listBundledSkills():SkillListItem[]{return Object.entries(loadManifest().skills).map(([id,def])=>({id,label:def.label,mode:def.mode,source:'bundled',editable:false,feature:def.feature}));}
 function organizationSkills(cqrRoot:string):SkillListItem[]{return listOrganizationSkillDefs(cqrRoot).map(({id,def})=>({id,label:def.label,mode:def.mode,source:'organization',editable:false,feature:def.feature,selectable:def.user_selectable===true,selector_group:def.selector_group,selector_order:def.selector_order,description:def.selector_description}));}
 export function listAllSkills(cqrRoot:string):SkillListItem[]{const user=userSkillStore(cqrRoot).list().map(rec=>({id:rec.id,label:rec.label,mode:userSkillMode(rec.id),source:'user' as const,editable:rec.install_kind!=='package',removable:true,install_kind:rec.install_kind??'prompt',description:rec.description,file_count:rec.file_count}));return [...listBundledSkills(),...user,...organizationSkills(cqrRoot)];}
-export function listSelectableOrganizationSkills(cqrRoot:string):SkillListItem[]{return organizationSkills(cqrRoot).filter(s=>s.selectable).sort((a,b)=>(a.selector_order??Number.MAX_SAFE_INTEGER)-(b.selector_order??Number.MAX_SAFE_INTEGER));}
+export function listSelectableSkills(cqrRoot:string):SkillListItem[]{
+  const store=userSkillStore(cqrRoot);
+  const user=store.list()
+    .filter(rec=>store.readPrompt(rec.id)!==null)
+    .map(rec=>({id:rec.id,label:rec.label,mode:userSkillMode(rec.id),source:'user' as const,editable:rec.install_kind!=='package',removable:true,install_kind:rec.install_kind??'prompt',description:rec.description,file_count:rec.file_count,selectable:true,selector_group:'사용자 스킬'}))
+    .sort((a,b)=>a.label.localeCompare(b.label,'ko'));
+  const organization=organizationSkills(cqrRoot)
+    .filter(s=>s.selectable)
+    .sort((a,b)=>(a.selector_order??Number.MAX_SAFE_INTEGER)-(b.selector_order??Number.MAX_SAFE_INTEGER)||a.label.localeCompare(b.label,'ko'));
+  return [...user,...organization];
+}
+/** @deprecated Use listSelectableSkills; the endpoint includes user and organization skills. */
+export function listSelectableOrganizationSkills(cqrRoot:string):SkillListItem[]{return listSelectableSkills(cqrRoot);}
 export function isBundledSkillId(id:string):boolean{return getSkillDef(id)!==null;}
 export function getSkillSystemPromptByMode(mode:string,cqrRoot:string,opts?:{tier?:'slim'|'full'}):string|null { if(isUserSkillMode(mode)){const id=parseUserSkillId(mode);return id?userSkillStore(cqrRoot).readPrompt(id):null;} const orgId=parseOrgSkillId(mode); if(orgId){const def=getOrganizationSkillDef(orgId,cqrRoot);if(!def)return null;const {parts}=loadSkillPromptParts(def as SkillDef,cqrRoot);return parts.length?parts.join('\n\n---\n\n').slice(0,MAX_PROMPT_CHARS):null;} const id=skillIdForMode(mode);return id?getSkillSystemPrompt(id,cqrRoot,opts):null; }

@@ -12,6 +12,14 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
+export type VisibleBrowserBridgeStatus = {
+  connected: boolean;
+  degraded: boolean;
+  consecutive_timeouts: number;
+  last_timeout_at: string | null;
+  restart_hint: string | null;
+};
+
 type LockState = { owner: string; expiresAt: number };
 
 function pipePath(port: number): string {
@@ -28,8 +36,10 @@ export class VisibleBrowserBridge {
   private pending = new Map<string, PendingRequest>();
   /** One lease per visible tab. A missing tab id resolves to DEFAULT_VISIBLE_TAB. */
   private locks = new Map<string, LockState>();
+  private consecutiveTimeouts = 0;
+  private lastTimeoutAt: string | null = null;
 
-  constructor(private readonly port: number) {}
+  constructor(private readonly port: number, private readonly requestTimeoutMs = REQUEST_TIMEOUT_MS) {}
 
   start(): void {
     if (this.server) return;
@@ -48,6 +58,18 @@ export class VisibleBrowserBridge {
 
   isConnected(): boolean {
     return this.socket !== null && !this.socket.destroyed;
+  }
+
+  status(): VisibleBrowserBridgeStatus {
+    const connected = this.isConnected();
+    const degraded = connected && this.consecutiveTimeouts > 0;
+    return {
+      connected,
+      degraded,
+      consecutive_timeouts: this.consecutiveTimeouts,
+      last_timeout_at: this.lastTimeoutAt,
+      restart_hint: degraded ? '브라우저가 응답하지 않습니다. MY Agent 창을 다시 시작해 주세요.' : null,
+    };
   }
 
   private tabKey(tabId?: string): string {
@@ -111,8 +133,14 @@ export class VisibleBrowserBridge {
     return new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`VISIBLE_BROWSER_TIMEOUT:${action}`));
-      }, REQUEST_TIMEOUT_MS);
+        this.consecutiveTimeouts += 1;
+        this.lastTimeoutAt = new Date().toISOString();
+        if (this.socket === socket && !socket.destroyed) {
+          socket.write(`${JSON.stringify({ type: 'cancel', id })}\n`);
+        }
+        const hint = this.consecutiveTimeouts >= 2 ? ':RESTART_SHELL' : '';
+        reject(new Error(`VISIBLE_BROWSER_TIMEOUT:${action}${hint}`));
+      }, this.requestTimeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       socket.write(`${JSON.stringify({ type: 'command', id, action, payload })}\n`, (error) => {
         if (!error) return;
@@ -158,8 +186,23 @@ export class VisibleBrowserBridge {
         if (!pending) continue;
         clearTimeout(pending.timer);
         this.pending.delete(message.id);
-        if (message.ok) pending.resolve(message.result ?? {});
-        else pending.reject(new Error(message.error || 'VISIBLE_BROWSER_COMMAND_FAILED'));
+        if (message.ok) {
+          this.consecutiveTimeouts = 0;
+          this.lastTimeoutAt = null;
+          pending.resolve(message.result ?? {});
+        } else {
+          const shellError = message.error || 'VISIBLE_BROWSER_COMMAND_FAILED';
+          if (shellError === 'VISIBLE_BROWSER_COMMAND_TIMEOUT'
+            || shellError === 'VISIBLE_BROWSER_PREVIOUS_COMMAND_STILL_RUNNING') {
+            this.consecutiveTimeouts += 1;
+            this.lastTimeoutAt = new Date().toISOString();
+          } else {
+            this.consecutiveTimeouts = 0;
+            this.lastTimeoutAt = null;
+          }
+          const hint = this.consecutiveTimeouts >= 2 ? ':RESTART_SHELL' : '';
+          pending.reject(new Error(`${shellError}${hint}`));
+        }
       } catch {
         // Ignore malformed shell messages without dropping the transport.
       }
@@ -177,6 +220,8 @@ export class VisibleBrowserBridge {
     }
     this.pending.clear();
     this.locks.clear();
+    this.consecutiveTimeouts = 0;
+    this.lastTimeoutAt = null;
   }
 }
 

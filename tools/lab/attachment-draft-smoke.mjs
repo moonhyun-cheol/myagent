@@ -16,6 +16,15 @@ import {ChatPane} from '/src/components/ChatPane.tsx';
 import {ImagePreviewModal} from '/src/components/ImagePreviewModal.tsx';
 import {useWorkspaceStore as store} from '/src/store/workspaceStore.ts';
 import '/src/index.css';
+const shellListeners=new Set();
+window.shellPosts=[];
+window.chrome=window.chrome||{};
+window.chrome.webview={
+  addEventListener(type,listener){if(type==='message')shellListeners.add(listener);},
+  removeEventListener(type,listener){if(type==='message')shellListeners.delete(listener);},
+  postMessage(message){window.shellPosts.push(message);},
+};
+window.emitShellMessage=data=>{for(const listener of shellListeners)listener({data});};
 window.testStore=store;
 store.setState({licenseMode:'full',apiOnline:true,activeSessionId:'A'});
 localStorage.setItem('my-agent-workspace-session','A');
@@ -86,8 +95,20 @@ try {
   const waitForCount=async(get,n)=>{for(let i=0;i<240&&get().length<n;i++)await new Promise(r=>setTimeout(r,50));assert.equal(get().length,n);};
   const input=page.locator('textarea').first();
   await input.fill('A text draft');
+  const compactInputHeight=await input.evaluate(node=>node.getBoundingClientRect().height);
+  await input.fill(Array.from({length:12},(_,index)=>`line ${index+1}`).join('\n'));
+  await page.waitForFunction(base=>document.querySelector('textarea')?.getBoundingClientRect().height>base,compactInputHeight);
+  assert((await input.evaluate(node=>node.getBoundingClientRect().height))<=240,'composer input growth is capped');
+  await input.fill('A text draft');
   await page.locator('input[type=file]').setInputFiles([{name:'image.png',mimeType:'image/png',buffer:png},{name:'note.txt',mimeType:'text/plain',buffer:Buffer.from('fixture')}]);
   await page.waitForFunction(()=>testStore.getState().pendingAttachments.length===2);
+  await page.evaluate(()=>{
+    const current=testStore.getState().pendingAttachments;
+    window.originalPending=current;
+    testStore.setState({pendingAttachments:[...current,{id:'duplicate-preview',name:'image.png',mime:'image/png',previewUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='}]});
+  });
+  await page.getByText('image_1.png',{exact:true}).waitFor();await page.getByText('image_2.png',{exact:true}).waitFor();
+  await page.evaluate(()=>testStore.setState({pendingAttachments:window.originalPending}));
   const aIds=await ids();assert.equal(uploads[0].sid,'A');
   await switchTo('B');assert.deepEqual(await ids(),[]);await input.fill('B text draft');
   await upload('B.txt');const bIds=await ids();
@@ -98,6 +119,10 @@ try {
   const modal=page.getByRole('dialog',{name:'이미지 미리보기'});await modal.waitFor();
   assert((await modal.locator('img').getAttribute('src')).includes('session=A'));
   await modal.getByRole('button',{name:'닫기',exact:true}).click();
+  const thumbBox=await page.getByRole('img',{name:'image.png',exact:true}).boundingBox();
+  assert.equal(Math.round(thumbBox?.width??0),40);assert.equal(Math.round(thumbBox?.height??0),40);
+  assert.equal(await page.getByRole('img',{name:'image.png',exact:true}).evaluate(node=>getComputedStyle(node).objectFit),'cover');
+  assert.equal(await page.getByRole('button',{name:'파일 첨부'}).evaluate(node=>getComputedStyle(node).borderStyle),'none');
   await switchTo('A');assert.deepEqual(await ids(),aIds,'reselecting same chat retains draft');
   await page.evaluate(()=>testStore.getState().clearActiveChat());assert.deepEqual(await ids(),[]);
   await switchTo('A');assert.deepEqual(await ids(),aIds);
@@ -106,7 +131,7 @@ try {
   assert.deepEqual(deletes,[],'navigation never deletes server attachments');
 
   // Only explicit removal clears the selected draft, never another session's files.
-  await switchTo('A');await page.getByRole('button',{name:'첨부 제거',exact:true}).first().click();
+  await switchTo('A');await page.getByRole('button',{name:/첨부 제거$/}).first().click();
   await waitForCount(()=>deletes,1);assert.deepEqual(deletes[0],{id:aIds[0],sid:'A'});
   await switchTo('B');assert.deepEqual(await ids(),bIds);
   await switchTo('A');assert.deepEqual(await ids(),[aIds[1]]);
@@ -122,6 +147,23 @@ try {
   const beforeFailure=await ids();failUpload=true;
   assert.equal(await page.evaluate(async()=>{try{await testStore.getState().uploadFiles([new File(['x'],'bad.txt')]);return false;}catch{return true;}}),true);
   failUpload=false;assert.deepEqual(await ids(),beforeFailure);
+
+  // Long queued requests stay compact, can be inspected on demand, and never cover the composer.
+  const longQueuedText=Array.from({length:24},(_,index)=>`${index+1}. 대기 요청 상세 내용이 길어져도 기본 화면은 세 줄까지만 표시합니다.`).join('\n');
+  await page.evaluate(text=>testStore.setState({messageQueue:[{
+    id:'long-queue-fixture',sessionId:'A',text,attachmentIds:[],attachmentNames:[],contextPaths:[],createdAt:new Date().toISOString(),
+  }]}),longQueuedText);
+  const queue=page.getByTestId('message-queue');await queue.waitFor();
+  const queuedParagraph=queue.locator('p').first();
+  assert((await queuedParagraph.boundingBox()).height<=64,'queued request preview must be clamped to three lines');
+  const compactQueueHeight=(await queue.boundingBox()).height;
+  assert(compactQueueHeight<=260,'queue panel must not cover the conversation');
+  await queue.getByRole('button',{name:'전체 보기',exact:true}).click();
+  assert((await queuedParagraph.boundingBox()).height>64,'full queued request must expand on demand');
+  assert((await queue.boundingBox()).height<=260,'expanded request stays inside the scroll-capped queue panel');
+  await queue.getByRole('button',{name:'접기',exact:true}).click();
+  assert((await queuedParagraph.boundingBox()).height<=64,'queued request can be collapsed again');
+  await page.evaluate(()=>testStore.setState({messageQueue:[]}));
 
   // Send consumes attachments only from A. New draft survives queued-message dispatch.
   await page.evaluate(()=>testStore.getState().sendAiMessage('send A'));
@@ -152,6 +194,37 @@ try {
   assert.equal(await page.evaluate(()=>testStore.getState().activeSessionId),'B');
   assert.equal(await page.evaluate(()=>localStorage.getItem('my-agent-workspace-session')),'B');assert.deepEqual(await ids(),bIds);
   await switchTo(lateSid);assert.equal((await ids()).length,1);assert.equal(uploads.at(-1).sid,lateSid);
+
+  // Native Explorer drops are accepted only over the composer and adopted into its owning chat.
+  await switchTo('A');
+  const composer=page.locator('.chat-composer');
+  const bounds=await composer.boundingBox();assert(bounds&&bounds.width<=770,'composer stays readable on a wide window');
+  // Browser-side and internal drags still use standard DOM File objects. Verify that
+  // non-image formats share the same attachment path as the installed shell bridge.
+  await composer.evaluate(node=>{
+    const transfer=new DataTransfer();
+    transfer.items.add(new File(['pdf'],'report.pdf',{type:'application/pdf'}));
+    transfer.items.add(new File(['xlsx'],'table.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+    transfer.items.add(new File(['text'],'notes.txt',{type:'text/plain'}));
+    node.dispatchEvent(new DragEvent('dragenter',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+    node.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+    node.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
+  });
+  await page.waitForFunction(()=>document.body.textContent?.includes('report.pdf')&&document.body.textContent?.includes('table.xlsx')&&document.body.textContent?.includes('notes.txt'));
+  assert.deepEqual(uploads.at(-1)?.names,['report.pdf','table.xlsx','notes.txt']);
+
+  // The installed shell owns Explorer OLE drops and asks the composer to accept them.
+  const ratios={xRatio:(bounds.x+bounds.width/2)/1100,yRatio:(bounds.y+bounds.height/2)/900};
+  await page.evaluate(point=>emitShellMessage({type:'composer.externalDrop',phase:'dragging',...point}),ratios);
+  await page.locator('.composer-dropzone').waitFor();
+  await page.evaluate(point=>emitShellMessage({type:'composer.externalDrop',phase:'request',requestId:'native-in',...point}),ratios);
+  await page.waitForFunction(()=>shellPosts.some(item=>item.type==='composer.externalDrop.accept'&&item.requestId==='native-in'&&item.sessionId==='A'));
+  await page.evaluate(()=>emitShellMessage({type:'composer.externalDrop',phase:'completed',requestId:'native-in',detail:{sessionId:'A',attachments:[{id:'native-file',name:'native.txt',mime:'text/plain'}]}}));
+  await page.getByText('native.txt',{exact:true}).waitFor();
+  await page.evaluate(()=>emitShellMessage({type:'composer.externalDrop',phase:'dragging',xRatio:.01,yRatio:.01}));
+  assert.equal(await page.locator('.composer-dropzone').count(),0,'drop overlay is composer-local');
+  await page.evaluate(()=>emitShellMessage({type:'composer.externalDrop',phase:'request',requestId:'native-out',xRatio:.01,yRatio:.01}));
+  await page.waitForFunction(()=>shellPosts.some(item=>item.type==='composer.externalDrop.reject'&&item.requestId==='native-out'));
   assert.equal(deletes.length,1);assert.deepEqual(errors,[]);
-  console.log('PASS: real composer retains text/files across A/B, same-chat, clear/new chat, preview, explicit removal, refresh/upload failure, in-flight switching, send, queue/new-draft isolation, first-session parallel upload and late creation. HTTP/LLM fixtures; no installed-app or restart persistence claim.');
+  console.log('PASS: real composer retains text/files across A/B, accepts PDF/XLSX/TXT through the shared attachment path, accepts the primary shell handoff, keeps compact 40px image previews, borderless tools, readable width, same-chat, clear/new chat, preview, explicit removal, refresh/upload failure, in-flight switching, send, queue/new-draft isolation, first-session parallel upload and late creation. HTTP/LLM fixtures; the shell contract separately verifies Windows Explorer OLE ownership.');
 } finally {await browser?.close();await server.close();}

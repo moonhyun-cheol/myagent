@@ -38,9 +38,13 @@ assert.match(browserPane, /제어 가져오기/, 'browser pane must expose the t
 assert.match(browserPane, /원래 탭으로/, 'browser pane must expose the observation return action');
 assert.doesNotMatch(shellAutomation, /\bWebView\.CoreWebView2\b/, 'workspace WebView must never be an automation target');
 assert.match(shellClient, /my-agent-visible-browser-\{port\}/, 'shell and core must share the private pipe naming contract');
+assert.match(shellClient, /messageType == "cancel"/, 'shell must accept core cancellation messages');
+assert.match(shellClient, /VISIBLE_BROWSER_COMMAND_TIMEOUT/, 'shell commands must have a bounded execution time');
+assert.match(shellClient, /_writerGate/, 'concurrent shell responses must serialize pipe writes');
+assert.match(shellAutomation, /BrowserAutomationCachedState/, 'targets must use a dispatcher-independent state cache');
 
 const port = 30_000 + (process.pid % 20_000);
-const bridge = new VisibleBrowserBridge(port);
+const bridge = new VisibleBrowserBridge(port, 200);
 bridge.start();
 const pipePath = process.platform === 'win32'
   ? `\\\\.\\pipe\\my-agent-visible-browser-${port}`
@@ -62,6 +66,8 @@ const connect = async () => {
 
 const socket = await connect();
 let buffer = '';
+const cancelled = new Set();
+let hangingId = '';
 socket.setEncoding('utf8');
 socket.on('data', (chunk) => {
   buffer += chunk;
@@ -71,6 +77,18 @@ socket.on('data', (chunk) => {
     buffer = buffer.slice(index + 1);
     if (!line) continue;
     const command = JSON.parse(line);
+    if (command.type === 'cancel') {
+      cancelled.add(command.id);
+      continue;
+    }
+    if (command.action === 'hang') {
+      hangingId = command.id;
+      continue;
+    }
+    if (command.action === 'shell-timeout') {
+      socket.write(`${JSON.stringify({ type: 'result', id: command.id, ok: false, error: 'VISIBLE_BROWSER_COMMAND_TIMEOUT' })}\n`);
+      continue;
+    }
     socket.write(`${JSON.stringify({ type: 'result', id: command.id, ok: true, result: { action: command.action } })}\n`);
   }
 });
@@ -93,6 +111,22 @@ assert.deepEqual(bridge.unlockFor('session-a'), { unlocked: true, tab_id: 'main'
 assert.throws(() => bridge.assertLockedBy('session-a'), /VISIBLE_BROWSER_LOCK_REQUIRED/);
 assert.deepEqual(bridge.unlockFor('session-b', 'tab-2'), { unlocked: true, tab_id: 'tab-2' });
 assert.throws(() => bridge.assertLockedBy('session-b', 'tab-2'), /VISIBLE_BROWSER_LOCK_REQUIRED/);
+
+await assert.rejects(bridge.request('shell-timeout'), /VISIBLE_BROWSER_COMMAND_TIMEOUT/);
+assert.equal(bridge.status().degraded, true, 'a shell-side timeout must mark the bridge as degraded');
+assert.deepEqual(await bridge.request('targets'), { action: 'targets' });
+assert.equal(bridge.status().degraded, false, 'a successful health response must clear shell-side degradation');
+
+await assert.rejects(bridge.request('hang'), /VISIBLE_BROWSER_TIMEOUT:hang/);
+for (let attempt = 0; attempt < 30 && !cancelled.has(hangingId); attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.ok(hangingId, 'the hanging command id must be observed');
+assert.ok(cancelled.has(hangingId), 'core timeout must send a shell cancellation message');
+assert.equal(bridge.status().degraded, true, 'a timeout must mark the live transport as degraded');
+assert.match(bridge.status().restart_hint ?? '', /다시 시작/, 'degraded state must include a restart hint');
+assert.deepEqual(await bridge.request('targets'), { action: 'targets' });
+assert.equal(bridge.status().degraded, false, 'a later shell response must clear degraded state');
 
 socket.destroy();
 bridge.stop();

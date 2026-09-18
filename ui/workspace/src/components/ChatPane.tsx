@@ -33,7 +33,7 @@ import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import {
-  listSelectableOrganizationSkills,
+  listSelectableSkills,
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
@@ -105,6 +105,19 @@ function isVideoAttachment(mime?: string, name?: string): boolean {
   if (mime?.startsWith('video/')) return true;
   if (!name) return false;
   return /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg)$/i.test(name);
+}
+
+function indexedAttachmentName(name: string, ordinal: number, total: number): string {
+  if (total < 2) return name;
+  const dot = name.lastIndexOf('.');
+  return dot > 0
+    ? `${name.slice(0, dot)}_${ordinal}${name.slice(dot)}`
+    : `${name}_${ordinal}`;
+}
+
+function queuedMessageNeedsExpansion(text: string, attachmentNames: string[]): boolean {
+  const content = text || attachmentNames.join(', ');
+  return content.length > 240 || content.split(/\r?\n/).length > 3;
 }
 
 /** http(s) URLs, or bare www./amazon. hosts commonly pasted into chat. */
@@ -297,6 +310,9 @@ export function ChatPane() {
   const activeFileId = useWorkspaceStore((s) => s.activeFileId);
   const files = useWorkspaceStore((s) => s.files);
   const uploadFiles = useWorkspaceStore((s) => s.uploadFiles);
+  const acceptExternalFileDrop = useWorkspaceStore((s) => s.acceptExternalFileDrop);
+  const rejectExternalFileDrop = useWorkspaceStore((s) => s.rejectExternalFileDrop);
+  const adoptExternalFileDrop = useWorkspaceStore((s) => s.adoptExternalFileDrop);
   const attachAssetToComposer = useWorkspaceStore((s) => s.attachAssetToComposer);
   const skillMode = useWorkspaceStore((s) => s.skillMode);
   const skillLabel = useWorkspaceStore((s) => s.skillLabel);
@@ -307,6 +323,7 @@ export function ChatPane() {
   const [draft, setDraft] = useState('');
   const [editingQueueId, setEditingQueueId] = useState<string | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
+  const [expandedQueueIds, setExpandedQueueIds] = useState<Set<string>>(() => new Set());
   // 세션별 입력 초안 분리: 미전송 초안이 다른 채팅으로 전환할 때 따라가지 않도록
   // 세션 id별로 보관하고, 전환 시 해당 세션의 초안을 복원한다.
   const draftsBySessionRef = useRef<Map<string, string>>(new Map());
@@ -331,6 +348,22 @@ export function ChatPane() {
   const composerFocusNonce = useWorkspaceStore((s) => s.composerFocusNonce);
   const clearComposerPrefill = useWorkspaceStore((s) => s.clearComposerPrefill);
   const draftInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const resizeDraftInput = useCallback(() => {
+    const input = draftInputRef.current;
+    if (!input) return;
+    input.style.height = '0px';
+    const nextHeight = Math.min(240, Math.max(56, input.scrollHeight));
+    input.style.height = `${nextHeight}px`;
+    input.style.overflowY = input.scrollHeight > 240 ? 'auto' : 'hidden';
+  }, []);
+  useLayoutEffect(() => resizeDraftInput(), [draft, resizeDraftInput]);
+  useEffect(() => {
+    const input = draftInputRef.current;
+    if (!input || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(resizeDraftInput);
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [resizeDraftInput]);
   useEffect(() => {
     if (!composerFocusNonce || composerPrefill == null) return;
     setDraft((prev) => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n${composerPrefill}` : composerPrefill));
@@ -346,6 +379,53 @@ export function ChatPane() {
   const policyId = useId();
   const policyRef = useRef<HTMLDivElement>(null);
   const policyTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+  const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
+  const selectedModelLabel = modelOptions.find((model) => model.id === selectedModel)?.label
+    ?? (selectedModel || '모델 없음');
+  const closeModelPicker = (restoreFocus = true) => {
+    setModelPickerOpen(false);
+    if (restoreFocus) modelPickerTriggerRef.current?.focus();
+  };
+  useAnchoredOverlay({
+    open: modelPickerOpen,
+    anchorRef: modelPickerTriggerRef,
+    overlayRef: modelPickerRef,
+    maxHeight: 360,
+  });
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const panel = modelPickerRef.current;
+    const focusFrame = requestAnimationFrame(() => {
+      const selected = panel?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]');
+      (selected ?? panel?.querySelector<HTMLButtonElement>('[role="option"]') ?? panel)?.focus();
+      selected?.scrollIntoView({ block: 'nearest' });
+    });
+    const dismissOutside = (event: Event) => {
+      const node = event.target as Node;
+      if (!panel?.contains(node) && !modelPickerTriggerRef.current?.contains(node)) setModelPickerOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      closeModelPicker();
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('focusin', dismissOutside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('focusin', dismissOutside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [modelPickerOpen]);
+  const chooseModel = (model: string) => {
+    if (busy) return;
+    void setSelectedModel(model);
+    closeModelPicker();
+  };
   const [policySaving, setPolicySaving] = useState(false);
   const policySavingRef = useRef(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
@@ -355,6 +435,7 @@ export function ChatPane() {
     policyTriggerRef.current = event.currentTarget;
     policyEpochRef.current += 1;
     setPolicyError(null);
+    setModelPickerOpen(false);
     setPolicyTarget(target);
     setPolicyOpen((open) => !open || !sameTrigger);
   };
@@ -400,9 +481,11 @@ export function ChatPane() {
   useEffect(() => {
     if (!policyOpen) return;
     const panel = policyRef.current;
-    const target = panel?.querySelector<HTMLButtonElement | HTMLSelectElement>('button[aria-checked="true"]:not(:disabled), select:not(:disabled)')
-      ?? panel?.querySelector<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)');
-    (target && !target.disabled ? target : panel)?.focus();
+    const focusFrame = requestAnimationFrame(() => {
+      const target = panel?.querySelector<HTMLButtonElement | HTMLSelectElement>('button[aria-checked="true"]:not(:disabled), select:not(:disabled)')
+        ?? panel?.querySelector<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)');
+      (target && !target.disabled ? target : panel)?.focus();
+    });
     const dismissOutside = (event: Event) => {
       const node = event.target as Node;
       if (!panel?.contains(node) && !policyTriggerRef.current?.contains(node)) {
@@ -421,6 +504,7 @@ export function ChatPane() {
     document.addEventListener('focusin', dismissOutside);
     document.addEventListener('keydown', escape);
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener('pointerdown', dismissOutside);
       document.removeEventListener('focusin', dismissOutside);
       document.removeEventListener('keydown', escape);
@@ -472,6 +556,7 @@ export function ChatPane() {
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const conversationDisplay = useConversationDisplayPreferences();
   const [selectableSkills, setSelectableSkills] = useState<SkillListItem[]>([]);
+  const [staleSkillNotice, setStaleSkillNotice] = useState<string | null>(null);
   const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: string; title: string; path: string }>>([]);
   const [projectOptions, setProjectOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [workspaceTreeProjectIds, setWorkspaceTreeProjectIds] = useState<string[]>([]);
@@ -535,16 +620,26 @@ export function ChatPane() {
 
   useEffect(() => {
     let cancelled = false;
-    void listSelectableOrganizationSkills().then((skills) => { if (!cancelled) setSelectableSkills(skills); }).catch(() => { if (!cancelled) setSelectableSkills([]); });
-    const onFocus = () => {
-      void listSelectableOrganizationSkills().then((skills) => { if (!cancelled) setSelectableSkills(skills); }).catch(() => {});
+    const refreshSkills = () => {
+      void listSelectableSkills().then((skills) => {
+        if (cancelled) return;
+        setSelectableSkills(skills);
+        if (skillMode && /^(?:user|org):/.test(skillMode) && !skills.some((skill) => skill.mode === skillMode)) {
+          setStaleSkillNotice(`「${skillLabel ?? skillMode}」 스킬이 제거되었거나 사용할 수 없어 해제했습니다.`);
+          setSkillMode(null);
+        }
+      }).catch(() => {
+        // Keep the last known list on transient API failures; do not invalidate an active skill.
+      });
     };
+    refreshSkills();
+    const onFocus = () => refreshSkills();
     window.addEventListener('focus', onFocus);
     return () => {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
     };
-  }, []);
+  }, [skillPickerOpen, skillMode, skillLabel, setSkillMode]);
 
   useEffect(() => {
     setMessageReferences([]);
@@ -1023,25 +1118,103 @@ export function ChatPane() {
     [attachAssetToComposer, flashPasteHint, ingestFiles],
   );
 
-  // Bind native capture listeners directly to the pane. React's delegated drag
-  // handlers can be bypassed by nested editors/WebView content that consumes the
-  // native event first; the clip button does not traverse this external-drop path.
+  // Browser tests and internal workspace drags arrive as DOM File objects here.
+  // Installed-app Explorer drops use the shell bridge below because CompositionControl
+  // does not expose OLE files consistently across WebView2 runtime versions.
   useEffect(() => {
-    const pane = chatPaneRef.current;
-    if (!pane) return;
-    pane.addEventListener('dragenter', onComposerDragEnter, true);
-    pane.addEventListener('dragleave', onComposerDragLeave, true);
-    pane.addEventListener('dragover', onComposerDragOver, true);
-    pane.addEventListener('drop', onComposerDrop, true);
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.addEventListener('dragenter', onComposerDragEnter, true);
+    composer.addEventListener('dragleave', onComposerDragLeave, true);
+    composer.addEventListener('dragover', onComposerDragOver, true);
+    composer.addEventListener('drop', onComposerDrop, true);
     return () => {
-      pane.removeEventListener('dragenter', onComposerDragEnter, true);
-      pane.removeEventListener('dragleave', onComposerDragLeave, true);
-      pane.removeEventListener('dragover', onComposerDragOver, true);
-      pane.removeEventListener('drop', onComposerDrop, true);
+      composer.removeEventListener('dragenter', onComposerDragEnter, true);
+      composer.removeEventListener('dragleave', onComposerDragLeave, true);
+      composer.removeEventListener('dragover', onComposerDragOver, true);
+      composer.removeEventListener('drop', onComposerDrop, true);
     };
   }, [onComposerDragEnter, onComposerDragLeave, onComposerDragOver, onComposerDrop]);
 
+  useEffect(() => {
+    const webview = (window as unknown as {
+      chrome?: { webview?: {
+        addEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void;
+        removeEventListener: (type: 'message', listener: (event: { data: unknown }) => void) => void;
+      } };
+    }).chrome?.webview;
+    if (!webview) return;
+    const onMessage = (event: { data: unknown }) => {
+      const message = event.data as {
+        type?: string;
+        phase?: string;
+        requestId?: string;
+        xRatio?: number;
+        yRatio?: number;
+        detail?: { sessionId?: string; message?: string; attachments?: Array<{ id?: string; name?: string; mime?: string }> };
+      };
+      if (message?.type !== 'composer.externalDrop') return;
+      const pointTargetsComposer = () => {
+        const composer = composerRef.current;
+        if (!composer || typeof message.xRatio !== 'number' || typeof message.yRatio !== 'number') return true;
+        const x = message.xRatio * window.innerWidth;
+        const y = message.yRatio * window.innerHeight;
+        const bounds = composer.getBoundingClientRect();
+        return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom;
+      };
+      if (message.phase === 'dragging') {
+        setDragActive(pointTargetsComposer());
+        return;
+      }
+      if (message.phase === 'idle') {
+        setDragActive(false);
+        return;
+      }
+      if (message.phase === 'request' && message.requestId) {
+        setDragActive(false);
+        if (!pointTargetsComposer()) {
+          rejectExternalFileDrop(message.requestId);
+          return;
+        }
+        setPasting(true);
+        void acceptExternalFileDrop(message.requestId).catch((error) => {
+          rejectExternalFileDrop(message.requestId!);
+          setPasting(false);
+          flashPasteHint(error instanceof Error ? error.message : String(error));
+        });
+        return;
+      }
+      if (message.phase === 'completed' && message.detail?.sessionId) {
+        const uploaded = (message.detail.attachments ?? []).flatMap((item) =>
+          item.id ? [{ id: item.id, name: item.name ?? 'file', mime: item.mime }] : []);
+        adoptExternalFileDrop(message.detail.sessionId, uploaded);
+        setPasting(false);
+        return;
+      }
+      if (message.phase === 'failed') {
+        setDragActive(false);
+        setPasting(false);
+        flashPasteHint(message.detail?.message || '드롭한 파일을 업로드하지 못했습니다.');
+      }
+    };
+    webview.addEventListener('message', onMessage);
+    return () => webview.removeEventListener('message', onMessage);
+  }, [acceptExternalFileDrop, adoptExternalFileDrop, flashPasteHint, rejectExternalFileDrop]);
+
   const attachDisabled = pasting;
+
+  const attachmentDisplayNames = useMemo(() => {
+    const totals = new Map<string, number>();
+    const seen = new Map<string, number>();
+    for (const attachment of pendingAttachments) {
+      totals.set(attachment.name, (totals.get(attachment.name) ?? 0) + 1);
+    }
+    return pendingAttachments.map((attachment) => {
+      const ordinal = (seen.get(attachment.name) ?? 0) + 1;
+      seen.set(attachment.name, ordinal);
+      return indexedAttachmentName(attachment.name, ordinal, totals.get(attachment.name) ?? 1);
+    });
+  }, [pendingAttachments]);
 
   const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
 
@@ -1081,11 +1254,6 @@ export function ChatPane() {
       <SessionAttachmentGallery key={activeSessionId ?? 'none'} sessionId={activeSessionId}
         onOpen={(url, name) => openImagePreview({ src: url, title: name, prompt: '' })}
         onMenu={(e, url, name) => openImageMenu(e, url, name, '')} />
-      {dragActive ? (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-ink/75 text-sm font-medium text-accent">
-          파일을 여기에 놓으세요 (형식 제한 없음)
-        </div>
-      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -1165,46 +1333,89 @@ export function ChatPane() {
       ) : null}
       <div className="chat-settings-header" data-testid="chat-settings-header" role="group" aria-label="대화 설정">
         <div className="chat-model-control">
-        <select
-          aria-label="대화 모델"
-          data-testid="chat-model-select"
-          value={selectedModel}
-          disabled={busy}
-          onChange={(e) => {
-            void setSelectedModel(e.target.value);
-          }}
-          className="chat-model-select"
-          style={{ width: `${Math.min(30, Math.max(14, (modelOptions.find((m) => m.id === selectedModel)?.label ?? selectedModel).length + 5))}ch` }}
-          title={`${modelOptions.find((model) => model.id === selectedModel)?.label ?? (selectedModel || '모델 없음')}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
-        >
-          {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
-            <option value={selectedModel}>{selectedModel} · 현재 목록에 없음</option>
+          <button
+            type="button"
+            ref={modelPickerTriggerRef}
+            aria-label={`대화 모델: ${selectedModelLabel}`}
+            aria-haspopup="listbox"
+            aria-expanded={modelPickerOpen}
+            aria-controls={modelPickerOpen ? 'chat-model-listbox' : undefined}
+            data-testid="chat-model-select"
+            disabled={busy || pickerModels.length === 0}
+            onClick={() => {
+              setPolicyOpen(false);
+              setModelPickerOpen((open) => !open);
+            }}
+            className="chat-model-select"
+            style={{ width: `${Math.min(30, Math.max(14, selectedModelLabel.length + 5))}ch` }}
+            title={`${selectedModelLabel}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
+          >
+            <span>{selectedModelLabel}</span>
+            <CaretDown size={14} aria-hidden="true" className="chat-model-caret" />
+          </button>
+          {modelPickerOpen ? createPortal(
+            <div
+              id="chat-model-listbox"
+              ref={modelPickerRef}
+              role="listbox"
+              aria-label="대화 모델"
+              data-testid="chat-model-menu"
+              className="chat-model-menu"
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key === 'Tab') {
+                  setModelPickerOpen(false);
+                  return;
+                }
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)')];
+                if (!options.length) return;
+                const current = Math.max(0, options.indexOf(document.activeElement as HTMLButtonElement));
+                const next = event.key === 'Home' ? 0
+                  : event.key === 'End' ? options.length - 1
+                    : event.key === 'ArrowDown' ? Math.min(options.length - 1, current + 1)
+                      : Math.max(0, current - 1);
+                options[next]?.focus();
+                options[next]?.scrollIntoView({ block: 'nearest' });
+              }}
+            >
+              {!pickerModels.some((model) => model.id === selectedModel) && selectedModel ? (
+                <div className="chat-model-group">
+                  <p className="chat-model-group-label">현재</p>
+                  <button type="button" role="option" aria-selected="true" data-value={selectedModel}
+                    className="chat-model-option" onClick={() => chooseModel(selectedModel)}>
+                    {selectedModel} · 현재 목록에 없음
+                  </button>
+                </div>
+              ) : null}
+              {managedModels.length > 0 ? (
+                <div className="chat-model-group">
+                  <p className="chat-model-group-label">제공</p>
+                  {managedModels.map((model) => (
+                    <button key={model.id} type="button" role="option" aria-selected={model.id === selectedModel}
+                      data-value={model.id} className="chat-model-option" title={model.label}
+                      onClick={() => chooseModel(model.id)}>
+                      {model.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {byokModels.length > 0 ? (
+                <div className="chat-model-group">
+                  <p className="chat-model-group-label">개인 키</p>
+                  {byokModels.map((model) => (
+                    <button key={model.id} type="button" role="option" aria-selected={model.id === selectedModel}
+                      data-value={model.id} className="chat-model-option" title={model.label}
+                      onClick={() => chooseModel(model.id)}>
+                      {model.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>,
+            document.body,
           ) : null}
-          {pickerModels.length === 0 ? (
-            <option value="" disabled>
-              모델 없음 · 왼쪽 모델에서 키 등록
-            </option>
-          ) : null}
-          {managedModels.length > 0 ? (
-            <optgroup label="제공">
-              {managedModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-          {byokModels.length > 0 ? (
-            <optgroup label="개인 키">
-              {byokModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-        </select>
-        <CaretDown size={14} aria-hidden="true" className="chat-model-caret" />
         </div>
         <div className="chat-policy-controls" role="group" aria-label="실행 설정">
           <button type="button" data-testid="chat-execution-policy" className="chat-setting-control"
@@ -1593,8 +1804,8 @@ export function ChatPane() {
 
       <ContextMenuPortal menu={menu} onClose={close} />
 
-      <div className="chat-content-padding border-t border-line bg-panel px-5 py-4">
-        <div className="chat-content-width mx-auto max-w-2xl">
+      <div className="chat-content-padding bg-panel px-5 py-4">
+        <div className="chat-content-width composer-content-width mx-auto w-full max-w-2xl">
           {contextBudget && contextBudget.contextLength > 0 ? (
             <div
               className="mb-2 flex justify-end gap-3 text-[10px] tabular-nums text-muted"
@@ -1620,7 +1831,8 @@ export function ChatPane() {
           ) : null}
           <div
             ref={composerRef}
-            className={`chat-composer rounded-2xl border transition-colors ${
+            data-drag-active={dragActive}
+            className={`chat-composer relative rounded-2xl border transition-colors ${
               skillPickerOpen ? 'overflow-visible' : 'overflow-hidden'
             } ${
               dragActive
@@ -1628,8 +1840,13 @@ export function ChatPane() {
                 : 'border-line'
             }`}
           >
+            {dragActive ? (
+              <div className="composer-dropzone pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl" role="status">
+                <span>파일을 여기에 놓으세요</span>
+              </div>
+            ) : null}
             {messageReferences.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-3 pb-2 pt-2">
+              <div className="composer-meta-row flex flex-wrap gap-1.5 px-3 pb-1 pt-2">
                 {messageReferences.map((reference) => (
                   <div
                     key={reference.id}
@@ -1653,17 +1870,17 @@ export function ChatPane() {
               </div>
             ) : null}
             {pendingAttachments.length > 0 ? (
-              <div className="composer-attachments flex gap-2 overflow-x-auto px-3 pt-2 pb-1">
+              <div className="composer-attachments flex gap-2 overflow-x-auto px-3 pb-1 pt-2" aria-label="첨부 파일">
                 {pendingAttachments.map((a, index) => (
                   <div
                     key={a.id}
-                    className="group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-lg bg-panel-2 px-2 py-1"
+                    className="composer-attachment-card group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-lg px-1.5 py-1"
                   >
                     {isImageAttachment(a.mime, a.name) ? (
-                      <button type="button" aria-label={`${a.name} 크게 보기`}
+                      <button type="button" className="composer-attachment-preview overflow-hidden rounded-md" aria-label={`${attachmentDisplayNames[index]} 크게 보기`}
                         onClick={() => openImagePreview({ src: a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, title: a.name, prompt: '' })}
                         onContextMenu={(e) => openImageMenu(e, a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`, a.name, '')}>
-                        <img src={a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`} alt={a.name} className="h-10 w-14 rounded-md object-contain" />
+                        <img src={a.previewUrl || `/attachments/${encodeURIComponent(a.id)}`} alt={attachmentDisplayNames[index]} className="h-10 w-10 object-cover" />
                       </button>
                     ) : isVideoAttachment(a.mime, a.name) ? (
                       <span className="flex h-10 w-10 items-center justify-center rounded-md bg-ink text-accent">
@@ -1674,23 +1891,23 @@ export function ChatPane() {
                         <FileIcon size={16} />
                       </span>
                     )}
-                    <span className="max-w-[120px] truncate text-[11px] text-muted" title={a.name}>
-                      {a.name}{pendingAttachments.filter((item) => item.name === a.name).length > 1 ? ` · ${pendingAttachments.slice(0, index + 1).filter((item) => item.name === a.name).length}` : ''}
+                    <span className="max-w-[112px] truncate text-[11px] text-muted" title={attachmentDisplayNames[index]}>
+                      {attachmentDisplayNames[index]}
                     </span>
                     <button
                       type="button"
-                      className="rounded p-0.5 text-muted hover:bg-ink hover:text-text"
-                      aria-label="첨부 제거"
+                      className="composer-attachment-remove rounded text-muted hover:bg-ink hover:text-text"
+                      aria-label={`${attachmentDisplayNames[index]} 첨부 제거`}
                       onClick={() => void removePendingAttachment(a.id)}
                     >
-                      <X size={12} />
+                      <X size={11} />
                     </button>
                   </div>
                 ))}
               </div>
             ) : null}
             {pendingContextPaths.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5 border-b border-line/60 px-3 pt-2 pb-2">
+              <div className="composer-meta-row flex flex-wrap gap-1.5 px-3 pb-1 pt-2">
                 {pendingContextPaths.map((p) => {
                   const label = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p;
                   return (
@@ -1730,10 +1947,10 @@ export function ChatPane() {
                   setContextPickerOpen(true);
                 }
               }}
-              rows={3}
+              rows={1}
               aria-label="메시지 입력"
               placeholder={skillMode === 'image' ? '만들고 싶은 이미지를 설명하세요…' : activeWorkspaceProjectId ? '메시지 또는 작업 요청… (@로 파일 첨부)' : '무엇이든 물어보세요…'}
-              className="w-full resize-none bg-transparent px-4 pt-3 text-sm text-text outline-none placeholder:text-muted"
+              className="composer-input w-full resize-none bg-transparent px-4 py-3 text-sm text-text outline-none placeholder:text-muted"
               onKeyDown={(e) => {
                 if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -1760,9 +1977,14 @@ export function ChatPane() {
                 {activeSessionId && queueReviewSessions[activeSessionId] ? (
                   <div className="mb-1.5 text-[10px] text-muted">순서를 유지한 채 내용을 확인·수정한 다음 진행하세요.</div>
                 ) : null}
-                {activeQueue.map((item, index) => (
-                  <div key={item.id} className="flex items-start gap-2 py-1 text-[11px] text-text">
-                    <span className="pt-1 text-muted">{index + 1}</span>
+                <div className="max-h-[min(28vh,220px)] overflow-y-auto overscroll-contain pr-1">
+                  {activeQueue.map((item, index) => {
+                    const queueText = item.text || item.attachmentNames.join(', ');
+                    const canExpand = queuedMessageNeedsExpansion(item.text, item.attachmentNames);
+                    const expanded = expandedQueueIds.has(item.id);
+                    return (
+                  <div key={item.id} className="flex items-start gap-2 border-t border-line/50 py-1.5 text-[11px] text-text first:border-t-0">
+                    <span className="pt-0.5 text-muted">{index + 1}</span>
                     {editingQueueId === item.id ? (
                       <textarea
                         autoFocus
@@ -1784,17 +2006,37 @@ export function ChatPane() {
                             }
                           }
                         }}
-                        className="min-w-0 flex-1 resize-y rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-text outline-none focus:border-accent"
+                        className="max-h-40 min-w-0 flex-1 resize-y overflow-y-auto rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-text outline-none focus:border-accent"
                       />
                     ) : (
-                      <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">{item.text || item.attachmentNames.join(', ')}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`whitespace-pre-wrap break-words leading-5 ${expanded ? '' : 'line-clamp-3'}`}>
+                          {queueText}
+                        </p>
+                        {canExpand ? (
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] font-medium text-muted hover:text-text"
+                            onClick={() => setExpandedQueueIds((current) => {
+                              const next = new Set(current);
+                              if (expanded) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            })}
+                          >
+                            <CaretDown size={11} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                            {expanded ? '접기' : '전체 보기'}
+                          </button>
+                        ) : null}
+                      </div>
                     )}
                     {editingQueueId === item.id ? (
                       <>
                         <button
                           type="button"
                           disabled={!editingQueueText.trim() && item.attachmentIds.length === 0}
-                          className="pt-1 text-accent disabled:opacity-40"
+                          className="pt-0.5 text-accent disabled:opacity-40"
                           onClick={() => {
                             updateQueuedMessage(item.id, editingQueueText.trim());
                             setEditingQueueId(null);
@@ -1805,7 +2047,7 @@ export function ChatPane() {
                         </button>
                         <button
                           type="button"
-                          className="pt-1 text-muted hover:text-text"
+                          className="pt-0.5 text-muted hover:text-text"
                           onClick={() => {
                             setEditingQueueId(null);
                             setEditingQueueText('');
@@ -1817,7 +2059,7 @@ export function ChatPane() {
                     ) : (
                       <button
                         type="button"
-                        className="pt-1 text-muted hover:text-text"
+                        className="pt-0.5 text-muted hover:text-text"
                         onClick={() => {
                           setEditingQueueId(item.id);
                           setEditingQueueText(item.text);
@@ -1828,23 +2070,26 @@ export function ChatPane() {
                     )}
                     <button
                       type="button"
-                      className="pt-1 text-muted hover:text-red-300"
+                      className="pt-0.5 text-muted hover:text-red-300"
                       onClick={() => removeQueuedMessage(item.id)}
                     >
                       삭제
                     </button>
                   </div>
-                ))}
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
-            <div className="flex items-center justify-between gap-3 px-3 pb-3">
+            <div className="composer-toolbar flex items-center justify-between gap-3 px-3 pb-3 pt-1">
               <div className="relative flex items-center gap-1.5">
                 <button
                   type="button"
-                  title="파일 추가"
+                  title="파일 첨부 · 이 입력창에 끌어놓기도 가능"
+                  aria-label="파일 첨부"
                   disabled={attachDisabled}
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text disabled:opacity-40"
+                  className="composer-tool-button"
                 >
                   <Paperclip size={14} weight="bold" />
                 </button>
@@ -1856,10 +2101,10 @@ export function ChatPane() {
                   data-testid="organization-skill-button"
                   ref={skillButtonRef}
                   onClick={() => setSkillPickerOpen((open) => !open)}
-                  className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${
+                  className={`composer-tool-button ${
                     skillMode || skillPickerOpen
-                      ? 'border-accent-dim bg-accent-dim text-white'
-                      : 'border-line bg-panel-2/70 text-muted hover:border-accent/60 hover:text-text'
+                      ? 'composer-tool-button-active'
+                      : ''
                   }`}
                 >
                   <Plus size={14} weight="bold" />
@@ -1884,7 +2129,7 @@ export function ChatPane() {
                     }
                     setContextPickerOpen(true);
                   }}
-                  className="inline-flex items-center gap-1 rounded-xl border border-line bg-panel-2/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/60 hover:bg-panel-2 hover:text-text"
+                  className="composer-tool-button text-xs font-semibold"
                 >
                   @
                 </button>
@@ -1901,13 +2146,19 @@ export function ChatPane() {
                     ref={skillPickerRef}
                     tabIndex={-1}
                   >
-                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">스킬</div>
+                    <div className="px-2 pb-1 text-[10px] font-semibold text-muted">대화 스킬</div>
+                    {staleSkillNotice ? (
+                      <div className="mb-1 rounded-lg bg-amber-500/10 px-2 py-2 text-[11px] leading-4 text-amber-200" role="status">
+                        {staleSkillNotice}
+                      </div>
+                    ) : null}
                     {skillMode ? (
                       <button
                         type="button"
                         data-testid="organization-skill-clear"
                         className="mb-1 block w-full rounded-lg px-2 py-2 text-left text-xs text-muted hover:bg-panel-2 hover:text-text"
                         onClick={() => {
+                          setStaleSkillNotice(null);
                           setSkillMode(null);
                           setSkillPickerOpen(false);
                           skillButtonRef.current?.focus();
@@ -1917,13 +2168,22 @@ export function ChatPane() {
                         <div className="mt-0.5 text-[10px] text-muted">현재 적용 중: {skillLabel ?? skillMode}</div>
                       </button>
                     ) : null}
-                    {selectableSkills.length ? selectableSkills.map((skill) => (
+                    {selectableSkills.length ? ['user', 'organization'].map((source) => {
+                      const group = selectableSkills.filter((skill) => skill.source === source);
+                      if (!group.length) return null;
+                      return (
+                        <div key={source} data-testid={`skill-group-${source}`}>
+                          <div className="px-2 pb-1 pt-2 text-[10px] font-semibold text-muted">
+                            {source === 'user' ? '사용자 스킬' : '조직 스킬'}
+                          </div>
+                          {group.map((skill) => (
                       <button
                         key={skill.mode}
                         type="button"
                         aria-pressed={skillMode === skill.mode}
                         className={`block w-full rounded-lg px-2 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${skillMode === skill.mode ? 'bg-accent-dim text-white hover:bg-accent-dim' : 'text-text hover:bg-panel-2'}`}
                         onClick={() => {
+                          setStaleSkillNotice(null);
                           if (skillMode === skill.mode) {
                             setSkillMode(null);
                           } else {
@@ -1939,7 +2199,10 @@ export function ChatPane() {
                         </div>
                         {skill.description ? <div className={`mt-1 text-xs ${skillMode === skill.mode ? 'text-white' : 'text-muted'}`}>{skill.description}</div> : null}
                       </button>
-                    )) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 스킬이 없습니다.</div>}
+                          ))}
+                        </div>
+                      );
+                    }) : <div className="px-2 py-2 text-[11px] text-muted">사용 가능한 스킬이 없습니다.</div>}
                   </div>
                 ) : null}
               </div>
@@ -1951,7 +2214,7 @@ export function ChatPane() {
                       disabled={!canSend}
                       onClick={submit}
                       title="현재 응답 다음에 실행"
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
+                      className="composer-send-button"
                     >
                       <PaperPlaneTilt size={14} weight="fill" />
                       대기열 추가
@@ -1960,7 +2223,7 @@ export function ChatPane() {
                     type="button"
                     onClick={() => stopAiMessage()}
                     title="생성 중지"
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-panel-2/70 px-3 py-1.5 text-xs font-semibold text-text transition-colors hover:border-red-400/50 hover:bg-red-950/20 hover:text-red-300"
+                    className="composer-stop-button"
                   >
                     <Stop size={14} weight="fill" />
                     중지
@@ -1971,7 +2234,7 @@ export function ChatPane() {
                     type="button"
                     disabled={!canSend}
                     onClick={submit}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-colors hover:bg-accent/90 disabled:opacity-40"
+                    className="composer-send-button"
                   >
                     <PaperPlaneTilt size={14} weight="fill" />
                     전송

@@ -136,10 +136,11 @@ if (-not $TargetDir) {
     $picked = Get-FullPathSafe $dialog.SelectedPath
     $badSame = $sourceFull -and ($picked -eq $sourceFull)
     $badInside = $sourceFull -and $picked.Length -gt $sourceFull.Length -and $picked.StartsWith($sourceFull + '\', [StringComparison]::OrdinalIgnoreCase)
+    $badSourceInside = $sourceFull -and $sourceFull.Length -gt $picked.Length -and $sourceFull.StartsWith($picked + '\', [StringComparison]::OrdinalIgnoreCase)
     $badDump = Test-IsShellDumpFolder $picked
     $badRoot = Test-IsDriveRoot $picked
     $badSystem = Test-IsProtectedSystemFolder $picked
-    if (-not $badSame -and -not $badInside -and -not $badDump -and -not $badRoot -and -not $badSystem) {
+    if (-not $badSame -and -not $badInside -and -not $badSourceInside -and -not $badDump -and -not $badRoot -and -not $badSystem) {
       if (-not (Test-InstallFolderWritable $picked)) {
         [void][System.Windows.Forms.MessageBox]::Show(
           "That folder does not allow create, rename, and delete for this Windows account:`r`n$picked`r`n`r`nUse the recommended per-user folder:`r`n$defaultPath",
@@ -170,8 +171,11 @@ if (-not $TargetDir) {
   }
 }
 
-function Show-FeatureChecklist([string]$AppRoot) {
+function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   $catalog = Get-OptionalRuntimeCatalog $AppRoot
+  $existingSelection = if ($ExistingRoot) { Read-OptionalRuntimeSelection $ExistingRoot } else { $null }
+  $existingSelected = @()
+  if ($existingSelection) { $existingSelected = @($existingSelection.selected | ForEach-Object { [string]$_ }) }
   $idleHelp = 'Click a name to see what it does, when you need it, and whether you can skip it.'
   $script:featureHelpMap = @{}
   $script:featureHelpMap['playwright'] = 'Opens web pages and takes screenshots. About 300MB. Check this only if the agent should browse or capture a site. You can add it later in Settings > Features.'
@@ -191,8 +195,8 @@ function Show-FeatureChecklist([string]$AppRoot) {
     @{ Id = 'playwright'; Label = 'Browser tools'; Size = '~300MB'; DefaultSelected = $false },
     @{ Id = 'ffmpeg'; Label = 'Video attachments'; Size = '~80MB'; DefaultSelected = $false },
     @{ Id = 'markitdown'; Label = 'Excel/PPT documents'; Size = '~60MB'; DefaultSelected = $false },
-    @{ Id = 'repomix'; Label = 'Repo pack'; Size = '~20MB'; DefaultSelected = $true },
-    @{ Id = 'ast_grep'; Label = 'Code structure search'; Size = '~15MB'; DefaultSelected = $true }
+    @{ Id = 'repomix'; Label = 'Repo pack'; Size = '~20MB'; DefaultSelected = $false },
+    @{ Id = 'ast_grep'; Label = 'Code structure search'; Size = '~15MB'; DefaultSelected = $false }
   )
 
   if ($catalog) {
@@ -304,7 +308,7 @@ function Show-FeatureChecklist([string]$AppRoot) {
     $sizeBit = if ($item.Size) { '   ' + $item.Size } else { '' }
     $cb.Text = ([string]$item.Label) + $sizeBit
     $cb.Tag = [string]$item.Id
-    $cb.Checked = [bool]$item.DefaultSelected
+    $cb.Checked = if ($existingSelection) { $existingSelected -contains [string]$item.Id } else { [bool]$item.DefaultSelected }
     $cb.Add_Click({
       $ErrorActionPreference = 'Continue'
       try {
@@ -419,8 +423,9 @@ if (Test-Path -LiteralPath $logPath) {
 
 $script:selectedOptionalCsv = $OptionalRuntimes
 $script:passOptionalRuntimesArg = $PSBoundParameters.ContainsKey('OptionalRuntimes')
+$script:installRunId = [Guid]::NewGuid().ToString('N')
 if (-not $SmokeTest -and -not $SkipFeaturePrompt -and -not $AllOptional -and -not $OptionalRuntimes) {
-  $choice = Show-FeatureChecklist $sourceFull
+  $choice = Show-FeatureChecklist $sourceFull $TargetDir
   if (-not $choice.Ok) {
     exit 1
   }
@@ -432,13 +437,11 @@ if ($SmokeTest) {
   $smokeCommand = @(
     "'Checking portable Node...'",
     'Start-Sleep -Milliseconds 250',
-    "'Checking market-research Python venv...'",
+    "'Restoring bundled runtime npm dependencies (offline)...'",
     'Start-Sleep -Milliseconds 250',
     "'Installing Playwright Chromium...'",
     'Start-Sleep -Milliseconds 250',
     "'Installing ffmpeg...'",
-    'Start-Sleep -Milliseconds 250',
-    "'Checking runtime npm dependencies...'",
     'Start-Sleep -Milliseconds 250',
     "'Install complete'",
     "exit $SmokeExitCode"
@@ -448,7 +451,8 @@ if ($SmokeTest) {
   $workCommand = @(
     '&', (Quote-PsLiteral $installScript),
     '-SourceDir', (Quote-PsLiteral $SourceDir),
-    '-TargetDir', (Quote-PsLiteral $TargetDir)
+    '-TargetDir', (Quote-PsLiteral $TargetDir),
+    '-InstallRunId', (Quote-PsLiteral $script:installRunId)
   ) -join ' '
   if ($script:passOptionalRuntimesArg) {
     $workCommand = $workCommand + ' -OptionalRuntimes ' + (Quote-PsLiteral $script:selectedOptionalCsv)
@@ -482,11 +486,6 @@ try {
   }
 }
 if (`$null -eq `$code) { `$code = 0 }
-# Success marker from install.ps1 — prefer disk evidence over noisy stderr.
-if ((Test-Path -LiteralPath $(Quote-PsLiteral (Join-Path $TargetDir 'INSTALL-DONE.txt'))) -and `$code -ne 0) {
-  Add-Content -LiteralPath `$log -Value 'WARN: stderr noise after INSTALL-DONE — treating as success' -Encoding UTF8
-  `$code = 0
-}
 exit `$code
 "@
 
@@ -517,6 +516,7 @@ $script:st = @{
   StartedAt  = Get-Date
   LastLine   = ''
   Completed  = $false
+  Partial    = $false
   ExitCode   = 1
 }
 $script:st.Proc.StartInfo = $psi
@@ -574,12 +574,10 @@ $script:st.Elapsed.Text = 'Please wait - elapsed 00:00'
 $script:st.Form.Controls.Add($script:st.Elapsed)
 
 function Get-StageText([string]$line) {
-  if ($line -match 'portable Node|bootstrap-node') { return '1/5 - Downloading Node.js runtime' }
-  if ($line -match 'python-embed|pipeline venv|Python') { return '2/5 - Preparing market-research Python' }
-  if ($line -match 'Playwright|Chromium') { return '3/5 - Downloading browser engine (~300MB)' }
-  if ($line -match 'ffmpeg') { return '4/5 - Downloading video tools' }
-  if ($line -match 'npm dependencies|runtime npm') { return '5/5 - Finishing runtime dependencies' }
-  if ($line -match 'Install complete|Desktop shortcut') { return 'Finishing installation' }
+  if ($line -match 'portable Node|bootstrap-node') { return '1/4 - Preparing Node.js runtime' }
+  if ($line -match 'npm dependencies|runtime npm|Core runtime dependencies|CORE_DEPENDENC') { return '2/4 - Verifying core runtime' }
+  if ($line -match 'Playwright|Chromium|ffmpeg|python-embed|pipeline venv|Python|Repomix|ast-grep') { return '3/4 - Preparing selected optional features' }
+  if ($line -match 'Install complete|Desktop shortcut') { return '4/4 - Finishing installation' }
   return $null
 }
 
@@ -595,6 +593,35 @@ function Complete-Install {
   }
 
   if ($st.ExitCode -eq 0) {
+    $optionalFailures = @()
+    $optionalStateWriteFailed = $false
+    if (Test-Path -LiteralPath $st.LogPath) {
+      try {
+        $optionalStateWriteFailed = @(
+          Get-Content -LiteralPath $st.LogPath -Encoding UTF8 -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'OPTIONAL_RUNTIME_STATE_WRITE_FAILED' }
+        ).Count -gt 0
+      } catch { }
+    }
+    $optionalStatePath = Join-Path $st.TargetDir 'data\config\optional-runtimes.json'
+    if (Test-Path -LiteralPath $optionalStatePath) {
+      try {
+        $optionalState = [IO.File]::ReadAllText($optionalStatePath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+        $optionalFailures = @($optionalState.failed | ForEach-Object { [string]$_ } | Where-Object { $_ })
+      } catch { }
+    }
+    if ($optionalFailures.Count -gt 0 -or $optionalStateWriteFailed) {
+      $st.Partial = $true
+      $st.Title.Text = 'Installation complete with optional issues'
+      $st.Status.Text = 'MY Agent is ready. Some selected features can be retried later.'
+      $st.Detail.Text = if ($optionalStateWriteFailed) {
+        'Optional feature status could not be saved. Review the installer log and retry optional features if needed.'
+      } else {
+        'Optional features incomplete: ' + ($optionalFailures -join ', ')
+      }
+      $st.Elapsed.Text = 'Close this window after reviewing the optional feature list.'
+      return
+    }
     $st.Title.Text = 'Installation complete'
     $st.Status.Text = 'Launch MY Agent from the desktop shortcut.'
     $st.Detail.Text = "Install location: $($st.TargetDir)"
@@ -744,7 +771,7 @@ if ($null -ne $script:st.Timer) { $script:st.Timer.Dispose() }
 if ($null -ne $script:st.CloseTimer) { $script:st.CloseTimer.Dispose() }
 if ($null -ne $script:st.Proc) { $script:st.Proc.Dispose() }
 # Keep failure logs for diagnosis; only delete on success.
-if ($script:st.ExitCode -eq 0 -and (Test-Path -LiteralPath $script:st.LogPath)) {
+if ($script:st.ExitCode -eq 0 -and -not $script:st.Partial -and (Test-Path -LiteralPath $script:st.LogPath)) {
   Remove-Item -LiteralPath $script:st.LogPath -Force -ErrorAction SilentlyContinue
 } elseif ($script:st.ExitCode -ne 0 -and (Test-Path -LiteralPath $script:st.LogPath)) {
   $keep = Join-Path $env:TEMP 'cqr-install-last-failure.log'

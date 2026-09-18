@@ -4,6 +4,7 @@
  * Usage: node tools/verify-publish-bundle.mjs [--app-dir PATH]
  */
 import { checkDeployParity } from './deploy-parity.mjs';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,9 @@ function getArg(name) {
 }
 
 const appDir = path.resolve(getArg('--app-dir') ?? path.join(root, 'deploy', 'output', 'stage', 'app'));
+const zipPath = getArg('--zip-path');
 const nodeDeferred = process.argv.includes('--node-mode=deferred');
+const allowNoVendor = process.argv.includes('--no-vendor-node-modules');
 
 const checks = [
   {
@@ -137,12 +140,57 @@ for (const c of checks) {
   failed++;
 }
 
-// Offline vendored core deps (nm/) — informational; --no-vendor-node-modules skips it.
-const vendoredSdk = path.join(appDir, 'nm', '@modelcontextprotocol', 'sdk', 'package.json');
-if (existsSync(vendoredSdk)) {
-  console.log('  OK   offline core node_modules bundled (nm/@modelcontextprotocol/sdk)');
-} else {
-  console.warn('  WARN offline core node_modules NOT bundled (nm/) — install needs network for npm deps');
+const requiredVendorPackages = [
+  'nm/@modelcontextprotocol/sdk/package.json',
+  'nm/mammoth/package.json',
+  'nm/pdf-parse/package.json',
+];
+for (const rel of requiredVendorPackages) {
+  if (existsSync(path.join(appDir, ...rel.split('/')))) {
+    console.log(`  OK   offline core package bundled (${rel})`);
+  } else if (allowNoVendor) {
+    console.log(`  SKIP offline core package (${rel}; explicit developer online mode)`);
+  } else {
+    console.error(`  FAIL offline core package missing: ${rel}`);
+    failed++;
+  }
+}
+
+if (zipPath) {
+  const resolvedZip = path.resolve(zipPath);
+  if (!existsSync(resolvedZip) || statSync(resolvedZip).size <= 0) {
+    console.error(`  FAIL final install ZIP missing or empty: ${resolvedZip}`);
+    failed++;
+  } else if (process.platform !== 'win32') {
+    console.error('  FAIL final install ZIP inventory requires Windows PowerShell');
+    failed++;
+  } else {
+    const quoted = resolvedZip.replaceAll("'", "''");
+    const inventory = spawnSync('powershell.exe', [
+      '-NoProfile', '-Command',
+      `Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead('${quoted}');try{$z.Entries|ForEach-Object{$_.FullName}}finally{$z.Dispose()}`,
+    ], { encoding: 'utf8' });
+    if (inventory.status !== 0) {
+      console.error(`  FAIL could not read final install ZIP: ${inventory.stderr || inventory.stdout}`);
+      failed++;
+    } else {
+      const entries = new Set(inventory.stdout.split(/\r?\n/).map((x) => x.trim().replaceAll('\\', '/')).filter(Boolean));
+      const requiredEntries = [
+        'install.bat',
+        'app/MYAgent.exe',
+        'app/tools/install/install.ps1',
+        'app/tools/install/install-ui.ps1',
+        ...(!allowNoVendor ? requiredVendorPackages.map((rel) => `app/${rel}`) : []),
+      ];
+      for (const rel of requiredEntries) {
+        if (entries.has(rel)) console.log(`  OK   final ZIP entry: ${rel}`);
+        else {
+          console.error(`  FAIL final ZIP entry missing: ${rel}`);
+          failed++;
+        }
+      }
+    }
+  }
 }
 
 const deployPath = path.join(appDir, 'core/config/defaults/deploy-defaults.json');

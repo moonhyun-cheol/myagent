@@ -5,10 +5,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
+. (Join-Path $PSScriptRoot 'playwright-runtime.ps1')
 
-$pwPkg = Join-Path $Root 'node_modules\playwright\package.json'
-$chromiumMarker = Join-Path $Root 'runtime\playwright\browsers\.chromium-installed'
-if ((Test-Path -LiteralPath $pwPkg) -and (Test-Path -LiteralPath $chromiumMarker)) { exit 0 }
+if (Test-PlaywrightRuntime -Root $Root) {
+  # Runtime files can be complete while a previous user-overrides write failed.
+  # Always retry the required policy without redownloading Playwright/Chromium.
+  Enable-PlaywrightLocalhostPolicy -Root $Root
+  exit 0
+}
 
 $nodeExe = Join-Path $Root 'runtime\node\node.exe'
 if (-not (Test-Path -LiteralPath $nodeExe)) {

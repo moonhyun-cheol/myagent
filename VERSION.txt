@@ -1,3 +1,3 @@
-MY Agent stable v1.1.12
-update_sequence: 60
+MY Agent stable v1.1.13
+update_sequence: 61
 channel: stable

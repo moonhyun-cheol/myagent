@@ -89,7 +89,7 @@
       "size_hint": "~300MB",
       "bootstrap": "tools/bootstrap-playwright-if-needed.ps1",
       "markers": [
-        "node_modules/playwright/package.json",
+        "runtime/playwright/package/node_modules/playwright/package.json",
         "runtime/playwright/browsers/.chromium-installed"
       ],
       "default_selected": false
@@ -118,11 +118,11 @@
       "id": "repomix",
       "label": "저장소 묶기",
       "summary": "코드 폴더를 한 덩어리로 모아 보여 줍니다",
-      "detail": "큰 저장소를 모델에게 한 번에 넘길 때 씁니다. 용량이 작아 기본으로 받아 두며, 원하지 않으면 체크를 끄면 됩니다. 약 20MB.",
+      "detail": "큰 저장소를 모델에게 한 번에 넘길 때 씁니다. 설치 중 인터넷 npm이 필요하므로 필요할 때 선택하거나 나중에 설정 > 기능에서 추가하세요. 약 20MB.",
       "size_hint": "~20MB",
       "bootstrap": "tools/bootstrap-repomix-if-needed.ps1",
       "markers": ["runtime/oss-sidecars/node_modules/repomix/package.json"],
-      "default_selected": true
+      "default_selected": false
     },
     {
       "id": "ast_grep",

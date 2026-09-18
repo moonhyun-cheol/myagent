@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 export interface PlaywrightProbeResult {
@@ -15,8 +16,9 @@ export function resolvePlaywrightBrowsersPath(cqrRoot: string): string {
 
 function playwrightPackageCandidates(cqrRoot: string): string[] {
   return [
-    path.join(cqrRoot, 'node_modules', 'playwright', 'package.json'),
     path.join(cqrRoot, 'runtime', 'playwright', 'package', 'node_modules', 'playwright', 'package.json'),
+    // Development checkout compatibility; release installs use the isolated path above.
+    path.join(cqrRoot, 'node_modules', 'playwright', 'package.json'),
   ];
 }
 
@@ -56,8 +58,7 @@ function chromiumDirHasBrowserBinary(browsers: string): boolean {
 export function isPlaywrightChromiumInstalled(cqrRoot: string): boolean {
   const browsers = resolvePlaywrightBrowsersPath(cqrRoot);
   const marker = path.join(browsers, '.chromium-installed');
-  if (existsSync(marker)) return true;
-  if (!existsSync(browsers)) return false;
+  if (!existsSync(marker) || !existsSync(browsers)) return false;
   return chromiumDirHasBrowserBinary(browsers);
 }
 
@@ -106,8 +107,18 @@ export async function importPlaywright(cqrRoot: string): Promise<{
   };
 }> {
   applyPlaywrightEnv(cqrRoot);
+  const moduleRoot = resolvePlaywrightModuleRoot(cqrRoot);
+  if (!moduleRoot) {
+    throw new Error('PLAYWRIGHT_IMPORT_FAILED: playwright npm package not installed');
+  }
   try {
-    return await import('playwright');
+    const requireFromPackage = createRequire(path.join(moduleRoot, 'package.json'));
+    return requireFromPackage('playwright') as {
+      chromium: {
+        launch(opts: { headless: boolean }): Promise<unknown>;
+        connectOverCDP?(endpoint: string): Promise<unknown>;
+      };
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`PLAYWRIGHT_IMPORT_FAILED: ${msg}`);

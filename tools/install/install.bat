@@ -33,7 +33,9 @@ if not defined NEED_LOCAL (
 )
 if not defined NEED_LOCAL goto :run_install
 
-set "LOCAL_SRC=%LOCALAPPDATA%\MYAgent-install-src"
+for /f "usebackq delims=" %%G in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "[Guid]::NewGuid().ToString('N')"`) do set "INSTALL_COPY_ID=%%G"
+if not defined INSTALL_COPY_ID set "INSTALL_COPY_ID=%RANDOM%-%RANDOM%-%RANDOM%"
+set "LOCAL_SRC=%LOCALAPPDATA%\MYAgent-install-src-%INSTALL_COPY_ID%"
 echo.
 echo [MY Agent] Shared/network path detected:
 echo   %~dp0
@@ -69,7 +71,10 @@ if not exist "%LOCAL_SRC%\install.bat" (
 )
 echo [MY Agent] Relaunching from local copy...
 call "%LOCAL_SRC%\install.bat" %*
-exit /b %ERRORLEVEL%
+set "INSTALL_EXIT=%ERRORLEVEL%"
+cd /d "%TEMP%"
+rd /s /q "%LOCAL_SRC%" 2>nul
+exit /b %INSTALL_EXIT%
 
 :run_install
 if exist "%~dp0app\tools\install\install.ps1" (

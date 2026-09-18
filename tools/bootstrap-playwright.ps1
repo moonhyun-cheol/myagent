@@ -23,12 +23,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
 . (Join-Path $PSScriptRoot 'cqr-native.ps1')
+. (Join-Path $PSScriptRoot 'playwright-runtime.ps1')
 
 $browsersDir = Join-Path $Root 'runtime\playwright\browsers'
-$pwPkg = Join-Path $Root 'node_modules\playwright\package.json'
+$packageRoot = Join-Path $Root 'runtime\playwright\package'
+$pwPkg = Join-Path $packageRoot 'node_modules\playwright\package.json'
 $chromiumMarker = Join-Path $browsersDir '.chromium-installed'
 
-if ($SkipIfExists -and (Test-Path -LiteralPath $pwPkg) -and (Test-Path -LiteralPath $chromiumMarker)) {
+if ($SkipIfExists -and (Test-PlaywrightRuntime -Root $Root)) {
+  Enable-PlaywrightLocalhostPolicy -Root $Root
   Write-Host "bootstrap-playwright: skipped (exists) -> $browsersDir"
   exit 0
 }
@@ -47,7 +50,7 @@ function Test-PlaywrightPathWritable([string]$folder) {
     return $false
   }
 }
-foreach ($needWritable in @((Join-Path $Root 'node_modules'), $browsersDir)) {
+foreach ($needWritable in @($packageRoot, $browsersDir)) {
   if (-not (Test-PlaywrightPathWritable $needWritable)) {
     Write-Error "bootstrap-playwright: no write permission for '$needWritable'. Antivirus, Windows Controlled Folder Access, or inherited folder permissions are blocking create/delete. Allow this folder (or reinstall MY Agent to a per-user folder) and retry."
   }
@@ -87,7 +90,8 @@ function Invoke-CqrNativeTimed {
     Write-Host "Invoke-CqrNativeTimed: not found: $FilePath"
     return 1
   }
-  $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru
+  $nativeArguments = @($ArgumentList | ForEach-Object { ConvertTo-CqrNativeArgument ([string]$_) }) -join ' '
+  $proc = Start-Process -FilePath $FilePath -ArgumentList $nativeArguments -NoNewWindow -PassThru
   if (-not $proc.WaitForExit([int]([Math]::Max(1, $TimeoutSec) * 1000))) {
     Write-Host "bootstrap-playwright: step exceeded ${TimeoutSec}s -> aborting hung process (pid=$($proc.Id))"
     try { & taskkill.exe /PID $proc.Id /T /F 2>&1 | Out-Null } catch { }
@@ -99,30 +103,33 @@ function Invoke-CqrNativeTimed {
 }
 
 # --- Partial cleanup before retry --------------------------------------------
-# No marker means the last attempt did not finish. Remove the (possibly partial)
-# browsers dir so this run does not inherit a corrupt Chromium.
-if ((Test-Path -LiteralPath $browsersDir) -and -not (Test-Path -LiteralPath $chromiumMarker)) {
+# A marker without a real browser binary is stale. Remove that browser tree so
+# the retry cannot inherit a false-complete or antivirus-truncated download.
+if ((Test-Path -LiteralPath $browsersDir) -and -not (Test-PlaywrightChromiumBundle -BrowsersDir $browsersDir)) {
   Write-Host "bootstrap-playwright: removing incomplete browsers dir before retry -> $browsersDir"
   Remove-Item -LiteralPath $browsersDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 New-Item -ItemType Directory -Force -Path $browsersDir | Out-Null
+New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 $env:PLAYWRIGHT_BROWSERS_PATH = $browsersDir
 $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '0'
 
-Push-Location $Root
+Push-Location $packageRoot
 try {
-  Write-Host "bootstrap-playwright: installing playwright package without changing package.json/package-lock.json (node=$nodeExe)"
+  $packageJson = '{"name":"my-agent-playwright-runtime","private":true,"version":"1.0.0","dependencies":{"playwright":"' + $script:MyAgentPlaywrightVersion + '"}}'
+  [IO.File]::WriteAllText((Join-Path $packageRoot 'package.json'), $packageJson + "`n", [Text.UTF8Encoding]::new($false))
+  Write-Host "bootstrap-playwright: installing isolated playwright package $script:MyAgentPlaywrightVersion (node=$nodeExe)"
   $npmCli = Join-Path $Root 'runtime\node\node_modules\npm\bin\npm-cli.js'
   $code = 1
-  $playwrightInstallArgs = @('install', 'playwright@^1.52.0', '--no-save', '--package-lock=false', '--no-fund', '--no-audit')
+  $playwrightInstallArgs = @('install', '--omit=dev', '--package-lock=false', '--no-fund', '--no-audit')
   if (Test-Path -LiteralPath $npmCli) {
     $code = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList (@($npmCli) + $playwrightInstallArgs) -TimeoutSec $NpmTimeoutSec
-  }
-  if ($code -eq 124) {
-    Write-Error "bootstrap-playwright: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."
-  }
-  if ($code -ne 0) {
+    if ($code -eq 124) {
+      Write-Error "bootstrap-playwright: npm install timed out after ${NpmTimeoutSec}s. Check internet/proxy and retry."
+    }
+    if ($code -ne 0) { exit $code }
+  } else {
     $sysNpm = Get-Command npm.cmd -ErrorAction SilentlyContinue
     if (-not $sysNpm) { $sysNpm = Get-Command npm -ErrorAction SilentlyContinue }
     if (-not $sysNpm -or -not $sysNpm.Source) {
@@ -142,7 +149,7 @@ try {
   Write-Host "bootstrap-playwright: downloading Chromium -> $browsersDir"
   # Call node.exe + cli.js (same as npm-cli). Do not use npx.cmd: %~dp0 / PATH
   # fallback breaks on non-ASCII user profiles when Node is not on PATH.
-  $cliJs = Join-Path $Root 'node_modules\playwright\cli.js'
+  $cliJs = Join-Path $packageRoot 'node_modules\playwright\cli.js'
   if (-not (Test-Path -LiteralPath $cliJs)) {
     Write-Error 'bootstrap-playwright: playwright CLI not found after package install'
   }
@@ -157,32 +164,57 @@ try {
     exit $code
   }
 
-  # Marker is the single source of truth for "install finished". Write it only
-  # after a clean, in-time download; the runtime probe also verifies the binary.
+  $chromiumExe = Get-ChildItem -LiteralPath $browsersDir -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq 'chrome.exe' -or $_.Name -eq 'headless_shell.exe' } |
+    Select-Object -First 1
+  if (-not $chromiumExe) {
+    Remove-Item -LiteralPath $browsersDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Error 'bootstrap-playwright: Chromium command succeeded but no browser executable was found'
+  }
+
+  # Marker is written only after the exact package and a real browser binary are verified.
+  $installedVersion = [string]((Get-Content -LiteralPath $pwPkg -Raw -Encoding UTF8 | ConvertFrom-Json).version)
+  if ($installedVersion -ne $script:MyAgentPlaywrightVersion) {
+    Write-Error "bootstrap-playwright: expected playwright $script:MyAgentPlaywrightVersion but found $installedVersion"
+  }
+
+  # A file can exist yet still be blocked, corrupt, or paired with the wrong
+  # Chromium revision. Launch the installed browser once before writing the
+  # completion marker.
+  $smokeScript = Join-Path $packageRoot '.playwright-install-smoke.cjs'
+  $playwrightModule = Join-Path $packageRoot 'node_modules\playwright'
+  $moduleLiteral = $playwrightModule | ConvertTo-Json -Compress
+  $smokeSource = @"
+const { chromium } = require($moduleLiteral);
+(async () => {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto('about:blank');
+  await browser.close();
+})().catch((error) => { console.error(error); process.exit(1); });
+"@
+  [IO.File]::WriteAllText($smokeScript, $smokeSource, [Text.UTF8Encoding]::new($false))
+  try {
+    $smokeCode = Invoke-CqrNativeTimed -FilePath $nodeExe -ArgumentList @($smokeScript) -TimeoutSec 60
+    if ($smokeCode -ne 0) {
+      Remove-Item -LiteralPath $browsersDir -Recurse -Force -ErrorAction SilentlyContinue
+      Write-Error "bootstrap-playwright: Chromium launch smoke failed (exit $smokeCode)"
+    }
+  } finally {
+    Remove-Item -LiteralPath $smokeScript -Force -ErrorAction SilentlyContinue
+  }
+
   Set-Content -LiteralPath $chromiumMarker -Value (Get-Date -Format o) -Encoding UTF8
+  if (-not (Test-PlaywrightRuntime -Root $Root)) {
+    Remove-Item -LiteralPath $chromiumMarker -Force -ErrorAction SilentlyContinue
+    Write-Error 'bootstrap-playwright: completion verification failed after package and Chromium installation'
+  }
   Write-Host "bootstrap-playwright OK -> $browsersDir"
 
-  $configPath = Join-Path $Root 'data\config\user-overrides.json'
-  $configDir = Split-Path -Parent $configPath
-  if (-not (Test-Path -LiteralPath $configDir)) {
-    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-  }
-  $overridesObj = $null
-  if (Test-Path -LiteralPath $configPath) {
-    try {
-      $overridesObj = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    } catch {
-      $overridesObj = $null
-    }
-  }
-  if (-not $overridesObj) {
-    $overridesObj = New-Object PSObject
-  }
-  if ($overridesObj.playwright_allow_localhost -ne $true) {
-    $overridesObj | Add-Member -NotePropertyName playwright_allow_localhost -NotePropertyValue $true -Force
-    ($overridesObj | ConvertTo-Json -Depth 8) + "`n" | Set-Content -LiteralPath $configPath -Encoding UTF8
-    Write-Host 'bootstrap-playwright: enabled playwright_allow_localhost in data\config\user-overrides.json'
-  }
+  # Keep the runtime marker when policy persistence fails. The next retry can
+  # repair only the policy through bootstrap-playwright-if-needed without a
+  # second npm install or Chromium download.
+  Enable-PlaywrightLocalhostPolicy -Root $Root
 } finally {
   Pop-Location
 }
