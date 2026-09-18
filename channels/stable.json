@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 61,
+    "update_sequence": 62,
     "minimum_supported_sequence": 1,
-    "version": "1.1.13",
+    "version": "1.1.14",
     "channel": "stable",
-    "published_at": "2026-09-18T05:15:35.517Z",
+    "published_at": "2026-09-18T06:46:27.475Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-61",
-      "name": "MYAgent-v1.1.13-delta.zip",
-      "size": 278818407,
-      "sha256": "8caa7ad6a02a92e868884a0a001f3058f0d0b790d4ebc60ef93fea4c531a520f"
+      "release_tag": "update-62",
+      "name": "MYAgent-v1.1.14-delta.zip",
+      "size": 278816148,
+      "sha256": "aee9863f8dc8da913d4f1626e58afd7bd9ff4bde4943a7ece2a39aa1dacdb522"
     },
-    "payload_manifest_sha256": "d84175960add646f50df18f7afffc8c83701eafa30a4f45d8fa3e0722d8bddfa",
-    "release_notes": "## update 61\n\n- Windows 탐색기에서 PDF, Excel, 텍스트, 이미지 등 파일을 채팅 입력창에 바로 드롭해 첨부할 수 있습니다.\n- 설치한 사용자 ZIP·작성 스킬을 입력창 + 메뉴에서 선택하고 대화에 적용할 수 있습니다.\n- 많은 모델과 긴 모델명이 잘리지 않도록 스크롤·자동 방향·키보드 탐색을 지원하는 모델 선택창으로 개선했습니다.\n- 긴 대기 요청과 작업 패널의 화면 점유를 줄이고 작업·문서·미디어·웹 탐색과 폴더 정보를 정돈했습니다.\n- 무응답 브라우저 작업의 큐 정체를 방지하고 제한 시간·취소·상태 복구 및 재시작 안내를 추가했습니다.\n- 핵심 npm 의존성을 전체 설치 ZIP에서 오프라인 복원하고, 제품·Node·런타임 검증과 실패·중단 복구를 강화했습니다.\n"
+    "payload_manifest_sha256": "93942b3bf8d91a62550bb96be97168fee7a4388ae565c9110c72f0057f7e0fb0",
+    "release_notes": "## update 62\n\n- 서로 다른 화면 배율을 사용하는 다중 모니터 환경에서 앱을 옮긴 뒤에도 WebView2 메뉴와 네이티브 팝업이 현재 모니터의 올바른 위치에 표시되도록 개선했습니다.\n"
   },
-  "signature": "C7jVpGH98tmpz5bl1VcQBwr82USrsbRGWiyGlAVHjZQy/3XIHxbprLP3oXkUbIp+4i16sP2ZCDMN2RFILgxdOYvaYpuftXY9iAE6v9LWJMfiYySYRs0NaD6FGBCbiIlcLZJYGaI68y/2Pv1f7un+3+QjIFcSeJJ5mCH3KP5BDu2C2Hix2gD9RvDa7HVmE8pGOTN04XksJ1AeIznhcBTG/lDOh86QtEpovX3QAGnd1BKrix6neKUQco6iR9g1Qx2MBX6i0SgYmU4KGdYJjp+VRejRH5qfh9/BQpAZVWsxx5kXM/+n6bwy3uuVphsqhKpJN+8WOojEbM0c+rdjmXEBaD1/Qhl0A1EypDQ2xqPv43SKg4WjK7BHcktymvof9WePzXcllyATjltduCjE+ovVyOr7mNy9pMy1ZB0Vda3sN4UROqiuX2S0LIBmw6CyyGd0HuVEfeJXghBSADUACudo+Ztfu/2wNVqxtcuDwnFFG59pAOuBw/Izq4BXJdNUxCZ7"
+  "signature": "wZrBHgic4R96zc038adCajiubEOcW5BmREPxu2V/jT+A7+tUxBrWHd/RMjHV36v7swxsOoupE21XLOxahXoikrcuJFoEcm5ANqX4hnKCQSfROhDR0FvDTAc6kiZ99vN0rsy0dT3OcVCtfietEAwe+5qPBHavZMwfWk3W0/U+jwj94xgGntDsysIqbmi5ZfEhc5GqVnaDLqfYbpU1Sf3pWYIYo+xrNM+yKxh9SdYHQjI19FFeA51qio81aFdPEj3cA0xeFqy6BTC5SWFvKE+PKF8RXKMCprQQmzB/r0771bRfn6n2I+Pr1xphcXckOaq+CaNrPQErrXaZgtwoydG0DS7tESLwbCydXguIEhWSYrkqX8zNYXboFkw/1afyMslatZT458zzfHZA59Fj4G7xbQqfYl+xiJDhEF9G05DvTXtb2RFhQ5g9nY2xAu+5QFBTiXAzjzQa4M0zSDJ7BKU5SFhaBRdZ4tKfCLivkaIk/hVPWLMY+GSMR6sQIDHuVqWd"
 }
