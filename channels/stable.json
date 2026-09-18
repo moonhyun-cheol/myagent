@@ -6,16 +6,16 @@
     "minimum_supported_sequence": 1,
     "version": "1.1.13",
     "channel": "stable",
-    "published_at": "2026-09-18T05:09:39.740Z",
+    "published_at": "2026-09-18T05:15:35.517Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
       "release_tag": "update-61",
       "name": "MYAgent-v1.1.13-delta.zip",
-      "size": 278818414,
-      "sha256": "f32da50ec2854a207e3e6a3cea9c0e84ff33af56eb0d24c9f32a52b3456bf214"
+      "size": 278818407,
+      "sha256": "8caa7ad6a02a92e868884a0a001f3058f0d0b790d4ebc60ef93fea4c531a520f"
     },
-    "payload_manifest_sha256": "19893347f06dfbc24646e132f839df6f54900ed6a1e31f9b398b8224df08604c",
-    "release_notes": "## update 61\n\n- Windows ?먯깋湲곗뿉??PDF, Excel, ?띿뒪?? ?대?吏 ???뚯씪??梨꾪똿 ?낅젰李쎌뿉 諛붾줈 ?쒕∼??泥⑤??????덉뒿?덈떎.\n- ?ㅼ튂???ъ슜??ZIP쨌?묒꽦 ?ㅽ궗???낅젰李?+ 硫붾돱?먯꽌 ?좏깮?섍퀬 ??붿뿉 ?곸슜?????덉뒿?덈떎.\n- 留롮? 紐⑤뜽怨?湲?紐⑤뜽紐낆씠 ?섎━吏 ?딅룄濡??ㅽ겕濡ㅒ룹옄??諛⑺뼢쨌?ㅻ낫???먯깋??吏?먰븯??紐⑤뜽 ?좏깮李쎌쑝濡?媛쒖꽑?덉뒿?덈떎.\n- 湲??湲??붿껌怨??묒뾽 ?⑤꼸???붾㈃ ?먯쑀瑜?以꾩씠怨??묒뾽쨌臾몄꽌쨌誘몃뵒?는룹쎒 ?먯깋怨??대뜑 ?뺣낫瑜??뺣룉?덉뒿?덈떎.\n- 臾댁쓳??釉뚮씪?곗? ?묒뾽?????뺤껜瑜?諛⑹??섍퀬 ?쒗븳 ?쒓컙쨌痍⑥냼쨌?곹깭 蹂듦뎄 諛??ъ떆???덈궡瑜?異붽??덉뒿?덈떎.\n- ?듭떖 npm ?섏〈?깆쓣 ?꾩껜 ?ㅼ튂 ZIP?먯꽌 ?ㅽ봽?쇱씤 蹂듭썝?섍퀬, ?쒗뭹쨌Node쨌?고???寃利앷낵 ?ㅽ뙣쨌以묐떒 蹂듦뎄瑜?媛뺥솕?덉뒿?덈떎."
+    "payload_manifest_sha256": "d84175960add646f50df18f7afffc8c83701eafa30a4f45d8fa3e0722d8bddfa",
+    "release_notes": "## update 61\n\n- Windows 탐색기에서 PDF, Excel, 텍스트, 이미지 등 파일을 채팅 입력창에 바로 드롭해 첨부할 수 있습니다.\n- 설치한 사용자 ZIP·작성 스킬을 입력창 + 메뉴에서 선택하고 대화에 적용할 수 있습니다.\n- 많은 모델과 긴 모델명이 잘리지 않도록 스크롤·자동 방향·키보드 탐색을 지원하는 모델 선택창으로 개선했습니다.\n- 긴 대기 요청과 작업 패널의 화면 점유를 줄이고 작업·문서·미디어·웹 탐색과 폴더 정보를 정돈했습니다.\n- 무응답 브라우저 작업의 큐 정체를 방지하고 제한 시간·취소·상태 복구 및 재시작 안내를 추가했습니다.\n- 핵심 npm 의존성을 전체 설치 ZIP에서 오프라인 복원하고, 제품·Node·런타임 검증과 실패·중단 복구를 강화했습니다.\n"
   },
-  "signature": "fHklGaBRcMZqafNvZRlfrNuVOsx57CkDnVYfw4cLiCg9dsf6TlMA1xmk7PkmG4JG5sYvhqtlsJ+MiNbAky0yI141PObRuYLAY0A0Z++2y3jOSUoXQQ/d6bdiy3P4R8ZcY/RNcYy219d+ziuIQb9IMBKpOf5Bz56fLCax8HZWmav0bm1MhCY2lTZs66EAbVWGEWmD7wBdf6a0ucOJDmc702rs/jpy5mDmVNDwyJRa5ttLeovUXe0tiPkEl8iLx9Az0vuxAIOMOIkJDZJlyaDUm5/b7OHxYzzQGeMGWwzQQApKHSzwDHAid+NdM2TNXDKvUyPILAXVFlj7Zs+wH5Kln4hZsNNy2xf3Sc5V/D4TIGsIJjdi1yXBjTEWb2Hq+EfkJcXHc24S/sWQZGIGks1l/d5nCzKsFKj+GW7eRs7RiR0WflQXPKArkqPteI6WZM2AEZSa44JHqMctkEe2CG95uAwSc//3h+KKsvFAm+Kx80Vv4tTBjZIoDVTsNqehxwGK"
+  "signature": "C7jVpGH98tmpz5bl1VcQBwr82USrsbRGWiyGlAVHjZQy/3XIHxbprLP3oXkUbIp+4i16sP2ZCDMN2RFILgxdOYvaYpuftXY9iAE6v9LWJMfiYySYRs0NaD6FGBCbiIlcLZJYGaI68y/2Pv1f7un+3+QjIFcSeJJ5mCH3KP5BDu2C2Hix2gD9RvDa7HVmE8pGOTN04XksJ1AeIznhcBTG/lDOh86QtEpovX3QAGnd1BKrix6neKUQco6iR9g1Qx2MBX6i0SgYmU4KGdYJjp+VRejRH5qfh9/BQpAZVWsxx5kXM/+n6bwy3uuVphsqhKpJN+8WOojEbM0c+rdjmXEBaD1/Qhl0A1EypDQ2xqPv43SKg4WjK7BHcktymvof9WePzXcllyATjltduCjE+ovVyOr7mNy9pMy1ZB0Vda3sN4UROqiuX2S0LIBmw6CyyGd0HuVEfeJXghBSADUACudo+Ztfu/2wNVqxtcuDwnFFG59pAOuBw/Izq4BXJdNUxCZ7"
 }
