@@ -159,10 +159,14 @@ export async function completeAgentAnswerStep(
   // evidence here; final prose must be authored by the model from selected evidence.
   const plainMessages = buildPlainChatMessages(messages);
 
-  const deliver = (text: string, model: string): ToolCompletionResult => {
+  const deliver = (
+    text: string,
+    model: string,
+    usage?: ToolCompletionResult['usage'],
+  ): ToolCompletionResult => {
     const cleaned = scrubAgentChannelLeak(text.trim());
     if (cleaned && streamHandlers?.onContent) streamHandlers.onContent(cleaned);
-    return { content: cleaned, tool_calls: [], model, finish_reason: 'stop' };
+    return { content: cleaned, tool_calls: [], model, finish_reason: 'stop', ...(usage ? { usage } : {}) };
   };
 
   const tryPlain = async (msgs: ChatMessage[]): Promise<ToolCompletionResult | null> => {
@@ -174,7 +178,7 @@ export async function completeAgentAnswerStep(
         msgs,
         { timeoutMs: AGENT_STEP_TIMEOUT_MS, signal: opts.signal, ...llmExtras(opts, modelId) },
       );
-      if (plain.content?.trim()) return deliver(plain.content, plain.model);
+      if (plain.content?.trim()) return deliver(plain.content, plain.model, plain.usage);
     } catch {
       /* next strategy */
     }
@@ -188,7 +192,7 @@ export async function completeAgentAnswerStep(
           (delta) => streamHandlers.onContent?.(delta),
           { timeoutMs: AGENT_STEP_TIMEOUT_MS, signal: opts.signal, ...llmExtras(opts, modelId) },
         );
-        if (streamed.content?.trim()) return deliver(streamed.content, streamed.model);
+        if (streamed.content?.trim()) return deliver(streamed.content, streamed.model, streamed.usage);
       } catch {
         /* synthesize below */
       }

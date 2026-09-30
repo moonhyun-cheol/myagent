@@ -95,6 +95,7 @@ import {
   type AgentPerfSnapshot,
 } from './agent-perf-metrics.js';
 import { calculateLlmUsageCost } from './llm-usage-cost.js';
+import { attachAgentUsage } from './agent-usage-carry.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
@@ -834,6 +835,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         /* meta best-effort */
       }
     }
+    // finish() was skipped: carry this attempt's token usage on the error so the
+    // orchestrator can persist/show it for failed or stopped runs.
+    if (!finished) attachAgentUsage(e, stepState?.llmUsage ?? llmUsage);
     throw e;
   } finally {
     // Belt-and-suspenders: AbortSignal may race close; kill long run_terminal jobs.

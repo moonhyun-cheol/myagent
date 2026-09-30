@@ -39,6 +39,7 @@ import {
   completeAgentAnswerStep,
   completeAgentStepWithProtocol,
 } from './agent-llm-step.js';
+import { addAgentUsage } from './agent-usage-carry.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
 import { diagnosticsEvidenceStatus } from './agent-outcome-gate.js';
@@ -364,13 +365,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     if (result.content?.trim()) {
       state.lastModelOutput = result.content.trim();
     }
-    if (result.usage) {
-      state.llmUsage.prompt_tokens += result.usage.prompt_tokens ?? 0;
-      state.llmUsage.completion_tokens += result.usage.completion_tokens ?? 0;
-      state.llmUsage.reasoning_tokens += result.usage.reasoning_tokens ?? 0;
-      state.llmUsage.cached_tokens += result.usage.cached_tokens ?? 0;
-      state.llmUsage.cache_write_tokens += result.usage.cache_write_tokens ?? 0;
-    }
+    addAgentUsage(state.llmUsage, result.usage);
 
     // Non-stream completions never call onContent — mirror Open WebUI text into thought.
     if (result.content?.trim() && !state.answerBuf.trim()) {
@@ -423,6 +418,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.opts,
           streamHandlers,
         );
+        addAgentUsage(state.llmUsage, retry.usage);
         const retryText = (retry.content ?? '').trim();
         if (retryText) {
           if (!state.answerBuf.trim()) {

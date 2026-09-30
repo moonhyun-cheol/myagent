@@ -1919,7 +1919,7 @@ export async function streamChat(
         handlers.onStatus?.(approved ? '승인됨 · 계속…' : '거절됨');
       } else if (type === 'stopped') {
         terminalEvent = true;
-        handlers.onDone?.({ model: '중지됨' });
+        handlers.onDone?.({ model: '중지됨', usage: parseUsageEvent(evt.usage) });
       }
     }
   }

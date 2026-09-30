@@ -33,6 +33,13 @@ import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
 import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-session-log.js';
 import { waitForToolApproval } from '../agent/tool-approval.js';
+import {
+  addAgentUsage,
+  agentUsageFromError,
+  emptyAgentUsage,
+  sumAgentUsage,
+  toMessageUsage,
+} from '../agent/agent-usage-carry.js';
 import { reviewToolApproval } from '../agent/approval-auto-review.js';
 import { queueAutoErrorReport } from '../support/error-report-service.js';
 import { resolveRequestedModelForSession } from './session-context.js';
@@ -951,6 +958,8 @@ export class ChatOrchestrator {
         let full: Awaited<ReturnType<typeof runWorkspaceCodeAgent>> | null = null;
         let lastErr: unknown = null;
         let autoResume = 0;
+        // Tokens spent by attempts that threw (infra retry / auto-resume / abort).
+        const carriedUsage = emptyAgentUsage();
         // Outer loop: infra retries, then silent auto-resume (no user 「이어서」 click).
         while (true) {
           for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -970,6 +979,7 @@ export class ChatOrchestrator {
               break;
             } catch (e: unknown) {
               lastErr = e;
+              addAgentUsage(carriedUsage, agentUsageFromError(e));
               if (isAbortError(e) || signal?.aborted) break;
               if (attempt < maxAttempts && isInfraLlmFailure(e)) continue;
               break;
@@ -991,13 +1001,19 @@ export class ChatOrchestrator {
         }
 
         if (isAbortError(lastErr) || signal?.aborted) {
+          const stoppedUsage = toMessageUsage(
+            full
+              ? sumAgentUsage(carriedUsage, loadAgentRunMeta(this.cqrRoot, sessionId).lastPerf?.usage)
+              : carriedUsage,
+          );
           if (userAppended) {
             this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
               formattedError: '(중지됨)',
               kind: 'stopped',
             });
+            if (stoppedUsage) this.sessionStore.setLastAssistantUsage(sessionId, stoppedUsage);
           }
-          this.emitStopped(res);
+          this.emitStopped(res, undefined, stoppedUsage);
           return;
         }
 
@@ -1036,8 +1052,15 @@ export class ChatOrchestrator {
                 formattedError: msg,
                 kind: classifyLlmFailure(err),
               });
+          const failedUsage = toMessageUsage(carriedUsage);
+          if (userAppended && failedUsage) this.sessionStore.setLastAssistantUsage(sessionId, failedUsage);
           sseEvent(res, { type: 'content_replace', text: content });
-          sseEvent(res, { type: 'done', model: 'policy/tool-plane-failure', mode: agentRouting.mode });
+          sseEvent(res, {
+            type: 'done',
+            model: 'policy/tool-plane-failure',
+            mode: agentRouting.mode,
+            ...(failedUsage ? { usage: failedUsage } : {}),
+          });
           return;
         }
 
@@ -1065,14 +1088,8 @@ export class ChatOrchestrator {
         const lastProcessedTokens = lastUsage
           ? Math.max(0, (lastUsage.prompt_tokens ?? 0) + (lastUsage.completion_tokens ?? 0))
           : undefined;
-        const agentUsage =
-          lastUsage &&
-          (typeof lastUsage.prompt_tokens === 'number' || typeof lastUsage.completion_tokens === 'number')
-            ? {
-                ...(typeof lastUsage.prompt_tokens === 'number' ? { input_tokens: lastUsage.prompt_tokens } : {}),
-                ...(typeof lastUsage.completion_tokens === 'number' ? { output_tokens: lastUsage.completion_tokens } : {}),
-              }
-            : undefined;
+        // Include tokens from earlier attempts that threw before this one succeeded.
+        const agentUsage = toMessageUsage(sumAgentUsage(carriedUsage, lastUsage));
         if (agentUsage) this.sessionStore.setLastAssistantUsage(sessionId, agentUsage);
         const applicationNotice = (full as { applicationNotice?: import('../sessions/types.js').ApplicationNotice }).applicationNotice;
         sseEvent(res, {
@@ -1086,14 +1103,16 @@ export class ChatOrchestrator {
           ...(checkpointId ? { checkpointId } : {}),
         });
       } catch (e: unknown) {
+        const thrownUsage = toMessageUsage(agentUsageFromError(e));
         if (isAbortError(e) || signal?.aborted) {
           if (userAppended) {
             this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
               formattedError: '(중지됨)',
               kind: 'stopped',
             });
+            if (thrownUsage) this.sessionStore.setLastAssistantUsage(sessionId, thrownUsage);
           }
-          this.emitStopped(res);
+          this.emitStopped(res, undefined, thrownUsage);
           return;
         }
         if (isNoWorkspaceBoundError(e)) {
@@ -1129,8 +1148,14 @@ export class ChatOrchestrator {
               formattedError: msg,
               kind: classifyLlmFailure(e),
             });
+        if (userAppended && thrownUsage) this.sessionStore.setLastAssistantUsage(sessionId, thrownUsage);
         sseEvent(res, { type: 'content_replace', text: content });
-        sseEvent(res, { type: 'done', model: 'policy/tool-plane-failure', mode: agentRouting.mode });
+        sseEvent(res, {
+          type: 'done',
+          model: 'policy/tool-plane-failure',
+          mode: agentRouting.mode,
+          ...(thrownUsage ? { usage: thrownUsage } : {}),
+        });
       } finally {
         sseDone(res);
       }
@@ -1494,9 +1519,13 @@ export class ChatOrchestrator {
     });
   }
 
-  private emitStopped(res: ServerResponse, partial?: string): void {
+  private emitStopped(
+    res: ServerResponse,
+    partial?: string,
+    usage?: { input_tokens: number; output_tokens: number },
+  ): void {
     try {
-      sseEvent(res, { type: 'stopped', partial: partial?.trim() || undefined });
+      sseEvent(res, { type: 'stopped', partial: partial?.trim() || undefined, ...(usage ? { usage } : {}) });
       sseDone(res);
     } catch {
       /* client disconnected */
