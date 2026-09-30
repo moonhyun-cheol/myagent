@@ -3,7 +3,7 @@
  * continue from prior assistant gaps instead of asking which files.
  */
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
-import { looksLikeAutopilotContinue } from './agent-autopilot-intent.js';
+import { looksLikeSessionContinue } from './agent-session-continuity.js';
 
 const EXECUTE_PRIOR_REVIEW_RE =
   /^(?:전부\s*수정|모두\s*수정|다\s*고쳐|위\s*(?:내용|항목|미충족).{0,12}수정|미충족.{0,16}수정|추가\s*수정(?:\s*실행)?|개선안\s*(?:대로\s*)?(?:수정|적용|반영)|리뷰\s*(?:대로|결과).{0,8}(?:수정|반영)|fix\s*all|apply\s*(?:the\s*)?(?:fixes|gaps)|address\s*(?:the\s*)?gaps)\s*[.!]?\s*$/i;
@@ -67,7 +67,7 @@ export function expandExecutePriorReviewMessage(
   message: string,
   history?: Array<{ role?: string; content?: string }> | null,
 ): string | null {
-  const continueHit = looksLikeExecutePriorReview(message) || looksLikeAutopilotContinue(message);
+  const continueHit = looksLikeExecutePriorReview(message) || looksLikeSessionContinue(message);
   if (!continueHit) return null;
   const prior = lastAssistantContent(history);
   if (!priorAssistantHasReviewGaps(prior)) return null;

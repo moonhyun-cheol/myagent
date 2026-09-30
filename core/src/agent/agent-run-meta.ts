@@ -219,6 +219,9 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
         ...(typeof snapshot.lastModelOutput === 'string' && snapshot.lastModelOutput.trim()
           ? { lastModelOutput: snapshot.lastModelOutput.trim().slice(-6_000) }
           : {}),
+        ...(Math.trunc(Number(snapshot.resumeCount) || 0) > 0
+          ? { resumeCount: Math.trunc(Number(snapshot.resumeCount)) }
+          : {}),
       };
     }
   }
@@ -470,6 +473,29 @@ export function recordSessionContinuationSnapshot(
     mutatedPaths: prev.mutatedPaths,
     ...carryMeta(prev),
     continuationSnapshot,
+  });
+  saveAgentRunMeta(cqrRoot, sessionId, next);
+  return next;
+}
+
+/**
+ * Drop resume state (Continuation Snapshot + legacy checkpoint). Called when a run completes
+ * normally or a fresh request starts, so a later 「이어서」 cannot inherit a finished chain.
+ * Session read/mutated paths, TODO ledger and evidence are kept.
+ */
+export function clearSessionContinuationState(
+  cqrRoot: string,
+  sessionId: string | undefined,
+): AgentRunMeta {
+  const prev = loadAgentRunMeta(cqrRoot, sessionId);
+  if (!prev.continuationSnapshot && !prev.lastProgressCheckpoint) return prev;
+  const carried = carryMeta(prev);
+  delete carried.continuationSnapshot;
+  delete carried.lastProgressCheckpoint;
+  const next = normalizeMeta({
+    updatedAt: new Date().toISOString(),
+    mutatedPaths: prev.mutatedPaths,
+    ...carried,
   });
   saveAgentRunMeta(cqrRoot, sessionId, next);
   return next;

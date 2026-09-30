@@ -63,7 +63,6 @@ import { loadUiFacts } from './agent-grounding.js';
 import {
   formatAutopilotSystemNote,
   resolveAutopilotEnabled,
-  shouldOrInContinuityAutopilot,
 } from './agent-autopilot.js';
 import {
   diagnosticsEvidenceStatus,
@@ -72,6 +71,7 @@ import {
 import {
   appendSessionMutatedPaths,
   appendSessionReadPaths,
+  clearSessionContinuationState,
   formatActiveTaskSystemNote,
   loadAgentRunMeta,
   recordSessionPerf,
@@ -82,6 +82,7 @@ import {
   flushLiveSessionProgress,
   formatSessionContinuitySystemNote,
   persistInterruptedAgentProgress,
+  resolveContinuationResume,
   seedReadGateFromSession,
   shouldUseSessionContinuity,
 } from './agent-session-continuity.js';
@@ -195,7 +196,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   assertDevWorkspaceRootReadable(opts.workspaceRoot);
   const guard = { allowNas };
 
-  let autopilot = resolveAutopilotEnabled(
+  const autopilot = resolveAutopilotEnabled(
     process.env,
     typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
     opts.userMessage,
@@ -531,6 +532,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     mutatedPaths: sessionMetaForGate.mutatedPaths,
     hasProgressCheckpoint: Boolean(sessionMetaForGate.lastProgressCheckpoint),
     hasContinuationSnapshot: Boolean(sessionMetaForGate.continuationSnapshot),
+    force: opts.continuationRetry === true,
   });
   const continuationSnapshot = sessionContinuity
     ? sessionMetaForGate.continuationSnapshot
@@ -538,16 +540,45 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const continuationCheckpoint = sessionContinuity && !continuationSnapshot
     ? sessionMetaForGate.lastProgressCheckpoint
     : undefined;
-  // Bare 「이어서」 keeps a continuous run. Persisted reviewer gates never steer a new request.
   if (
-    shouldOrInContinuityAutopilot({
-      currentlyEnabled: autopilot,
-      sessionContinuity,
-      optsAutopilot: opts.autopilot,
-    })
+    !sessionContinuity
+    && (sessionMetaForGate.continuationSnapshot || sessionMetaForGate.lastProgressCheckpoint)
   ) {
-    autopilot = true;
+    // A fresh request starts a new chain: stale resume state must not leak into a later
+    // 「이어서」 or a host retry of this turn.
+    try {
+      clearSessionContinuationState(opts.cqrRoot, opts.sessionId);
+    } catch {
+      /* meta best-effort */
+    }
   }
+  const continuationResume = resolveContinuationResume({
+    hasSnapshot: Boolean(continuationSnapshot || continuationCheckpoint),
+    snapshotResumeCount: continuationSnapshot?.resumeCount,
+    retry: opts.continuationRetry === true,
+  });
+  if (continuationResume.exhausted) {
+    try {
+      clearSessionContinuationState(opts.cqrRoot, opts.sessionId);
+    } catch {
+      /* meta best-effort */
+    }
+    reportStatus(`이어가기 한도 도달 (${continuationResume.max}회)`);
+    return finish({
+      content: '',
+      model: continuationSnapshot?.model ?? lastModel,
+      steps: 0,
+      applicationNotice: {
+        kind: 'continuation',
+        title: '이어가기 한도 도달',
+        message: `같은 작업을 ${continuationResume.max}회 이어서 진행했습니다. 범위를 좁혀 새 요청으로 다시 시작해 주세요. 읽거나 수정한 파일 기록과 TODO는 유지됩니다.`,
+        model: continuationSnapshot?.model ?? lastModel,
+        elapsedMs: continuationSnapshot?.elapsedMs,
+        step: continuationSnapshot?.step,
+      },
+    });
+  }
+  // Autopilot follows the execution policy only; continuing a run does not change it.
   if (autopilot) {
     messages.splice(sysInsertAt, 0, {
       role: 'system',
@@ -687,10 +718,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let verifyWitness: import('./agent-claim-gates.js').VerifyWitness | null = null;
   let explicitAcceptanceOk = false;
   const sessionMutatedPaths = sessionMetaForGate.mutatedPaths;
-  const priorSteps = Math.min(
-    MAX_AGENT_STEPS,
-    Math.max(0, continuationSnapshot?.step ?? continuationCheckpoint?.step ?? 0),
-  );
+  // Cumulative display count only. Every run (including a resume) gets a fresh
+  // MAX_AGENT_STEPS budget; the chain is bounded by resolveContinuationResume instead.
+  const priorSteps = Math.max(0, continuationSnapshot?.step ?? continuationCheckpoint?.step ?? 0);
   const state: AgentRunStepState = {
     opts,
     guard,
@@ -713,6 +743,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     toolPack,
     autopilot,
     priorSteps,
+    resumeCount: continuationResume.resumeCount,
     selfWorkspace,
     uiFacts,
     reportStatus,
@@ -787,7 +818,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         .slice(-3)
         .map((entry) => `${entry.name}: ${entry.failure_type ?? `step ${entry.step}`}`);
       const snapshot = buildAgentContinuationSnapshot({
-        step: Math.min(MAX_AGENT_STEPS, live.priorSteps + live.steps),
+        step: live.priorSteps + live.steps,
+        resumeCount: live.resumeCount,
         readPaths: [...live.successfulReadsThisRun],
         mutatedPaths: [...live.mutatedPathsThisRun, ...live.sessionMutatedPaths],
         unresolvedFailures: recentFailures,

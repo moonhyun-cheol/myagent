@@ -80,6 +80,11 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   extraSystemNotes?: string[];
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */
   autopilot?: boolean;
+  /**
+   * Host retry / auto-resume of the same user turn. Resumes stored progress regardless of
+   * message wording and does not count as a user 「이어서」 resume.
+   */
+  continuationRetry?: boolean;
 }
 
 export interface CodeAgentResult {

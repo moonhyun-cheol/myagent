@@ -173,6 +173,8 @@ export async function runWorkspaceCodeAgent(opts: {
   signal?: AbortSignal;
   /** Injected on infra retry — disk may already include partial edits. */
   extraSystemNotes?: string[];
+  /** Host retry / auto-resume of this same turn — resume stored progress regardless of wording. */
+  continuationRetry?: boolean;
 }): Promise<ChatResponse> {
   const {
     cqrRoot,
@@ -188,6 +190,7 @@ export async function runWorkspaceCodeAgent(opts: {
     callbacks,
     signal,
     extraSystemNotes,
+    continuationRetry,
   } = opts;
 
   const routing = preserveWorkspaceAgentRouting(rawRouting);
@@ -347,6 +350,7 @@ export async function runWorkspaceCodeAgent(opts: {
     // Code agent default ON for 127.0.0.1 dev E2E; set user-overrides false to lock.
     playwrightAllowLocalhost: overrides.playwright_allow_localhost !== false,
     autopilot,
+    continuationRetry: continuationRetry === true,
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
     onThought: callbacks?.onThought,

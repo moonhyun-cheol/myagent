@@ -894,6 +894,9 @@ export class ChatOrchestrator {
                     ].join('\n'),
                   ]
                 : undefined,
+            // Retries re-run this same turn: resume stored progress explicitly instead of
+            // relying on the original message matching the 「이어서」 wording.
+            continuationRetry: attempt > 1,
             callbacks: {
               onThought: (text) => emitThought(text),
               onToolActivity: (activity) => {

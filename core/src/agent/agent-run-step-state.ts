@@ -37,8 +37,10 @@ export interface AgentRunStepState {
   toolPack: import('./agent-tool-pack.js').AgentToolPack;
   /** Effective continuous-run flag (CODE/UI/GATE autopilot). */
   autopilot: boolean;
-  /** Completed orchestration steps from the persisted continuation chain. */
+  /** Completed orchestration steps from the persisted continuation chain (display/cumulative only). */
   priorSteps: number;
+  /** User 「이어서」 resumes spent on this chain, persisted with each snapshot. */
+  resumeCount: number;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
   selfWorkspace: boolean;
   uiFacts: UiFacts | null;

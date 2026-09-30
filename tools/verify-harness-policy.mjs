@@ -500,16 +500,17 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
 }
 
 {
-  const {
-    looksLikeAutopilotContinue,
-    resolveAutopilotEnabled,
-    shouldOrInContinuityAutopilot,
-  } = await import('../core/dist/agent/agent-autopilot.js');
+  const autopilotModule = await import('../core/dist/agent/agent-autopilot.js');
+  const { resolveAutopilotEnabled } = autopilotModule;
+  assert.equal(
+    'shouldOrInContinuityAutopilot' in autopilotModule,
+    false,
+    'continuing a run must not OR-in Autopilot; execution policy owns it',
+  );
+  assert.equal('looksLikeAutopilotContinue' in autopilotModule, false, 'dead continue regex removed');
   const { formatAcceptanceScenarioSystemNote } = await import(
     '../core/dist/agent/agent-planner.js'
   );
-  assert.equal(looksLikeAutopilotContinue('다음 조치 실행'), true);
-  assert.equal(looksLikeAutopilotContinue('니가 알아서 다음 단계 실행'), true);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, true), true, 'user override wins');
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, false), false);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, null), true);
@@ -595,16 +596,6 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
       'incomplete multi-path',
     );
   }
-  assert.equal(
-    shouldOrInContinuityAutopilot({
-      currentlyEnabled: false,
-      sessionContinuity: true,
-      optsAutopilot: false,
-      env: {},
-    }),
-    false,
-    'Manager Safe lock blocks OR-in',
-  );
   assert.match(formatAcceptanceScenarioSystemNote(), /Acceptance scenario/);
   assert.match(formatAcceptanceScenarioSystemNote(), /inAppBrowser\.open/);
   const { formatAgenticLoopSystemNote, formatPatchFormatConstraints } = await import(

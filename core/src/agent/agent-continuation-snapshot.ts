@@ -15,6 +15,8 @@ export interface AgentContinuationSnapshot {
   unresolvedFailures: string[];
   verifyWitness?: VerifyWitness | null;
   lastModelOutput?: string;
+  /** User 「이어서」 resumes already spent on this chain (host retries excluded). */
+  resumeCount?: number;
 }
 
 export interface AgentContinuationSnapshotInput {
@@ -29,6 +31,7 @@ export interface AgentContinuationSnapshotInput {
   unresolvedFailures?: string[];
   verifyWitness?: VerifyWitness | null;
   lastModelOutput?: string;
+  resumeCount?: number;
   now?: string;
 }
 
@@ -41,6 +44,7 @@ export function buildAgentContinuationSnapshot(
 ): AgentContinuationSnapshot {
   const model = String(input.model || '').trim().slice(0, 200);
   const lastModelOutput = String(input.lastModelOutput || '').trim().slice(-6_000);
+  const resumeCount = Math.max(0, Math.trunc(Number(input.resumeCount) || 0));
   return {
     version: 1,
     at: input.now ?? new Date().toISOString(),
@@ -55,6 +59,7 @@ export function buildAgentContinuationSnapshot(
     unresolvedFailures: unique(input.unresolvedFailures ?? [], 12),
     ...(input.verifyWitness !== undefined ? { verifyWitness: input.verifyWitness } : {}),
     ...(lastModelOutput ? { lastModelOutput } : {}),
+    ...(resumeCount ? { resumeCount } : {}),
   };
 }
 
@@ -64,7 +69,7 @@ export function formatAgentContinuationResumeNote(snapshot: AgentContinuationSna
     .map((todo) => `- [${todo.status}] ${todo.id}: ${todo.text}${todo.nextAction ? ` · next=${todo.nextAction}` : ''}`) ?? [];
   return [
     '## Continuation Snapshot',
-    `step=${snapshot.step} elapsedMs=${snapshot.elapsedMs} payloadChars=${snapshot.payloadChars}`,
+    `step=${snapshot.step} elapsedMs=${snapshot.elapsedMs} payloadChars=${snapshot.payloadChars}${snapshot.resumeCount ? ` resumes=${snapshot.resumeCount}` : ''}`,
     snapshot.model ? `model=${snapshot.model}` : '',
     snapshot.mutatedPaths.length ? `mutated=${snapshot.mutatedPaths.join(', ')}` : '',
     snapshot.readPaths.length ? `read=${snapshot.readPaths.join(', ')}` : '',

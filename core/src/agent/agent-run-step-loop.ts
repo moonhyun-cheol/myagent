@@ -110,6 +110,7 @@ import { AgentInfraError } from './agent-failure-plane.js';
 import { prepareAgentContextForRequest } from './agent-context-assembler.js';
 import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
 import {
+  clearSessionContinuationState,
   loadAgentRunMeta,
   recordSessionContinuationSnapshot,
 } from './agent-run-meta.js';
@@ -153,10 +154,18 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // Run ends when tools fail this many times in a row (successes reset it).
   let consecutiveToolFailures = 0;
   const maxConsecutiveFailures = maxConsecutiveToolFailures();
-  const cumulativeSteps = (): number => Math.min(
-    MAX_AGENT_STEPS,
-    state.priorSteps + state.steps,
-  );
+  // Display/persisted count across the continuation chain. The per-run budget below is
+  // state.steps alone, so a resume after hitting the cap gets a fresh budget.
+  const cumulativeSteps = (): number => state.priorSteps + state.steps;
+  // Normal completion ends the chain: a later 「이어서」 must not inherit this run's snapshot.
+  const clearContinuationOnComplete = () => {
+    try {
+      clearSessionContinuationState(state.opts.cqrRoot, state.opts.sessionId);
+    } catch {
+      /* meta best-effort */
+    }
+    state.persistLiveSessionMeta();
+  };
   const persistContinuationSnapshot = (status?: string) => {
     const meta = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId);
     const unresolvedFailures = state.toolTrace
@@ -175,6 +184,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       unresolvedFailures,
       verifyWitness: state.verifyWitness,
       lastModelOutput: state.lastModelOutput || state.answerBuf.trim(),
+      resumeCount: state.resumeCount,
     });
     recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
     state.persistLiveSessionMeta();
@@ -200,7 +210,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     );
   }
 
-  while (cumulativeSteps() < MAX_AGENT_STEPS) {
+  while (state.steps < MAX_AGENT_STEPS) {
     throwIfAborted(state.opts.signal);
     state.steps += 1;
     state.thoughtBuf = '';
@@ -426,7 +436,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             state.publishThoughtPanel();
           }
           if (!streamAnswer) state.opts.onAnswer?.(retryText);
-          persistContinuationSnapshot();
+          clearContinuationOnComplete();
           return state.finish({ content: retryText, model: state.lastModel, steps: state.steps });
         } else {
           const snapshot = persistContinuationSnapshot('최종 모델 응답 실패 · 재개 상태 보존');
@@ -451,7 +461,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         state.publishThoughtPanel();
       }
       if (!streamAnswer && text) state.opts.onAnswer?.(text);
-      persistContinuationSnapshot();
+      clearContinuationOnComplete();
       return state.finish({ content: text, model: state.lastModel, steps: state.steps });
     }
 

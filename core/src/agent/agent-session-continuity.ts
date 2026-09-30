@@ -18,12 +18,27 @@ import {
   type AgentContinuationSnapshot,
 } from './agent-continuation-snapshot.js';
 
+/**
+ * The single short-continue recognizer. Whole-message match only, so a new request that
+ * merely contains 「이어서」 never hijacks stored progress.
+ */
+export const SESSION_CONTINUE_RE =
+  /^(?:(?:이어서|계속(?:해서)?|마저)(?:\s*(?:진행|작업))?(?:\s*(?:하자|해|해줘|해주세요))?|계속해(?:요|줘|주세요)?)\s*[.!。]*$/i;
+
+export function looksLikeSessionContinue(message: string): boolean {
+  return SESSION_CONTINUE_RE.test(String(message || '').trim());
+}
+
 export function shouldUseSessionContinuity(opts: {
   userMessage: string;
   readPaths: string[];
   mutatedPaths: string[];
   hasProgressCheckpoint?: boolean;
   hasContinuationSnapshot?: boolean;
+  /**
+   * Host-owned resume (infra retry / auto-resume of the same turn). Independent of wording.
+   */
+  force?: boolean;
 }): boolean {
   if (
     !opts.readPaths.length
@@ -31,9 +46,32 @@ export function shouldUseSessionContinuity(opts: {
     && !opts.hasProgressCheckpoint
     && !opts.hasContinuationSnapshot
   ) return false;
-  return /^(?:(?:이어서|계속(?:해서)?|마저)(?:\s*(?:진행|작업))?(?:\s*(?:하자|해|해줘|해주세요))?|계속해(?:요|줘|주세요)?)\s*[.!。]*$/i.test(
-    String(opts.userMessage || '').trim(),
-  );
+  if (opts.force === true) return true;
+  return looksLikeSessionContinue(opts.userMessage);
+}
+
+/** Default cap on user 「이어서」 resumes of one continuation chain (each gets a fresh step budget). */
+export const DEFAULT_MAX_CONTINUATION_RESUMES = 5;
+
+export function maxContinuationResumes(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(String(env.MY_AGENT_MAX_CONTINUATION_RESUMES ?? ''), 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MAX_CONTINUATION_RESUMES;
+}
+
+/**
+ * Resume accounting for one run. A user 「이어서」 from a stored snapshot counts as a resume;
+ * a host retry of the same turn does not (it re-runs the attempt that failed).
+ */
+export function resolveContinuationResume(opts: {
+  hasSnapshot: boolean;
+  snapshotResumeCount?: number;
+  retry: boolean;
+  max?: number;
+}): { resumeCount: number; exhausted: boolean; max: number } {
+  const max = opts.max ?? maxContinuationResumes();
+  const base = Math.max(0, Math.trunc(Number(opts.snapshotResumeCount) || 0));
+  const resumeCount = opts.hasSnapshot && !opts.retry ? base + 1 : base;
+  return { resumeCount, exhausted: resumeCount > max, max };
 }
 
 export function formatSessionContinuitySystemNote(opts: {
