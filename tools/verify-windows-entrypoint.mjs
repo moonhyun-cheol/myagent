@@ -15,18 +15,78 @@ for (const marker of [
   '<PublishSingleFile>true</PublishSingleFile>',
   '<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>',
   '<ApplicationManifest>app.manifest</ApplicationManifest>',
-  '<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>',
 ]) {
   assert.ok(project.includes(marker), `shell publish contract missing: ${marker}`);
 }
 
 const shellManifest = read('shell/CqrPa.Shell/app.manifest');
 assert.match(shellManifest, /manifestVersion="1\.0"/);
-assert.doesNotMatch(
+assert.match(
   shellManifest,
-  /<dpiAware(?:ness)?\b/,
-  'the .NET SDK must emit DPI declarations from ApplicationHighDpiMode without WFAC010',
+  /<dpiAware[^>]*>true\/pm<\/dpiAware>/,
+  'WPF shell must declare per-monitor DPI in app.manifest (ApplicationHighDpiMode is WinForms-only)',
 );
+assert.match(shellManifest, /<dpiAwareness[^>]*>PerMonitorV2,PerMonitor<\/dpiAwareness>/);
+assert.ok(project.includes('WFAC010'), 'shell csproj must suppress WFAC010 for manifest DPI declarations');
+
+// Source strings are not enough: update 62 shipped ApplicationHighDpiMode (WinForms-only), which
+// left the built WPF exe without any DPI declaration. Inspect the RT_MANIFEST embedded in each
+// built shell exe that exists locally, so a stale or regressed build fails here.
+function readEmbeddedManifest(file) {
+  const buf = readFileSync(file);
+  if (buf.readUInt16LE(0) !== 0x5a4d) throw new Error(`${file}: not a PE file`);
+  const pe = buf.readUInt32LE(0x3c);
+  if (buf.readUInt32LE(pe) !== 0x4550) throw new Error(`${file}: missing PE signature`);
+  const sectionCount = buf.readUInt16LE(pe + 6);
+  const optionalSize = buf.readUInt16LE(pe + 20);
+  const optional = pe + 24;
+  const magic = buf.readUInt16LE(optional);
+  const dataDirs = optional + (magic === 0x20b ? 112 : 96);
+  const resourceRva = buf.readUInt32LE(dataDirs + 2 * 8);
+  if (!resourceRva) return null;
+  const sections = [];
+  for (let i = 0; i < sectionCount; i += 1) {
+    const s = optional + optionalSize + i * 40;
+    sections.push({
+      va: buf.readUInt32LE(s + 12),
+      vsize: Math.max(buf.readUInt32LE(s + 8), buf.readUInt32LE(s + 16)),
+      raw: buf.readUInt32LE(s + 20),
+    });
+  }
+  const toOffset = (rva) => {
+    const s = sections.find((x) => rva >= x.va && rva < x.va + x.vsize);
+    if (!s) throw new Error(`${file}: RVA 0x${rva.toString(16)} outside sections`);
+    return rva - s.va + s.raw;
+  };
+  const base = toOffset(resourceRva);
+  const entries = (dirOffset) => {
+    const count = buf.readUInt16LE(base + dirOffset + 12) + buf.readUInt16LE(base + dirOffset + 14);
+    return Array.from({ length: count }, (_, i) => {
+      const e = base + dirOffset + 16 + i * 8;
+      const target = buf.readUInt32LE(e + 4);
+      return { id: buf.readUInt32LE(e), subdir: (target & 0x80000000) !== 0, offset: target & 0x7fffffff };
+    });
+  };
+  const manifestType = entries(0).find((e) => e.id === 24 && e.subdir); // RT_MANIFEST
+  if (!manifestType) return null;
+  const nameEntry = entries(manifestType.offset).find((e) => e.subdir);
+  const langEntry = nameEntry && entries(nameEntry.offset).find((e) => !e.subdir);
+  if (!langEntry) return null;
+  const dataRva = buf.readUInt32LE(base + langEntry.offset);
+  const dataSize = buf.readUInt32LE(base + langEntry.offset + 4);
+  const start = toOffset(dataRva);
+  return buf.subarray(start, start + dataSize).toString('utf8');
+}
+
+const builtShellExes = ['bin/my-agent/MYAgent.exe', 'MYAgent.exe'].filter((rel) => existsSync(path.join(root, rel)));
+for (const rel of builtShellExes) {
+  const embedded = readEmbeddedManifest(path.join(root, rel));
+  const hint = `${rel}: embedded manifest lacks per-monitor DPI (stale or regressed build; run npm run build:exe)`;
+  assert.ok(embedded, `${rel}: no RT_MANIFEST resource found`);
+  assert.match(embedded, /<dpiAware[^>]*>\s*true\/pm\s*<\/dpiAware>/, hint);
+  assert.match(embedded, /<dpiAwareness[^>]*>\s*PerMonitorV2,PerMonitor\s*<\/dpiAwareness>/, hint);
+}
+if (!builtShellExes.length) console.log('verify-windows-entrypoint: no built shell exe present; embedded manifest check skipped');
 
 const updaterProject = read('shell/CqrPa.Updater/CqrPa.Updater.csproj');
 for (const marker of [

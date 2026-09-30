@@ -2,19 +2,19 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
-      "id": "mixed-dpi-native-popup-positioning",
+      "id": "per-monitor-dpi-shell-manifest",
       "status": "released",
-      "title": "화면 배율이 다른 모니터에서도 팝업 위치 보정",
-      "detail": "서로 다른 화면 배율을 사용하는 다중 모니터 환경에서 앱을 옮긴 뒤에도 WebView2 메뉴와 네이티브 팝업이 현재 모니터의 올바른 위치에 표시되도록 개선했습니다.",
+      "title": "여러 모니터에서 배율이 달라도 창·팝업 위치와 선명도 개선",
+      "detail": "화면 배율이 서로 다른 여러 모니터를 사용할 때 앱 창과 메뉴·팝업이 현재 모니터 배율에 맞는 위치와 선명도로 표시되도록 했습니다. 지난 업데이트에서 안내한 팝업 위치 보정이 실제 앱에는 적용되지 않았던 문제를 이번에 바로잡았습니다.",
       "area": "shell",
-      "created_at": "2026-09-18",
+      "created_at": "2026-09-30",
       "source_paths": [
         "shell/CqrPa.Shell/app.manifest",
         "shell/CqrPa.Shell/CqrPa.Shell.csproj"
       ],
       "release": {
-        "version": "1.1.14",
-        "update_sequence": 62
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     }
   ]
