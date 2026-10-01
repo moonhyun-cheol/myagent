@@ -11,8 +11,23 @@
   "openclaw_actor_id": "my-agent",
   "openclaw_fallback_local": false,
   "web_search_auto": false,
-  "organization_module_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/channels/beta.json",
-  "work_kit_catalog_feed_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/channels/work-kits.json",
+  "organization_module_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/beta.json",
+  "work_kit_catalog_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/work-kits.json",
+  "organization_release_mirrors": [
+    {
+      "id": "gitea",
+      "repository": "ins78516/myagent-org",
+      "raw_base_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/",
+      "release_download_base_url": "https://git.minyoungcorp.com/ins78516/myagent-org/releases/download/"
+    },
+    {
+      "id": "github",
+      "repository": "moonhyun-cheol/myagent-org",
+      "raw_base_url": "https://raw.githubusercontent.com/moonhyun-cheol/myagent-org/main/",
+      "release_download_base_url": "https://github.com/moonhyun-cheol/myagent-org/releases/download/"
+    }
+  ],
+  "organization_release_mirrors_note": "Gitea primary, GitHub mirror with identical signed feeds/assets. Feed/asset fetch falls back on network error/timeout/404/5xx only; size/SHA-256/signature mismatch stops. MY_AGENT_UPDATE_MIRRORS=0 disables.",
   "work_kit_note": "Server migration: MY_AGENT_WORK_KIT_CATALOG_FEED_URL, MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE, MY_AGENT_UPDATE_TRUSTED_HOSTS. Empty feed URL = catalog refresh disabled until configured.",
   "audit_ship": {
     "enabled": false,

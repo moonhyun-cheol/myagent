@@ -32,6 +32,16 @@ export interface DeployDefaults {
    * Host-agnostic — set per deploy; env MY_AGENT_WORK_KIT_CATALOG_FEED_URL wins.
    */
   work_kit_catalog_feed_url?: string;
+  /**
+   * Organization release mirrors (same signed feeds/assets), tried in order.
+   * See updates/update-mirrors.ts. Empty/missing = single-URL behavior.
+   */
+  organization_release_mirrors?: Array<{
+    id?: string;
+    repository: string;
+    raw_base_url: string;
+    release_download_base_url: string;
+  }>;
   /** OpenClaw Adapter API base (e.g. http://192.168.x.x:8790). Empty = local spawn only. */
   openclaw_adapter_base_url?: string;
   /** Bearer token for Adapter / Queue. Prefer env OPENCLAW_ADAPTER_TOKEN — do not commit secrets. */

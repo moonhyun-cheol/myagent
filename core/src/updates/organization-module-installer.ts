@@ -380,13 +380,18 @@ export function installOrganizationModule(input: InstallOrganizationModuleInput)
 }
 
 import { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
+import { feedUrlCandidates, loadReleaseMirrors } from './update-mirrors.js';
 
 export function describeOrganizationModuleStatus(cqrRoot: string): {
   installed: InstalledOrganizationModule | null;
   feed_url: string | null;
   can_check_remote: boolean;
 } {
-  const feedUrl = resolveOrganizationModuleFeedUrl(cqrRoot);
+  const rawFeedUrl = resolveOrganizationModuleFeedUrl(cqrRoot);
+  // Show the effective primary mirror (legacy GitHub feed URLs are read from Gitea first).
+  const feedUrl = rawFeedUrl
+    ? (feedUrlCandidates(rawFeedUrl, loadReleaseMirrors(cqrRoot))[0] ?? rawFeedUrl)
+    : null;
   return {
     installed: readInstalledOrganizationModule(cqrRoot),
     feed_url: feedUrl,

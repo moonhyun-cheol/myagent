@@ -31,16 +31,29 @@ import {
 import { assertHexSha256, sha256File } from './organization-module-crypto.js';
 import {
   buildWorkKitAssetUrl,
+  hasUpdateAssetUrlTemplate,
   isTrustedUpdateAssetHost,
   isTrustedUpdateFeedHost,
   resolveWorkKitAssetUrlMode,
+  type TrustedHostOptions,
 } from './update-host-policy.js';
+import {
+  feedUrlCandidates,
+  fetchFromMirrors,
+  loadReleaseMirrors,
+  mirrorAssetUrls,
+  mirrorHosts,
+  type ReleaseMirror,
+} from './update-mirrors.js';
 import { resolveWorkKitCatalogFeedUrl } from './work-kit-catalog-feed-resolve.js';
 
 export { resolveWorkKitCatalogFeedUrl } from './work-kit-catalog-feed-resolve.js';
 
 const MAX_FEED_BYTES = 2 * 1024 * 1024;
 const MAX_ASSET_BYTES = 64 * 1024 * 1024;
+const FEED_ATTEMPT_TIMEOUT_MS = 8_000;
+const ASSET_ATTEMPT_TIMEOUT_MS = 20_000;
+const CATALOG_HEADERS = { 'User-Agent': 'MYAgent-WorkKitCatalog/1' };
 
 export class WorkKitCatalogError extends Error {
   code: string;
@@ -68,7 +81,9 @@ export interface WorkKitCatalogConfig {
 }
 
 export function describeWorkKitCatalogConfig(cqrRoot: string): WorkKitCatalogConfig {
-  const feedUrl = resolveWorkKitCatalogFeedUrl(cqrRoot);
+  const mirrors = loadReleaseMirrors(cqrRoot);
+  const rawFeedUrl = resolveWorkKitCatalogFeedUrl(cqrRoot);
+  const feedUrl = rawFeedUrl ? (feedUrlCandidates(rawFeedUrl, mirrors)[0] ?? rawFeedUrl) : null;
   let feedHost: string | null = null;
   if (feedUrl) {
     try {
@@ -77,24 +92,28 @@ export function describeWorkKitCatalogConfig(cqrRoot: string): WorkKitCatalogCon
       feedHost = null;
     }
   }
-  const assetMode = resolveWorkKitAssetUrlMode();
+  const assetMode = resolveWorkKitAssetUrlMode(mirrors.length > 0);
+  const hints: Record<typeof assetMode, string> = {
+    mirrors: `미러 순서: ${mirrors.map((m) => m.id).join(' → ')}. 전송 실패(네트워크·404·5xx)만 다음 미러로 넘깁니다.`,
+    github_default: 'GitHub 기본 URL. 자사 서버 사용 시 deploy-defaults.organization_release_mirrors 또는 MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE + MY_AGENT_UPDATE_TRUSTED_HOSTS 설정.',
+    kit_template: 'Custom asset template active. Feed URL만 교체하면 호스트 이전 가능.',
+    update_template: 'Custom asset template active. Feed URL만 교체하면 호스트 이전 가능.',
+  };
   return {
     feed_url: feedUrl,
     feed_configured: Boolean(feedUrl),
     feed_host: feedHost,
     asset_url_mode: assetMode,
-    migration_hint: assetMode === 'github_default'
-      ? 'GitHub 기본 URL. 자사 서버 이전 시 MY_AGENT_WORK_KIT_CATALOG_FEED_URL + MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE + MY_AGENT_UPDATE_TRUSTED_HOSTS 설정.'
-      : 'Custom asset template active. Feed URL만 교체하면 호스트 이전 가능.',
+    migration_hint: hints[assetMode],
   };
 }
 
-function ensureTrustedFeedUrl(url: URL, configuredFeedHost?: string): void {
+function ensureTrustedFeedUrl(url: URL, trust: TrustedHostOptions): void {
   if (url.protocol !== 'https:' && url.protocol !== 'file:') {
     throw new WorkKitCatalogError('KIT_FEED_URL', '작업 키트 카탈로그 피드는 HTTPS여야 합니다.');
   }
   if (url.protocol === 'file:') return;
-  if (!isTrustedUpdateFeedHost(url.hostname, { configuredFeedHost })) {
+  if (!isTrustedUpdateFeedHost(url.hostname, trust)) {
     throw new WorkKitCatalogError(
       'KIT_FEED_HOST',
       '작업 키트 피드 호스트가 허용 목록 밖입니다. MY_AGENT_UPDATE_TRUSTED_HOSTS 또는 feed URL 호스트를 확인하세요.',
@@ -102,12 +121,12 @@ function ensureTrustedFeedUrl(url: URL, configuredFeedHost?: string): void {
   }
 }
 
-function ensureTrustedAssetUrl(url: URL, configuredFeedHost?: string): void {
+function ensureTrustedAssetUrl(url: URL, trust: TrustedHostOptions): void {
   if (url.protocol === 'file:') return;
   if (url.protocol !== 'https:') {
     throw new WorkKitCatalogError('KIT_ASSET_URL', '작업 키트 다운로드는 HTTPS여야 합니다.');
   }
-  if (!isTrustedUpdateAssetHost(url.hostname, { configuredFeedHost })) {
+  if (!isTrustedUpdateAssetHost(url.hostname, trust)) {
     throw new WorkKitCatalogError(
       'KIT_ASSET_HOST',
       '작업 키트 다운로드 호스트가 허용 목록 밖입니다.',
@@ -158,20 +177,34 @@ function parseFeedDoc(raw: unknown): WorkKitCatalogFeedDoc {
 function resolveFeedSource(
   cqrRoot: string,
   opts?: { feedUrl?: string; feedPath?: string },
-): { url: string | null; filePath: string | null; configuredHost?: string } {
+): {
+  url: string | null;
+  filePath: string | null;
+  configuredHost?: string;
+  mirrors: ReleaseMirror[];
+  trust: TrustedHostOptions;
+} {
+  const mirrors = loadReleaseMirrors(cqrRoot);
+  const extraHosts = mirrorHosts(mirrors);
   if (opts?.feedPath?.trim()) {
-    return { url: null, filePath: path.resolve(opts.feedPath) };
+    return { url: null, filePath: path.resolve(opts.feedPath), mirrors, trust: { extraHosts } };
   }
   const url = opts?.feedUrl?.trim() || resolveWorkKitCatalogFeedUrl(cqrRoot);
-  if (!url) return { url: null, filePath: null };
+  if (!url) return { url: null, filePath: null, mirrors, trust: { extraHosts } };
   if (/^file:\/\//i.test(url) || (!/^https?:\/\//i.test(url) && existsSync(url))) {
     const filePath = url.startsWith('file:')
       ? fileURLToPathSafe(url)
       : path.resolve(url);
-    return { url: null, filePath };
+    return { url: null, filePath, mirrors, trust: { extraHosts } };
   }
   const parsed = new URL(url);
-  return { url, filePath: null, configuredHost: parsed.hostname };
+  return {
+    url,
+    filePath: null,
+    configuredHost: parsed.hostname,
+    mirrors,
+    trust: { configuredFeedHost: parsed.hostname, extraHosts },
+  };
 }
 
 function fileURLToPathSafe(url: string): string {
@@ -201,19 +234,20 @@ async function loadFeedBytes(
       '작업 키트 카탈로그 피드 URL이 없습니다. MY_AGENT_WORK_KIT_CATALOG_FEED_URL 또는 deploy-defaults.work_kit_catalog_feed_url 을 설정하세요.',
     );
   }
-  const feedUrl = new URL(source.url);
-  ensureTrustedFeedUrl(feedUrl, source.configuredHost);
-  const response = await fetch(feedUrl, {
-    redirect: 'follow',
-    headers: { 'User-Agent': 'MYAgent-WorkKitCatalog/1' },
+  const candidates = feedUrlCandidates(source.url, source.mirrors).map((u) => new URL(u));
+  for (const url of candidates) ensureTrustedFeedUrl(url, source.trust);
+  const { response, url: usedUrl } = await fetchFromMirrors(candidates, {
+    headers: CATALOG_HEADERS,
     signal: opts?.signal,
+    attemptTimeoutMs: FEED_ATTEMPT_TIMEOUT_MS,
+    validate: (url) => ensureTrustedFeedUrl(url, source.trust),
   });
   if (!response.ok) {
     throw new WorkKitCatalogError('KIT_FEED_HTTP', `카탈로그 피드를 읽지 못했습니다 (${response.status}).`);
   }
-  if (response.url) ensureTrustedFeedUrl(new URL(response.url), source.configuredHost);
+  if (response.url) ensureTrustedFeedUrl(new URL(response.url), source.trust);
   const bytes = await readLimited(response, MAX_FEED_BYTES);
-  return { bytes, feedUrl: source.url, configuredHost: source.configuredHost };
+  return { bytes, feedUrl: usedUrl.href, configuredHost: source.configuredHost };
 }
 
 export function findFeedShelf(
@@ -259,7 +293,9 @@ export async function checkWorkKitCatalogUpdateRemote(
   const lockerRoot = opts?.lockerRoot?.trim()
     ? path.resolve(opts.lockerRoot)
     : resolveLockerRootForCqr(cqrRoot);
-  const feedUrl = resolveWorkKitCatalogFeedUrl(cqrRoot);
+  const rawFeedUrl = resolveWorkKitCatalogFeedUrl(cqrRoot);
+  const mirrors = loadReleaseMirrors(cqrRoot);
+  const feedUrl = rawFeedUrl ? (feedUrlCandidates(rawFeedUrl, mirrors)[0] ?? rawFeedUrl) : null;
   const cached = readCatalogFeedCache(lockerRoot);
   if (!feedUrl) {
     return {
@@ -280,7 +316,7 @@ export async function checkWorkKitCatalogUpdateRemote(
       feed_host: (() => {
         try { return new URL(feedUrl).hostname; } catch { return null; }
       })(),
-      asset_url_mode: resolveWorkKitAssetUrlMode(),
+      asset_url_mode: resolveWorkKitAssetUrlMode(mirrors.length > 0),
     };
   } catch {
     return {
@@ -313,10 +349,12 @@ export async function refreshWorkKitCatalog(
   return feed;
 }
 
-function resolveShelfAssetUrl(
+/** Ordered shelf asset URLs: direct url > env template > mirrors > GitHub default. */
+export function resolveShelfAssetUrls(
   asset: WorkKitFeedShelf['asset'],
-  configuredFeedHost?: string,
-): URL {
+  trust: TrustedHostOptions,
+  mirrors: readonly ReleaseMirror[] = [],
+): URL[] {
   if (!asset) {
     throw new WorkKitCatalogError('KIT_ASSET_MISSING', '이 키트에는 설치용 asset이 없습니다.');
   }
@@ -325,16 +363,18 @@ function resolveShelfAssetUrl(
     const url = direct.startsWith('file:') || /^[A-Za-z]:[\\/]/.test(direct) || direct.startsWith('/')
       ? new URL(direct.startsWith('file:') ? direct : `file://${direct}`)
       : new URL(direct);
-    ensureTrustedAssetUrl(url, configuredFeedHost);
-    return url;
+    ensureTrustedAssetUrl(url, trust);
+    return [url];
   }
   const repo = asset.repository?.trim();
   const tag = asset.release_tag?.trim();
   const name = asset.name?.trim();
   if (repo && tag && name) {
-    const url = buildWorkKitAssetUrl({ repository: repo, releaseTag: tag, name });
-    ensureTrustedAssetUrl(url, configuredFeedHost);
-    return url;
+    const input = { repository: repo, releaseTag: tag, name };
+    const mirrored = hasUpdateAssetUrlTemplate('work_kit') ? [] : mirrorAssetUrls(input, mirrors);
+    const urls = mirrored.length ? mirrored : [buildWorkKitAssetUrl(input)];
+    for (const url of urls) ensureTrustedAssetUrl(url, trust);
+    return urls;
   }
   throw new WorkKitCatalogError('KIT_ASSET_MISSING', 'asset.url 또는 repository/release_tag/name 이 필요합니다.');
 }
@@ -349,10 +389,14 @@ function sha256Buffer(buf: Buffer): string {
 }
 
 async function downloadAssetToFile(
-  assetUrl: URL,
+  assetUrls: URL[],
   destPath: string,
-  opts: { expectedSize?: number; expectedSha256?: string; configuredHost?: string; signal?: AbortSignal },
+  opts: { expectedSize?: number; expectedSha256?: string; trust: TrustedHostOptions; signal?: AbortSignal },
 ): Promise<void> {
+  const assetUrl = assetUrls[0];
+  if (!assetUrl) {
+    throw new WorkKitCatalogError('KIT_ASSET_MISSING', '설치용 asset URL이 없습니다.');
+  }
   if (assetUrl.protocol === 'file:') {
     const src = fileURLToPathSafe(assetUrl.href);
     if (!existsSync(src)) {
@@ -368,16 +412,17 @@ async function downloadAssetToFile(
     writeFileSync(destPath, bytes);
     return;
   }
-  ensureTrustedAssetUrl(assetUrl, opts.configuredHost);
-  const response = await fetch(assetUrl, {
-    redirect: 'follow',
-    headers: { 'User-Agent': 'MYAgent-WorkKitCatalog/1' },
+  // Mirror fallback covers transport failures only; size/hash mismatch below stops here.
+  const { response } = await fetchFromMirrors(assetUrls, {
+    headers: CATALOG_HEADERS,
     signal: opts.signal,
+    attemptTimeoutMs: ASSET_ATTEMPT_TIMEOUT_MS,
+    validate: (url) => ensureTrustedAssetUrl(url, opts.trust),
   });
   if (!response.ok || !response.body) {
     throw new WorkKitCatalogError('KIT_ASSET_HTTP', `키트 에셋을 받지 못했습니다 (${response.status}).`);
   }
-  if (response.url) ensureTrustedAssetUrl(new URL(response.url), opts.configuredHost);
+  if (response.url) ensureTrustedAssetUrl(new URL(response.url), opts.trust);
   const length = Number(response.headers.get('content-length') ?? '0');
   if (opts.expectedSize && length && length !== opts.expectedSize) {
     throw new WorkKitCatalogError('KIT_ASSET_SIZE', '에셋 크기가 피드와 일치하지 않습니다.');
@@ -481,16 +526,16 @@ export async function installWorkKitShelf(
   }
 
   const source = resolveFeedSource(cqrRoot, { feedPath: opts?.feedPath });
-  const assetUrl = resolveShelfAssetUrl(shelf.asset, source.configuredHost);
+  const assetUrls = resolveShelfAssetUrls(shelf.asset, source.trust, source.mirrors);
   const tempDir = path.join(tmpdir(), 'MYAgent', 'work-kit-install', `${group}-${id}-${randomUUID().replaceAll('-', '')}`);
   mkdirSync(tempDir, { recursive: true });
   const archivePath = path.join(tempDir, shelf.asset.name || `${group}-${id}.tar.gz`);
   const extractRoot = path.join(tempDir, 'extract');
   try {
-    await downloadAssetToFile(assetUrl, archivePath, {
+    await downloadAssetToFile(assetUrls, archivePath, {
       expectedSize: shelf.asset.size,
       expectedSha256: shelf.asset.sha256,
-      configuredHost: source.configuredHost,
+      trust: source.trust,
       signal: opts?.signal,
     });
     extractTarGz(archivePath, extractRoot);

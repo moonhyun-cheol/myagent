@@ -2280,14 +2280,14 @@ export interface WorkKitCatalogCheckResult {
   cached_sequence: number | null;
   update_available: boolean;
   feed_host?: string | null;
-  asset_url_mode?: 'kit_template' | 'update_template' | 'github_default';
+  asset_url_mode?: 'kit_template' | 'update_template' | 'mirrors' | 'github_default';
 }
 
 export interface WorkKitCatalogConfig {
   feed_url: string | null;
   feed_configured: boolean;
   feed_host: string | null;
-  asset_url_mode: 'kit_template' | 'update_template' | 'github_default';
+  asset_url_mode: 'kit_template' | 'update_template' | 'mirrors' | 'github_default';
   migration_hint: string;
 }
 

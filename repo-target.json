@@ -10,7 +10,9 @@
   "local_folder": "MY_CUSTOM_CODEX",
   "sibling": {
     "role": "organization-module",
+    "gitea": "git.minyoungcorp.com/ins78516/myagent-org",
     "github": "moonhyun-cheol/myagent-org",
+    "mirror_policy": "Gitea primary, GitHub same-version mirror (see deploy-defaults.organization_release_mirrors)",
     "local_folder": "MY_CUSTOM_CODEX-COMPANY",
     "lookup": "that repo's repo-target.json"
   },

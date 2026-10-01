@@ -39,14 +39,23 @@ export function envTrustedUpdateHosts(): string[] {
   ];
 }
 
+export interface TrustedHostOptions {
+  configuredFeedHost?: string;
+  /** Exact hosts from configured release mirrors (deploy-defaults). */
+  extraHosts?: readonly string[];
+}
+
+function matchesConfigured(host: string, opts?: TrustedHostOptions): boolean {
+  if (opts?.configuredFeedHost && host === opts.configuredFeedHost.toLowerCase()) return true;
+  return Boolean(opts?.extraHosts?.some((h) => h.toLowerCase() === host));
+}
+
 export function isTrustedUpdateFeedHost(
   hostname: string,
-  opts?: { configuredFeedHost?: string },
+  opts?: TrustedHostOptions,
 ): boolean {
   const host = hostname.toLowerCase();
-  if (opts?.configuredFeedHost && host === opts.configuredFeedHost.toLowerCase()) {
-    return true;
-  }
+  if (matchesConfigured(host, opts)) return true;
   for (const h of DEFAULT_UPDATE_FEED_HOSTS) {
     if (host === h) return true;
   }
@@ -61,12 +70,10 @@ export function isTrustedUpdateFeedHost(
 
 export function isTrustedUpdateAssetHost(
   hostname: string,
-  opts?: { configuredFeedHost?: string },
+  opts?: TrustedHostOptions,
 ): boolean {
   const host = hostname.toLowerCase();
-  if (opts?.configuredFeedHost && host === opts.configuredFeedHost.toLowerCase()) {
-    return true;
-  }
+  if (matchesConfigured(host, opts)) return true;
   for (const h of DEFAULT_UPDATE_ASSET_HOSTS) {
     if (host === h) return true;
   }
@@ -139,8 +146,17 @@ export function buildWorkKitAssetUrl(input: {
   return buildUpdateAssetUrl(input);
 }
 
-export function resolveWorkKitAssetUrlMode(): 'kit_template' | 'update_template' | 'github_default' {
+/** True when an operator env template overrides asset URLs (mirrors are then bypassed). */
+export function hasUpdateAssetUrlTemplate(kind: 'module' | 'work_kit'): boolean {
+  if (process.env.MY_AGENT_UPDATE_ASSET_URL_TEMPLATE?.trim()) return true;
+  return kind === 'work_kit' && Boolean(process.env.MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE?.trim());
+}
+
+export function resolveWorkKitAssetUrlMode(
+  mirrorsActive = false,
+): 'kit_template' | 'update_template' | 'mirrors' | 'github_default' {
   if (process.env.MY_AGENT_WORK_KIT_ASSET_URL_TEMPLATE?.trim()) return 'kit_template';
   if (process.env.MY_AGENT_UPDATE_ASSET_URL_TEMPLATE?.trim()) return 'update_template';
+  if (mirrorsActive) return 'mirrors';
   return 'github_default';
 }

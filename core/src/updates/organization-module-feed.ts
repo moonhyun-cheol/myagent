@@ -18,14 +18,27 @@ import {
 } from './organization-module-installer.js';
 import {
   buildUpdateAssetUrl,
+  hasUpdateAssetUrlTemplate,
   isTrustedUpdateAssetHost,
   isTrustedUpdateFeedHost,
+  type TrustedHostOptions,
 } from './update-host-policy.js';
+import {
+  feedUrlCandidates,
+  fetchFromMirrors,
+  loadReleaseMirrors,
+  mirrorAssetUrls,
+  mirrorHosts,
+  type ReleaseMirror,
+} from './update-mirrors.js';
 import { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
 
 export { resolveOrganizationModuleFeedUrl } from './organization-module-feed-resolve.js';
 
 const MAX_FEED_BYTES = 1024 * 1024;
+const FEED_ATTEMPT_TIMEOUT_MS = 8_000;
+const ASSET_ATTEMPT_TIMEOUT_MS = 20_000;
+const UPDATER_HEADERS = { 'User-Agent': 'MYAgent-ModuleUpdater/1' };
 
 export interface AvailableModuleUpdate {
   sequence: number;
@@ -40,11 +53,11 @@ export interface AvailableModuleUpdate {
   first_install: boolean;
 }
 
-function ensureTrustedFeedUrl(url: URL, configuredFeedHost?: string): void {
+function ensureTrustedFeedUrl(url: URL, trust: TrustedHostOptions): void {
   if (url.protocol !== 'https:') {
     throw new OrganizationModuleError('MODULE_FEED_URL', '모듈 피드는 HTTPS여야 합니다.');
   }
-  if (!isTrustedUpdateFeedHost(url.hostname, { configuredFeedHost })) {
+  if (!isTrustedUpdateFeedHost(url.hostname, trust)) {
     throw new OrganizationModuleError(
       'MODULE_FEED_HOST',
       '모듈 피드 호스트가 허용 목록 밖입니다. MY_AGENT_UPDATE_TRUSTED_HOSTS 또는 설치 feed URL 호스트를 확인하세요.',
@@ -52,11 +65,11 @@ function ensureTrustedFeedUrl(url: URL, configuredFeedHost?: string): void {
   }
 }
 
-function ensureTrustedAssetUrl(url: URL, configuredFeedHost?: string): void {
+function ensureTrustedAssetUrl(url: URL, trust: TrustedHostOptions): void {
   if (url.protocol !== 'https:') {
     throw new OrganizationModuleError('MODULE_ASSET_URL', '모듈 다운로드는 HTTPS여야 합니다.');
   }
-  if (!isTrustedUpdateAssetHost(url.hostname, { configuredFeedHost })) {
+  if (!isTrustedUpdateAssetHost(url.hostname, trust)) {
     throw new OrganizationModuleError(
       'MODULE_ASSET_HOST',
       '모듈 다운로드 호스트가 허용 목록 밖입니다. MY_AGENT_UPDATE_TRUSTED_HOSTS / MY_AGENT_UPDATE_ASSET_HOSTS 를 설정하세요.',
@@ -70,6 +83,47 @@ function buildReleaseAssetUri(repository: string, releaseTag: string, name: stri
   } catch {
     throw new OrganizationModuleError('MODULE_REPO', 'Signed update repository is invalid.');
   }
+}
+
+interface FeedMirrorContext {
+  mirrors: ReleaseMirror[];
+  candidates: URL[];
+  trust: TrustedHostOptions;
+}
+
+function feedMirrorContext(cqrRoot: string, feedUrlText: string): FeedMirrorContext {
+  const mirrors = loadReleaseMirrors(cqrRoot);
+  const candidates = feedUrlCandidates(feedUrlText, mirrors).map((u) => new URL(u));
+  const trust: TrustedHostOptions = {
+    configuredFeedHost: new URL(feedUrlText).hostname,
+    extraHosts: mirrorHosts(mirrors),
+  };
+  for (const url of candidates) ensureTrustedFeedUrl(url, trust);
+  return { mirrors, candidates, trust };
+}
+
+async function fetchModuleFeed(ctx: FeedMirrorContext, signal?: AbortSignal): Promise<Response> {
+  const { response } = await fetchFromMirrors(ctx.candidates, {
+    headers: UPDATER_HEADERS,
+    signal,
+    attemptTimeoutMs: FEED_ATTEMPT_TIMEOUT_MS,
+    validate: (url) => ensureTrustedFeedUrl(url, ctx.trust),
+  });
+  if (response.url) ensureTrustedFeedUrl(new URL(response.url), ctx.trust);
+  return response;
+}
+
+/** Ordered asset URLs: env template > mirrors (signed repository mirrored) > GitHub default. */
+export function organizationModuleAssetCandidates(
+  mirrors: readonly ReleaseMirror[],
+  asset: { repository: string; release_tag: string; name: string },
+): URL[] {
+  const input = { repository: asset.repository, releaseTag: asset.release_tag, name: asset.name };
+  if (!hasUpdateAssetUrlTemplate('module')) {
+    const urls = mirrorAssetUrls(input, mirrors);
+    if (urls.length) return urls;
+  }
+  return [buildReleaseAssetUri(input.repository, input.releaseTag, input.name)];
 }
 
 async function readLimited(response: Response, limit: number): Promise<Buffer> {
@@ -91,20 +145,13 @@ export async function checkOrganizationModuleUpdate(
   const installed = readInstalledOrganizationModule(cqrRoot);
   const feedUrlText = resolveOrganizationModuleFeedUrl(cqrRoot);
   if (!feedUrlText) return null;
-  const feedUrl = new URL(feedUrlText);
-  const configuredFeedHost = feedUrl.hostname;
-  ensureTrustedFeedUrl(feedUrl, configuredFeedHost);
+  const ctx = feedMirrorContext(cqrRoot, feedUrlText);
   const publicKeyPem = resolveOrganizationModulePublicKey(cqrRoot);
-  const response = await fetch(feedUrl, {
-    redirect: 'follow',
-    headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
-    signal: opts?.signal,
-  });
+  const response = await fetchModuleFeed(ctx, opts?.signal);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new OrganizationModuleError('MODULE_FEED_HTTP', `모듈 피드를 읽지 못했습니다 (${response.status}).`);
   }
-  if (response.url) ensureTrustedFeedUrl(new URL(response.url), configuredFeedHost);
   const feedBytes = await readLimited(response, MAX_FEED_BYTES);
   const envelope = parseSignedEnvelope(feedBytes);
   const feed = verifyFeedEnvelope(envelope, publicKeyPem);
@@ -135,42 +182,37 @@ export async function applyOrganizationModuleUpdate(
       '조직 모듈 피드 URL이 없습니다. ZIP으로 추가하거나 MY_AGENT_ORGANIZATION_MODULE_FEED_URL / deploy-defaults.organization_module_feed_url 을 설정하세요.',
     );
   }
-  const feedUrl = new URL(feedUrlText);
-  const configuredFeedHost = feedUrl.hostname;
-  ensureTrustedFeedUrl(feedUrl, configuredFeedHost);
+  const ctx = feedMirrorContext(cqrRoot, feedUrlText);
   const publicKeyPem = resolveOrganizationModulePublicKey(cqrRoot);
-  const feedResponse = await fetch(feedUrl, {
-    redirect: 'follow',
-    headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
-    signal: opts?.signal,
-  });
+  const feedResponse = await fetchModuleFeed(ctx, opts?.signal);
   if (!feedResponse.ok) {
     throw new OrganizationModuleError('MODULE_FEED_HTTP', `모듈 피드를 읽지 못했습니다 (${feedResponse.status}).`);
   }
-  if (feedResponse.url) ensureTrustedFeedUrl(new URL(feedResponse.url), configuredFeedHost);
   const feedBytes = await readLimited(feedResponse, MAX_FEED_BYTES);
   const envelope = parseSignedEnvelope(feedBytes);
   const feed = verifyFeedEnvelope(envelope, publicKeyPem);
   if (installed && feed.update_sequence <= installed.update_sequence) {
     throw new OrganizationModuleError('MODULE_NOT_NEWER', '받을 모듈 업데이트가 없습니다.');
   }
-  const assetUrl = buildReleaseAssetUri(feed.asset.repository, feed.asset.release_tag, feed.asset.name);
-  ensureTrustedAssetUrl(assetUrl, configuredFeedHost);
+  const assetUrls = organizationModuleAssetCandidates(ctx.mirrors, feed.asset);
+  for (const url of assetUrls) ensureTrustedAssetUrl(url, ctx.trust);
   const tempDir = path.join(tmpdir(), 'MYAgent', 'module-updates', `${feed.update_sequence}-${randomUUID().replaceAll('-', '')}`);
   mkdirSync(tempDir, { recursive: true });
   const localFeed = path.join(tempDir, `update-feed-${feed.channel}.json`);
   const localZip = path.join(tempDir, feed.asset.name);
   try {
     writeFileSync(localFeed, feedBytes);
-    const assetResponse = await fetch(assetUrl, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'MYAgent-ModuleUpdater/1' },
+    // Mirror fallback covers transport failures only; size/hash mismatch below stops here.
+    const { response: assetResponse } = await fetchFromMirrors(assetUrls, {
+      headers: UPDATER_HEADERS,
       signal: opts?.signal,
+      attemptTimeoutMs: ASSET_ATTEMPT_TIMEOUT_MS,
+      validate: (url) => ensureTrustedAssetUrl(url, ctx.trust),
     });
     if (!assetResponse.ok || !assetResponse.body) {
       throw new OrganizationModuleError('MODULE_ASSET_HTTP', `모듈 ZIP을 받지 못했습니다 (${assetResponse.status}).`);
     }
-    if (assetResponse.url) ensureTrustedAssetUrl(new URL(assetResponse.url), configuredFeedHost);
+    if (assetResponse.url) ensureTrustedAssetUrl(new URL(assetResponse.url), ctx.trust);
     const length = Number(assetResponse.headers.get('content-length') ?? '0');
     if (length && length !== feed.asset.size) {
       throw new OrganizationModuleError('MODULE_ZIP_SIZE', 'Downloaded update size does not match signed feed.');
