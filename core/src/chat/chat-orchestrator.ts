@@ -17,7 +17,9 @@ import type { ChatRequest, ChatResponse, ChatMode, RouteDecision } from '../rout
 import { DeepResearchPipeline } from '../research/deep-research.js';
 import { AutoImageBackend } from '../image/image-backend.js';
 import { ingestOwuiChatImages } from '../image/owui-media.js';
-import { resolveChatModelAsync } from '../models/model-picker.js';
+import { parseProviderPreference, resolveChatModelAsync } from '../models/model-picker.js';
+import { findVideoModel, type VideoModelDef } from '../video/video-models.js';
+import { handleVideoGenMode } from './modes/video-gen.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
 import { isAbortError, throwIfAborted } from './abort.js';
 import { chatRunCanPublish } from './chat-runs.js';
@@ -110,6 +112,8 @@ export class ChatOrchestrator {
   private cloudChat: CloudChatService;
   private localChat: LocalChatService;
   private readonly imageOut: string;
+  /** data/outputs/videos — sibling of imageOut. */
+  private readonly videoOut: string;
 
   constructor(
     private readonly cqrRoot: string,
@@ -129,6 +133,7 @@ export class ChatOrchestrator {
     this.research = new DeepResearchPipeline(researchOut, cqrRoot, providerStore, this.cloudChat);
     this.imageBackend = new AutoImageBackend(cqrRoot, providerStore);
     this.imageOut = imageOut;
+    this.videoOut = path.join(path.dirname(imageOut), 'videos');
   }
 
   private resolveRouting(
@@ -473,6 +478,22 @@ export class ChatOrchestrator {
       return this.handleAutomatonDirect(sessionId, routing, automatonText);
     }
 
+    // Video models are an explicit model choice (core catalog); org-module gate is enforced inside.
+    const videoModel = resolved.route.type === 'provider' ? findVideoModel(resolved.route.modelId) : null;
+    if (videoModel) {
+      return handleVideoGenMode({
+        providerStore: this.providerStore,
+        sessionStore: this.sessionStore,
+        cqrRoot: this.cqrRoot,
+        videoOut: this.videoOut,
+        sessionId,
+        message,
+        routing,
+        resolved,
+        model: videoModel,
+      });
+    }
+
     if (routing.mode === 'org:market_research') {
       const pipelineReply = await handleMarketResearchMode({
         cqrRoot: this.cqrRoot,
@@ -786,6 +807,53 @@ export class ChatOrchestrator {
           rawError: e instanceof Error ? e.message : String(e),
         });
         sseEvent(res, { type: 'error', message: msg });
+      } finally {
+        sseDone(res);
+      }
+      return;
+    }
+
+    const requestedVideo = this.requestedVideoModel(req, sessionId);
+    if (requestedVideo) {
+      try {
+        const resolved = await resolveChatModelAsync(
+          resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
+          this.modelRegistry,
+          loadUserOverrides(this.configPath),
+          this.providerStore,
+          { mode: routing.mode, hasAttachments },
+        );
+        this.sessionStore.append(sessionId, {
+          role: 'user',
+          content: message,
+          at: new Date().toISOString(),
+          mode: routing.mode,
+          attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId),
+        });
+        sseEvent(res, { type: 'meta', routing, model: requestedVideo.id });
+        sseEvent(res, { type: 'status', text: '동영상 생성 중… (수 분 걸릴 수 있습니다)' });
+        const full = await handleVideoGenMode({
+          providerStore: this.providerStore,
+          sessionStore: this.sessionStore,
+          cqrRoot: this.cqrRoot,
+          videoOut: this.videoOut,
+          sessionId,
+          message,
+          routing,
+          resolved,
+          model: requestedVideo,
+          signal,
+          onStatus: (text) => sseEvent(res, { type: 'status', text }),
+        });
+        sseEvent(res, { type: 'token', text: full.content });
+        for (const img of full.images ?? []) sseEvent(res, { type: 'image', image: img });
+        sseEvent(res, { type: 'done', model: full.model, mode: full.mode });
+      } catch (e: unknown) {
+        if (isAbortError(e) || (e instanceof Error && e.message === 'VIDEO_ABORTED')) {
+          sseEvent(res, { type: 'done', model: '중지됨', mode: routing.mode });
+        } else {
+          sseEvent(res, { type: 'error', message: formatChatErrorMessage(e) });
+        }
       } finally {
         sseDone(res);
       }
@@ -1568,6 +1636,20 @@ export class ChatOrchestrator {
     const p = path.join(this.imageOut, sessionId, filename);
     if (!existsSync(p)) return null;
     return p;
+  }
+
+  getVideoPath(sessionId: string, filename: string): string | null {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !/^[A-Za-z0-9-]+\.mp4$/.test(filename)) return null;
+    const p = path.join(this.videoOut, sessionId, filename);
+    if (!existsSync(p)) return null;
+    return p;
+  }
+
+  /** Requested model (session/explicit) when it is a core-catalog video model. */
+  private requestedVideoModel(req: ChatRequest, sessionId: string): VideoModelDef | null {
+    const pref = resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model);
+    const parsed = pref ? parseProviderPreference(pref) : null;
+    return findVideoModel(parsed?.modelId);
   }
 
   getBrowserScreenshotPath(folder: string, filename: string): string | null {

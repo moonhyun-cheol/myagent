@@ -124,6 +124,7 @@ import { sendJson, readBody, sessionFromReq } from '../http/json.js';
 import { publicAttachment } from '../http/attachment-dto.js';
 import { resolveToolApproval } from '../agent/tool-approval.js';
 import { summarizeAgentAuditLedger, formatAuditSummaryBrief } from '../agent/agent-audit-ledger.js';
+import { availableVideoModels } from '../video/video-models.js';
 import {
   defaultExecutionPolicyFromConfig,
   normalizeExecutionPolicy,
@@ -1319,6 +1320,7 @@ export async function dispatchApiRequest(
       if (method === 'GET' && url.pathname === '/models/picker') {
         const payload = await buildModelPicker(modelRegistry, getOverrides(), providerStore, {
           refreshRemote: url.searchParams.get('refresh') === '1',
+          videoModels: availableVideoModels(cqrRoot),
         });
         return sendJson(res, 200, payload);
       }
@@ -1716,6 +1718,36 @@ export async function dispatchApiRequest(
       }
 
       const browserOutMatch = url.pathname.match(/^\/outputs\/browser\/([^/]+)\/([^/]+)$/);
+      const videoOutMatch = url.pathname.match(/^\/outputs\/videos\/([^/]+)\/([^/]+)$/);
+      if (method === 'GET' && videoOutMatch) {
+        const [, session, file] = videoOutMatch;
+        const fp = orchestrator.getVideoPath(session, file);
+        if (!fp) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        assertPathUnder(path.join(path.dirname(imageOut), 'videos'), fp);
+        const size = statSync(fp).size;
+        const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+        if (range && (range[1] || range[2])) {
+          const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+          const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+          if (start >= size || start > end) {
+            res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+            res.end();
+            return;
+          }
+          res.writeHead(206, {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Content-Range': `bytes ${start}-${end}/${size}`,
+            'Content-Length': end - start + 1,
+          });
+          res.end(readFileSync(fp).subarray(start, end + 1));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Length': size });
+        res.end(readFileSync(fp));
+        return;
+      }
+
       if (method === 'GET' && browserOutMatch) {
         const [, folder, file] = browserOutMatch;
         const fp = orchestrator.getBrowserScreenshotPath(folder, file);

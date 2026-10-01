@@ -310,6 +310,8 @@ function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
     const urls = Array.isArray(m.image_urls) ? m.image_urls : [];
     for (const url of urls) {
       if (typeof url !== 'string' || !url) continue;
+      // Generated videos are rendered inline in chat, not as image assets.
+      if (/\.mp4(?:$|[?#])/i.test(url)) continue;
       out.push({
         id: uid('img'),
         kind: 'image',
@@ -1117,6 +1119,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               if (event.tool === 'run_terminal') job.terminalUsed = true;
             },
             onImage: (url) => {
+              if (/\.mp4(?:$|[?#])/i.test(url)) {
+                // Generated video: inline player only, not an image asset/canvas node.
+                const prevUrls =
+                  job.chat.find((t) => t.id === job.assistantId)?.imageUrls ?? [];
+                patchAssistant({ imageUrls: [...prevUrls, url] });
+                return;
+              }
               const asset: WorkspaceAsset = {
                 id: uid('img'),
                 kind: 'image',

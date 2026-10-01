@@ -24,6 +24,7 @@ import {
   peekCachedOllamaModelNames,
   resolveInstalledOllamaModel,
 } from '../providers/ollama-models.js';
+import type { VideoModelDef } from '../video/video-models.js';
 
 export interface ModelPickerOption {
   value: string;
@@ -187,7 +188,11 @@ export async function buildModelPicker(
   registry: ModelRegistry,
   overrides: UserOverrides,
   providerStore: ProviderStore,
-  opts?: { refreshRemote?: boolean },
+  opts?: {
+    refreshRemote?: boolean;
+    /** Core video catalog already filtered by organization access (empty = hidden). */
+    videoModels?: VideoModelDef[];
+  },
 ): Promise<ModelPickerPayload> {
   const doc = registry.load();
   const localOnly = overrides.local_only === true;
@@ -271,6 +276,18 @@ export async function buildModelPicker(
             configured: true,
             category: m.category,
             reasoning_capability: modelReasoningCapability(m.id),
+          });
+        }
+
+        for (const v of opts?.videoModels ?? []) {
+          options.push({
+            value: encodeProviderModelPick(def.id, v.id),
+            label: v.label,
+            kind: 'provider',
+            access_mode: 'managed',
+            provider_id: def.id,
+            configured: true,
+            category: 'video',
           });
         }
 

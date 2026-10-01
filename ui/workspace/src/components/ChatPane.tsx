@@ -872,7 +872,7 @@ export function ChatPane() {
           },
         },
       ];
-      if (turn.imageUrls?.length) {
+      if (turn.imageUrls?.length && !/\.mp4(?:$|[?#])/i.test(turn.imageUrls[0])) {
         const first = turn.imageUrls[0];
         items.push(
           {
@@ -1677,7 +1677,29 @@ export function ChatPane() {
                 ) : null}
                 {turn.imageUrls?.length ? (
                   <div className={`flex flex-col gap-2 ${turn.text ? 'mb-3' : ''}`}>
-                    {turn.imageUrls.map((url) => (
+                    {turn.imageUrls.map((url) => /\.mp4(?:$|[?#])/i.test(url) ? (
+                      <div
+                        key={url}
+                        className="overflow-hidden rounded-xl border border-line/70 bg-ink/40"
+                      >
+                        <video
+                          src={url}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="max-h-96 w-full bg-black"
+                        />
+                        <div className="flex justify-end px-2 py-1">
+                          <a
+                            href={url}
+                            download
+                            className="text-xs text-muted hover:text-text"
+                          >
+                            동영상 저장
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
                       <button
                         key={url}
                         type="button"
