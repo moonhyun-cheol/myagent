@@ -64,6 +64,7 @@ import { beginChatRun, cancelChatRun, executeChatRun, ChatRunConflict, validChat
 import { ProjectStoreError } from '../projects/project-store.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
+import { inlineContentDisposition } from '../attachments/types.js';
 import { getErrorReportPublicConfig, sendErrorReportNow } from '../support/error-report-service.js';
 import { evaluateUpdateGate } from '../system/update-gate.js';
 import { evaluateWorkEnvironmentPending } from '../system/work-environment-pending.js';
@@ -1290,7 +1291,7 @@ export async function dispatchApiRequest(
           if (!bytes) return sendJson(res, 404, { error: 'NOT_FOUND' });
           res.writeHead(200, {
             'Content-Type': rec.mime,
-            'Content-Disposition': `inline; filename="${encodeURIComponent(rec.original_name)}"`,
+            'Content-Disposition': inlineContentDisposition(rec.original_name),
           });
           res.end(bytes);
           return;

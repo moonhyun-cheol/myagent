@@ -15,6 +15,7 @@ import { parseMultipart } from './multipart.js';
 import {
   type AttachmentRecord,
   mimeFromFilename,
+  resolveUploadMime,
   sanitizeFilename,
 } from './types.js';
 
@@ -64,7 +65,8 @@ export class AttachmentService {
       session_id: sessionId,
       original_name: originalName,
       stored_path: storedPath,
-      mime: contentTypeHint?.split(';')[0]?.trim() || mime,
+      // .NET 셸 드롭은 모든 파일을 application/octet-stream으로 보낸다 — 일반값이면 파일명 기반 MIME을 쓴다.
+      mime: resolveUploadMime(contentTypeHint, mime),
       size_bytes: data.length,
       created_at: new Date().toISOString(),
     };

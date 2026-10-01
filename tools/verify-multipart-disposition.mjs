@@ -58,4 +58,21 @@ assert.equal(files[0].data.toString('utf8'), 'hello');
 assert.equal(files[1].filename, '보고서.pdf');
 assert.equal(files[1].data.toString('utf8'), 'world');
 
+// 셸 드롭 MIME: 일반값 octet-stream 은 파일명 MIME 으로 대체, 구체값은 유지
+const { resolveUploadMime, inlineContentDisposition, mimeFromFilename } = await import(
+  pathToFileURL(path.join(root, 'core/dist/attachments/types.js')).href
+);
+assert.equal(resolveUploadMime(files[0].contentType, mimeFromFilename('report.pdf')), 'application/pdf');
+assert.equal(resolveUploadMime('application/octet-stream', mimeFromFilename('a.png')), 'image/png');
+assert.equal(resolveUploadMime('', mimeFromFilename('clip.mp4')), 'video/mp4');
+assert.equal(resolveUploadMime('image/webp; charset=binary', mimeFromFilename('x.bin')), 'image/webp');
+assert.equal(resolveUploadMime(undefined, mimeFromFilename('noext')), 'application/octet-stream');
+
+// 다운로드 Content-Disposition: ASCII fallback + RFC 5987 filename*
+assert.equal(
+  inlineContentDisposition('보고서 (1).pdf'),
+  `inline; filename="___ (1).pdf"; filename*=UTF-8''%EB%B3%B4%EA%B3%A0%EC%84%9C%20%281%29.pdf`,
+);
+assert.equal(inlineContentDisposition('a"b.txt'), `inline; filename="a_b.txt"; filename*=UTF-8''a%22b.txt`);
+
 console.log('verify-multipart-disposition OK');

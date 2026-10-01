@@ -99,6 +99,23 @@ export function mimeFromFilename(name: string): string {
   return EXT_MIME[ext] ?? 'application/octet-stream';
 }
 
+/**
+ * 업로드된 part의 Content-Type과 파일명 MIME 중 저장할 값을 고른다.
+ * 일반값(application/octet-stream, 빈 값)은 정보가 없으므로 파일명 기반 MIME을 쓴다.
+ */
+export function resolveUploadMime(contentTypeHint: string | undefined, filenameMime: string): string {
+  const hint = (contentTypeHint ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+  if (!hint || hint === 'application/octet-stream') return filenameMime;
+  return hint;
+}
+
+/** RFC 6266: ASCII fallback filename + UTF-8 filename* 를 함께 보낸다. */
+export function inlineContentDisposition(name: string): string {
+  const fallback = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_') || 'file';
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 export function sanitizeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, '_').slice(0, 180);
 }
