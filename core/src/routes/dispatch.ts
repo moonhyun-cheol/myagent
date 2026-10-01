@@ -125,6 +125,7 @@ import { publicAttachment } from '../http/attachment-dto.js';
 import { resolveToolApproval } from '../agent/tool-approval.js';
 import { summarizeAgentAuditLedger, formatAuditSummaryBrief } from '../agent/agent-audit-ledger.js';
 import { availableVideoModels } from '../video/video-models.js';
+import { collectSessionMediaUrls } from '../sessions/session-media-urls.js';
 import {
   defaultExecutionPolicyFromConfig,
   normalizeExecutionPolicy,
@@ -2791,7 +2792,14 @@ export async function dispatchApiRequest(
           }, targetId);
           const summary = result.content.trim();
           if (body.create_session) {
-            sessionStore.replaceWithSummary(targetId, summary, source.title);
+            // Generated media is carried by code (not by the model's summary text) so it stays
+            // playable and remains a live GC reference after the source session is deleted.
+            sessionStore.replaceWithSummary(
+              targetId,
+              summary,
+              source.title,
+              collectSessionMediaUrls(source.messages),
+            );
           } else {
             sessionStore.delete(targetId);
           }

@@ -379,6 +379,8 @@ export function ChatPane() {
   }, [composerFocusNonce, composerPrefill, clearComposerPrefill]);
   const [messageReferences, setMessageReferences] = useState<MessageReference[]>([]);
   const [pasteHint, setPasteHint] = useState<string | null>(null);
+  /** Video URLs whose file is missing on this PC (e.g. imported/summarized session from another PC or deleted). */
+  const [missingVideoUrls, setMissingVideoUrls] = useState<ReadonlySet<string>>(() => new Set());
   const [pasting, setPasting] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -1690,13 +1692,28 @@ export function ChatPane() {
                         data-video-card
                         className="overflow-hidden rounded-xl border border-line/70 bg-ink/40"
                       >
+                        {missingVideoUrls.has(url) ? (
+                          <div className="px-3 py-6 text-center text-xs text-muted">
+                            이 PC에서 동영상 파일을 찾을 수 없습니다. 원본 PC에만 있거나 삭제된 영상입니다.
+                          </div>
+                        ) : (
                         <video
                           src={url}
                           controls
                           playsInline
                           preload="metadata"
                           className="max-h-96 w-full bg-black"
+                          onError={() =>
+                            setMissingVideoUrls((prev) => {
+                              if (prev.has(url)) return prev;
+                              const next = new Set(prev);
+                              next.add(url);
+                              return next;
+                            })
+                          }
                         />
+                        )}
+                        {missingVideoUrls.has(url) ? null : (
                         <div className="flex justify-end gap-3 px-2 py-1">
                           <a
                             href={url}
@@ -1734,6 +1751,7 @@ export function ChatPane() {
                             동영상 저장
                           </a>
                         </div>
+                        )}
                       </div>
                     ) : (
                       <button

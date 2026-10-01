@@ -11,6 +11,7 @@ import type {
   SessionSummary,
 } from './types.js';
 import { gcDeletedSessionTemp } from './session-temp-gc.js';
+import { formatCarriedMediaNote, sanitizeLocalMediaUrls } from './session-media-urls.js';
 import {
   pushResponseDelta,
   pushToolMarker,
@@ -111,6 +112,10 @@ export class SessionStore {
         ...(typeof item.mode === 'string' ? { mode: item.mode } : {}),
         ...(typeof item.model === 'string' && item.model.trim() ? { model: item.model } : {}),
         ...(() => {
+          const urls = sanitizeLocalMediaUrls(item.image_urls);
+          return urls.length ? { image_urls: urls } : {};
+        })(),
+        ...(() => {
           const rawReasoning = item.reasoning && typeof item.reasoning === 'object'
             ? item.reasoning as Record<string, unknown>
             : null;
@@ -135,7 +140,7 @@ export class SessionStore {
           };
         })(),
       }))
-      .filter((item) => item.content.trim());
+      .filter((item) => item.content.trim() || (item.image_urls?.length ?? 0) > 0);
     const title = normalizeSessionTitle(
       typeof conversation.title === 'string' && conversation.title.trim()
         ? conversation.title
@@ -222,16 +227,24 @@ export class SessionStore {
     return rec;
   }
 
-  replaceWithSummary(id: string, summary: string, sourceTitle: string): SessionRecord | null {
+  replaceWithSummary(
+    id: string,
+    summary: string,
+    sourceTitle: string,
+    mediaUrls: string[] = [],
+  ): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;
     const now = new Date().toISOString();
+    const carried = sanitizeLocalMediaUrls(mediaUrls);
+    const note = formatCarriedMediaNote(carried);
     rec.title = `${sourceTitle.trim().slice(0, 36) || '대화'} · 요약`;
     rec.messages = [{
       role: 'assistant',
-      content: `이전 대화 요약\n\n${summary.trim()}`,
+      content: `이전 대화 요약\n\n${summary.trim()}${note ? `\n\n${note}` : ''}`,
       at: now,
       model_exclude: false,
+      ...(carried.length ? { image_urls: carried } : {}),
     }];
     delete rec.responses_state;
     delete rec.responses_states;
