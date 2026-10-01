@@ -234,7 +234,8 @@ internal static class MaximizeWorkArea
             {
                 // Match XAML ResizeBorderThickness (10) so the grab band stays wide after restore.
                 chrome.ResizeBorderThickness = new Thickness(10);
-                chrome.GlassFrameThickness = new Thickness(0);
+                // 1px glass frame enables the native DWM drop shadow while restored.
+                chrome.GlassFrameThickness = new Thickness(1);
             }
             if (root != null) root.Margin = new Thickness(0);
         }

@@ -355,6 +355,17 @@ export class PersonalSchedulerStore {
     return clone([...this.feed.items].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, safeLimit));
   }
 
+  // 피드 레코드만 정리한다(생성된 결과 파일은 건드리지 않음). 기본은 읽은 항목만 제거.
+  clearFeed(scope: 'read' | 'all' = 'read'): number {
+    const previousCount = this.feed.items.length;
+    this.feed.items = scope === 'all'
+      ? []
+      : this.feed.items.filter((item) => item.read_at === null);
+    const removed = previousCount - this.feed.items.length;
+    if (removed > 0) this.saveFeed();
+    return removed;
+  }
+
   // 읽지 않은 결과·오류 피드를 읽음 처리하고 갱신 건수를 반환한다.
   markFeedRead(): number {
     const now = timestamp();

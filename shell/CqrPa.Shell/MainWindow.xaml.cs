@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     private readonly string _cqrRoot;
     private readonly int _port;
     private readonly ApiProcessHost _api;
-    private readonly Thickness _restoredBorderThickness = new(1);
+    private readonly Thickness _restoredBorderThickness = new(2);
     private readonly WindowPlacementStore _windowPlacement;
     private readonly Dictionary<string, BrowserTab> _browserTabs = new(StringComparer.Ordinal);
     private string _activeBrowserTabId = DefaultBrowserTab;
@@ -585,9 +585,9 @@ public partial class MainWindow : Window
     {
         _shellDark = dark;
         var colors = dark
-            ? new[] { "#15171a", "#1d2024", "#484c52", "#eceff3", "#aeb4bd", "#30353c", "#3a4048", "#263a38", "#70cbbd", "#484c52" }
-            : new[] { "#dde1de", "#f4f5f2", "#adb9b4", "#17211d", "#4f5d57", "#d3dad6", "#c2cbc6", "#d8ebe7", "#0b7068", "#adb9b4" };
-        var keys = new[] { "ShellWindowBrush", "ShellTitleBarBrush", "ShellBorderBrush", "ShellTextBrush", "ShellMutedTextBrush", "ShellHoverBrush", "ShellPressedBrush", "ShellAccentSoftBrush", "ShellAccentTextBrush", "ShellProgressTrackBrush" };
+            ? new[] { "#15171a", "#1d2024", "#484c52", "#eceff3", "#aeb4bd", "#30353c", "#3a4048", "#263a38", "#70cbbd", "#484c52", "#6b727c" }
+            : new[] { "#dde1de", "#f4f5f2", "#adb9b4", "#17211d", "#4f5d57", "#d3dad6", "#c2cbc6", "#d8ebe7", "#0b7068", "#adb9b4", "#63756d" };
+        var keys = new[] { "ShellWindowBrush", "ShellTitleBarBrush", "ShellBorderBrush", "ShellTextBrush", "ShellMutedTextBrush", "ShellHoverBrush", "ShellPressedBrush", "ShellAccentSoftBrush", "ShellAccentTextBrush", "ShellProgressTrackBrush", "ShellWindowFrameBrush" };
         for (var index = 0; index < keys.Length; index++) Resources[keys[index]] = Brush(colors[index]);
 
         var background = Brush(colors[0]);

@@ -228,6 +228,16 @@ try {
     reopened.close();
   }
 
+  // 읽은 피드 정리: 읽은 레코드만 제거하고 읽지 않은 항목과 생성 결과 파일은 유지한다.
+  const feedBeforeCleanup = service.listFeed(200);
+  const readBeforeCleanup = feedBeforeCleanup.filter((item) => item.read_at !== null).length;
+  const unreadBeforeCleanup = feedBeforeCleanup.filter((item) => item.read_at === null).length;
+  assert.ok(readBeforeCleanup > 0);
+  assert.equal(service.clearFeed('read'), readBeforeCleanup);
+  assert.equal(service.listFeed(200).length, unreadBeforeCleanup);
+  assert.equal(service.listFeed(200).every((item) => item.read_at === null), true);
+  assert.equal(existsSync(generatedResultPath), true);
+
   assert.ok(executed.length >= 3);
   console.log(JSON.stringify({
     ok: true,
@@ -243,6 +253,7 @@ try {
     weeklyRollover: 'skip expires and run_once carries one occurrence without duplication',
     cancellation: 'queued runs cancel atomically and never start; finished runs stay not_queued',
     feedBadge: 'unread result/error feed counted and cleared by markFeedRead',
+    feedCleanup: 'read feed records are removed without deleting generated artifacts',
     storage: 'task files and separate runs/feed/weekly JSON files persist across service reopen',
   }, null, 2));
 } finally {
