@@ -143,6 +143,27 @@ function writeJsonl(entry: Record<string, unknown>): void {
   appendFileSync(llmWireLogPath(), line, 'utf8');
 }
 
+/** Responses-only diagnostics: counts/enums, never prompt/body content. */
+export function logResponsesBoundary(summary: {
+  phase: 'request' | 'failure';
+  transport: 'full' | 'delta' | 'replay';
+  input_items: number;
+  serialized_bytes: number;
+  invalidation_reason?: string;
+  status?: number;
+  code?: string;
+  type?: string;
+  upstream_code?: string;
+  upstream_type?: string;
+  category?: string;
+  request_id?: string;
+}): void {
+  if (resolveLlmLogMode() === 'off') return;
+  try {
+    writeJsonl({ at: new Date().toISOString(), kind: 'responses.boundary', ...summary });
+  } catch { /* diagnostics must not mask the provider failure */ }
+}
+
 function emitUi(line: string): void {
   try {
     wireListener?.(line);

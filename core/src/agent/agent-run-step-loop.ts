@@ -7,6 +7,7 @@ import {
   rememberClientToolProtocol,
   type ToolCompletionResult,
 } from '../providers/openai-compatible.js';
+import { withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { throwIfAborted } from '../chat/abort.js';
 import {
   executeAgentTool,
@@ -107,6 +108,7 @@ import type { EvidenceRecord } from './agent-evidence-types.js';
 import { summarizeResponsesPerfState } from './agent-perf-metrics.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentInfraError } from './agent-failure-plane.js';
+import { TokenEfficiencyAdvisor } from './agent-token-efficiency.js';
 import { prepareAgentContextForRequest } from './agent-context-assembler.js';
 import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
 import {
@@ -146,10 +148,17 @@ function recordToolEvidence(
 }
 
 export async function runAgentStepLoop(state: AgentRunStepState): Promise<CodeAgentResult> {
-  return runWithToolBudget({ modelId: state.modelId }, () => runAgentStepLoopInner(state));
+  return withLlmUsageContext({
+    cqrRoot: state.opts.cqrRoot,
+    sessionId: state.opts.sessionId,
+    runId: state.evidenceStore.runId,
+    providerId: state.opts.providerId,
+    step: () => state.priorSteps + state.steps,
+  }, () => runWithToolBudget({ modelId: state.modelId }, () => runAgentStepLoopInner(state)));
 }
 
 async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgentResult> {
+  const efficiencyAdvisor = new TokenEfficiencyAdvisor();
   let toolFailuresSinceSnapshot = 0;
   // Run ends when tools fail this many times in a row (successes reset it).
   let consecutiveToolFailures = 0;
@@ -867,6 +876,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
       const rawEvidenceOutput = output;
       const evidenceRecord = recordToolEvidence(state, execCall, rawEvidenceOutput);
+      efficiencyAdvisor.observe(evidenceRecord, rawEvidenceOutput);
       if (
         execCall.function.name === 'edit_file'
         && typeof args.path === 'string'
@@ -1133,6 +1143,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       loopHardStop = formatConsecutiveFailureStop(consecutiveToolFailures, maxConsecutiveFailures);
       state.reportStatus(`도구 연속 실패 ${consecutiveToolFailures}회 · 작업 종료`);
     }
+
+    // Advisory only, after every tool pair in this batch is complete. Never alter
+    // the tool schema, block a successful read, or replace its exact evidence.
+    const efficiencyNote = efficiencyAdvisor.consumeNote();
+    if (efficiencyNote) state.messages.push({ role: 'system', content: efficiencyNote });
 
     if (loopHardStop) {
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });

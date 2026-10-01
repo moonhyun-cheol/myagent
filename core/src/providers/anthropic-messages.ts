@@ -1,3 +1,4 @@
+import { fetchWithUsage } from './llm-usage-log.js';
 import { logLlmWireRequest, logLlmWireResponse } from './llm-wire-log.js';
 import type {
   AgentToolCallPayload,
@@ -166,7 +167,7 @@ async function postMessages(
   const signals: AbortSignal[] = [];
   if (opts?.signal) signals.push(opts.signal);
   signals.push(AbortSignal.timeout(opts?.timeoutMs ?? 300_000));
-  return fetch(`${baseUrl.replace(/\/$/, '')}/messages`, {
+  return fetchWithUsage(`${baseUrl.replace(/\/$/, '')}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

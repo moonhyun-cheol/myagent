@@ -20,6 +20,30 @@ export {
 };
 export type { AgentToolCall, AgentToolContext, AgentToolDefinition } from './agent-tool-types.js';
 
+// Preserve builtin order; discovery order of plugins/MCP must not churn the prefix.
+export function mergeStableToolCatalog(
+  base: AgentToolDefinition[],
+  extensions: AgentToolDefinition[],
+): AgentToolDefinition[] {
+  const names = new Set(base.map((tool) => tool.function.name));
+  const extra = [...extensions]
+    .sort((a, b) => {
+      const left = a.function.name;
+      const right = b.function.name;
+      if (left !== right) return left < right ? -1 : 1;
+      // Conflicting duplicate names must not depend on discovery order either.
+      const leftSchema = JSON.stringify(a.function);
+      const rightSchema = JSON.stringify(b.function);
+      return leftSchema < rightSchema ? -1 : leftSchema > rightSchema ? 1 : 0;
+    })
+    .filter((tool) => {
+      if (names.has(tool.function.name)) return false;
+      names.add(tool.function.name);
+      return true;
+    });
+  return extra.length ? [...base, ...extra] : base;
+}
+
 function stripMutatingTools(
   cqrRoot: string,
   tools: AgentToolDefinition[],
@@ -34,13 +58,7 @@ function mergePluginTools(
   opts?: { stripMutating?: boolean },
 ): AgentToolDefinition[] {
   try {
-    let merged = base;
-    const plugins = listEnabledPluginToolDefinitions(cqrRoot);
-    if (plugins.length) {
-      const names = new Set(merged.map((t) => t.function.name));
-      const extra = plugins.filter((t) => !names.has(t.function.name));
-      if (extra.length) merged = [...merged, ...extra];
-    }
+    const merged = mergeStableToolCatalog(base, listEnabledPluginToolDefinitions(cqrRoot));
     return opts?.stripMutating ? stripMutatingTools(cqrRoot, merged) : merged;
   } catch {
     return opts?.stripMutating ? stripMutatingTools(cqrRoot, base) : base;
@@ -53,13 +71,7 @@ async function mergeMcpTools(
   opts?: { stripMutating?: boolean },
 ): Promise<AgentToolDefinition[]> {
   try {
-    let merged = base;
-    const mcpTools = await listUserMcpToolDefinitions(cqrRoot);
-    if (mcpTools.length) {
-      const names = new Set(merged.map((t) => t.function.name));
-      const extra = mcpTools.filter((t) => !names.has(t.function.name));
-      if (extra.length) merged = [...merged, ...extra];
-    }
+    const merged = mergeStableToolCatalog(base, await listUserMcpToolDefinitions(cqrRoot));
     return opts?.stripMutating ? stripMutatingTools(cqrRoot, merged) : merged;
   } catch {
     return opts?.stripMutating ? stripMutatingTools(cqrRoot, base) : base;

@@ -33,6 +33,7 @@ import { resolveContextBudgets } from '../providers/model-context-limits.js';
 import type { CodeAgentOptions } from './agent-run-types.js';
 import type { EvidenceRecord } from './agent-evidence-types.js';
 import { formatEvidenceEnvelope } from './agent-evidence-store.js';
+import { TOKEN_EFFICIENCY_PRINCIPLES } from './agent-token-efficiency.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
@@ -185,6 +186,7 @@ export function buildAgentMessages(
         '- Do not repeat successful checks unless relevant code changed. Run the full test suite only when the impact is broad or targeted checks are insufficient.',
         '- Never claim unverified work as complete. Clearly report any untested areas, failures, or remaining uncertainty.',
         '- Minimize token usage and tool output by avoiding redundant searches, repeated tests, and unnecessary logs—without sacrificing correctness or safety.',
+        ...TOKEN_EFFICIENCY_PRINCIPLES,
         'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and sufficient outcome-relevant verification, call active_task complete. User correction may replace/cancel it.',
         'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
         'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',

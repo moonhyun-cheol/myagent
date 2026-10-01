@@ -1,3 +1,4 @@
+import { fetchWithUsage } from './llm-usage-log.js';
 import { logLlmWireRequest, logLlmWireResponse } from './llm-wire-log.js';
 import type { ProviderWireApi } from './types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
@@ -147,6 +148,9 @@ export function buildChatCompletionBody(
   const body: Record<string, unknown> = { ...base };
   if (opts?.extraBody && typeof opts.extraBody === 'object') {
     Object.assign(body, opts.extraBody);
+  }
+  if (body.stream === true && body.stream_options === undefined) {
+    body.stream_options = { include_usage: true };
   }
   const effort = opts?.reasoningEffort?.trim();
   if (effort) body.reasoning_effort = effort;
@@ -339,7 +343,7 @@ async function fetchWithRetry(
           : signals.length === 1
             ? signals[0]
             : AbortSignal.any(signals);
-      const res = await fetch(url, { ...init, signal });
+      const res = await fetchWithUsage(url, { ...init, signal }, i + 1);
       if (
         (res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504) &&
         i < max - 1

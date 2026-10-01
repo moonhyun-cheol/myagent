@@ -1,4 +1,6 @@
-import { logLlmWireRequest, logLlmWireResponse } from './llm-wire-log.js';
+import { createHash } from 'node:crypto';
+import { fetchWithUsage } from './llm-usage-log.js';
+import { logResponsesBoundary } from './llm-wire-log.js';
 import type {
   AgentToolCallPayload,
   ChatCompletionOptions,
@@ -66,14 +68,59 @@ type ResponsesDocument = {
     input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
     output_tokens_details?: { reasoning_tokens?: number };
   };
-  error?: { message?: string };
+  status?: string;
+  error?: { message?: string; code?: unknown; type?: unknown; metadata?: { raw?: unknown } };
   detail?: unknown;
 };
 
 type PreparedResponseBody = {
   body: Record<string, unknown>;
   requestItems: unknown[];
+  fullItems: unknown[];
+  settingsHash: string;
 };
+
+function fingerprint(value: unknown): string {
+  const normalize = (row: unknown): unknown => {
+    if (Array.isArray(row)) return row.map(normalize);
+    if (row && typeof row === 'object') return Object.fromEntries(
+      Object.entries(row).sort(([a], [b]) => a.localeCompare(b)).map(([key, val]) => [key, normalize(val)]),
+    );
+    return row;
+  };
+  return createHash('sha256').update(JSON.stringify(normalize(value))).digest('hex');
+}
+
+function invalidateResponsesState(opts: ChatCompletionOptions | undefined, reason: string): void {
+  const state = opts?.responsesState;
+  if (!state) return;
+  delete state.previous_response_id;
+  delete state.replay_items;
+  delete state.request_contract;
+  delete state.reasoning_context;
+  delete state.usage;
+  state.next_message_index = 0;
+  state.invalidation_reason = reason;
+  state.updated_at = new Date().toISOString();
+  opts?.onResponsesState?.(structuredClone(state));
+}
+
+/** Validate complete visible history, not just a provider-state delta. Never synthesize results. */
+function validateToolPairs(items: unknown[]): void {
+  const pending = new Set<string>();
+  const seen = new Set<string>();
+  for (const raw of items) {
+    const item = raw as { type?: string; call_id?: string };
+    if (item.type === 'function_call') {
+      if (!item.call_id || seen.has(item.call_id)) throw new Error('RESPONSES_TOOL_PAIR_INVALID: duplicate/missing call id');
+      seen.add(item.call_id);
+      pending.add(item.call_id);
+    } else if (item.type === 'function_call_output') {
+      if (!item.call_id || !pending.delete(item.call_id)) throw new Error('RESPONSES_TOOL_PAIR_INVALID: orphan/duplicate output');
+    }
+  }
+  if (pending.size) throw new Error('RESPONSES_TOOL_PAIR_INVALID: missing tool result; automatic re-execution disabled');
+}
 
 function alignResponsesStateToolSchema(opts: ChatCompletionOptions | undefined): void {
   const state = opts?.responsesState;
@@ -87,11 +134,7 @@ function alignResponsesStateToolSchema(opts: ChatCompletionOptions | undefined):
   );
   state.tool_schema_hash = currentHash;
   if (hadCachedChain) {
-    delete state.previous_response_id;
-    delete state.replay_items;
-    delete state.reasoning_context;
-    delete state.usage;
-    state.next_message_index = 0;
+    invalidateResponsesState(opts, 'tool_schema_changed');
   }
   state.updated_at = new Date().toISOString();
   // Persist invalidation before the network request so a failed request cannot
@@ -155,26 +198,6 @@ function responseInstructions(messages: ChatMessage[]): string | undefined {
   return instructions || undefined;
 }
 
-function continuationItems(
-  messages: ChatMessage[],
-  state: ResponsesContinuationState | undefined,
-): { items: unknown[]; continued: boolean } {
-  // Index only durable non-system messages. System content and ephemeral phase
-  // guidance travel via `instructions`, so neither may shift the stored item chain.
-  // Legacy chains without index_basis rebuild in full once, then heal.
-  const dynamic = messages.filter((message) => message.role !== 'system' && message.ephemeral !== true);
-  if (!state?.previous_response_id && !state?.replay_items?.length) {
-    return { items: buildResponsesInput(dynamic), continued: false };
-  }
-  if (state.index_basis !== 'dynamic' || state.next_message_index < 0 || state.next_message_index > dynamic.length) {
-    return { items: buildResponsesInput(dynamic), continued: false };
-  }
-  return {
-    items: buildResponsesInput(dynamic.slice(state.next_message_index)),
-    continued: true,
-  };
-}
-
 export function buildResponsesTools(tools: unknown[]): unknown[] {
   return tools.map((tool) => {
     const row = tool as {
@@ -200,27 +223,21 @@ function buildBody(
   model: string,
   messages: ChatMessage[],
   opts: ChatCompletionOptions | undefined,
-  tools?: unknown[],
+  tools: unknown[] | undefined,
+  boundary: { baseUrl: string; apiKey: string },
 ): PreparedResponseBody {
   alignResponsesStateToolSchema(opts);
   const state = opts?.responsesState;
-  const continuation = continuationItems(messages, state);
-  const providerState = state?.mode === 'provider_state' && continuation.continued;
-  const replayPrefix = state?.mode === 'client_replay' && continuation.continued
-    ? state.replay_items ?? []
-    : [];
-  const requestItems = [...replayPrefix, ...continuation.items];
+  const fullItems = buildResponsesInput(messages.filter((message) => message.role !== 'system' && message.ephemeral !== true));
+  validateToolPairs(fullItems);
   const body: Record<string, unknown> = {
     model,
-    input: requestItems,
+    input: fullItems,
     stream: opts?.stream === true,
     store: state?.mode === 'provider_state',
   };
   const instructions = responseInstructions(messages);
   if (instructions) body.instructions = instructions;
-  if (providerState && state?.previous_response_id) {
-    body.previous_response_id = state.previous_response_id;
-  }
   if (state?.mode === 'client_replay') {
     body.include = ['reasoning.encrypted_content'];
   }
@@ -248,7 +265,37 @@ function buildBody(
   delete reasoning.summary;
   if (opts?.reasoningSummary === 'detailed') reasoning.summary = 'detailed';
   body.reasoning = reasoning;
-  return { body, requestItems };
+  // Extra options cannot replace protocol-owned history or storage policy.
+  body.input = fullItems;
+  body.store = state?.mode === 'provider_state';
+  body.stream = opts?.stream === true;
+  delete body.previous_response_id;
+  const { input: _input, ...settings } = body;
+  const settingsHash = fingerprint({
+    settings,
+    endpoint: boundary.baseUrl.replace(/\/$/, ''),
+    account: fingerprint(boundary.apiKey),
+    provider: state?.provider_id,
+    mode: state?.mode,
+  });
+  const contract = state?.request_contract;
+  const cached = Boolean(state?.previous_response_id || state?.replay_items?.length);
+  let reason: string | undefined;
+  if (cached) {
+    if (contract?.version !== 1) reason = 'legacy_contract';
+    else if (contract.settings_hash !== settingsHash) reason = 'settings_changed';
+    else if (!Number.isInteger(contract.prefix_items) || contract.prefix_items < 0 || contract.prefix_items > fullItems.length) reason = 'prefix_range';
+    else if (contract.prefix_hash !== fingerprint(fullItems.slice(0, contract.prefix_items))) reason = 'prefix_changed';
+    else if (state?.mode === 'client_replay' && contract.replay_hash !== fingerprint(state.replay_items)) reason = 'replay_changed';
+    else if (state?.mode === 'provider_state' && !state.previous_response_id) reason = 'missing_response_id';
+  }
+  if (reason) invalidateResponsesState(opts, reason);
+  if (cached && !reason && contract) {
+    const delta = fullItems.slice(contract.prefix_items);
+    body.input = state?.mode === 'client_replay' ? [...(state.replay_items ?? []), ...delta] : delta;
+    if (state?.mode === 'provider_state') body.previous_response_id = state.previous_response_id;
+  }
+  return { body, requestItems: body.input as unknown[], fullItems, settingsHash };
 }
 
 function usageFrom(doc: ResponsesDocument) {
@@ -264,17 +311,27 @@ function usageFrom(doc: ResponsesDocument) {
 function advanceResponsesState(
   doc: ResponsesDocument,
   messages: ChatMessage[],
-  requestItems: unknown[],
+  prepared: PreparedResponseBody,
   opts?: ChatCompletionOptions,
+  assistant?: ChatMessage,
 ): void {
   const current = opts?.responsesState;
-  if (!current || !doc.id) return;
+  if (!current) return;
+  if (!doc.id) {
+    invalidateResponsesState(opts, 'missing_response_id');
+    return;
+  }
+  const visibleOutput = buildResponsesInput([assistant ?? {
+    role: 'assistant', content: outputText(doc) || null, tool_calls: outputToolCalls(doc),
+  }]);
+  const expectedItems = [...prepared.fullItems, ...visibleOutput];
   const next: ResponsesContinuationState = {
     ...current,
     tool_schema_hash: opts?.promptContext?.tool_schema_hash ?? current.tool_schema_hash,
     previous_response_id: doc.id,
     // The completed response becomes one assistant ChatMessage before the next call.
-    // Count only durable non-system messages (see continuationItems).
+    // Count only durable non-system messages. Kept for legacy observability,
+    // never used to authorize reuse; request_contract validates normalized items.
     next_message_index: messages.filter(
       (message) => message.role !== 'system' && message.ephemeral !== true,
     ).length + 1,
@@ -290,10 +347,24 @@ function advanceResponsesState(
     updated_at: new Date().toISOString(),
   };
   if (current.mode === 'client_replay') {
-    next.replay_items = [...requestItems, ...(doc.output ?? [])];
+    // Gateways emitting only deltas/output_text cannot supply a complete encrypted replay.
+    if (!doc.output?.length) {
+      invalidateResponsesState(opts, 'missing_output_items');
+      return;
+    }
+    next.replay_items = [...prepared.requestItems, ...doc.output];
   } else {
     delete next.replay_items;
   }
+  next.request_contract = {
+    version: 1,
+    settings_hash: prepared.settingsHash,
+    prefix_items: expectedItems.length,
+    prefix_hash: fingerprint(expectedItems),
+    ...(next.replay_items ? { replay_hash: fingerprint(next.replay_items) } : {}),
+  };
+  delete next.invalidation_reason;
+  delete current.invalidation_reason;
   Object.assign(current, next);
   opts?.onResponsesState?.(structuredClone(next));
 }
@@ -361,13 +432,60 @@ async function postResponse(
   if (opts?.signal) signals.push(opts.signal);
   signals.push(AbortSignal.timeout(opts?.timeoutMs ?? 300_000));
   const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
-  const response = await fetch(url, {
+  const serialized = JSON.stringify(body);
+  const summary = {
+    transport: body.previous_response_id ? 'delta' as const : (opts?.responsesState?.mode === 'client_replay' && opts.responsesState.request_contract ? 'replay' as const : 'full' as const),
+    input_items: (body.input as unknown[]).length,
+    serialized_bytes: Buffer.byteLength(serialized),
+    invalidation_reason: opts?.responsesState?.invalidation_reason,
+  };
+  logResponsesBoundary({ phase: 'request', ...summary });
+  const response = await fetchWithUsage(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify(body),
+    body: serialized,
     signal,
   });
+  if (!response.ok) {
+    let doc: ResponsesDocument = {};
+    try { doc = await response.clone().json() as ResponsesDocument; } catch { /* no raw body logging */ }
+    logResponsesBoundary({ phase: 'failure', ...summary, status: response.status, ...safeErrorFields(doc, response) });
+  }
   return { response, url };
+}
+
+// Free-form errors can echo prompts or secrets. Retain bounded protocol identifiers only.
+function safeIdentifier(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,120}$/.test(value)
+    && !/^(sk-|Bearer|eyJ)/i.test(value) ? value : undefined;
+}
+
+function safeErrorFields(doc: ResponsesDocument, response?: Response) {
+  let upstream: ResponsesDocument = {};
+  const raw = doc?.error?.metadata?.raw;
+  if (typeof raw === 'string' && raw.length <= 4096) {
+    try { upstream = JSON.parse(raw) as ResponsesDocument; } catch { /* omit unstructured upstream text */ }
+  }
+  const message = doc?.error?.message ?? '';
+  const category = /rate.?limit|too many requests/i.test(message) ? 'rate_limit'
+    : /context.{0,30}(length|window)|maximum.{0,30}tokens/i.test(message) ? 'context_length'
+    : /api.?key|unauthorized|authentication/i.test(message) ? 'authentication'
+    : 'provider_error';
+  return {
+    category,
+    code: safeIdentifier(doc?.error?.code),
+    type: safeIdentifier(doc?.error?.type),
+    upstream_code: safeIdentifier(upstream?.error?.code),
+    upstream_type: safeIdentifier(upstream?.error?.type),
+    request_id: safeIdentifier(response?.headers.get('x-request-id') ?? response?.headers.get('request-id')),
+  };
+}
+
+function assertCompleted(doc: ResponsesDocument): void {
+  if (doc.error || (doc.status && doc.status !== 'completed')) {
+    throw new Error(`RESPONSES_FAILED: status=${safeIdentifier(doc.status) ?? 'error'} ${JSON.stringify(safeErrorFields(doc))}`);
+  }
 }
 
 async function readDocument(response: Response): Promise<ResponsesDocument> {
@@ -376,52 +494,33 @@ async function readDocument(response: Response): Promise<ResponsesDocument> {
   try {
     doc = JSON.parse(text) as ResponsesDocument;
   } catch {
-    const contentType = response.headers.get('content-type') || 'unknown';
-    const responseUrl = response.url || 'unknown';
-    throw new ResponsesHttpError(
-      response.status,
-      `RESPONSES_INVALID_JSON: HTTP ${response.status} content-type=${contentType} url=${responseUrl} body=${text.slice(0, 160)}`,
-    );
+    throw new ResponsesHttpError(response.status, `RESPONSES_INVALID_JSON: HTTP ${response.status}; non-JSON/empty body omitted`);
   }
   if (!response.ok) {
-    const message = doc.error?.message || String(doc.detail || `HTTP ${response.status}`);
-    throw new ResponsesHttpError(response.status, `RESPONSES_HTTP_${response.status}: ${message}`);
+    throw new ResponsesHttpError(response.status, `RESPONSES_HTTP_${response.status}: Provider returned error ${JSON.stringify(safeErrorFields(doc, response))}`);
   }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('RESPONSES_INVALID_DOCUMENT');
+  assertCompleted(doc);
   return doc;
 }
 
-export async function responsesCompletionAt(
+async function completionAtImpl(
   baseUrl: string,
   apiKey: string,
   model: string,
   messages: ChatMessage[],
   opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  const prepared = buildBody(model, messages, { ...opts, stream: false });
-  const reqId = logLlmWireRequest({
-    url: `${baseUrl}/responses`,
-    model,
-    messages,
-    stream: false,
-    kind: 'responses',
-    promptContext: opts?.promptContext,
-  });
-  const t0 = Date.now();
-  try {
-    const { response } = await postResponse(baseUrl, apiKey, prepared.body, opts);
-    const doc = await readDocument(response);
-    const content = outputText(doc);
-    if (!content) throw new Error('EMPTY_COMPLETION');
-    const reasoning = outputReasoningSummary(doc);
-    if (reasoning) opts?.onThought?.(reasoning);
-    const usage = usageFrom(doc);
-    advanceResponsesState(doc, messages, prepared.requestItems, opts);
-    logLlmWireResponse(reqId, { ok: true, status: response.status, model: doc.model ?? model, content, usage, durationMs: Date.now() - t0 });
-    return { content, model: doc.model ?? model, usage, response_id: doc.id };
-  } catch (error) {
-    logLlmWireResponse(reqId, { ok: false, error: error instanceof Error ? error.message : String(error), durationMs: Date.now() - t0 });
-    throw error;
-  }
+  const prepared = buildBody(model, messages, { ...opts, stream: false }, undefined, { baseUrl, apiKey });
+  const { response } = await postResponse(baseUrl, apiKey, prepared.body, opts);
+  const doc = await readDocument(response);
+  const content = outputText(doc);
+  if (!content) throw new Error('EMPTY_COMPLETION');
+  const reasoning = outputReasoningSummary(doc);
+  if (reasoning) opts?.onThought?.(reasoning);
+  const usage = usageFrom(doc);
+  advanceResponsesState(doc, messages, prepared, opts);
+  return { content, model: doc.model ?? model, usage, response_id: doc.id };
 }
 
 export async function responsesCompletion(
@@ -478,9 +577,9 @@ function applyStreamEvent(raw: string, acc: StreamAccumulator, handlers?: ToolSt
   } else if (type === 'response.completed') {
     acc.completed = event.response as ResponsesDocument;
     if (acc.completed?.model) acc.model = acc.completed.model;
-  } else if (type === 'response.failed') {
-    const doc = event.response as ResponsesDocument | undefined;
-    throw new Error(`RESPONSES_FAILED: ${doc?.error?.message || 'stream failed'}`);
+  } else if (type === 'response.failed' || type === 'response.incomplete' || type === 'error') {
+    const doc = (event.response ?? event) as ResponsesDocument;
+    throw new Error(`RESPONSES_FAILED: event=${type} ${JSON.stringify(safeErrorFields(doc))}`);
   }
 }
 
@@ -498,6 +597,7 @@ async function responsesStreamAt(
     messages,
     { ...opts, stream: true },
     tools,
+    { baseUrl, apiKey },
   );
   const { response } = await postResponse(baseUrl, apiKey, prepared.body, opts);
   if (!response.ok) await readDocument(response);
@@ -510,6 +610,7 @@ async function responsesStreamAt(
     calls: new Map(),
   };
   const reader = response.body.getReader();
+  try {
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
@@ -528,9 +629,14 @@ async function responsesStreamAt(
     const data = buffer.split(/\r?\n/).filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n');
     if (data && data !== '[DONE]') applyStreamEvent(data, acc, handlers);
   }
-  const completedCalls = acc.completed ? outputToolCalls(acc.completed) : [];
-  const calls = completedCalls.length ? completedCalls : [...acc.calls.values()].filter((call) => call.function.name);
-  const content = acc.content || (acc.completed ? outputText(acc.completed) : '');
+  if (!acc.completed) throw new Error('RESPONSES_INCOMPLETE_STREAM: missing response.completed');
+  assertCompleted(acc.completed);
+  const completedCalls = outputToolCalls(acc.completed);
+  if (acc.calls.size && !completedCalls.length) {
+    throw new Error('RESPONSES_INCONSISTENT_STREAM: terminal response missing streamed tool calls');
+  }
+  const calls = completedCalls;
+  const content = outputText(acc.completed) || acc.content;
   if (!acc.thought) {
     const completedThought = acc.completed ? outputReasoningSummary(acc.completed) : '';
     const fallbackThought = completedThought || acc.fallbackThought;
@@ -540,7 +646,13 @@ async function responsesStreamAt(
     }
   }
   if (!content && calls.length === 0) throw new Error('EMPTY_COMPLETION');
-  if (acc.completed) advanceResponsesState(acc.completed, messages, prepared.requestItems, opts);
+  if (acc.completed.output?.length) {
+    advanceResponsesState(acc.completed, messages, prepared, opts, {
+      role: 'assistant', content: content || null, tool_calls: calls,
+    });
+  } else {
+    invalidateResponsesState(opts, 'missing_output_items');
+  }
   return {
     content: content || null,
     tool_calls: calls,
@@ -550,6 +662,10 @@ async function responsesStreamAt(
     response_id: acc.completed?.id,
     usage: acc.completed ? usageFrom(acc.completed) : undefined,
   };
+  } finally {
+    try { await reader.cancel(); } catch { /* preserve the original error */ }
+    reader.releaseLock();
+  }
 }
 
 export async function responsesCompletionStream(
@@ -560,7 +676,7 @@ export async function responsesCompletionStream(
   onToken: (text: string) => void,
   opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  const result = await responsesStreamAt(
+  const result = await guardedResponses(opts, () => responsesStreamAt(
     responseBase(baseUrl),
     apiKey,
     model,
@@ -568,11 +684,11 @@ export async function responsesCompletionStream(
     undefined,
     { onContent: onToken, onThought: opts?.onThought },
     opts,
-  );
+  ));
   return { content: result.content ?? '', model: result.model };
 }
 
-export async function responsesCompletionWithTools(
+async function completionWithToolsImpl(
   baseUrl: string,
   apiKey: string,
   model: string,
@@ -590,6 +706,7 @@ export async function responsesCompletionWithTools(
     messages,
     { ...opts, stream: false },
     tools,
+    { baseUrl: base, apiKey },
   );
   const { response } = await postResponse(base, apiKey, prepared.body, opts);
   const doc = await readDocument(response);
@@ -598,7 +715,7 @@ export async function responsesCompletionWithTools(
   if (reasoning) handlers.onThought?.(reasoning);
   const tool_calls = outputToolCalls(doc);
   if (!content && tool_calls.length === 0) throw new Error('EMPTY_COMPLETION');
-  advanceResponsesState(doc, messages, prepared.requestItems, opts);
+  advanceResponsesState(doc, messages, prepared, opts);
   return {
     content,
     tool_calls,
@@ -608,4 +725,26 @@ export async function responsesCompletionWithTools(
     response_id: doc.id,
     usage: usageFrom(doc),
   };
+}
+
+async function guardedResponses<T>(opts: ChatCompletionOptions | undefined, operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch (error) {
+    try { invalidateResponsesState(opts, 'request_failed'); }
+    catch { throw new AggregateError([error], 'RESPONSES_STATE_PERSIST_FAILED: provider failure; invalidation persistence also failed'); }
+    throw error;
+  }
+}
+
+export async function responsesCompletionAt(
+  baseUrl: string, apiKey: string, model: string, messages: ChatMessage[], opts?: ChatCompletionOptions,
+): Promise<CompletionResult> {
+  return guardedResponses(opts, () => completionAtImpl(baseUrl, apiKey, model, messages, opts));
+}
+
+export async function responsesCompletionWithTools(
+  baseUrl: string, apiKey: string, model: string, messages: ChatMessage[], tools: unknown[],
+  opts?: ChatCompletionOptions, handlers: ToolStreamHandlers = {},
+): Promise<ToolCompletionResult> {
+  return guardedResponses(opts, () => completionWithToolsImpl(baseUrl, apiKey, model, messages, tools, opts, handlers));
 }

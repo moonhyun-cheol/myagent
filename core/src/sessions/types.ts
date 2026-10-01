@@ -79,6 +79,15 @@ export interface ResponsesContinuationState {
    * Absent = legacy full-array chain; safely rebuilt in full on next call.
    */
   index_basis?: 'dynamic';
+  /** Hashes over the normalized visible prefix and compatible settings; never raw prompts/keys. */
+  request_contract?: {
+    version: 1;
+    settings_hash: string;
+    prefix_hash: string;
+    prefix_items: number;
+    replay_hash?: string;
+  };
+  invalidation_reason?: string;
   /** Exact Responses input/output items used when provider-side storage is unavailable. */
   replay_items?: unknown[];
   reasoning_context?: string;
