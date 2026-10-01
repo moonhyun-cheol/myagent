@@ -2,6 +2,55 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "video-generation-models",
+      "status": "released",
+      "title": "조직 모듈 사용자는 Veo·Seedance로 동영상 만들기",
+      "detail": "조직 모듈이 설치된 PC에서는 모델 목록에 「동영상」 분류로 Veo와 Seedance가 나타나고, 문장을 보내면 짧은 동영상을 만들어 채팅에서 바로 재생합니다. 생성 중에는 진행 상황이 표시되고 중지할 수 있습니다. 조직 모듈이 없는 PC에서는 보이지 않고 요청도 거절됩니다.",
+      "area": "video",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "core/config/defaults/video-models.json",
+        "core/src/video/video-generation.ts",
+        "core/src/chat/modes/video-gen.ts"
+      ],
+      "release": {
+        "version": "1.1.15",
+        "update_sequence": 63
+      }
+    },
+    {
+      "id": "video-save-picker-and-cleanup",
+      "status": "released",
+      "title": "동영상 저장 시 저장 위치 선택, 대화 삭제 시 영상 정리",
+      "detail": "「동영상 저장」을 누르면 저장 위치를 고르는 창이 뜨고, 날짜와 시간이 들어간 파일 이름이 기본으로 붙습니다. 대화를 삭제하면 그 대화에서 만든 영상 파일도 함께 정리되며, 다른 대화가 같은 영상을 쓰고 있으면 남겨 둡니다.",
+      "area": "video",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "ui/workspace/src/components/ChatPane.tsx",
+        "core/src/sessions/session-temp-gc.ts"
+      ],
+      "release": {
+        "version": "1.1.15",
+        "update_sequence": 63
+      }
+    },
+    {
+      "id": "session-media-carry",
+      "status": "released",
+      "title": "세션 가져오기·요약 후 새 대화에서도 영상과 이미지 유지",
+      "detail": "세션을 가져오거나 요약 후 새 대화로 열 때 영상과 이미지가 빠지던 문제를 고쳤습니다. 요약으로 만든 새 대화에도 이전 대화의 영상과 이미지가 함께 표시됩니다. 이 PC에 영상 파일이 없으면 빈 플레이어 대신 안내 문구를 보여 줍니다.",
+      "area": "sessions",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "core/src/sessions/session-media-urls.ts",
+        "core/src/sessions/session-store.ts"
+      ],
+      "release": {
+        "version": "1.1.15",
+        "update_sequence": 63
+      }
+    },
+    {
       "id": "org-module-work-kit-download-mirrors",
       "status": "released",
       "title": "조직 모듈·작업 키트를 사내 서버에서 받고, 안 되면 예비 서버로 받기",
@@ -14,8 +63,8 @@
         "core/src/updates/work-kit-catalog-feed.ts"
       ],
       "release": {
-        "version": "1.1.16",
-        "update_sequence": 64
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     },
     {
@@ -31,8 +80,8 @@
         "core/src/agent/agent-session-continuity.ts"
       ],
       "release": {
-        "version": "1.1.16",
-        "update_sequence": 64
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     },
     {
@@ -47,8 +96,8 @@
         "core/src/chat/chat-orchestrator.ts"
       ],
       "release": {
-        "version": "1.1.16",
-        "update_sequence": 64
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     },
     {
@@ -62,8 +111,8 @@
         "core/src/attachments/multipart.ts"
       ],
       "release": {
-        "version": "1.1.16",
-        "update_sequence": 64
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     },
     {
@@ -78,8 +127,8 @@
         "shell/CqrPa.Shell/CqrPa.Shell.csproj"
       ],
       "release": {
-        "version": "1.1.16",
-        "update_sequence": 64
+        "version": "1.1.15",
+        "update_sequence": 63
       }
     }
   ]
