@@ -382,6 +382,13 @@ Slim zip: first install may need internet for Node. Optional extras (ffmpeg, Pla
 $completionTemp = Join-Path $targetFull ('INSTALL-DONE.' + $InstallRunId + '.tmp')
 Set-Content -LiteralPath $completionTemp -Value $readme -Encoding UTF8
 Move-Item -LiteralPath $completionTemp -Destination $completionMarker -Force
+# Launcher install-root pointer (non-blocking; failures are logged and swallowed).
+try {
+  . (Join-Path $PSScriptRoot 'install-root-pointer.ps1')
+  [void](Write-InstallRootPointer -Root $targetFull)
+} catch {
+  Write-Warning "INSTALL_ROOT_POINTER_WRITE_FAILED: $($_.Exception.Message)"
+}
 Complete-InstallProductTransaction $installTransaction
 $installTransaction = $null
 Write-Host 'Core installation committed. Preparing selected optional features...'

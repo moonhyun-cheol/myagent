@@ -29,10 +29,22 @@ import {
   unregisterPersonalSchedulerRuntime,
 } from './scheduler/runtime-registry.js';
 import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
+import { writeInstallRootPointer } from './setup/install-root-pointer.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
   const paths = getBootstrapPaths(cqrRoot);
+  // Self-heal %LOCALAPPDATA%\MYAgent\install-root.json every boot (moved/restored/updated
+  // trees). Contract: never blocks startup — the writer swallows all errors.
+  writeInstallRootPointer(cqrRoot, {
+    log: (line) => {
+      try {
+        appendFileSync(path.join(paths.logsDir, 'api-start.log'), `${new Date().toISOString()} ${line}\n`, 'utf8');
+      } catch {
+        /* ignore log write errors */
+      }
+    },
+  });
   ensureDataDirs(paths);
   try {
     ensureShippedProductPlugins(paths.cqrRoot);
