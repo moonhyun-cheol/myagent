@@ -2,6 +2,23 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "manual-update-check-feedback",
+      "status": "development",
+      "title": "「지금 업데이트 확인」을 누르면 결과를 바로 알려줌",
+      "detail": "설정에서 「지금 업데이트 확인」을 눌러도 아무 반응이 없던 문제를 고쳤습니다. 최신 버전이면 「현재 최신 버전입니다」, 업데이트가 있으면 안내창을 바로 보여 주고, 작업 중이라 지금 설치할 수 없으면 끝난 뒤 물어본다고 알려 줍니다. 확인에 실패하면 네트워크 확인 안내가 뜨고, 자동 확인을 꺼 둔 상태에서도 이 버튼으로 직접 확인할 수 있습니다.",
+      "area": "updates",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "ui/workspace/src/lib/appPreferences.ts",
+        "shell/CqrPa.Shell/MainWindow.xaml.cs",
+        "shell/CqrPa.Shell/UpdatePollingService.cs"
+      ],
+      "release": {
+        "version": "1.1.16",
+        "update_sequence": 64
+      }
+    },
+    {
       "id": "video-generation-models",
       "status": "released",
       "title": "조직 모듈 사용자는 Veo·Seedance로 동영상 만들기",

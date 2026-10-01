@@ -171,6 +171,26 @@ internal static class UpdateApplyCoordinator
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
     }
+
+    internal static void ShowUpdateInfo(Window owner, string message)
+    {
+        if (owner is MainWindow mainWindow) mainWindow.RestoreFromTray();
+        if (owner.IsVisible)
+        {
+            MessageBox.Show(
+                owner,
+                message,
+                "MY Agent 업데이트",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+        MessageBox.Show(
+            message,
+            "MY Agent 업데이트",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
 }
 
 internal sealed class UpdatePromptDeclinedException : Exception
@@ -244,17 +264,24 @@ internal sealed class UpdatePollingService : IDisposable
         StartFeedPollTimer();
     }
 
-    public void TriggerFeedCheck()
+    public void TriggerFeedCheck(bool manual = false)
     {
         _ = RunOnUiThreadAsync(async () =>
         {
             try
             {
-                await CheckFeedAsync(CancellationToken.None);
+                await CheckFeedAsync(CancellationToken.None, manual);
             }
-            catch
+            catch (Exception error)
             {
-                /* silent */
+                if (manual)
+                {
+                    UpdateApplyCoordinator.ShowUpdateMessage(
+                        _owner,
+                        "업데이트를 확인하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.\n\n"
+                        + error.Message);
+                }
+                /* background checks stay silent */
             }
         });
     }
@@ -287,7 +314,7 @@ internal sealed class UpdatePollingService : IDisposable
         {
             Interval = TimeSpan.FromMilliseconds(ReadIdleWatchMs()),
         };
-        _idleWatchTimer.Tick += (_, _) => _ = RunOnUiThreadAsync(TryPromptWhenIdleAsync);
+        _idleWatchTimer.Tick += (_, _) => _ = RunOnUiThreadAsync(() => TryPromptWhenIdleAsync());
         _idleWatchTimer.Start();
     }
 
@@ -297,35 +324,74 @@ internal sealed class UpdatePollingService : IDisposable
         _idleWatchTimer = null;
     }
 
-    private async Task CheckFeedAsync(CancellationToken cancellationToken)
+    private async Task CheckFeedAsync(CancellationToken cancellationToken, bool manual = false)
     {
-        if (!_feedPollEnabled) return;
+        // A manual "지금 업데이트 확인" click must run even when auto-check is off.
+        if (!_feedPollEnabled && !manual) return;
         var update = await _updateService.CheckAsync(cancellationToken);
+        bool hasUpdate;
         lock (_sync)
         {
             if (update is null)
             {
                 _pendingUpdate = null;
                 StopIdleWatchTimer();
-                return;
+                hasUpdate = false;
             }
-            _pendingUpdate = update;
+            else
+            {
+                _pendingUpdate = update;
+                // A manual check should ignore an active "아니오" snooze window.
+                if (manual) _snoozeUntilUtc = DateTime.MinValue;
+                hasUpdate = true;
+            }
+        }
+        if (!hasUpdate)
+        {
+            if (manual)
+                UpdateApplyCoordinator.ShowUpdateInfo(_owner, "현재 최신 버전입니다.");
+            return;
         }
         EnsureIdleWatchTimer();
-        await TryPromptWhenIdleAsync();
+        await TryPromptWhenIdleAsync(manual);
     }
 
-    private async Task TryPromptWhenIdleAsync()
+    private async Task TryPromptWhenIdleAsync(bool manual = false)
     {
         AvailableUpdate? pending;
+        bool promptBusy;
+        bool snoozed;
         lock (_sync)
         {
             pending = _pendingUpdate;
-            if (pending is null || _promptInFlight) return;
-            if (DateTime.UtcNow < _snoozeUntilUtc) return;
+            promptBusy = _promptInFlight;
+            snoozed = DateTime.UtcNow < _snoozeUntilUtc;
         }
+        if (pending is null)
+        {
+            // A manual click must never end without feedback.
+            if (manual) UpdateApplyCoordinator.ShowUpdateInfo(_owner, "현재 최신 버전입니다.");
+            return;
+        }
+        if (promptBusy)
+        {
+            if (manual)
+                UpdateApplyCoordinator.ShowUpdateInfo(
+                    _owner,
+                    $"MY Agent {pending.Version} 업데이트 안내 창이 이미 열려 있습니다. 해당 창에서 계속 진행해 주세요.");
+            return;
+        }
+        // A manual check ignores the "아니오" snooze window; background ticks still respect it.
+        if (snoozed && !manual) return;
 
-        if (!await QueryUpdateGateAsync(CancellationToken.None)) return;
+        if (!await QueryUpdateGateAsync(CancellationToken.None))
+        {
+            if (manual)
+                UpdateApplyCoordinator.ShowUpdateInfo(
+                    _owner,
+                    $"MY Agent {pending.Version} 업데이트가 준비되어 있습니다. 진행 중인 작업과 자동화가 끝나면 설치 여부를 물어봅니다.");
+            return;
+        }
 
         lock (_sync)
         {

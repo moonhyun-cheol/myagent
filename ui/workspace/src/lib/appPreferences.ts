@@ -69,5 +69,5 @@ export function saveUpdatePollIntervalMs(ms: number): void {
 }
 
 export function triggerUpdateCheckNow(): void {
-  shellWebView()?.postMessage({ type: 'app.update.check' });
+  shellWebView()?.postMessage({ type: 'app.update.check', manual: true });
 }

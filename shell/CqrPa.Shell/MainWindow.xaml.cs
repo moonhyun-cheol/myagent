@@ -232,8 +232,12 @@ public partial class MainWindow : Window
                     ShowSystemNotification(root);
                     break;
                 case "app.update.check":
-                    UpdatePolling?.TriggerFeedCheck();
+                {
+                    var manualCheck = root.TryGetProperty("manual", out var manualProperty)
+                        && manualProperty.ValueKind is JsonValueKind.True;
+                    UpdatePolling?.TriggerFeedCheck(manualCheck);
                     break;
+                }
                 case "app.update.settings":
                 {
                     var enabled = !root.TryGetProperty("enabled", out var enabledProperty)
