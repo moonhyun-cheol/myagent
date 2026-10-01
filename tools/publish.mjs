@@ -105,6 +105,10 @@ const skipDirs = new Set([
   '.my_agent_remote',
   // RULEBOOK is maintained outside the product payload (ADR-RE-008).
   'rulebook',
+  // Dev workspace scratch (gitignored): document-collab drafts and browser logs
+  // shipped in 1.1.14/1.1.15 install zips via copyTree.
+  '.my-agent',
+  '.playwright',
 ]);
 
 /**
