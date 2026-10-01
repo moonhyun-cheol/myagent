@@ -2,8 +2,73 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "org-module-work-kit-download-mirrors",
+      "status": "development",
+      "title": "조직 모듈·작업 키트를 사내 서버에서 받고, 안 되면 예비 서버로 받기",
+      "detail": "조직 모듈과 작업 키트를 사내 저장소에서 먼저 받도록 바꿔, 최신 조직 모듈을 받지 못하거나 작업 키트 다운로드가 실패하던 문제를 해결했습니다. 사내 서버에 접속할 수 없을 때는 예비 서버에서 같은 파일을 받고, 받은 파일이 올바른지 항상 확인합니다.",
+      "area": "updates",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "core/src/updates/update-mirrors.ts",
+        "core/src/updates/organization-module-feed.ts",
+        "core/src/updates/work-kit-catalog-feed.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
+      "id": "continuation-resume-fresh-budget",
+      "status": "development",
+      "title": "「이어서 진행」을 눌러도 바로 다시 멈추던 문제 해결",
+      "detail": "긴 작업이 한도에 걸려 멈춘 뒤 「이어서 진행」을 누르면 곧바로 다시 멈추던 문제를 고쳤습니다. 이어서 진행할 때 멈춘 지점부터 다시 시작하고, 일시적인 연결 오류가 나도 처음부터 다시 하지 않고 이어서 재시도합니다.",
+      "area": "agent",
+      "created_at": "2026-09-30",
+      "source_paths": [
+        "core/src/agent/agent-run-loop.ts",
+        "core/src/agent/agent-continuation-snapshot.ts",
+        "core/src/agent/agent-session-continuity.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
+      "id": "token-usage-on-error-and-stop",
+      "status": "development",
+      "title": "오류나 중지로 끝난 작업도 토큰 사용량 표시",
+      "detail": "작업이 오류로 끊기거나 중지 버튼으로 멈췄을 때 토큰 사용량이 표시되지 않던 문제를 고쳤습니다. 재시도한 경우에도 그때까지 사용한 양이 빠지지 않고 합산됩니다.",
+      "area": "chat",
+      "created_at": "2026-09-30",
+      "source_paths": [
+        "core/src/agent/agent-usage-carry.ts",
+        "core/src/chat/chat-orchestrator.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
+      "id": "shell-drag-drop-attachment-upload",
+      "status": "development",
+      "title": "탐색기에서 파일을 끌어다 놓을 때 첨부 오류(400) 해결",
+      "detail": "파일 탐색기에서 채팅 창으로 파일을 끌어다 놓는 순간 오류 코드 400이 나며 첨부되지 않던 문제를 고쳤습니다. 이제 끌어다 놓은 파일도 정상적으로 첨부됩니다.",
+      "area": "attachments",
+      "created_at": "2026-09-30",
+      "source_paths": [
+        "core/src/attachments/multipart.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "per-monitor-dpi-shell-manifest",
-      "status": "released",
+      "status": "development",
       "title": "여러 모니터에서 배율이 달라도 창·팝업 위치와 선명도 개선",
       "detail": "화면 배율이 서로 다른 여러 모니터를 사용할 때 앱 창과 메뉴·팝업이 현재 모니터 배율에 맞는 위치와 선명도로 표시되도록 했습니다. 지난 업데이트에서 안내한 팝업 위치 보정이 실제 앱에는 적용되지 않았던 문제를 이번에 바로잡았습니다.",
       "area": "shell",
@@ -13,8 +78,8 @@
         "shell/CqrPa.Shell/CqrPa.Shell.csproj"
       ],
       "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
+        "version": null,
+        "update_sequence": null
       }
     }
   ]
