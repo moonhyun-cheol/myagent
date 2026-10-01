@@ -107,6 +107,13 @@ function isVideoAttachment(mime?: string, name?: string): boolean {
   return /\.(mp4|webm|mov|mkv|avi|m4v|mpeg|mpg)$/i.test(name);
 }
 
+/** Suggested file name for saving a generated video (prompt text is not on the assistant turn). */
+function videoSaveName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `my-agent-video-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`;
+}
+
 function indexedAttachmentName(name: string, ordinal: number, total: number): string {
   if (total < 2) return name;
   const dot = name.lastIndexOf('.');
@@ -1680,6 +1687,7 @@ export function ChatPane() {
                     {turn.imageUrls.map((url) => /\.mp4(?:$|[?#])/i.test(url) ? (
                       <div
                         key={url}
+                        data-video-card
                         className="overflow-hidden rounded-xl border border-line/70 bg-ink/40"
                       >
                         <video
@@ -1689,11 +1697,39 @@ export function ChatPane() {
                           preload="metadata"
                           className="max-h-96 w-full bg-black"
                         />
-                        <div className="flex justify-end px-2 py-1">
+                        <div className="flex justify-end gap-3 px-2 py-1">
                           <a
                             href={url}
-                            download
+                            download={videoSaveName()}
                             className="text-xs text-muted hover:text-text"
+                            onClick={async (e) => {
+                              const picker = (window as unknown as {
+                                showSaveFilePicker?: (o: unknown) => Promise<{
+                                  createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }>;
+                                }>;
+                              }).showSaveFilePicker;
+                              if (!picker) return; // 기본 다운로드로 진행
+                              e.preventDefault();
+                              let handle;
+                              try {
+                                handle = await picker({
+                                  suggestedName: videoSaveName(),
+                                  types: [{ description: 'MP4 동영상', accept: { 'video/mp4': ['.mp4'] } }],
+                                });
+                              } catch {
+                                return; // 사용자가 취소
+                              }
+                              try {
+                                const res = await fetch(url);
+                                if (!res.ok) throw new Error(String(res.status));
+                                const writable = await handle.createWritable();
+                                await writable.write(await res.blob());
+                                await writable.close();
+                                flashPasteHint('동영상을 저장했습니다.');
+                              } catch (err) {
+                                flashPasteHint(`동영상 저장 실패: ${err instanceof Error ? err.message : String(err)}`);
+                              }
+                            }}
                           >
                             동영상 저장
                           </a>

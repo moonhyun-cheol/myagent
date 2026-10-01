@@ -17,7 +17,7 @@ import { assertWritablePath } from '../security/path-guard.js';
 import { removeDocumentSessionScratch, removePlaywrightSessionDir } from './workspace-scratch-gitignore.js';
 import type { SessionMessage, SessionRecord } from './types.js';
 
-export const OUTPUT_KINDS = ['images', 'research', 'browser', 'crawl', 'web'] as const;
+export const OUTPUT_KINDS = ['images', 'videos', 'research', 'browser', 'crawl', 'web'] as const;
 export type OutputKind = (typeof OUTPUT_KINDS)[number];
 
 export const SHARED_OUTPUT_DIR_NAMES = new Set(['fetch-cache']);
@@ -39,7 +39,7 @@ export interface LiveTempRefs {
 }
 
 const OUTPUT_REF_RE =
-  /\/outputs\/(images|research|browser|crawl|web)\/([A-Za-z0-9_-]+)\/([^/\s"'?#>]+)/gi;
+  /\/outputs\/(images|videos|research|browser|crawl|web)\/([A-Za-z0-9_-]+)\/([^/\s"'?#>]+)/gi;
 const ATTACH_REF_RE =
   /\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
 
