@@ -6,11 +6,13 @@ import {
   Eye,
   FileText,
   Robot,
+  Trash,
   WarningCircle,
   X,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  clearAutomationFeed,
   listAutomationFeed,
   type AutomationFeedAttachment,
   type AutomationFeedItem,
@@ -43,6 +45,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
   const [items, setItems] = useState<AutomationFeedItem[]>([]);
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
@@ -72,6 +75,22 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
     () => filter === 'all' ? items : items.filter((item) => item.kind === filter),
     [filter, items],
   );
+  const readItemCount = useMemo(() => items.filter((item) => item.read_at !== null).length, [items]);
+
+  const clearReadItems = useCallback(async () => {
+    if (readItemCount === 0) return;
+    if (!window.confirm(`읽은 뉴스피드 ${readItemCount}개를 목록에서 정리할까요?\n생성된 결과 파일은 삭제되지 않습니다.`)) return;
+    setClearing(true);
+    setLoadError('');
+    try {
+      await clearAutomationFeed('read');
+      setItems((current) => current.filter((item) => item.read_at === null));
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '읽은 뉴스피드를 정리하지 못했습니다.');
+    } finally {
+      setClearing(false);
+    }
+  }, [readItemCount]);
 
   useEffect(() => {
     if (!open || !targetItemId || loading) return;
@@ -113,8 +132,18 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
+              onClick={() => void clearReadItems()}
+              disabled={clearing || readItemCount === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+              title={readItemCount === 0 ? '정리할 읽은 항목이 없습니다.' : '읽은 항목만 목록에서 제거합니다.'}
+            >
+              <Trash size={14} />
+              {clearing ? '정리 중…' : `읽은 항목 정리${readItemCount > 0 ? ` (${readItemCount})` : ''}`}
+            </button>
+            <button
+              type="button"
               onClick={() => void refresh()}
-              disabled={loading}
+              disabled={loading || clearing}
               className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:border-accent/40 hover:text-text disabled:cursor-wait disabled:opacity-50"
             >
               <ArrowClockwise size={14} className={loading ? 'animate-spin' : ''} />

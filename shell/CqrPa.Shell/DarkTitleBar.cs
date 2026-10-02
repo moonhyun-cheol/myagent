@@ -37,7 +37,7 @@ internal static class DarkTitleBar
             var caption = dark ? 0x0024201d : 0x00f2f5f4; // #1d2024 / #f4f5f2
             _ = DwmSetWindowAttribute(hwnd, DwmwaCaptionColor, ref caption, sizeof(int));
 
-            var border = dark ? 0x00524c48 : 0x00b4b9ad; // #484c52 / #adb9b4
+            var border = dark ? 0x007c726b : 0x006d7563; // #6b727c / #63756d (matches ShellWindowFrameBrush)
             _ = DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref border, sizeof(int));
 
             var text = dark ? 0x00f3efec : 0x001d2117; // #eceff3 / #17211d

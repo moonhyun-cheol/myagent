@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 63,
+    "update_sequence": 64,
     "minimum_supported_sequence": 1,
-    "version": "1.1.15",
+    "version": "1.1.16",
     "channel": "stable",
-    "published_at": "2026-10-01T04:24:45.931Z",
+    "published_at": "2026-10-01T23:59:11.359Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-63",
-      "name": "MYAgent-v1.1.15-delta.zip",
-      "size": 278841375,
-      "sha256": "f5f043e0116a9bb0f0c0066293b2794af43e37fea947bf1744ac758c6aa2fee9"
+      "release_tag": "update-64",
+      "name": "MYAgent-v1.1.16-delta.zip",
+      "size": 278844851,
+      "sha256": "c563450af4480146de917a5b5f563cf3daa969f0afdd15572cbe738ee01ba5be"
     },
-    "payload_manifest_sha256": "b6b5e90f13579194bf092b886740af7dd18eda4eacf19a582d4f71f70a5f0c75",
-    "release_notes": "## update 63\n\n- 조직 모듈이 설치된 PC에서는 모델 목록에 「동영상」으로 Veo와 Seedance가 나타나고, 짧은 동영상을 만들어 채팅에서 바로 재생할 수 있습니다.\n- 「동영상 저장」을 누르면 저장 위치를 고르는 창이 뜹니다. 대화를 삭제하면 그 대화에서 만든 영상 파일도 함께 정리됩니다.\n- 세션 가져오기와 요약 후 새 대화에서도 영상과 이미지가 유지됩니다.\n- 조직 모듈과 작업 키트를 사내 서버에서 먼저 받고, 접속할 수 없을 때는 예비 서버에서 같은 파일을 받도록 했습니다. 받은 파일은 항상 무결성을 확인합니다.\n- 긴 작업이 한도에 걸려 멈춘 뒤 「이어서 진행」을 누르면 곧바로 다시 멈추던 문제를 고쳤습니다.\n- 작업이 오류로 끊기거나 중지 버튼으로 멈췄을 때도 토큰 사용량이 표시됩니다.\n- 파일 탐색기에서 채팅 창으로 파일을 끌어다 놓을 때 오류(400)가 나며 첨부되지 않던 문제를 고쳤습니다. 끌어다 놓은 파일의 종류도 올바르게 인식하고, 한글 이름 첨부를 내려받을 때도 원래 이름을 유지합니다.\n- 화면 배율이 서로 다른 여러 모니터에서 창과 메뉴·팝업이 현재 모니터에 맞는 위치와 선명도로 표시됩니다.\n"
+    "payload_manifest_sha256": "5583a8ad92aa240723e21b1947965d3fee2c2ebad3eb6d3981686e439ad2672a",
+    "release_notes": "## update 64\n\n- 모델 관리에서 선택한 모델이 한 줄에 하나씩 넓은 카드로 보입니다. 긴 모델 이름은 마우스를 올리면 전체가 보입니다.\n- 뉴스피드에 「읽은 항목 정리」 버튼이 생겨, 읽은 알림만 한 번에 지울 수 있습니다. 읽지 않은 알림과 결과 파일은 남습니다.\n- 창 테두리가 조금 더 또렷해지고 창 그림자가 표시됩니다. 최대화하면 테두리와 그림자가 사라집니다.\n- 「업데이트 확인」을 직접 누르면 최신 상태이거나 확인에 실패해도 결과를 항상 알려 줍니다.\n- 작업 키트 관리 프로그램이 MY Agent 설치 위치를 찾을 수 있도록 설치 위치 정보를 기록합니다.\r\n"
   },
-  "signature": "SYUY0Vqm2njeJ8F7sl63FIptBzEnpwMyu0Mj99tLyPcTgEfIMd+NXDz0uEmSUuKtl0+94yl/uVC7D6ORBOdwF2yrfL68gQR9JcbD4Ekq6ESEVnBDcp9xvd5iypSKFL4p1/GXFHDTZxaCn7/YszZibo60fYz1tFiIJlCLjXRrkhFbSWV2/fL8IM1J9TfmDQeqOU/ofiRkUVesZb4B5WTkksm1dCG5OdjXBGks3BJIv01Bqf4MyrC7GAX3bfh7iNsZnFivozVQe2pYJpI0ahmFmlmXOw0iYgzACdswxOz4vWpkw2S8lk1ovJk5F8qRCYsDwQCZftaaO25nZRd+sQDr7chu7lPOxt1HSSaq/6q7ZRlAlOuwV3QTOA3K4clRs9WPfB8kHWapxrKuJVG52zmJRbvckmeWUr5WwAG7QPJk5oK/ICrKnpzW+iIK+MBlJX1FEVe5gnx7d6l9kjpwDvz/9xELLULvda4iAPjD/uzj8p632NlnIoa+ZKkfWs2ozGhv"
+  "signature": "kyqPpETiPPcPX0CwjJETn7QKcyIYKYfz6L0eYgEMFsIid9WoQCVlTqZpCeFdcV7uDxvBO/tWMt5fuP8VGJR3AlVrqk0Oh5iJz7FNqULwDBYCKezFO5gYm5M2XitBv5trw+nuQ95ffQNOpWYcYFblzCjCL1e+S4F/kuvoVKD5dq/S/bb8Pv4fgkKxxlOhsdSEK2VfgFnpD+dgW5f87mflRTxBo9mu6qShK9epvf6ZGIc+zMApaXurkjhoxReI4RU5xV/0Rsi6K7uz2BUweNGKV1KNafnVOuQgMvJKNFiODJZopk8TEWHbXNC2YIxNKMRw8nTCOOh+JCASJtOwrH1zHKizNw1R/8UhjhwXH9WOfqsobtw7Ki7oZsptWErtnbcQYA5UDWLLtfudASjgIQsLxuepmTRbZpnHDDpYIdYQJ89NDPa/SfGSoQdagLIfbo0tJacT0W5tERPFXpQCglKPeTfeKZ/y557MqT8LKhNaYu1Pf4m6+9qKwxi00+rB5f4n"
 }

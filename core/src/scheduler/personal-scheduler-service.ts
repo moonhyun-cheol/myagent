@@ -147,6 +147,7 @@ export class PersonalSchedulerService {
   listRuns(limit?: number): SchedulerRun[] { return this.store.listRuns(limit); }
   countActiveRuns(): number { return this.store.countActiveRuns(); }
   listFeed(limit?: number): SchedulerFeedItem[] { return this.store.listFeed(limit); }
+  clearFeed(scope: 'read' | 'all' = 'read'): number { return this.store.clearFeed(scope); }
 
   isWeeklyTask(task: PersonalSchedulerTask): boolean {
     return weeklyOccurrence(task, new Date()) !== null;

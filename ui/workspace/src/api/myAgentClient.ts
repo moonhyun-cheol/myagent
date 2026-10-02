@@ -297,6 +297,13 @@ export async function cancelAutomationRun(id: string): Promise<void> {
   if (!res.ok) throw new Error(`대기 중인 자동화 실행을 취소하지 못했습니다. (${res.status})`);
 }
 
+export async function clearAutomationFeed(scope: 'read' | 'all' = 'read'): Promise<number> {
+  const res = await fetch(`/automations/feed?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`자동화 뉴스피드를 정리하지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { removed?: number };
+  return typeof payload.removed === 'number' ? payload.removed : 0;
+}
+
 export async function markAutomationFeedRead(): Promise<number> {
   const res = await fetch('/automations/feed/read', { method: 'POST' });
   if (!res.ok) throw new Error(`자동화 알림을 읽음 처리하지 못했습니다. (${res.status})`);

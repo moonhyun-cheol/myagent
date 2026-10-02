@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-01T05:17:53.772Z",
+  "generated_at": "2026-10-01T23:55:59.715Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 116,
+    "route_count": 117,
     "routes": [
       {
         "method": "GET",
@@ -99,6 +99,11 @@
       {
         "method": "POST",
         "path": "/automations/events",
+        "match": "exact"
+      },
+      {
+        "method": "DELETE",
+        "path": "/automations/feed",
         "match": "exact"
       },
       {

@@ -341,6 +341,13 @@ export async function dispatchApiRequest(
         });
       }
 
+      if (method === 'DELETE' && url.pathname === '/automations/feed') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const scope = url.searchParams.get('scope') === 'all' ? 'all' : 'read';
+        return sendJson(res, 200, { removed: personalScheduler.clearFeed(scope) });
+      }
+
       if (method === 'POST' && url.pathname === '/automations/feed/read') {
         license.assertWritable();
         license.assertFeature('chat');

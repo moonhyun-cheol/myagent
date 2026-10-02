@@ -7,8 +7,8 @@
         Width="1100" Height="780"
         MinWidth="640" MinHeight="480"
         Background="{DynamicResource ShellWindowBrush}"
-        BorderBrush="{DynamicResource ShellBorderBrush}"
-        BorderThickness="1"
+        BorderBrush="{DynamicResource ShellWindowFrameBrush}"
+        BorderThickness="2"
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
@@ -17,7 +17,7 @@
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="36"
                         ResizeBorderThickness="10"
-                        GlassFrameThickness="0"
+                        GlassFrameThickness="1"
                         CornerRadius="0"
                         UseAeroCaptionButtons="False" />
   </shell:WindowChrome.WindowChrome>
@@ -27,6 +27,8 @@
     <SolidColorBrush x:Key="ShellWindowBrush" Color="#dde1de" />
     <SolidColorBrush x:Key="ShellTitleBarBrush" Color="#f4f5f2" />
     <SolidColorBrush x:Key="ShellBorderBrush" Color="#adb9b4" />
+    <!-- Outer window frame only: darker than inner separators so the window edge stands out. -->
+    <SolidColorBrush x:Key="ShellWindowFrameBrush" Color="#63756d" />
     <SolidColorBrush x:Key="ShellTextBrush" Color="#17211d" />
     <SolidColorBrush x:Key="ShellMutedTextBrush" Color="#4f5d57" />
     <SolidColorBrush x:Key="ShellHoverBrush" Color="#d3dad6" />

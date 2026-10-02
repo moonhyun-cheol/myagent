@@ -423,20 +423,24 @@ export function ModelManagementModal({
                   </span>
                 </div>
 
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {companyModelDraft.length ? companyModelDraft.map((id) => (
-                    <div key={id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-panel-2/50 px-3 py-3">
-                      <span className="min-w-0 truncate text-sm font-medium" title={companyModelLabel(id)}>{companyModelLabel(id)}</span>
-                      <button
-                        type="button"
-                        onClick={() => setCompanyModelDraft((items) => items.filter((item) => item !== id))}
-                        className="shrink-0 rounded-md px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600"
-                      >
-                        제거
-                      </button>
-                    </div>
-                  )) : (
-                    <div className="rounded-xl border border-dashed border-line bg-panel-2/50 px-4 py-8 text-center text-sm text-muted sm:col-span-2">
+                <div className="mt-4 grid gap-2">
+                  {companyModelDraft.length ? companyModelDraft.map((id) => {
+                    const label = companyModelLabel(id);
+                    return (
+                      <div key={id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel-2/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                        <span className="min-w-0 break-all text-sm font-medium leading-5 sm:truncate" title={label}>{label}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCompanyModelDraft((items) => items.filter((item) => item !== id))}
+                          className="shrink-0 self-end rounded-md px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600 sm:self-auto"
+                          aria-label={`${label} 제거`}
+                        >
+                          제거
+                        </button>
+                      </div>
+                    );
+                  }) : (
+                    <div className="rounded-xl border border-dashed border-line bg-panel-2/50 px-4 py-8 text-center text-sm text-muted">
                       오른쪽 검색 결과에서 모델을 추가하세요.
                     </div>
                   )}

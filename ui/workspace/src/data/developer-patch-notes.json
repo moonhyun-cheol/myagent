@@ -2,8 +2,54 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "model-cards-one-per-row",
+      "status": "released",
+      "title": "선택한 모델을 한 줄에 하나씩 넓은 카드로 표시",
+      "detail": "모델 관리에서 선택한 모델이 한 줄에 하나씩 전체 너비 카드로 보입니다. 긴 모델 이름은 잘려 보이고 마우스를 올리면 전체 이름이 나옵니다. 화면이 좁으면 이름이 줄바꿈되고 제거 버튼이 아래로 내려갑니다.",
+      "area": "models",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "ui/workspace/src/components/ModelManagementModal.tsx"
+      ],
+      "release": {
+        "version": "1.1.16",
+        "update_sequence": 64
+      }
+    },
+    {
+      "id": "feed-clear-read-items",
+      "status": "released",
+      "title": "뉴스피드에서 읽은 항목만 한 번에 정리",
+      "detail": "뉴스피드 창 위쪽에 「읽은 항목 정리」 버튼이 생겼습니다. 누르면 한 번 더 확인한 뒤 읽은 항목만 지우고, 읽지 않은 알림과 결과 파일은 그대로 남깁니다.",
+      "area": "automation",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "ui/workspace/src/components/AutomationFeedModal.tsx",
+        "core/src/scheduler/personal-scheduler-store.ts"
+      ],
+      "release": {
+        "version": "1.1.16",
+        "update_sequence": 64
+      }
+    },
+    {
+      "id": "window-border-and-shadow",
+      "status": "released",
+      "title": "창 테두리를 또렷하게, 창 그림자 표시",
+      "detail": "창 바깥 테두리를 조금 더 두껍고 진하게 바꾸고 Windows 기본 창 그림자를 켰습니다. 다크 모드에서도 어울리는 색을 쓰며, 창을 최대화하면 테두리와 그림자가 사라집니다.",
+      "area": "shell",
+      "created_at": "2026-10-01",
+      "source_paths": [
+        "shell/CqrPa.Shell/MainWindow.xaml"
+      ],
+      "release": {
+        "version": "1.1.16",
+        "update_sequence": 64
+      }
+    },
+    {
       "id": "manual-update-check-feedback",
-      "status": "development",
+      "status": "released",
       "title": "「지금 업데이트 확인」을 누르면 결과를 바로 알려줌",
       "detail": "설정에서 「지금 업데이트 확인」을 눌러도 아무 반응이 없던 문제를 고쳤습니다. 최신 버전이면 「현재 최신 버전입니다」, 업데이트가 있으면 안내창을 바로 보여 주고, 작업 중이라 지금 설치할 수 없으면 끝난 뒤 물어본다고 알려 줍니다. 확인에 실패하면 네트워크 확인 안내가 뜨고, 자동 확인을 꺼 둔 상태에서도 이 버튼으로 직접 확인할 수 있습니다.",
       "area": "updates",
@@ -19,133 +65,19 @@
       }
     },
     {
-      "id": "video-generation-models",
+      "id": "install-location-for-work-kit-manager",
       "status": "released",
-      "title": "조직 모듈 사용자는 Veo·Seedance로 동영상 만들기",
-      "detail": "조직 모듈이 설치된 PC에서는 모델 목록에 「동영상」 분류로 Veo와 Seedance가 나타나고, 문장을 보내면 짧은 동영상을 만들어 채팅에서 바로 재생합니다. 생성 중에는 진행 상황이 표시되고 중지할 수 있습니다. 조직 모듈이 없는 PC에서는 보이지 않고 요청도 거절됩니다.",
-      "area": "video",
+      "title": "작업 키트 관리 프로그램이 설치 위치를 찾도록 기록",
+      "detail": "MY Agent가 켜질 때마다 설치 위치 정보를 사용자 폴더에 기록합니다. 앱을 옮기거나 다시 설치해도 작업 키트 관리 프로그램이 MY Agent를 찾을 수 있습니다. 기록에 실패해도 앱 실행에는 영향이 없습니다.",
+      "area": "install",
       "created_at": "2026-10-01",
       "source_paths": [
-        "core/config/defaults/video-models.json",
-        "core/src/video/video-generation.ts",
-        "core/src/chat/modes/video-gen.ts"
+        "core/src/setup/install-root-pointer.ts",
+        "core/src/api-server.ts"
       ],
       "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "video-save-picker-and-cleanup",
-      "status": "released",
-      "title": "동영상 저장 시 저장 위치 선택, 대화 삭제 시 영상 정리",
-      "detail": "「동영상 저장」을 누르면 저장 위치를 고르는 창이 뜨고, 날짜와 시간이 들어간 파일 이름이 기본으로 붙습니다. 대화를 삭제하면 그 대화에서 만든 영상 파일도 함께 정리되며, 다른 대화가 같은 영상을 쓰고 있으면 남겨 둡니다.",
-      "area": "video",
-      "created_at": "2026-10-01",
-      "source_paths": [
-        "ui/workspace/src/components/ChatPane.tsx",
-        "core/src/sessions/session-temp-gc.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "session-media-carry",
-      "status": "released",
-      "title": "세션 가져오기·요약 후 새 대화에서도 영상과 이미지 유지",
-      "detail": "세션을 가져오거나 요약 후 새 대화로 열 때 영상과 이미지가 빠지던 문제를 고쳤습니다. 요약으로 만든 새 대화에도 이전 대화의 영상과 이미지가 함께 표시됩니다. 이 PC에 영상 파일이 없으면 빈 플레이어 대신 안내 문구를 보여 줍니다.",
-      "area": "sessions",
-      "created_at": "2026-10-01",
-      "source_paths": [
-        "core/src/sessions/session-media-urls.ts",
-        "core/src/sessions/session-store.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "org-module-work-kit-download-mirrors",
-      "status": "released",
-      "title": "조직 모듈·작업 키트를 사내 서버에서 받고, 안 되면 예비 서버로 받기",
-      "detail": "조직 모듈과 작업 키트를 사내 저장소에서 먼저 받도록 바꿔, 최신 조직 모듈을 받지 못하거나 작업 키트 다운로드가 실패하던 문제를 해결했습니다. 사내 서버에 접속할 수 없을 때는 예비 서버에서 같은 파일을 받고, 받은 파일이 올바른지 항상 확인합니다.",
-      "area": "updates",
-      "created_at": "2026-10-01",
-      "source_paths": [
-        "core/src/updates/update-mirrors.ts",
-        "core/src/updates/organization-module-feed.ts",
-        "core/src/updates/work-kit-catalog-feed.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "continuation-resume-fresh-budget",
-      "status": "released",
-      "title": "「이어서 진행」을 눌러도 바로 다시 멈추던 문제 해결",
-      "detail": "긴 작업이 한도에 걸려 멈춘 뒤 「이어서 진행」을 누르면 곧바로 다시 멈추던 문제를 고쳤습니다. 이어서 진행할 때 멈춘 지점부터 다시 시작하고, 일시적인 연결 오류가 나도 처음부터 다시 하지 않고 이어서 재시도합니다.",
-      "area": "agent",
-      "created_at": "2026-09-30",
-      "source_paths": [
-        "core/src/agent/agent-run-loop.ts",
-        "core/src/agent/agent-continuation-snapshot.ts",
-        "core/src/agent/agent-session-continuity.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "token-usage-on-error-and-stop",
-      "status": "released",
-      "title": "오류나 중지로 끝난 작업도 토큰 사용량 표시",
-      "detail": "작업이 오류로 끊기거나 중지 버튼으로 멈췄을 때 토큰 사용량이 표시되지 않던 문제를 고쳤습니다. 재시도한 경우에도 그때까지 사용한 양이 빠지지 않고 합산됩니다.",
-      "area": "chat",
-      "created_at": "2026-09-30",
-      "source_paths": [
-        "core/src/agent/agent-usage-carry.ts",
-        "core/src/chat/chat-orchestrator.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "shell-drag-drop-attachment-upload",
-      "status": "released",
-      "title": "탐색기에서 파일을 끌어다 놓을 때 첨부 오류(400) 해결",
-      "detail": "파일 탐색기에서 채팅 창으로 파일을 끌어다 놓는 순간 오류 코드 400이 나며 첨부되지 않던 문제를 고쳤습니다. 이제 끌어다 놓은 파일도 정상적으로 첨부되고, 이미지·PDF 같은 파일 종류도 올바르게 인식됩니다. 한글 이름의 첨부 파일을 내려받을 때도 원래 이름이 유지됩니다.",
-      "area": "attachments",
-      "created_at": "2026-09-30",
-      "source_paths": [
-        "core/src/attachments/multipart.ts"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
-      }
-    },
-    {
-      "id": "per-monitor-dpi-shell-manifest",
-      "status": "released",
-      "title": "여러 모니터에서 배율이 달라도 창·팝업 위치와 선명도 개선",
-      "detail": "화면 배율이 서로 다른 여러 모니터를 사용할 때 앱 창과 메뉴·팝업이 현재 모니터 배율에 맞는 위치와 선명도로 표시되도록 했습니다. 지난 업데이트에서 안내한 팝업 위치 보정이 실제 앱에는 적용되지 않았던 문제를 이번에 바로잡았습니다.",
-      "area": "shell",
-      "created_at": "2026-09-30",
-      "source_paths": [
-        "shell/CqrPa.Shell/app.manifest",
-        "shell/CqrPa.Shell/CqrPa.Shell.csproj"
-      ],
-      "release": {
-        "version": "1.1.15",
-        "update_sequence": 63
+        "version": "1.1.16",
+        "update_sequence": 64
       }
     }
   ]
