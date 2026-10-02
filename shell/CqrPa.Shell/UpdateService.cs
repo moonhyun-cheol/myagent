@@ -74,6 +74,12 @@ internal sealed class UpdateService
         {
             return null;
         }
+        // Per-install opt-out (trial/side-by-side builds): a local marker file disables the
+        // core update stream without needing an environment variable or launcher wrapper.
+        if (File.Exists(Path.Combine(root, "data", "runtime", "update-check.disabled")))
+        {
+            return null;
+        }
         try
         {
             using var document = JsonDocument.Parse(
