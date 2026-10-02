@@ -2256,6 +2256,7 @@ export function ChatPane() {
                       <button
                         key={skill.mode}
                         type="button"
+                        title={skill.description || undefined}
                         aria-pressed={skillMode === skill.mode}
                         className={`block w-full rounded-lg px-2 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-dim ${skillMode === skill.mode ? 'bg-accent-dim text-white hover:bg-accent-dim' : 'text-text hover:bg-panel-2'}`}
                         onClick={() => {
@@ -2273,7 +2274,6 @@ export function ChatPane() {
                           {skillMode === skill.mode ? <CheckCircle size={16} weight="fill" aria-hidden="true" className="shrink-0" /> : null}
                           <span className="min-w-0 break-all">{skill.label}{skillMode === skill.mode ? ' · 적용 중' : ''}</span>
                         </div>
-                        {skill.description ? <div className={`mt-1 text-xs ${skillMode === skill.mode ? 'text-white' : 'text-muted'}`}>{skill.description}</div> : null}
                       </button>
                           ))}
                         </div>
