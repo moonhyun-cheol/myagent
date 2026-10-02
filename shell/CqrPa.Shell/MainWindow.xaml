@@ -147,9 +147,9 @@
     </Border>
 
     <Grid x:Name="BrowserLayout" Grid.Row="1" SizeChanged="OnBrowserLayoutSizeChanged">
-      <!-- Composition workspace has no competing child HWND. The native page occupies
-           only the reserved DOM slot, never an extra column or a duplicate toolbar. -->
-      <wv2:WebView2CompositionControl x:Name="WebView" AllowExternalDrop="False" />
+      <!-- The workspace WebView is inserted at index 0 from code (MainWindow.WorkspaceWebView.cs):
+           WebView2CompositionControl normally (no competing child HWND; the native page occupies
+           only the reserved DOM slot), or HWND WebView2 when Direct3D 11 is unavailable. -->
 
       <Border x:Name="StartupOverlay"
               Background="{DynamicResource ShellWindowBrush}"

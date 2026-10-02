@@ -120,11 +120,11 @@ public partial class MainWindow
     {
         double? xRatio = null;
         double? yRatio = null;
-        if (dragEvent is not null && WebView.ActualWidth > 0 && WebView.ActualHeight > 0)
+        if (dragEvent is not null && WebViewElement.ActualWidth > 0 && WebViewElement.ActualHeight > 0)
         {
-            var point = dragEvent.GetPosition(WebView);
-            xRatio = Math.Clamp(point.X / WebView.ActualWidth, 0, 1);
-            yRatio = Math.Clamp(point.Y / WebView.ActualHeight, 0, 1);
+            var point = dragEvent.GetPosition(WebViewElement);
+            xRatio = Math.Clamp(point.X / WebViewElement.ActualWidth, 0, 1);
+            yRatio = Math.Clamp(point.Y / WebViewElement.ActualHeight, 0, 1);
         }
         var payload = JsonSerializer.Serialize(new
         {
