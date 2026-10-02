@@ -48,6 +48,7 @@ public partial class MainWindow : Window
         _port = port;
         _api = api;
         InitializeComponent();
+        InitializeWorkspaceWebView();
         InitializeExternalFileDrop();
         var cachedTheme = LoadShellThemePreference();
         ApplyShellTheme(cachedTheme.Preference, cachedTheme.Dark, persist: false);
@@ -415,6 +416,7 @@ public partial class MainWindow : Window
         if (_workspaceLoading) return;
         _workspaceLoading = true;
         StartupOverlay.Visibility = Visibility.Visible;
+        HideHwndWorkspaceWebViewForOverlay();
         StartupRetryButton.Visibility = Visibility.Collapsed;
         StartupProgress.Visibility = Visibility.Visible;
         StartupStatusText.Text = "로컬 서비스를 시작하는 중…";
@@ -513,6 +515,7 @@ public partial class MainWindow : Window
         if (e.IsSuccess)
         {
             StartupOverlay.Visibility = Visibility.Collapsed;
+            WebViewElement.Visibility = Visibility.Visible;
             return;
         }
         StartupProgress.Visibility = Visibility.Collapsed;
