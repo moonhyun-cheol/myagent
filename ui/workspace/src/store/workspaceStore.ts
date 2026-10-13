@@ -2885,7 +2885,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const asset = get().assets.find((a) => a.id === assetId);
       if (!asset) return;
       if (asset.kind === 'image') {
-        void get().sendAiMessage(asset.prompt || asset.title);
+        // Regeneration is a new paid generation request — ask first (plan P1-5).
+        void (async () => {
+          const ok = await confirmDialog({
+            title: '이미지 다시 생성',
+            message: '같은 프롬프트로 이미지를 새로 생성합니다. 새 요청이므로 비용이 다시 들 수 있습니다. 계속할까요?',
+            confirmLabel: '다시 생성',
+            danger: false,
+          });
+          if (ok) void get().sendAiMessage(asset.prompt || asset.title);
+        })();
         return;
       }
       const stamp = `// regenerated ${new Date().toLocaleTimeString()}\n`;

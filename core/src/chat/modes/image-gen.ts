@@ -27,8 +27,9 @@ function resolveInitImage(
 
 /**
  * Chat-based image models (OWUI `gemini-*-image`) intermittently answer a terse prompt
- * with prose — asking which style the user wants instead of drawing. Retry once with an
- * explicit draw directive before reporting failure.
+ * with prose — asking which style the user wants instead of drawing. The draw directive
+ * is sent on the single request: a second automatic (paid) request is not made without
+ * the user's approval (docs/media-output-persistence-plan.md P1-5).
  */
 const OWUI_IMAGE_DIRECTIVE =
   'Generate the image now. Output only the generated image, no questions and no style options.';
@@ -78,13 +79,7 @@ async function generateImageViaOwui(opts: {
     throw new Error('OWUI_IMAGE_NO_PROVIDER');
   }
   const attemptOpts = { ...opts, resolved: resolved as Parameters<typeof requestOwuiImage>[0]['resolved'] };
-
-  const first = await requestOwuiImage(attemptOpts);
-  if (first.imageUrls.length > 0) return first;
-
-  const retry = await requestOwuiImage({ ...attemptOpts, systemPrompt: OWUI_IMAGE_DIRECTIVE });
-  if (retry.imageUrls.length > 0) return retry;
-  return { ...retry, content: retry.content || first.content };
+  return requestOwuiImage({ ...attemptOpts, systemPrompt: OWUI_IMAGE_DIRECTIVE });
 }
 
 async function generateLocalImage(opts: {

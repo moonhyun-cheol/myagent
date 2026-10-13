@@ -123,11 +123,40 @@ assert.equal(p.media.length, 2);
 assert.ok(p.media.every((m) => m.url.startsWith('/outputs/images/s2/') && existsSync(path.join(root, 'images', 's2', path.basename(m.url)))));
 assert.equal(p.failed, 1);
 assert.equal(p.unsupported, 1);
+// P1-4: failed payload kept in the bounded recovery area, not next to outputs.
+assert.equal(p.recovered, 1);
+const recDir = path.join(root, 'data', 'media-recovery', 's2');
+const recFiles = readdirSync(recDir).filter((n) => n.endsWith('.json'));
+assert.equal(recFiles.length, 1);
+const recovery = JSON.parse(readFileSync(path.join(recDir, recFiles[0]), 'utf8'));
+assert.equal(recovery.base64, bogus.base64);
+assert.equal(recovery.declared_mime, 'image/png');
+assert.match(recovery.reason, /MEDIA_UNSUPPORTED_FORMAT/);
+assert.equal(readdirSync(path.join(root, 'images', 's2')).filter((n) => n.endsWith('.json')).length, 0);
 const notice = persist.unverifiedMediaNotice(p, 'm/x');
 assert.equal(notice.kind, 'failure');
 assert.equal(notice.title, '생성 결과 확인 안 됨');
 assert.match(notice.message, /2개를 파일로 저장하지 못했습니다/);
+assert.match(notice.message, /원본 1개는 복구용 기록/);
 assert.equal(persist.unverifiedMediaNotice({ failed: 0, unsupported: 0 }), undefined);
+const cap = persist.MEDIA_RECOVERY_LIMITS.maxPerSession;
+const many = persist.persistGeneratedImages({ images: Array.from({ length: cap + 2 }, () => bogus), unsupported: 0 }, {
+  imageOutDir: path.join(root, 'images'), sessionId: 's4', cqrRoot: root,
+});
+assert.equal(many.failed, cap + 2);
+assert.equal(many.recovered, cap, 'recovery records are capped per session');
+
+// P1-6: history carries a file-info line, never the media itself.
+const filters = await import(new URL('chat/chat-filters.js', dist));
+const hist = filters.sanitizeHistoryForModel([
+  { role: 'assistant', content: '동영상을 생성했습니다.', media: [{ kind: 'video', url: '/outputs/videos/s1/abc.mp4', mime: 'video/mp4', bytes: 3 * 1024 * 1024, sha256: 'x' }], image_urls: ['/outputs/videos/s1/abc.mp4'] },
+  { role: 'assistant', content: '', image_urls: ['/outputs/images/s1/old.png', 'https://evil.example/x.png'] },
+  { role: 'user', content: 'plain' },
+]);
+assert.match(hist[0].content, /^동영상을 생성했습니다\.\n\n\[저장된 생성 결과 · 파일 내용은 보내지 않음: 동영상 video\/mp4 3\.0MB \(abc\.mp4\)\]$/);
+assert.equal(hist[1].content, '[저장된 생성 결과 · 파일 내용은 보내지 않음: 이미지 (old.png)]');
+assert.equal(hist[2].content, 'plain');
+assert.ok(!JSON.stringify(hist).includes('base64'));
 const known = persist.persistGeneratedImages({ images: [{ base64: b64 }], unsupported: 0 }, {
   imageOutDir: path.join(root, 'images'), sessionId: 's2', cqrRoot: root, knownSha256: [p.media[0].sha256],
 });
@@ -146,5 +175,10 @@ assert.match(src('chat/chat-orchestrator.ts'), /generated: out\.generated_media/
 assert.match(src('chat/chat-orchestrator.ts'), /generated: chatResult\.generated_media/);
 assert.match(src('video/video-generation.ts'), /saveMediaStream\(dl\.body/);
 assert.match(src('image/owui-media.ts'), /saveMediaBuffer\(buffer/);
+// P1-5: no automatic paid second image request; canvas 재생성 asks first.
+const imageGen = src('chat/modes/image-gen.ts');
+assert.equal((imageGen.match(/await requestOwuiImage\(|return requestOwuiImage\(/g) ?? []).length, 1);
+const workspaceStoreSrc = readFileSync(new URL('../ui/workspace/src/store/workspaceStore.ts', import.meta.url), 'utf8');
+assert.match(workspaceStoreSrc, /regenerateAsset:[\s\S]{0,400}confirmDialog\(\{[\s\S]{0,200}title: '이미지 다시 생성'/);
 
 console.log('verify-generated-media: ok');

@@ -4,6 +4,7 @@
  */
 
 import type { SessionMessage } from '../sessions/types.js';
+import { isLocalMediaUrl, isLocalVideoUrl } from '../sessions/session-media-urls.js';
 
 export interface ChatFilterContext {
   sessionId?: string;
@@ -144,9 +145,53 @@ export function shouldExcludeFromModelContext(message: Pick<SessionMessage, 'rol
 
 /**
  * Keep history unless an explicit structural flag excludes a message.
+ * Messages carrying generated media get a short file-info line instead of the
+ * file itself (docs/media-output-persistence-plan.md P1-6).
  */
 export function sanitizeHistoryForModel<T extends Pick<SessionMessage, 'role' | 'content' | 'model_exclude'>>(
   messages: T[],
 ): T[] {
-  return messages.filter((m) => !shouldExcludeFromModelContext(m));
+  return messages
+    .filter((m) => !shouldExcludeFromModelContext(m))
+    .map((m) => {
+      const note = describeMessageMediaForModel(m as Partial<Pick<SessionMessage, 'media' | 'image_urls'>>);
+      return note ? { ...m, content: m.content.trim() ? `${m.content}\n\n${note}` : note } : m;
+    });
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+const MAX_MEDIA_NOTE_ITEMS = 8;
+
+/**
+ * One deterministic line describing stored generated media for the model.
+ * The image/video bytes and keyframes are never re-sent on later turns; the
+ * model only learns that the file exists (kind, format, size, file name).
+ */
+export function describeMessageMediaForModel(
+  message: Partial<Pick<SessionMessage, 'media' | 'image_urls'>>,
+): string {
+  const items: string[] = [];
+  const seen = new Set<string>();
+  for (const m of message.media ?? []) {
+    if (!m?.url || seen.has(m.url)) continue;
+    seen.add(m.url);
+    const name = m.url.split('/').pop() ?? '';
+    const size = formatBytes(m.bytes);
+    items.push(`${m.kind === 'video' ? '동영상' : '이미지'} ${m.mime}${size ? ` ${size}` : ''} (${name})`);
+  }
+  // Legacy replies: only `image_urls` (videos were mixed in as .mp4/.webm URLs).
+  for (const url of message.image_urls ?? []) {
+    if (seen.has(url) || !isLocalMediaUrl(url)) continue;
+    seen.add(url);
+    items.push(`${isLocalVideoUrl(url) ? '동영상' : '이미지'} (${url.split('/').pop() ?? ''})`);
+  }
+  if (!items.length) return '';
+  const shown = items.slice(0, MAX_MEDIA_NOTE_ITEMS);
+  const more = items.length - shown.length;
+  return `[저장된 생성 결과 · 파일 내용은 보내지 않음: ${shown.join('; ')}${more > 0 ? `; 외 ${more}개` : ''}]`;
 }

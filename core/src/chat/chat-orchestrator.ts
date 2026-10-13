@@ -1647,6 +1647,7 @@ export class ChatOrchestrator {
       cqrRoot: this.cqrRoot,
       knownSha256: owui.media.map((m) => m.sha256),
       maxImages: opts.maxImages,
+      model: opts.model,
     });
     const media = [...owui.media, ...persisted.media];
     const notice = unverifiedMediaNotice(persisted, opts.model);
