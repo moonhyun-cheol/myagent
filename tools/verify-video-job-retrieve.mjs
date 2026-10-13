@@ -99,6 +99,19 @@ try {
   assert.equal(stopped.video_job?.job_id, 'jobT');
   assert.equal(stopped.video_job?.status, 'pending');
   assert.match(stopped.content, /결과 다시 받기/);
+  assert.match(stopped.content, /비용이 청구될 수 있습니다/);
+  // P1-2: partial status text must not swallow the cost/retrieve notice.
+  const sid2 = 'video-job-session-partial';
+  store.ensure(sid2);
+  store.append(sid2, { role: 'user', content: '영상', at: new Date().toISOString(), run_id: 'run-2' });
+  store.notePendingVideoJob(sid2, { job_id: 'jobU', provider_id: 'custom@x', model_id: model.id, status: 'pending', submitted_at: now, updated_at: now });
+  store.finalizeStoppedRun({ sessionId: sid2, runId: 'run-2', partial: '동영상 생성 중…', state: 'stopped' });
+  const stopped2 = store.load(sid2).messages.at(-1);
+  assert.match(stopped2.content, /^동영상 생성 중…\n\n/);
+  assert.match(stopped2.content, /비용이 청구될 수 있습니다/);
+  assert.equal(stopped2.video_job?.job_id, 'jobU');
+  const { VIDEO_SUBMITTED_STATUS, VIDEO_STOP_HINT } = await import(new URL('video/video-generation.js', dist));
+  assert.ok(VIDEO_SUBMITTED_STATUS.includes(VIDEO_STOP_HINT), 'live status warns that stop keeps provider billing');
   store.updateVideoJob(sid, 'jobT', {
     video_job: { ...stopped.video_job, status: 'completed' },
     content: '동영상 결과를 다시 받았습니다.',

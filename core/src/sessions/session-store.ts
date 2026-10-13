@@ -24,6 +24,10 @@ const TRUNCATED_THOUGHT_PREFIX = '[이전 작업 로그 일부 생략]\n';
 
 const MAX_SESSION_TITLE_LENGTH = 80;
 
+/** Stop after a paid video job was submitted: polling stops, provider job/billing may not. */
+export const VIDEO_STOPPED_NOTICE =
+  '동영상 생성을 중지했습니다. 이 앱의 상태 확인만 멈췄고, 공급자 쪽 작업은 계속 진행되어 비용이 청구될 수 있습니다. 「결과 다시 받기」로 새로 생성하지 않고 결과를 받을 수 있습니다.';
+
 export function normalizeSessionTitle(title: string): string {
   return title.replace(/\s+/g, ' ').trim().slice(0, MAX_SESSION_TITLE_LENGTH);
 }
@@ -497,10 +501,10 @@ export class SessionStore {
       const videoJob = this.pendingVideoJob.get(rec.id);
       rec.messages.push({
         role: 'assistant',
-        content: run.partial.trim()
-          || (videoJob
-            ? '동영상 생성을 중지했습니다. 공급자 쪽 작업은 계속 진행되어 비용이 청구될 수 있습니다. 「결과 다시 받기」로 새로 생성하지 않고 결과를 받을 수 있습니다.'
-            : '(중지됨)'),
+        // A submitted (paid) video job always keeps the cost/retrieve notice, even with partial text.
+        content: videoJob
+          ? [run.partial.trim(), VIDEO_STOPPED_NOTICE].filter(Boolean).join('\n\n')
+          : run.partial.trim() || '(중지됨)',
         at: new Date().toISOString(),
         run_id: run.runId,
         reply_to_run_id: run.runId,

@@ -2,6 +2,10 @@ import type { VideoModelDef } from './video-models.js';
 import { saveMediaStream, type MediaRecord } from '../media/media-store.js';
 import { guardedMediaFetch } from '../media/media-fetch.js';
 
+/** Shown while the paid provider job runs: stopping here only stops local polling. */
+export const VIDEO_STOP_HINT = '중지해도 공급자 쪽 생성과 비용은 계속될 수 있습니다';
+export const VIDEO_SUBMITTED_STATUS = `동영상 생성 요청 접수 — 완료까지 수 분 걸릴 수 있습니다. ${VIDEO_STOP_HINT}.`;
+
 /** OpenRouter async video API: POST /videos → poll polling_url → GET /videos/{id}/content. */
 export interface VideoJobStatus {
   id?: string;
@@ -210,7 +214,7 @@ export async function generateVideo(
   const jobId = String(job.id ?? '').trim();
   if (!jobId) throw new Error('VIDEO_SUBMIT_FAILED 응답에 작업 id가 없습니다.');
   input.onSubmitted?.(jobId);
-  input.onStatus?.('동영상 생성 요청 접수 — 완료까지 수 분 걸릴 수 있습니다…');
+  input.onStatus?.(VIDEO_SUBMITTED_STATUS);
 
   try {
     while (job.status !== 'completed') {
@@ -219,7 +223,7 @@ export async function generateVideo(
       if (Date.now() > deadline) throw new Error('VIDEO_TIMEOUT 생성이 제한 시간 안에 끝나지 않았습니다.');
       await sleep(pollMs, input.signal);
       job = await pollJob(ctx, job, jobId);
-      input.onStatus?.(`동영상 생성 중… (${job.status ?? 'pending'})`);
+      input.onStatus?.(`동영상 생성 중… (${job.status ?? 'pending'}) · ${VIDEO_STOP_HINT}`);
     }
     return await downloadJob(ctx, job, jobId);
   } catch (e: unknown) {
