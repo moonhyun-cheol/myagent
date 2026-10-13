@@ -12,7 +12,6 @@ const { externalReportReadTargetsFromOutput } = await import(
 );
 const { ProviderStore } = await import('../core/dist/providers/provider-store.js');
 const { requiresNativeTools } = await import('../core/dist/providers/provider-wire-api.js');
-const { preloadExternalReportGrounding } = await import('../core/dist/agent/agent-run-step-loop.js');
 const { completeAgentStepWithProtocol } = await import('../core/dist/agent/agent-llm-step.js');
 
 assert.equal(resolveCodeOwuiProtocolMode({}), 'api');
@@ -36,37 +35,9 @@ assert.deepEqual(
   'tagged list_directory output must still select two grounding files',
 );
 
-const groundingRoot = mkdtempSync(path.join(projectRoot, 'data', 'verify-grounding-'));
-try {
-  writeFileSync(path.join(groundingRoot, 'manifest.json'), '{"name":"fixture"}\n');
-  writeFileSync(path.join(groundingRoot, 'background.js'), 'export const ready = true;\n');
-  writeFileSync(path.join(groundingRoot, 'notes.txt'), 'ignore\n');
-  const state = {
-    steps: 0,
-    selfWorkspace: false,
-    opts: {
-      workspaceRoot: groundingRoot,
-      userMessage: '이 프로젝트 전체 구조를 설명해줘',
-    },
-    toolNames: ['list_directory', 'read_file'],
-    toolsUsedThisRun: new Set(),
-    reportStatus: () => {},
-    toolCallCount: 0,
-    runStartedAt: Date.now(),
-    messages: [],
-    guard: {},
-    toolCtx: { browserSession: null, cqrRoot: groundingRoot },
-    toolTrace: [],
-    retrievalSatisfiedThisRun: false,
-    successfulReadsThisRun: new Set(),
-    readBodiesFetchedThisRun: new Set(),
-  };
-  await preloadExternalReportGrounding(state);
-  assert.equal(state.toolCallCount, 3, 'preflight must list once and read two key files');
-  assert.deepEqual([...state.successfulReadsThisRun].sort(), ['background.js', 'manifest.json']);
-} finally {
-  rmSync(groundingRoot, { recursive: true, force: true });
-}
+// The runtime-forced grounding preflight (preloadExternalReportGrounding) was removed when the
+// agent became model-directed: the runtime no longer lists/reads files on the model's behalf.
+// Only the target-selection helper above remains and is still covered.
 
 const originalFetch = globalThis.fetch;
 try {
@@ -126,7 +97,8 @@ try {
       ],
       ['read_file'],
     ),
-    /native tools not supported/,
+    // Provider error bodies are redacted to a category; the HTTP status still surfaces.
+    /RESPONSES_HTTP_400/,
   );
   assert.equal(lockedRequests, 1, 'confirmed native execution must not retry through TEXT');
 } finally {

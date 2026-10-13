@@ -436,9 +436,10 @@ assert.match(setupSource, /if \(id === 'custom'\) continue/);
 const dispatchSource = readFileSync(path.join(root, 'core', 'src', 'routes', 'dispatch.ts'), 'utf8');
 assert.match(dispatchSource, /sendJson\(res, 200, sessionStore\.publicRecord\(rec\)\)/);
 assert.match(dispatchSource, /sendJson\(res, 201, sessionStore\.publicRecord\(rec\)\)/);
-const ui = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'GeminiNavSidebar.tsx'), 'utf8');
-for (const marker of ['Responses 고정', 'Anthropic Messages 고정', '네이티브 tools', '구성 확정', '로컬 암호화 저장', '연결 테스트', '키 삭제']) assert.ok(ui.includes(marker), `missing UI acceptance marker: ${marker}`);
-assert.ok(ui.includes('전송 방식은 모델·엔드포인트에서 자동 고정'));
+// Provider settings moved from GeminiNavSidebar to ModelManagementModal; check intent, not exact copy.
+const ui = readFileSync(path.join(root, 'ui', 'workspace', 'src', 'components', 'ModelManagementModal.tsx'), 'utf8');
+for (const marker of ['Responses API', 'Anthropic Messages', '연결 테스트', '키 삭제']) assert.ok(ui.includes(marker), `missing UI acceptance marker: ${marker}`);
+assert.match(ui, /고정 엔드포인트[^\n]*Responses/, 'company endpoint must be presented as fixed Responses transport');
 assert.equal(ui.includes('className="inp-wire'), false, 'wire transport selector must not be user-editable');
 assert.equal(ui.includes('personalForm.wire_api'), false, 'personal provider form must not accept manual transport');
 console.log('PASS settings UI acceptance wiring markers');

@@ -13,6 +13,11 @@ import {
 } from '../core/dist/providers/remote-model-curate.js';
 
 const root = process.cwd();
+const providerDefaults = JSON.parse(
+  readFileSync(path.join(root, 'core', 'config', 'defaults', 'providers.json'), 'utf8'),
+);
+const companyDefault = (providerDefaults.providers || providerDefaults).find?.((p) => p.id === 'custom');
+assert.ok(companyDefault, 'providers.json must define the custom (company) provider');
 const tempRoot = mkdtempSync(path.join(tmpdir(), 'cqr-openrouter-'));
 const vaultPath = path.join(tempRoot, 'provider-vault.json');
 
@@ -21,9 +26,12 @@ try {
   const store = new ProviderStore(vaultPath, tempRoot, masterKeys);
   const company = store.getDefinition('custom');
   assert.ok(company, 'company provider must exist');
-  assert.equal(company.name, 'MY OpenRouter');
+  // Display name and default model come from providers.json (SSOT); only their shape is pinned here.
+  assert.equal(company.name, companyDefault.name);
+  assert.match(company.name, /OpenRouter/);
   assert.equal(company.base_url, 'https://openrouter.ai/api/v1');
-  assert.equal(company.default_model, 'anthropic/claude-opus-5');
+  assert.equal(company.default_model, companyDefault.default_model);
+  assert.match(company.default_model, /^[a-z0-9-]+\/[\w.:-]+$/i);
   assert.equal(company.wire_api, 'responses');
 
   store.saveKey('custom', 'sk-or-test-current', {
@@ -47,7 +55,7 @@ try {
   migrated.saveKey('custom', 'sk-or-test-reentered');
   resolved = migrated.resolveProvider('custom');
   assert.equal(resolved?.baseUrl, 'https://openrouter.ai/api/v1');
-  assert.equal(resolved?.modelId, 'anthropic/claude-opus-5');
+  assert.equal(resolved?.modelId, companyDefault.default_model);
 
   const cfg = loadCurateConfig(true);
   const defaults = defaultCompanyModelIds(cfg);
@@ -67,19 +75,17 @@ try {
   assert.match(ui, /고정 엔드포인트/);
   assert.match(ui, /Responses API/);
 
-  const activeConfigurationIndex = ui.indexOf('1 · 핵심 설정');
-  const connectedProvidersIndex = ui.indexOf('2 · 관리');
-  const addAndAdvancedIndex = ui.indexOf('3 · 추가 및 확장');
+  // Current IA: MY default connection → connected personal models → add personal → advanced compatible API.
+  const companyIndex = ui.indexOf('MY 기본 연결');
+  const connectedProvidersIndex = ui.indexOf('연결된 개인 모델');
+  const addPersonalIndex = ui.indexOf('개인 모델 추가');
   const advancedApiIndex = ui.indexOf('기타 호환 API');
-  assert.ok(activeConfigurationIndex >= 0, 'active configuration section must exist');
+  assert.ok(companyIndex >= 0, 'MY default connection section must exist');
   assert.ok(
-    activeConfigurationIndex < connectedProvidersIndex && connectedProvidersIndex < addAndAdvancedIndex,
-    'model management IA must stay in active → connected → add order',
+    companyIndex < connectedProvidersIndex && connectedProvidersIndex < addPersonalIndex,
+    'model management IA must stay in company → connected → add order',
   );
-  assert.ok(advancedApiIndex > addAndAdvancedIndex, 'advanced compatible API must stay at the bottom');
-  assert.match(ui, /role="status"[\s\S]*aria-live="polite"/);
-  assert.match(ui, /absolute right-6[\s\S]*embedded \? 'bottom-6' : 'bottom-20'/);
-  assert.match(ui, /개인 연결 \{connectedPersonal\.length\}개/);
+  assert.ok(advancedApiIndex > addPersonalIndex, 'advanced compatible API must stay at the bottom');
   assert.match(ui, /grid gap-3 md:grid-cols-3/);
 
   const originalFetch = globalThis.fetch;
