@@ -6,6 +6,18 @@ const duration = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
+/** Command ran and exited non-zero (code/test miss) vs. the tool call itself failed. */
+const failedLabel = (row: ToolActivity) => row.failureKind === 'command_failed'
+  ? '명령 실패(코드·테스트)'
+  : row.failureKind === 'call_failed' ? '호출 실패' : '실패';
+
+const groupFailedLabel = (rows: ToolActivity[]) => {
+  const failed = rows.filter((row) => row.state === 'failed');
+  if (failed.some((row) => row.failureKind === 'call_failed')) return '호출 실패';
+  if (failed.length && failed.every((row) => row.failureKind === 'command_failed')) return '명령 실패(코드·테스트)';
+  return '실패';
+};
+
 interface ToolActivityLogProps {
   rows: ToolActivity[];
   timeline?: WorkTimelineItem[];
@@ -159,7 +171,9 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
 
   const label = (row: ToolActivity) => row.state === 'running'
     ? live ? row.cancelRequested ? '중지 요청 중' : '실행 중' : '연결 종료 · 완료 상태 미수신'
-    : ({ success: '완료', failed: '실패', cancelled: '사용자/실행 취소' } as const)[row.state];
+    : row.state === 'failed'
+      ? failedLabel(row)
+      : ({ success: '완료', cancelled: '사용자/실행 취소' } as const)[row.state];
   const elapsed = (row: ToolActivity) => duration(
     (row.finishedAt ?? (row.state === 'running' ? now : row.updatedAt)) - row.startedAt,
   );
@@ -185,18 +199,18 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
 
   return (
     <details
-      className="my-2 w-full min-w-0 text-xs"
+      className="my-2 w-full min-w-0 rounded-lg border border-line/80 bg-ink/20 text-xs [&[open]>summary]:rounded-b-none [&[open]>summary]:border-b [&[open]>summary]:border-line/80"
       data-work-timeline
       open={outerOpen}
       onToggle={(event) => setOuterOpen(event.currentTarget.open)}
     >
-      <summary className="cursor-pointer select-none rounded-lg border border-line/80 bg-ink/20 px-3 py-2 text-text marker:text-muted">
+      <summary className="cursor-pointer select-none rounded-lg px-3 py-2 text-text marker:text-muted">
         <span className="font-medium">중간 추론 및 작업 로그</span>
         <span className="text-muted">
           {' '}· 응답 {responseCount} · 작업 {toolGroupCount}{live ? ' · 진행 중' : ' · 완료'}
         </span>
       </summary>
-      <div className="mt-2 min-w-0 border-l border-line/80 pl-3" aria-label="모델 응답과 실제 작업의 시간순 흐름">
+      <div className="min-w-0 px-3 pt-2 pb-1" aria-label="모델 응답과 실제 작업의 시간순 흐름">
         {displayItems.map((item) => {
           if (item.kind === 'response') {
             responseNumber += 1;
@@ -221,7 +235,9 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
           const state = groupState(item.rows);
           const stateLabel = state === 'running'
             ? live ? '실행 중' : '연결 종료 · 완료 상태 미수신'
-            : ({ success: '완료', failed: '실패', cancelled: '사용자/실행 취소' } as const)[state];
+            : state === 'failed'
+              ? groupFailedLabel(item.rows)
+              : ({ success: '완료', cancelled: '사용자/실행 취소' } as const)[state];
           return (
             <details
               key={item.id}

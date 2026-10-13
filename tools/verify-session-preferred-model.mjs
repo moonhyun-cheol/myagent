@@ -28,7 +28,9 @@ try {
   store.setWorkspaceProject('chat-b', workspaceProject.id);
 
   assert.equal(resolveRequestedModelForSession(store, projects, 'chat-a', 'auto'), 'openai/project-default');
-  assert.equal(resolveRequestedModelForSession(store, projects, 'chat-b', 'auto'), 'openai/workspace-default');
+  // Since update 59 an explicit folder binding is only a filesystem binding, not a model/memory
+  // scope (resolveSessionScopeProjectId), so it does not inherit the workspace model.
+  assert.equal(resolveRequestedModelForSession(store, projects, 'chat-b', 'auto'), 'auto');
 
   assert.equal(store.setPreferredModel('chat-a', 'anthropic/claude-fable-5.1')?.preferred_model, 'anthropic/claude-fable-5.1');
   assert.equal(store.setPreferredModel('chat-b', 'openai/gpt-5.6')?.preferred_model, 'openai/gpt-5.6');
@@ -46,10 +48,10 @@ try {
 
   assert.match(client, /setSessionPreferredModel\(/);
   assert.match(dispatch, /\/preferred-model\$\/\)/);
-  assert.match(workspace, /selectedModel: rec\.preferred_model \?\?/);
+  assert.match(workspace, /const selectedModel = rec\.preferred_model \?\? 'auto';/);
   assert.match(workspace, /await setSessionPreferredModel\(sessionId, selectedModel\)/);
   assert.match(workspace, /model: get\(\)\.selectedModel \|\| 'auto'/);
-  assert.match(workspace, /sendAiMessage\(next\.text, next\.model\)/);
+  assert.match(workspace, /sendAiMessage\(next\.text, next\.model[,)]/);
   assert.doesNotMatch(chatPane, /localStorage\.setItem\(MODEL_PREF_KEY/);
 
   // Focused new-chat + global default model contract (absorbed from the retired
@@ -84,9 +86,16 @@ try {
   assert.match(client, /fetch\('\/config\/default-model'/);
   assert.match(dispatch, /saveUserOverrides\(userConfigPath, \{ default_model: defaultModel \}, cqrRoot\)/);
 
-  // New conversations resolve session-specific preference before the global fallback.
-  assert.match(workspace, /fetchDefaultModelOverride\(\)\.catch\(\(\) => 'auto'\)/);
-  assert.match(workspace, /selectedModel: rec\.preferred_model \?\? globalDefaultModel/);
+  // New and reopened conversations share one rule: explicit conversation model, else 'auto'
+  // (server resolves conversation → project/workspace → global default). The UI must not send the
+  // global default explicitly, nor read the dead browser model preference.
+  assert.doesNotMatch(workspace, /fetchDefaultModelOverride/);
+  assert.doesNotMatch(workspace, /my-agent-workspace-model|cqr-workspace-model/);
+  // Switching conversations restores that conversation's model immediately (no stale carry-over).
+  assert.match(workspace, /selectedModel: snapshot\?\.selectedModel \?\? 'auto'/);
+  // A model picked in the empty composer is stored on the conversation the first send/upload creates.
+  assert.match(workspace, /await persistComposerModel\(sid, composerModel\)/);
+  assert.ok((workspace.match(/await persistComposerModel\(sid, composerModel\)/g) ?? []).length >= 2);
 
   console.log('session preferred model + focused new chat + global default model: PASS');
 } finally {

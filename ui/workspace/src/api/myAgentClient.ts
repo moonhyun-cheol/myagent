@@ -443,12 +443,16 @@ export interface PickerModel {
     auto_behavior: 'app_resolved' | 'omit';
     source: 'family' | 'fallback';
   };
+  /** Provider-price tier (output >= threshold USD/1M = premium). For `auto`: the resolved model. */
+  cost_tier?: 'premium' | 'standard' | 'unknown';
 }
 
 export async function fetchModelPicker(refreshRemote = false): Promise<{
   models: PickerModel[];
   default_id?: string;
   remote_errors?: Record<string, string>;
+  premium_model_ids: string[];
+  pricing_warming: boolean;
 }> {
   const res = await fetch(`/models/picker${refreshRemote ? '?refresh=1' : ''}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`모델 목록 실패 (${res.status})`);
@@ -470,12 +474,14 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
         access_mode?: 'auto' | 'managed' | 'byok' | 'local';
         provider_id?: string;
         reasoning_capability?: PickerModel['reasoning_capability'];
+        cost_tier?: PickerModel['cost_tier'];
       }) => ({
         id: String(m.value ?? m.id ?? ''),
         label: String(m.label ?? m.name ?? m.value ?? m.id ?? ''),
         access_mode: m.access_mode,
         provider_id: m.provider_id,
         reasoning_capability: m.reasoning_capability,
+        cost_tier: m.cost_tier,
       }),
     )
     .filter((m: PickerModel) => m.id);
@@ -487,6 +493,8 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
     models,
     default_id: data.default_id ?? data.default ?? hintDefault,
     remote_errors: data.remote_model_errors,
+    premium_model_ids: Array.isArray(data.premium_model_ids) ? data.premium_model_ids.map(String) : [],
+    pricing_warming: data.pricing_warming === true,
   };
 }
 
@@ -1125,6 +1133,8 @@ export interface CompanyModelSettings {
   available: string[];
   featured: string[];
   recent: string[];
+  /** Model ids at/above the high-cost output-price threshold. */
+  premium?: string[];
 }
 
 export async function fetchCompanyModelSettings(refreshRemote = false): Promise<CompanyModelSettings> {

@@ -193,6 +193,42 @@ body {
 }
 .chat-model-option:hover, .chat-model-option:focus-visible { background: var(--color-panel-2); outline: none; }
 .chat-model-option[aria-selected="true"] { background: var(--color-selected); color: var(--color-text); }
+/* High-cost ($) marker: provider output price >= premium threshold. Color lives on the badge only. */
+.premium-cost-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ea580c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  vertical-align: middle;
+}
+.premium-cost-badge--small { min-width: 14px; height: 14px; margin-left: 5px; padding: 0 4px; font-size: 9px; }
+.premium-model-banner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  border: 1px solid #ea580c66;
+  border-radius: 10px;
+  background: #ea580c1a;
+  color: #c2410c;
+  font-size: 13px;
+  font-weight: 700;
+}
+.premium-model-banner .premium-cost-badge { margin-left: 0; margin-right: 6px; }
+:root[data-theme='dark'] .premium-model-banner { color: #fdba74; background: #ea580c26; }
 .chat-policy-controls, .chat-context-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .chat-context-controls { margin-left: auto; }
 .chat-setting-control {

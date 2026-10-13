@@ -36,7 +36,6 @@ import {
   clearStoredSessionId,
   createSession,
   deleteAttachment,
-  fetchDefaultModelOverride,
   fetchModelPicker,
   fetchSession,
   toVideoJobRef,
@@ -64,10 +63,8 @@ import {
 } from '../api/myAgentClient';
 
 const ASSET_MIME = 'application/x-my-agent-asset';
-const MODEL_PREF_KEY = 'my-agent-workspace-model';
 const TERMINAL_OPEN_KEY = 'my-agent-workspace-terminal-open';
 const PREVIEW_LAYOUT_KEY = 'my-agent-workspace-preview-layout';
-const LEGACY_MODEL_PREF_KEY = 'cqr-workspace-model';
 const LEGACY_TERMINAL_OPEN_KEY = 'cqr-workspace-terminal-open';
 const LEGACY_PREVIEW_LAYOUT_KEY = 'cqr-workspace-preview-layout';
 const FALLBACK_MODEL_OPTIONS: PickerModel[] = [{ id: 'auto', label: '기본 (자동)' }];
@@ -458,6 +455,8 @@ interface WorkspaceState {
   activeExecutionPolicy: ExecutionPolicy;
   effectiveExecutionPolicy: EffectiveExecutionPolicy | null;
   modelOptions: PickerModel[];
+  /** Model ids whose provider output price meets the high-cost threshold. */
+  premiumModelIds: string[];
   apiOnline: boolean | null;
   apiError: string | null;
   previewPaneOpen: boolean;
@@ -721,6 +720,10 @@ function appendProgressStep(steps: string[] | undefined, text: string): string[]
   return [...current, nextText].slice(-MAX_VISIBLE_PROGRESS_STEPS);
 }
 
+/** Background price warm-up re-poll state (see refreshModelPicker). */
+let pricingRepollCount = 0;
+let pricingRepollTimer: ReturnType<typeof setTimeout> | null = null;
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   // Composer attachments are drafts, not part of the refreshed server transcript.
   const attachmentDrafts = new Map<string | null, PendingAttachment[]>();
@@ -736,10 +739,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     else attachmentDrafts.delete(sid);
     if (get().activeSessionId === sid) set({ pendingAttachments: items });
   };
+  /**
+   * A model picked in the empty composer belongs to the conversation that the first send/upload
+   * creates. Persist it so reopening that conversation does not fall back to project/default.
+   * 'auto' is not stored: the server resolves conversation → project/workspace → global default.
+   */
+  const persistComposerModel = async (sid: string, model: string) => {
+    const picked = model?.trim();
+    if (!picked || picked === 'auto') return;
+    try {
+      await setSessionPreferredModel(sid, picked);
+      const cached = sessionViewCache.get(sid);
+      if (cached) sessionViewCache.set(sid, { ...cached, selectedModel: picked });
+    } catch {
+      // Best effort: the send request still carries the explicit model.
+    }
+  };
   const ensureAttachmentSession = async () => {
     const active = get().activeSessionId;
     if (active) return active;
     const revision = navigationRevision;
+    const composerModel = get().selectedModel;
     if (attachmentSessionCreation?.revision !== revision) {
       attachmentSessionCreation = { revision, promise: createSession(get().activeProjectId) };
     }
@@ -748,6 +768,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const sid = await creation.promise;
       if (navigationRevision === revision && !get().activeSessionId) {
         set({ activeSessionId: sid, composerSessionPromotionId: sid });
+        await persistComposerModel(sid, composerModel);
       }
       // createSession stores its id; a late upload must not redirect another chat.
       const current = get().activeSessionId;
@@ -1365,6 +1386,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
     effectiveExecutionPolicy: null,
     modelOptions: [{ id: 'auto', label: '기본 (자동)' }],
+    premiumModelIds: [],
     apiOnline: null,
     apiError: null,
     previewPaneOpen: (() => { try { return localStorage.getItem('my-agent.work-panel-open.v1') !== '0'; } catch { return true; } })(),
@@ -1568,7 +1590,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refreshModelPicker: async (refreshRemote = false) => {
       const picker = await fetchModelPicker(refreshRemote);
       const models = picker.models.length ? picker.models : FALLBACK_MODEL_OPTIONS;
-      set({ modelOptions: models });
+      set({ modelOptions: models, premiumModelIds: picker.premium_model_ids });
+      // First boot without a price table: core fetches prices in the background.
+      // Re-poll a few times (cache-only, no remote refresh) so `$` badges appear on their own.
+      if (picker.pricing_warming && pricingRepollCount < 6) {
+        pricingRepollCount += 1;
+        if (pricingRepollTimer) clearTimeout(pricingRepollTimer);
+        pricingRepollTimer = setTimeout(() => {
+          pricingRepollTimer = null;
+          void get().refreshModelPicker(false).catch(() => undefined);
+        }, 5_000);
+      } else if (!picker.pricing_warming) {
+        pricingRepollCount = 0;
+      }
       return models.length;
     },
     setApiStatus: (apiOnline, apiError = null) => set({ apiOnline, apiError }),
@@ -1864,9 +1898,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       cacheActiveSessionView();
       const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
       const id = await createSession(membershipProjectId);
-      const [rec, globalDefaultModel, workspaceRootProjectId] = await Promise.all([
+      const [rec, workspaceRootProjectId] = await Promise.all([
         fetchSession(id),
-        fetchDefaultModelOverride().catch(() => 'auto'),
         resolveWorkspaceRootProjectId(membershipProjectId),
       ]);
       if (revision !== navigationRevision) {
@@ -1882,7 +1915,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         approval: 'ask' as const,
         workspace_behavior: 'agent' as const,
       };
-      const selectedModel = rec.preferred_model ?? globalDefaultModel;
+      // Same rule as reopening: no explicit conversation model → 'auto', which the server resolves
+      // conversation → project/workspace → global default. Sending the global default explicitly
+      // here used to bypass the project model and differ from the reopened state.
+      const selectedModel = rec.preferred_model ?? 'auto';
       set({
         activeSessionId: id,
         composerSessionPromotionId: null,
@@ -1923,6 +1959,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         activeProjectId: null,
         activeWorkspaceProjectId: null,
         chat: [],
+        // The empty composer must not carry the previous conversation's model either.
+        selectedModel: 'auto',
         // First-time / empty composer must not inherit Plan/Ask from the previous chat.
         activeExecutionPolicy: {
           reasoning: 'auto',
@@ -1961,6 +1999,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: snapshot?.activeProjectId ?? null,
           activeWorkspaceProjectId: snapshot?.activeWorkspaceProjectId ?? null,
+          // Restore this conversation's model immediately; leaving the previous one in place let a
+          // send before the refresh use (and then cache) the wrong model.
+          selectedModel: snapshot?.selectedModel ?? 'auto',
           chat: live?.chat ?? snapshot?.chat ?? [],
           activeExecutionPolicy: live?.executionPolicy ?? snapshot?.activeExecutionPolicy ?? { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: live?.effectiveExecutionPolicy ?? snapshot?.effectiveExecutionPolicy ?? null,
@@ -1978,6 +2019,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: null,
           activeWorkspaceProjectId: null,
+          // 'auto' until the refresh lands: the server applies the stored conversation model.
+          selectedModel: 'auto',
           chat: [],
           activeExecutionPolicy: { reasoning: 'auto', autopilot: 'auto', approval: 'ask', workspace_behavior: 'agent' },
           effectiveExecutionPolicy: null,
@@ -2001,7 +2044,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
-        const selectedModel = rec.preferred_model ?? readStoredPreference(MODEL_PREF_KEY, LEGACY_MODEL_PREF_KEY) ?? 'auto';
+        const selectedModel = rec.preferred_model ?? 'auto';
         const rawPolicy = currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto' as const, autopilot: 'auto' as const, approval: 'ask' as const, workspace_behavior: 'agent' as const };
         const refreshed: SessionViewSnapshot = {
           activeProjectId: membershipProjectId,
@@ -3005,9 +3048,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       let sid = get().activeSessionId;
       let createdFreshSession = false;
       if (!sid) {
+        const composerModel = get().selectedModel;
         sid = await createSession(get().activeProjectId);
         createdFreshSession = true;
         set({ activeSessionId: sid });
+        await persistComposerModel(sid, composerModel);
       }
       if (createdFreshSession) {
         // New session uses PC default (agent). Do not leak Plan/Ask from a cleared previous chat.

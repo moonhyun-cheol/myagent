@@ -73,6 +73,8 @@ export interface ToolActivity {
   output: string;
   truncated: boolean;
   exitCode?: number | null;
+  /** failed only: command ran and exited non-zero (code/test miss) vs. the tool call itself failed. */
+  failureKind?: 'command_failed' | 'call_failed';
 }
 
 export type WorkTimelineItem =

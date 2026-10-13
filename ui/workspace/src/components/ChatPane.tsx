@@ -28,6 +28,8 @@ import {
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { isVideoMediaUrl } from '../lib/mediaUrl';
+import { isPremiumModelRef } from '../lib/modelCost';
+import { PremiumCostBadge } from './PremiumCostBadge';
 import { useConversationDisplayPreferences } from '../lib/conversationDisplayPreferences';
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
@@ -299,6 +301,8 @@ export function ChatPane() {
   const selectedModel = useWorkspaceStore((s) => s.selectedModel);
   const setSelectedModel = useWorkspaceStore((s) => s.setSelectedModel);
   const modelOptions = useWorkspaceStore((s) => s.modelOptions);
+  const premiumModelIdList = useWorkspaceStore((s) => s.premiumModelIds);
+  const premiumModelIds = useMemo(() => new Set(premiumModelIdList), [premiumModelIdList]);
   const selectedReasoningCapability = useMemo(
     () => modelOptions.find((option) => option.id === selectedModel)?.reasoning_capability,
     [modelOptions, selectedModel],
@@ -397,6 +401,7 @@ export function ChatPane() {
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const selectedModelLabel = modelOptions.find((model) => model.id === selectedModel)?.label
     ?? (selectedModel || '모델 없음');
+  const selectedModelPremium = isPremiumModelRef(selectedModel, premiumModelIds, modelOptions);
   const closeModelPicker = (restoreFocus = true) => {
     setModelPickerOpen(false);
     if (restoreFocus) modelPickerTriggerRef.current?.focus();
@@ -1360,10 +1365,11 @@ export function ChatPane() {
               setModelPickerOpen((open) => !open);
             }}
             className="chat-model-select"
-            style={{ width: `${Math.min(30, Math.max(14, selectedModelLabel.length + 5))}ch` }}
+            style={{ width: `${Math.min(33, Math.max(14, selectedModelLabel.length + (selectedModelPremium ? 8 : 5)))}ch` }}
             title={`${selectedModelLabel}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
           >
             <span>{selectedModelLabel}</span>
+            {selectedModelPremium ? <PremiumCostBadge /> : null}
             <CaretDown size={14} aria-hidden="true" className="chat-model-caret" />
           </button>
           {modelPickerOpen ? createPortal(
@@ -1410,6 +1416,7 @@ export function ChatPane() {
                       data-value={model.id} className="chat-model-option" title={model.label}
                       onClick={() => chooseModel(model.id)}>
                       {model.label}
+                      {model.cost_tier === 'premium' ? <PremiumCostBadge /> : null}
                     </button>
                   ))}
                 </div>
@@ -1422,6 +1429,7 @@ export function ChatPane() {
                       data-value={model.id} className="chat-model-option" title={model.label}
                       onClick={() => chooseModel(model.id)}>
                       {model.label}
+                      {model.cost_tier === 'premium' ? <PremiumCostBadge /> : null}
                     </button>
                   ))}
                 </div>
@@ -1651,6 +1659,9 @@ export function ChatPane() {
                   ? 'You'
                   : String(modelLabels.get(turn.model ?? '') ?? turn.model ?? 'Assistant')
                       .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
+                {turn.role !== 'user' && isPremiumModelRef(turn.model, premiumModelIds, modelOptions)
+                  ? <PremiumCostBadge small />
+                  : null}
               </span>
               <div
                 data-chat-bubble="true"
@@ -1958,6 +1969,12 @@ export function ChatPane() {
             </div>
           ) : null}          {pasteHint ? (
             <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>
+          ) : null}
+          {selectedModelPremium ? (
+            <div className="premium-model-banner" role="status" data-testid="premium-model-banner">
+              <PremiumCostBadge />
+              <span>고비용 모델 사용 중</span>
+            </div>
           ) : null}
           <div
             ref={composerRef}
