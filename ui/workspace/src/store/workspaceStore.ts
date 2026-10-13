@@ -39,6 +39,7 @@ import {
   fetchDefaultModelOverride,
   fetchModelPicker,
   fetchSession,
+  toVideoJobRef,
   fetchWorkspaceFsTree,
   readWorkspaceFsFile,
   renameWorkspaceFsFile,
@@ -287,6 +288,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       workTimeline: m.role === 'assistant' ? sanitizeWorkTimeline(m.work_timeline) : undefined,
       attachmentNames: m.attachments?.map((a) => a.name),
       imageUrls: [...urls, ...(m.attachments ?? []).filter((a) => a.mime.startsWith('image/')).map((a) => a.url)],
+      videoJob: m.role === 'assistant' ? toVideoJobRef(m.video_job) ?? undefined : undefined,
       startedAt: m.role === 'assistant' ? messages[i - 1]?.at : undefined,
       completedAt: m.role === 'assistant' ? m.at : undefined,
       usage: m.role === 'assistant' && m.usage
@@ -493,6 +495,8 @@ interface WorkspaceState {
   queueReviewSessions: Record<string, boolean>;
   updateQueuedMessage: (id: string, text: string) => void;
   removeQueuedMessage: (id: string) => void;
+  /** Patch one visible chat turn in place (e.g. video result retrieved later). */
+  patchChatTurn: (sessionId: string, turnId: string, partial: Partial<ChatTurn>) => void;
   continueQueuedMessages: (sessionId: string) => void;
   setMode: (mode: WorkspaceMode) => void;
   setBrowserInputUrl: (url: string) => void;
@@ -1119,6 +1123,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             onToolComplete: (event) => {
               if (event.tool === 'run_terminal') job.terminalUsed = true;
             },
+            onVideoJob: (videoJob) => {
+              patchAssistant({ videoJob });
+            },
             onImage: (url) => {
               if (isVideoMediaUrl(url)) {
                 // Generated video: inline player only, not an image asset/canvas node.
@@ -1397,6 +1404,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
       saveMessageQueue(queue);
       set({ messageQueue: queue, queueReviewSessions: reviewSessions });
+    },
+    patchChatTurn: (sessionId, turnId, partial) => {
+      const apply = (chat: ChatTurn[]) => chat.map((t) => (t.id === turnId ? { ...t, ...partial } : t));
+      const live = liveJobs.get(sessionId);
+      if (live) live.chat = apply(live.chat);
+      const cached = sessionViewCache.get(sessionId);
+      if (cached) sessionViewCache.set(sessionId, { ...cached, chat: apply(cached.chat) });
+      if (get().activeSessionId === sessionId) set({ chat: apply(get().chat) });
     },
     continueQueuedMessages: (sessionId) => {
       queueMicrotask(() => dispatchNextQueuedMessage(sessionId, true));

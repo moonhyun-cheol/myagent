@@ -21,6 +21,17 @@ export interface ApplicationNotice {
   step?: number;
 }
 
+export interface VideoJobRecord {
+  job_id: string;
+  provider_id: string;
+  model_id: string;
+  status: 'pending' | 'failed' | 'completed';
+  submitted_at: string;
+  updated_at: string;
+  /** Last failure/poll note (redacted provider text, capped). */
+  error?: string;
+}
+
 export interface SessionMessage {
   role: 'user' | 'assistant';
   run_id?: string;
@@ -48,6 +59,12 @@ export interface SessionMessage {
    * is still written with the same URLs for older readers and carry/import paths.
    */
   media?: import('../media/media-store.js').MediaRecord[];
+  /**
+   * Provider-side async video job behind this reply. Kept so a timed-out,
+   * stopped or failed download can be retrieved later without paying for a
+   * new generation (`pending` = retrievable).
+   */
+  video_job?: VideoJobRecord;
   /** Uploaded files owned by the originating chat; no blob URLs or absolute paths. */
   attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice rendered separately from model-authored content. */

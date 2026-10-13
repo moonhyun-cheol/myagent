@@ -9,6 +9,7 @@ import type {
   SessionMessage,
   SessionRecord,
   SessionSummary,
+  VideoJobRecord,
 } from './types.js';
 import { gcDeletedSessionTemp } from './session-temp-gc.js';
 import { formatCarriedMediaNote, sanitizeLocalMediaUrls } from './session-media-urls.js';
@@ -34,6 +35,8 @@ export class SessionStore {
   private readonly pendingToolActivity = new Map<string, Map<string, import('../agent/tool-activity.js').ToolActivity>>();
   /** Interleaved response/tool arrival order collected for the streamed turn. */
   private readonly pendingWorkTimeline = new Map<string, WorkTimelineItem[]>();
+  /** Accepted provider video job for the in-flight turn; attached even when the run is stopped. */
+  private readonly pendingVideoJob = new Map<string, VideoJobRecord>();
 
   constructor(
     private readonly sessionsDir: string,
@@ -287,6 +290,7 @@ export class SessionStore {
     this.pendingAssistantThought.delete(safe);
     this.pendingToolActivity.delete(safe);
     this.pendingWorkTimeline.delete(safe);
+    this.pendingVideoJob.delete(safe);
   }
 
   /** Redacted display snapshots, attached even when an infra/cancel reply is saved. */
@@ -299,6 +303,53 @@ export class SessionStore {
     this.pendingToolActivity.set(safe, rows);
     this.pendingWorkTimeline.set(safe, pushToolMarker(this.pendingWorkTimeline.get(safe) ?? [], row.id));
     currentChatRun()?.checkpoint?.(true);
+  }
+
+  /**
+   * Remember a provider-accepted video job before the reply exists. Not gated by
+   * run writability on purpose: a stop right after submit must still keep the id
+   * so the paid job can be retrieved instead of regenerated.
+   */
+  notePendingVideoJob(id: string, job: VideoJobRecord): void {
+    const safe = sanitizeId(id);
+    if (!safe) return;
+    this.pendingVideoJob.set(safe, { ...job });
+  }
+
+  /**
+   * Update the message that owns `jobId` after a retrieve attempt (no new generation).
+   * Returns null when the session or job is unknown.
+   */
+  updateVideoJob(
+    id: string,
+    jobId: string,
+    patch: { video_job: VideoJobRecord; content?: string; media?: SessionMessage['media'] },
+  ): SessionRecord | null {
+    assertChatRunWritable(id);
+    const rec = this.load(id);
+    if (!rec) return null;
+    const index = rec.messages.findIndex((m) => m.role === 'assistant' && m.video_job?.job_id === jobId);
+    if (index < 0) return null;
+    const prev = rec.messages[index];
+    const urls = patch.media?.map((m) => m.url) ?? [];
+    rec.messages[index] = {
+      ...prev,
+      video_job: patch.video_job,
+      ...(patch.content ? { content: patch.content } : {}),
+      ...(urls.length
+        ? {
+            media: [...(prev.media ?? []), ...(patch.media ?? [])],
+            image_urls: [...(prev.image_urls ?? []), ...urls],
+            // A recovered result is a real answer again; stopped replies were model-excluded.
+            status: 'completed' as const,
+            model_exclude: undefined,
+          }
+        : {}),
+    };
+    rec.updated_at = new Date().toISOString();
+    this.save(rec);
+    if (rec.project_id) this.onProjectActivity?.(rec.project_id);
+    return rec;
   }
 
   /** Append an SSE `thought` delta without feeding it back into future model context. */
@@ -384,6 +435,8 @@ export class SessionStore {
       if (activities?.size) normalizedMessage.tool_activity = [...activities.values()];
       const timeline = this.pendingWorkTimeline.get(rec.id);
       if (timeline?.length) normalizedMessage.work_timeline = timeline;
+      const videoJob = this.pendingVideoJob.get(rec.id);
+      if (videoJob && !normalizedMessage.video_job) normalizedMessage.video_job = videoJob;
       storedMessage = reasoningContent?.trim()
         ? {
             ...normalizedMessage,
@@ -406,6 +459,7 @@ export class SessionStore {
       this.pendingAssistantThought.delete(rec.id);
       this.pendingToolActivity.delete(rec.id);
       this.pendingWorkTimeline.delete(rec.id);
+      this.pendingVideoJob.delete(rec.id);
     }
     if (run && storedMessage.role === 'user') this.trackAssistantDraft(run, storedMessage);
     if (rec.project_id) this.onProjectActivity?.(rec.project_id);
@@ -440,9 +494,13 @@ export class SessionStore {
     } else {
       const activities = this.pendingToolActivity.get(rec.id);
       const timeline = this.pendingWorkTimeline.get(rec.id);
+      const videoJob = this.pendingVideoJob.get(rec.id);
       rec.messages.push({
         role: 'assistant',
-        content: run.partial.trim() || '(중지됨)',
+        content: run.partial.trim()
+          || (videoJob
+            ? '동영상 생성을 중지했습니다. 공급자 쪽 작업은 계속 진행되어 비용이 청구될 수 있습니다. 「결과 다시 받기」로 새로 생성하지 않고 결과를 받을 수 있습니다.'
+            : '(중지됨)'),
         at: new Date().toISOString(),
         run_id: run.runId,
         reply_to_run_id: run.runId,
@@ -451,6 +509,7 @@ export class SessionStore {
         thought: this.pendingAssistantThought.get(rec.id),
         ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
         ...(timeline?.length ? { work_timeline: timeline } : {}),
+        ...(videoJob ? { video_job: { ...videoJob, status: 'pending' as const, updated_at: new Date().toISOString() } } : {}),
       });
     }
     delete rec.responses_state;
@@ -460,6 +519,7 @@ export class SessionStore {
     this.pendingAssistantThought.delete(rec.id);
     this.pendingToolActivity.delete(rec.id);
     this.pendingWorkTimeline.delete(rec.id);
+    this.pendingVideoJob.delete(rec.id);
   }
 
   delete(id: string): boolean {

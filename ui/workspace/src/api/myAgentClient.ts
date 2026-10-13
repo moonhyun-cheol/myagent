@@ -104,6 +104,8 @@ export interface SessionMessage {
   model?: string;
   mode?: string;
   image_urls?: string[];
+  /** Provider async video job (job id + status) for retrieve-without-regenerate. */
+  video_job?: { job_id: string; status: VideoJobRef['status']; error?: string };
   /** Normalized public reasoning/work log tied to this exact assistant response. */
   reasoning?: {
     version: 1;
@@ -386,6 +388,8 @@ export interface StreamHandlers {
   onToken?: (text: string) => void;
   onContentReplace?: (text: string) => void;
   onImage?: (url: string) => void;
+  /** Provider video job stored with the reply (「결과 다시 받기」 when pending). */
+  onVideoJob?: (job: VideoJobRef) => void;
   onCode?: (label: string, text: string) => void;
   /** Workspace disk mutate paths from code agent (Preview「코드」auto-open). */
   onWorkspaceMutate?: (paths: string[]) => void;
@@ -885,6 +889,45 @@ export async function fetchSession(id: string): Promise<SessionRecord> {
   const res = await fetch(`/sessions/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(`세션 로드 실패 (${res.status})`);
   return (await res.json()) as SessionRecord;
+}
+
+export interface VideoJobRef {
+  jobId: string;
+  status: 'pending' | 'failed' | 'completed';
+  error?: string;
+}
+
+export function toVideoJobRef(raw: unknown): VideoJobRef | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { job_id?: unknown; status?: unknown; error?: unknown };
+  const jobId = typeof r.job_id === 'string' ? r.job_id : '';
+  const status = r.status === 'pending' || r.status === 'failed' || r.status === 'completed' ? r.status : null;
+  if (!jobId || !status) return null;
+  return { jobId, status, ...(typeof r.error === 'string' && r.error ? { error: r.error } : {}) };
+}
+
+export interface RetrieveVideoJobResult {
+  state: 'completed' | 'pending' | 'failed';
+  job: VideoJobRef | null;
+  mediaUrls: string[];
+  content?: string;
+}
+
+/** 「결과 다시 받기」: status check + download of an existing job. Never starts a new generation. */
+export async function retrieveVideoJob(sessionId: string, jobId: string): Promise<RetrieveVideoJobResult> {
+  const res = await fetch(
+    `/sessions/${encodeURIComponent(sessionId)}/video-jobs/${encodeURIComponent(jobId)}/retrieve`,
+    { method: 'POST', cache: 'no-store' },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `결과 다시 받기 실패 (${res.status})`);
+  const media = Array.isArray(data.media) ? (data.media as { url?: unknown }[]) : [];
+  return {
+    state: data.state === 'completed' || data.state === 'failed' ? data.state : 'pending',
+    job: toVideoJobRef(data.video_job),
+    mediaUrls: media.map((m) => (typeof m.url === 'string' ? m.url : '')).filter(Boolean),
+    ...(typeof data.content === 'string' ? { content: data.content } : {}),
+  };
 }
 
 export async function setSessionProject(
@@ -1862,6 +1905,9 @@ export async function streamChat(
       } else if (type === 'image') {
         const img = evt.image as { url?: string } | undefined;
         if (img?.url) handlers.onImage?.(img.url);
+      } else if (type === 'video_job') {
+        const job = toVideoJobRef(evt.job);
+        if (job) handlers.onVideoJob?.(job);
       } else if (type === 'done') {
         terminalEvent = true;
         const raw = Array.isArray(evt.mutatedPaths) ? evt.mutatedPaths : [];

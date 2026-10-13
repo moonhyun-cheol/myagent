@@ -36,6 +36,35 @@ export interface GenerateVideoResult {
   media: MediaRecord;
 }
 
+/**
+ * Failure after the provider accepted the job. `retryable` means the job may
+ * still finish (or already finished) provider-side — retrieve it later instead
+ * of submitting (and paying for) a new generation.
+ */
+export class VideoJobError extends Error {
+  constructor(
+    message: string,
+    readonly jobId: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = 'VideoJobError';
+  }
+}
+
+export interface RetrieveVideoInput {
+  baseUrl: string;
+  apiKey: string;
+  jobId: string;
+  output: GenerateVideoInput['output'];
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+export type RetrieveVideoResult =
+  | ({ state: 'completed' } & GenerateVideoResult)
+  | { state: 'pending'; jobId: string; status: string };
+
 const TERMINAL_FAIL = new Set(['failed', 'cancelled', 'canceled', 'expired']);
 
 function errText(value: unknown): string {
@@ -71,17 +100,89 @@ async function readError(res: Response): Promise<string> {
   return `HTTP ${res.status}${body ? `: ${body.slice(0, 400)}` : ''}`;
 }
 
-export async function generateVideo(input: GenerateVideoInput): Promise<GenerateVideoResult> {
-  const doFetch = input.fetchImpl ?? fetch;
+interface JobContext {
+  doFetch: typeof fetch;
+  base: string;
+  origin: string;
+  auth: Record<string, string>;
+  output: GenerateVideoInput['output'];
+  signal?: AbortSignal;
+}
+
+function jobContext(input: { baseUrl: string; apiKey: string; output: GenerateVideoInput['output']; signal?: AbortSignal; fetchImpl?: typeof fetch }): JobContext {
   const base = input.baseUrl.replace(/\/$/, '');
-  const origin = new URL(base).origin;
-  const auth = { Authorization: `Bearer ${input.apiKey}` };
+  return {
+    doFetch: input.fetchImpl ?? fetch,
+    base,
+    origin: new URL(base).origin,
+    auth: { Authorization: `Bearer ${input.apiKey}` },
+    output: input.output,
+    signal: input.signal,
+  };
+}
+
+function terminalFailure(job: VideoJobStatus, jobId: string): VideoJobError | null {
+  const status = String(job.status ?? '').toLowerCase();
+  if (!TERMINAL_FAIL.has(status)) return null;
+  return new VideoJobError(`VIDEO_JOB_${status.toUpperCase()} ${errText(job.error)}`.trim(), jobId, false);
+}
+
+async function pollJob(ctx: JobContext, job: VideoJobStatus, jobId: string): Promise<VideoJobStatus> {
+  const pollUrl = job.polling_url
+    ? new URL(job.polling_url, ctx.origin).toString()
+    : `${ctx.base}/videos/${encodeURIComponent(jobId)}`;
+  const poll = await ctx.doFetch(pollUrl, { headers: ctx.auth, signal: ctx.signal });
+  if (!poll.ok) throw new Error(`VIDEO_POLL_FAILED ${await readError(poll)}`);
+  return { ...job, ...((await poll.json()) as VideoJobStatus) };
+}
+
+async function downloadJob(ctx: JobContext, job: VideoJobStatus, jobId: string): Promise<GenerateVideoResult> {
+  const unsigned = job.unsigned_urls?.[0];
+  const downloadUrl = unsigned
+    ? new URL(unsigned, ctx.origin).toString()
+    : `${ctx.base}/videos/${encodeURIComponent(jobId)}/content?index=0`;
+  // Never forward the API key to a third-party storage host.
+  const sameOrigin = new URL(downloadUrl).origin === ctx.origin;
+  const dl = await ctx.doFetch(downloadUrl, { headers: sameOrigin ? ctx.auth : undefined, signal: ctx.signal });
+  if (!dl.ok) throw new Error(`VIDEO_DOWNLOAD_FAILED ${await readError(dl)}`);
+  const lengthHeader = dl.headers.get('content-length');
+  let media: MediaRecord;
+  try {
+    // Streamed to disk with size cap + signature check (MP4/WebM only; HTML error pages rejected).
+    media = await saveMediaStream(dl.body, {
+      expectKind: 'video',
+      ...ctx.output,
+      contentLength: lengthHeader ? Number(lengthHeader) : null,
+      signal: ctx.signal,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'MEDIA_ABORTED' || ctx.signal?.aborted) throw new Error('VIDEO_ABORTED');
+    throw new Error(`VIDEO_DOWNLOAD_FAILED ${msg}`);
+  }
+  return { jobId, bytes: media.bytes, media };
+}
+
+/** Wrap post-submit failures so callers keep the job id (retrieve instead of regenerate). */
+function asJobError(e: unknown, jobId: string, signal?: AbortSignal): VideoJobError {
+  if (e instanceof VideoJobError) return e;
+  const msg = e instanceof Error ? e.message : String(e);
+  if (signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
+    return new VideoJobError('VIDEO_ABORTED', jobId, true);
+  }
+  return new VideoJobError(msg, jobId, true);
+}
+
+export async function generateVideo(
+  input: GenerateVideoInput & { onSubmitted?: (jobId: string) => void },
+): Promise<GenerateVideoResult> {
+  const ctx = jobContext(input);
   const pollMs = input.pollIntervalMs ?? 10_000;
   const deadline = Date.now() + (input.timeoutMs ?? 15 * 60_000);
 
-  const submit = await doFetch(`${base}/videos`, {
+  const submit = await ctx.doFetch(`${ctx.base}/videos`, {
     method: 'POST',
-    headers: { ...auth, 'Content-Type': 'application/json' },
+    headers: { ...ctx.auth, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: input.model.id,
       prompt: input.prompt,
@@ -96,46 +197,41 @@ export async function generateVideo(input: GenerateVideoInput): Promise<Generate
   let job = (await submit.json()) as VideoJobStatus;
   const jobId = String(job.id ?? '').trim();
   if (!jobId) throw new Error('VIDEO_SUBMIT_FAILED 응답에 작업 id가 없습니다.');
+  input.onSubmitted?.(jobId);
   input.onStatus?.('동영상 생성 요청 접수 — 완료까지 수 분 걸릴 수 있습니다…');
 
-  while (job.status !== 'completed') {
-    const status = String(job.status ?? '').toLowerCase();
-    if (TERMINAL_FAIL.has(status)) {
-      throw new Error(`VIDEO_JOB_${status.toUpperCase()} ${errText(job.error)}`.trim());
-    }
-    if (Date.now() > deadline) throw new Error('VIDEO_TIMEOUT 생성이 제한 시간 안에 끝나지 않았습니다.');
-    await sleep(pollMs, input.signal);
-    const pollUrl = job.polling_url
-      ? new URL(job.polling_url, origin).toString()
-      : `${base}/videos/${encodeURIComponent(jobId)}`;
-    const poll = await doFetch(pollUrl, { headers: auth, signal: input.signal });
-    if (!poll.ok) throw new Error(`VIDEO_POLL_FAILED ${await readError(poll)}`);
-    job = { ...job, ...((await poll.json()) as VideoJobStatus) };
-    input.onStatus?.(`동영상 생성 중… (${job.status ?? 'pending'})`);
-  }
-
-  const unsigned = job.unsigned_urls?.[0];
-  const downloadUrl = unsigned
-    ? new URL(unsigned, origin).toString()
-    : `${base}/videos/${encodeURIComponent(jobId)}/content?index=0`;
-  // Never forward the API key to a third-party storage host.
-  const sameOrigin = new URL(downloadUrl).origin === origin;
-  const dl = await doFetch(downloadUrl, { headers: sameOrigin ? auth : undefined, signal: input.signal });
-  if (!dl.ok) throw new Error(`VIDEO_DOWNLOAD_FAILED ${await readError(dl)}`);
-  const lengthHeader = dl.headers.get('content-length');
-  let media: MediaRecord;
   try {
-    // Streamed to disk with size cap + signature check (MP4/WebM only; HTML error pages rejected).
-    media = await saveMediaStream(dl.body, {
-      expectKind: 'video',
-      ...input.output,
-      contentLength: lengthHeader ? Number(lengthHeader) : null,
-      signal: input.signal,
-    });
+    while (job.status !== 'completed') {
+      const failed = terminalFailure(job, jobId);
+      if (failed) throw failed;
+      if (Date.now() > deadline) throw new Error('VIDEO_TIMEOUT 생성이 제한 시간 안에 끝나지 않았습니다.');
+      await sleep(pollMs, input.signal);
+      job = await pollJob(ctx, job, jobId);
+      input.onStatus?.(`동영상 생성 중… (${job.status ?? 'pending'})`);
+    }
+    return await downloadJob(ctx, job, jobId);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg === 'MEDIA_ABORTED' || input.signal?.aborted) throw new Error('VIDEO_ABORTED');
-    throw new Error(`VIDEO_DOWNLOAD_FAILED ${msg}`);
+    throw asJobError(e, jobId, input.signal);
   }
-  return { jobId, bytes: media.bytes, media };
+}
+
+/**
+ * One status check for an already-submitted job; downloads when completed.
+ * Never submits a new generation (no extra provider cost).
+ */
+export async function retrieveVideoJob(input: RetrieveVideoInput): Promise<RetrieveVideoResult> {
+  const ctx = jobContext(input);
+  const jobId = input.jobId.trim();
+  if (!jobId) throw new VideoJobError('VIDEO_JOB_ID_MISSING', jobId, false);
+  try {
+    const job = await pollJob(ctx, { id: jobId }, jobId);
+    const failed = terminalFailure(job, jobId);
+    if (failed) throw failed;
+    if (job.status !== 'completed') {
+      return { state: 'pending', jobId, status: String(job.status ?? 'pending') };
+    }
+    return { state: 'completed', ...(await downloadJob(ctx, job, jobId)) };
+  } catch (e: unknown) {
+    throw asJobError(e, jobId, input.signal);
+  }
 }

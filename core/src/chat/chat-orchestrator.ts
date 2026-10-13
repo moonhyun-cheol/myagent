@@ -23,7 +23,7 @@ import type { MediaRecord } from '../media/media-store.js';
 import type { ApplicationNotice } from '../sessions/types.js';
 import { parseProviderPreference, resolveChatModelAsync } from '../models/model-picker.js';
 import { findVideoModel, type VideoModelDef } from '../video/video-models.js';
-import { handleVideoGenMode } from './modes/video-gen.js';
+import { handleVideoGenMode, retrieveStoredVideoJob, type RetrieveVideoOutcome } from './modes/video-gen.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
 import { isAbortError, throwIfAborted } from './abort.js';
 import { chatRunCanPublish } from './chat-runs.js';
@@ -850,6 +850,7 @@ export class ChatOrchestrator {
           model: requestedVideo,
           signal,
           onStatus: (text) => sseEvent(res, { type: 'status', text }),
+          onVideoJob: (job) => sseEvent(res, { type: 'video_job', job: { job_id: job.job_id, status: job.status } }),
         });
         sseEvent(res, { type: 'token', text: full.content });
         for (const img of full.images ?? []) sseEvent(res, { type: 'image', image: img });
@@ -1678,6 +1679,18 @@ export class ChatOrchestrator {
     const p = path.join(this.videoOut, sessionId, filename);
     if (!existsSync(p)) return null;
     return p;
+  }
+
+  /** 「결과 다시 받기」 for a stored provider video job (status check + download only). */
+  retrieveVideoJob(sessionId: string, jobId: string): Promise<RetrieveVideoOutcome> {
+    return retrieveStoredVideoJob({
+      providerStore: this.providerStore,
+      sessionStore: this.sessionStore,
+      cqrRoot: this.cqrRoot,
+      videoOut: this.videoOut,
+      sessionId,
+      jobId,
+    });
   }
 
   /** Requested model (session/explicit) when it is a core-catalog video model. */

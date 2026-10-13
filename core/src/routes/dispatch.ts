@@ -2673,6 +2673,19 @@ export async function dispatchApiRequest(
       }
 
       const sessionTodoMatch = url.pathname.match(/^\/sessions\/([^/]+)\/todos$/);
+      const videoJobMatch = url.pathname.match(/^\/sessions\/([^/]+)\/video-jobs\/([^/]+)\/retrieve$/);
+      if (videoJobMatch && method === 'POST') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const sid = decodeURIComponent(videoJobMatch[1]);
+        const jobId = decodeURIComponent(videoJobMatch[2]);
+        if (!/^[A-Za-z0-9._:-]{1,200}$/.test(jobId)) return sendJson(res, 400, { error: 'INVALID_VIDEO_JOB_ID' });
+        const out = await orchestrator.retrieveVideoJob(sid, jobId);
+        if (!out.ok) return sendJson(res, out.status, { error: out.error });
+        res.setHeader('Cache-Control', 'no-store');
+        return sendJson(res, 200, out);
+      }
+
       if (sessionTodoMatch && method === 'GET') {
         const sid = decodeURIComponent(sessionTodoMatch[1]);
         if (!sessionStore.load(sid)) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });

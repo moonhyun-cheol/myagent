@@ -33,6 +33,7 @@ export function appendAssistantReply(
     mode: ChatMode | string;
     image_urls?: string[];
     media?: import('../media/media-store.js').MediaRecord[];
+    video_job?: import('../sessions/types.js').VideoJobRecord;
     tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
     application_notice?: import('../sessions/types.js').ApplicationNotice;
     emptyFallback?: string;
@@ -52,6 +53,7 @@ export function appendAssistantReply(
     mode: opts.mode,
     ...(opts.image_urls?.length ? { image_urls: opts.image_urls } : {}),
     ...(opts.media?.length ? { media: opts.media } : {}),
+    ...(opts.video_job ? { video_job: opts.video_job } : {}),
     ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity } : {}),
     ...(opts.application_notice ? { application_notice: opts.application_notice } : {}),
   });

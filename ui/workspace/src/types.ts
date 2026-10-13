@@ -113,6 +113,8 @@ export interface ChatTurn {
   assetId?: string;
   /** Generated / restored image URLs shown inline in the chat bubble */
   imageUrls?: string[];
+  /** Provider video job behind this reply; `pending` shows 「결과 다시 받기」. */
+  videoJob?: import('./api/myAgentClient').VideoJobRef;
   /** User-turn attachment labels (display only) */
   attachmentNames?: string[];
   /** Plan mode: show Build → Agent handoff under this assistant bubble. */

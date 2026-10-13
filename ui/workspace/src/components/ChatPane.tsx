@@ -38,6 +38,7 @@ import {
   fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
+  retrieveVideoJob,
   summarizeSession,
   type ApprovalLevel,
   type ReasoningLevel,
@@ -382,6 +383,8 @@ export function ChatPane() {
   const [pasteHint, setPasteHint] = useState<string | null>(null);
   /** Video URLs whose file is missing on this PC (e.g. imported/summarized session from another PC or deleted). */
   const [missingVideoUrls, setMissingVideoUrls] = useState<ReadonlySet<string>>(() => new Set());
+  const [retrievingVideoJobs, setRetrievingVideoJobs] = useState<ReadonlySet<string>>(() => new Set());
+  const patchChatTurn = useWorkspaceStore((s) => s.patchChatTurn);
   const [pasting, setPasting] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -1783,6 +1786,56 @@ export function ChatPane() {
                         />
                       </button>
                     ))}
+                  </div>
+                ) : null}
+                {turn.role === 'assistant' && turn.videoJob?.status === 'pending' && activeSessionId ? (
+                  <div data-video-job className="mb-3 rounded-xl border border-line/70 bg-ink/40 px-3 py-2 text-xs text-muted">
+                    <div>
+                      공급자 쪽 동영상 작업이 남아 있습니다. 다시 생성하면 비용이 또 들 수 있으니, 먼저 결과를 받아 보세요.
+                    </div>
+                    {turn.videoJob.error ? <div className="mt-1 opacity-80">{turn.videoJob.error}</div> : null}
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        disabled={retrievingVideoJobs.has(turn.videoJob.jobId)}
+                        className="rounded-md border border-line/70 px-2 py-1 text-text hover:bg-ink/60 disabled:opacity-50"
+                        onClick={async () => {
+                          const sid = activeSessionId;
+                          const job = turn.videoJob;
+                          if (!sid || !job) return;
+                          setRetrievingVideoJobs((prev) => new Set(prev).add(job.jobId));
+                          try {
+                            const out = await retrieveVideoJob(sid, job.jobId);
+                            if (out.state === 'completed' && out.mediaUrls.length) {
+                              patchChatTurn(sid, turn.id, {
+                                videoJob: out.job ?? { ...job, status: 'completed' },
+                                imageUrls: [...(turn.imageUrls ?? []), ...out.mediaUrls],
+                                ...(out.content ? { text: out.content } : {}),
+                              });
+                              flashPasteHint('동영상 결과를 받았습니다.');
+                            } else if (out.state === 'completed') {
+                              patchChatTurn(sid, turn.id, { videoJob: out.job ?? { ...job, status: 'completed' } });
+                            } else if (out.state === 'failed') {
+                              patchChatTurn(sid, turn.id, { videoJob: out.job ?? { ...job, status: 'failed' } });
+                              flashPasteHint(`공급자 작업이 실패했습니다${out.job?.error ? `: ${out.job.error}` : ''}`);
+                            } else {
+                              if (out.job) patchChatTurn(sid, turn.id, { videoJob: out.job });
+                              flashPasteHint('아직 생성 중입니다. 잠시 뒤 다시 눌러 주세요.');
+                            }
+                          } catch (err) {
+                            flashPasteHint(`결과 다시 받기 실패: ${err instanceof Error ? err.message : String(err)}`);
+                          } finally {
+                            setRetrievingVideoJobs((prev) => {
+                              const next = new Set(prev);
+                              next.delete(job.jobId);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        {retrievingVideoJobs.has(turn.videoJob.jobId) ? '확인 중…' : '결과 다시 받기'}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
                 {!turn.text || turn.text === '작업 중…'
