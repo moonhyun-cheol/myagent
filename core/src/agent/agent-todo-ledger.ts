@@ -124,12 +124,22 @@ export function evidenceProjectionForm(
   return ledger?.retainEvidence.find((hint) => hint.evidenceId === record.evidenceId)?.form ?? 'reference';
 }
 
-export function formatTodoLifecycleSystemNote(ledger?: TodoLedger | null): string {
-  const guidance = [
+/**
+ * Static guidance only. The ledger itself changes on every todo_update, so it must
+ * never live in the cacheable system prefix (one ledger edit used to invalidate the
+ * whole provider prompt cache mid-run). See formatTodoLedgerTurnNote.
+ */
+export function formatTodoLifecycleSystemNote(_ledger?: TodoLedger | null): string {
+  return [
     '## TODO · Evidence lifecycle',
     'For multi-step work, update todo_update after first large evidence, before changing exploration to mutation, on TODO/conflict changes, and before interruption/resume.',
     'Declare only retainEvidence (exact/digest/reference). You cannot delete evidence; unspecified observed evidence remains retrievable by evidence_read reference.',
-  ];
-  if (!ledger) return guidance.join('\n');
-  return [...guidance, JSON.stringify(ledger)].join('\n');
+    'The current ledger is given in the turn context at run start; each todo_update result returns the updated ledger.',
+  ].join('\n');
+}
+
+/** Ledger snapshot for the per-turn context message (dynamic, outside the system prefix). */
+export function formatTodoLedgerTurnNote(ledger?: TodoLedger | null): string {
+  if (!ledger) return '';
+  return ['### TODO ledger (turn start)', JSON.stringify(ledger)].join('\n');
 }

@@ -33,6 +33,53 @@ export interface AgentContextAssemblyResult {
 
 const TODO_NOTE_PREFIX = '## TODO · Evidence lifecycle';
 const CONTEXT_VIEW_PREFIX = '## Runtime context view';
+/**
+ * Per-turn dynamic context (query-dependent workspace snapshot, active task, TODO
+ * ledger, topic manifest, continuity). Lives as one user-role message right before
+ * the current request so the system prefix stays byte-identical across turns/steps
+ * and provider prompt caches keep hitting.
+ */
+export const TURN_CONTEXT_PREFIX = '## Turn context';
+
+export function isTurnContextMessage(message: ChatMessage): boolean {
+  return message.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(TURN_CONTEXT_PREFIX);
+}
+
+export function formatTurnContextMessage(sections: string[]): ChatMessage | null {
+  const body = sections.map((section) => section.trim()).filter(Boolean);
+  if (!body.length) return null;
+  return {
+    role: 'user',
+    content: [
+      `${TURN_CONTEXT_PREFIX} (runtime-provided for this request; not written by the user)`,
+      ...body,
+    ].join('\n\n'),
+  };
+}
+
+/** Append a section to the turn context message; create it before the last user message if absent. */
+export function appendTurnContext(messages: ChatMessage[], section: string): void {
+  const text = section.trim();
+  if (!text) return;
+  const existing = messages.findIndex(isTurnContextMessage);
+  if (existing >= 0) {
+    const current = messages[existing];
+    messages[existing] = { ...current, content: `${String(current.content)}\n\n${text}` };
+    return;
+  }
+  const created = formatTurnContextMessage([text]);
+  if (!created) return;
+  let at = messages.length;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') {
+      at = i;
+      break;
+    }
+  }
+  messages.splice(at, 0, created);
+}
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 function payloadChars(messages: ChatMessage[]): number {
@@ -46,13 +93,13 @@ function payloadChars(messages: ChatMessage[]): number {
   return total;
 }
 
-function refreshTodoSystemNote(messages: ChatMessage[], ledger?: TodoLedger | null): ChatMessage[] {
-  const next = messages.filter((message) => !(
-    message.role === 'system'
-    && chatContentToText(message.content).startsWith(TODO_NOTE_PREFIX)
-  ));
-  const insertAt = Math.min(1, next.length);
-  next.splice(insertAt, 0, { role: 'system', content: formatTodoLifecycleSystemNote(ledger) });
+/** Ensure the static TODO guidance exists. Idempotent so the system prefix never moves. */
+function refreshTodoSystemNote(messages: ChatMessage[]): ChatMessage[] {
+  const isTodoNote = (message: ChatMessage) => message.role === 'system'
+    && chatContentToText(message.content).startsWith(TODO_NOTE_PREFIX);
+  if (messages.some(isTodoNote)) return messages;
+  const next = [...messages];
+  next.splice(Math.min(1, next.length), 0, { role: 'system', content: formatTodoLifecycleSystemNote() });
   return next;
 }
 
@@ -121,7 +168,8 @@ function recentPlainMessages(messages: ChatMessage[], limit: number): ChatMessag
       // meaning from TODO/workingNotes/Evidence instead of copying the blob.
       return Boolean(text)
         && text.length <= 20_000
-        && !text.startsWith(CONTEXT_VIEW_PREFIX);
+        && !text.startsWith(CONTEXT_VIEW_PREFIX)
+        && !text.startsWith(TURN_CONTEXT_PREFIX);
     })
     .slice(-Math.max(2, limit * 2))
     .map((message) => ({ role: message.role as 'assistant' | 'user', content: message.content }));
@@ -134,7 +182,7 @@ function recentPlainMessages(messages: ChatMessage[], limit: number): ChatMessag
 export function prepareAgentContextForRequest(
   input: AgentContextAssemblyInput,
 ): AgentContextAssemblyResult {
-  const refreshed = refreshTodoSystemNote(input.messages, input.todoLedger);
+  const refreshed = refreshTodoSystemNote(input.messages);
   const budgets = resolveContextBudgets(input.modelId);
   const budgetChars = Math.max(4_096, budgets.effectiveContextLength * CHARS_PER_TOKEN_ESTIMATE);
   const usedChars = payloadChars(refreshed);
@@ -155,6 +203,7 @@ export function prepareAgentContextForRequest(
     ? 'full_rebuild'
     : 'selective_rebuild';
   const systemMessages = refreshed.filter((message) => message.role === 'system');
+  const turnContext = refreshed.find(isTurnContextMessage);
   const recent = recentPlainMessages(refreshed, input.recentRoundTrips ?? 3);
   const records = input.evidenceStore.list();
   const newestRequiredIds = new Set(
@@ -162,7 +211,9 @@ export function prepareAgentContextForRequest(
   );
   const evidenceBlocks: string[] = [];
   const projectedEvidenceIds: string[] = [];
-  let projectedChars = payloadChars(systemMessages) + input.userMessage.length;
+  let projectedChars = payloadChars(systemMessages)
+    + (turnContext ? payloadChars([turnContext]) : 0)
+    + input.userMessage.length;
   const projectionCeiling = Math.floor(budgetChars * (input.phase === 'retry' ? 0.55 : 0.70));
 
   for (const record of records) {
@@ -207,6 +258,7 @@ export function prepareAgentContextForRequest(
   ].join('\n\n');
   const messages: ChatMessage[] = [
     ...systemMessages,
+    ...(turnContext ? [turnContext] : []),
     { role: 'user', content: input.userMessage },
     ...recent.filter((message) => chatContentToText(message.content).trim() !== input.userMessage.trim()),
     { role: 'user', content: contextView },

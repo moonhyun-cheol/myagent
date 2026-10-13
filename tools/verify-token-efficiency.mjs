@@ -112,7 +112,7 @@ assert.match(TOKEN_EFFICIENCY_PRINCIPLES.join('\n'), /Do not force a mutation/);
 const source = readFileSync(new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url), 'utf8');
 assert.match(source, /const efficiencyAdvisor = new TokenEfficiencyAdvisor\(\)/);
 assert.match(source, /recordToolEvidence\(state, execCall, rawEvidenceOutput\);\s*efficiencyAdvisor.observe\(evidenceRecord, rawEvidenceOutput\)/);
-assert.match(source, /const efficiencyNote = efficiencyAdvisor.consumeNote\(\);\s*if \(efficiencyNote\) state.messages.push\(\{ role: 'system', content: efficiencyNote \}\)/);
+assert.match(source, /const efficiencyNote = efficiencyAdvisor.consumeNote\(\);\s*if \(efficiencyNote\) state.messages.push\(\{ role: 'user', content: `\[Runtime advisory\]\\n\$\{efficiencyNote\}` \}\)/);
 const helpers = readFileSync(new URL('../core/src/agent/agent-run-helpers.ts', import.meta.url), 'utf8');
 assert.match(helpers, /\.\.\.TOKEN_EFFICIENCY_PRINCIPLES/);
 const registry = readFileSync(new URL('../core/src/agent/agent-tool-registry.ts', import.meta.url), 'utf8');

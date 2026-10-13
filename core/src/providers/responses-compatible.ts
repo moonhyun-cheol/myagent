@@ -33,6 +33,32 @@ export function resolveResponsesReasoningSummaryPolicy(
   return 'omit';
 }
 
+/**
+ * Explicit prompt-cache hint for routed models whose upstream caches only on request.
+ * OpenAI/DeepSeek/Grok/Gemini 2.5+ cache automatically (implicit), so they get no field.
+ * Claude needs opt-in; OpenRouter's Responses API documents top-level `cache_control`
+ * as Anthropic automatic caching. Scoped to OpenRouter because other Responses
+ * gateways may reject the unknown field. Opt out with MY_AGENT_RESPONSES_CACHE_HINT=0.
+ */
+export function resolveResponsesPromptCacheHint(
+  modelId: string,
+  baseUrl?: string,
+): Record<string, unknown> | undefined {
+  if (/^(0|off|false|no)$/i.test(process.env.MY_AGENT_RESPONSES_CACHE_HINT ?? '')) return undefined;
+  let host = '';
+  try {
+    host = baseUrl ? new URL(baseUrl).hostname.toLowerCase() : '';
+  } catch {
+    host = '';
+  }
+  if (host !== 'openrouter.ai' && !host.endsWith('.openrouter.ai')) return undefined;
+  const model = modelId.trim().toLowerCase();
+  const vendor = model.includes('/') ? model.slice(0, model.indexOf('/')) : '';
+  const name = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
+  if (vendor === 'anthropic' || /^claude([-_.:]|$)/.test(name)) return { cache_control: { type: 'ephemeral' } };
+  return undefined;
+}
+
 class ResponsesHttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -248,6 +274,9 @@ function buildBody(
       body.parallel_tool_calls = opts.parallelToolCalls;
     }
   }
+  // Before extraBody so an explicit provider override still wins.
+  const cacheHint = resolveResponsesPromptCacheHint(model, boundary.baseUrl);
+  if (cacheHint) Object.assign(body, cacheHint);
   if (opts?.extraBody) Object.assign(body, opts.extraBody);
   delete body.messages;
   delete body.reasoning_effort;

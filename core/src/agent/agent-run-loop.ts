@@ -100,7 +100,8 @@ import { attachAgentUsage } from './agent-usage-carry.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
-import { formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
+import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
+import { appendTurnContext } from './agent-context-assembler.js';
 import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
 import { isAgentExecutionLimit } from './agent-failure-plane.js';
 import {
@@ -587,42 +588,31 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     sysInsertAt += 1;
     pushThought('Autopilot ON — 다음 조치로 끊지 않고 이 실행에서 닫기');
   }
+  // Turn-varying notes go to the turn context message (user role, just before the
+  // request); only static policy stays in the system prefix so prompt caches hit.
   if (activeTask) {
-    messages.splice(sysInsertAt, 0, {
-      role: 'system',
-      content: formatActiveTaskSystemNote(activeTask),
-    });
-    sysInsertAt += 1;
+    appendTurnContext(messages, formatActiveTaskSystemNote(activeTask));
     pushThought(`Active task · ${activeTask.status} · ${activeTask.objective.slice(0, 72)}`);
     reportStatus(`Active task · ${activeTask.objective.slice(0, 60)}`);
   }
   messages.splice(sysInsertAt, 0, {
     role: 'system',
-    content: formatTodoLifecycleSystemNote(sessionMetaForGate.todoLedger),
+    content: formatTodoLifecycleSystemNote(),
   });
   sysInsertAt += 1;
+  appendTurnContext(messages, formatTodoLedgerTurnNote(sessionMetaForGate.todoLedger));
   const taskTopicManifest = buildTaskLedgerTopicManifest(opts.cqrRoot, {
     sessionId: opts.sessionId,
     workspaceRoot: opts.workspaceRoot,
   });
-  if (taskTopicManifest) {
-    messages.splice(sysInsertAt, 0, {
-      role: 'system',
-      content: taskTopicManifest,
-    });
-    sysInsertAt += 1;
-  }
+  if (taskTopicManifest) appendTurnContext(messages, taskTopicManifest);
   if (sessionContinuity) {
-    messages.splice(sysInsertAt, 0, {
-      role: 'system',
-      content: formatSessionContinuitySystemNote({
-        readPaths: sessionReadPaths,
-        mutatedPaths: sessionMetaForGate.mutatedPaths,
-        continuationSnapshot,
-        progressCheckpoint: continuationCheckpoint,
-      }),
-    });
-    sysInsertAt += 1;
+    appendTurnContext(messages, formatSessionContinuitySystemNote({
+      readPaths: sessionReadPaths,
+      mutatedPaths: sessionMetaForGate.mutatedPaths,
+      continuationSnapshot,
+      progressCheckpoint: continuationCheckpoint,
+    }));
     pushThought('Session continuity — readGate 시드 · 재진단 스킵');
     reportStatus('Session continuity · 이전 읽기/수정 경로 재사용');
   }

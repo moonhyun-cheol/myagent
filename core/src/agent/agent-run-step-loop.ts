@@ -1146,8 +1146,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
 
     // Advisory only, after every tool pair in this batch is complete. Never alter
     // the tool schema, block a successful read, or replace its exact evidence.
+    // Tail user-role item: a system-role note would be merged into the cached prefix
+    // (Responses instructions / Anthropic system) and invalidate the whole cache.
     const efficiencyNote = efficiencyAdvisor.consumeNote();
-    if (efficiencyNote) state.messages.push({ role: 'system', content: efficiencyNote });
+    if (efficiencyNote) state.messages.push({ role: 'user', content: `[Runtime advisory]\n${efficiencyNote}` });
 
     if (loopHardStop) {
       return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });

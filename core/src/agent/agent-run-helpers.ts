@@ -34,6 +34,7 @@ import type { CodeAgentOptions } from './agent-run-types.js';
 import type { EvidenceRecord } from './agent-evidence-types.js';
 import { formatEvidenceEnvelope } from './agent-evidence-store.js';
 import { TOKEN_EFFICIENCY_PRINCIPLES } from './agent-token-efficiency.js';
+import { formatTurnContextMessage } from './agent-context-assembler.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
@@ -206,8 +207,9 @@ export function buildAgentMessages(
         useClientToolProtocol
           ? 'Protocol: TOOL_CALL JSON first line (see TOOL_CALL protocol note). No XML/<invoke>.'
           : '',
-        'Workspace files (discovery context only; read concrete files before file-content claims):',
-        workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),
+        // The query-dependent workspace snapshot is in the turn context message, keeping
+        // this system prefix byte-identical across turns for provider prompt caching.
+        'Per-request workspace files, retrieval hits, active task and TODO ledger arrive in the "## Turn context" message before the latest user request.',
       ]
         .filter(Boolean)
         .join('\n'),
@@ -234,6 +236,13 @@ export function buildAgentMessages(
       messages.push({ role: m.role, content: m.content });
     }
   }
+  const turnContext = formatTurnContextMessage([
+    [
+      '### Workspace files (discovery context only; read concrete files before file-content claims)',
+      workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),
+    ].join('\n'),
+  ]);
+  if (turnContext) messages.push(turnContext);
   messages.push({
     role: 'user',
     content: buildCodeAgentUserContent(
