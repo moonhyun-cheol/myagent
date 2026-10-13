@@ -1330,6 +1330,7 @@ export async function dispatchApiRequest(
         const payload = await buildModelPicker(modelRegistry, getOverrides(), providerStore, {
           refreshRemote: url.searchParams.get('refresh') === '1',
           videoModels: availableVideoModels(cqrRoot),
+          cqrRoot,
         });
         return sendJson(res, 200, payload);
       }

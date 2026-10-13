@@ -17,6 +17,7 @@ import {
   type PromptContextMetadata,
 } from './prompt-context-cache.js';
 import { collectFromChatMessage, hasGeneratedMedia } from '../media/generated-media-extract.js';
+import { parseModelPricing, type ModelPricing } from '../models/model-pricing.js';
 
 export type ChatContentPart =
   | { type: 'text'; text: string }
@@ -766,6 +767,8 @@ export interface RemoteModelInfo {
   context_length?: number;
   /** Provider catalog publication time (Unix seconds when supplied by OpenRouter). */
   created_at?: number;
+  /** Provider-reported price, USD per 1M tokens (OpenRouter `pricing`). */
+  pricing?: ModelPricing;
 }
 
 function extractContextLength(row: Record<string, unknown>): number | undefined {
@@ -827,10 +830,12 @@ export function parseRemoteModels(data: unknown): RemoteModelInfo[] {
       : typeof createdRaw === 'string' && createdRaw.trim() && Number.isFinite(Number(createdRaw))
         ? Number(createdRaw)
         : undefined;
+    const pricing = parseModelPricing(m);
     out.push({
       id,
       ...(context_length ? { context_length } : {}),
       ...(created_at != null ? { created_at } : {}),
+      ...(pricing ? { pricing } : {}),
     });
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));

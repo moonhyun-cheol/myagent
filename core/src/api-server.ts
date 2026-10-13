@@ -30,6 +30,7 @@ import {
 } from './scheduler/runtime-registry.js';
 import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
 import { writeInstallRootPointer } from './setup/install-root-pointer.js';
+import { warmModelPricingIfMissing } from './models/model-picker.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -232,6 +233,15 @@ export async function createApiServer(port: number) {
     startVisibleBrowserBridge(port);
     registerPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
     personalSchedulerRuntime.start();
+    // Premium-tier badges need provider prices. Fetch once in the background only when no
+    // price table exists yet; delayed so it never competes with the first window paint.
+    setTimeout(() => {
+      try {
+        warmModelPricingIfMissing(providerStore);
+      } catch {
+        /* best-effort */
+      }
+    }, 3_000).unref?.();
   });
   server.once('close', () => {
     getVisibleBrowserBridge()?.stop();

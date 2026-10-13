@@ -25,6 +25,14 @@ import {
   resolveInstalledOllamaModel,
 } from '../providers/ollama-models.js';
 import type { VideoModelDef } from '../video/video-models.js';
+import {
+  hasModelPricing,
+  listPremiumModelIds,
+  modelCostTier,
+  recordProviderPricing,
+  resolvePremiumOutputThreshold,
+  type ModelCostTier,
+} from './model-pricing.js';
 
 export interface ModelPickerOption {
   value: string;
@@ -36,6 +44,8 @@ export interface ModelPickerOption {
   configured?: boolean;
   category?: string;
   reasoning_capability?: ModelReasoningCapability;
+  /** Price-based tier of the model this option sends (for `auto`: the model auto resolves to). */
+  cost_tier?: ModelCostTier;
 }
 
 export interface ModelPickerPayload {
@@ -47,6 +57,12 @@ export interface ModelPickerPayload {
   mode_hints?: Partial<Record<ChatMode, ModeHint>>;
   remote_models_total?: Record<string, number>;
   remote_models_shown?: Record<string, number>;
+  /** Output-price threshold (USD / 1M tokens) used for `cost_tier: premium`. */
+  premium_output_usd_per_million?: number;
+  /** Every model id with known pricing at/above the threshold (any provider, incl. search-only models). */
+  premium_model_ids?: string[];
+  /** No price table yet and a one-time background `/models` fetch is running — UI may re-poll. */
+  pricing_warming?: boolean;
   company_models?: {
     source: 'default' | 'personalized';
     selected: string[];
@@ -56,6 +72,8 @@ export interface ModelPickerPayload {
     featured: string[];
     /** Newest remotely published models when the provider exposes publication time. */
     recent: string[];
+    /** Model ids at/above the high-cost threshold (same rule as `premium_model_ids`). */
+    premium?: string[];
   };
 }
 
@@ -162,6 +180,7 @@ async function fetchRemoteModelsForProvider(
   if (!baseUrl || !secret.api_key) return { models: [], curated: [], recent: [] };
   try {
     const remoteModels = await listRemoteModelsDetailed(baseUrl, secret.api_key);
+    recordProviderPricing(providerId, remoteModels);
     const models = remoteModels.map((model) => model.id);
     const recent = selectRecentRemoteModelIds(remoteModels);
     const curated = curateRemoteModels(models);
@@ -192,9 +211,11 @@ export async function buildModelPicker(
     refreshRemote?: boolean;
     /** Core video catalog already filtered by organization access (empty = hidden). */
     videoModels?: VideoModelDef[];
+    cqrRoot?: string;
   },
 ): Promise<ModelPickerPayload> {
   const doc = registry.load();
+  const premiumThreshold = resolvePremiumOutputThreshold(opts?.cqrRoot);
   const localOnly = overrides.local_only === true;
   const catalog = providerStore.listDefinitions();
   const configured = new Set(providerStore.getConfiguredIds());
@@ -276,6 +297,7 @@ export async function buildModelPicker(
             configured: true,
             category: m.category,
             reasoning_capability: modelReasoningCapability(m.id),
+            cost_tier: modelCostTier(def.id, m.id, premiumThreshold),
           });
         }
 
@@ -359,9 +381,30 @@ export async function buildModelPicker(
     }
   }
 
+  // `auto` carries the tier of the model it actually resolves to, so a premium
+  // default never hides behind the "기본 (자동)" label.
+  try {
+    const autoRoute = resolveChatModel('auto', registry, overrides, providerStore);
+    if (autoRoute.route.type === 'provider') {
+      options[0].cost_tier = modelCostTier(
+        autoRoute.route.providerId,
+        autoRoute.route.modelId,
+        premiumThreshold,
+      );
+    }
+  } catch {
+    /* auto stays untiered */
+  }
+  const premiumModelIds = listPremiumModelIds(premiumThreshold);
+  if (companyModels) companyModels.premium = premiumModelIds;
+  const pricingWarming = !localOnly && !opts?.refreshRemote && warmModelPricingIfMissing(providerStore);
+
   return {
     local_only: localOnly,
     default_provider_id: defaultProvider,
+    premium_output_usd_per_million: premiumThreshold,
+    premium_model_ids: premiumModelIds,
+    ...(pricingWarming ? { pricing_warming: true } : {}),
     default_llm_id: doc.default_llm_id,
     options,
     remote_model_errors:
@@ -420,6 +463,30 @@ function resolveAutoProviderModel(
       baseUrl: resolved.baseUrl,
     },
   };
+}
+
+let pricingWarm: Promise<void> | null = null;
+
+export function isModelPricingWarming(): boolean {
+  return pricingWarm !== null;
+}
+
+/**
+ * One-time background price fetch when no price table exists yet (first boot after the
+ * premium-tier feature, fresh install). Never blocks callers; once `data/model-pricing.json`
+ * exists, prices refresh only on explicit picker refresh as before.
+ */
+export function warmModelPricingIfMissing(providerStore: ProviderStore): boolean {
+  if (pricingWarm) return true;
+  if (hasModelPricing()) return false;
+  const hasCustom = providerStore.getConfiguredIds().some((id) => providerStore.getDefinition(id)?.custom === true);
+  if (!hasCustom) return false;
+  pricingWarm = warmRemoteModelCache(providerStore)
+    .catch(() => undefined)
+    .finally(() => {
+      pricingWarm = null;
+    });
+  return true;
 }
 
 export async function warmRemoteModelCache(

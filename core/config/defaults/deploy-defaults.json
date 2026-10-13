@@ -11,6 +11,8 @@
   "openclaw_actor_id": "my-agent",
   "openclaw_fallback_local": false,
   "web_search_auto": false,
+  "premium_output_usd_per_million": 50,
+  "premium_output_note": "Models whose provider-reported output price is >= this (USD per 1M output tokens) show the $ high-cost marker. Price-based only; unknown pricing is never marked.",
   "organization_module_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/beta.json",
   "work_kit_catalog_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/work-kits.json",
   "organization_release_mirrors": [
