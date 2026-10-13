@@ -101,6 +101,10 @@ import {
   TOOL_PLANE_NO_WORKSPACE_REFUSAL,
   classifyLlmFailure,
   formatToolPlaneFailureAssistant,
+  failureModelLabel,
+  failureModelFromError,
+  tagFailureModel,
+  withFailureModelLine,
   isInfraLlmFailure,
   isNoWorkspaceBoundError,
   shouldAutoResumeAfterInfra,
@@ -392,6 +396,22 @@ export class ChatOrchestrator {
   }
 
   async handle(req: ChatRequest, sessionId: string): Promise<ChatResponse> {
+    // Model resolution happens inside; errors carry the running model for failure copy.
+    let runningModel: string | undefined;
+    try {
+      return await this.handleResolved(req, sessionId, (m) => {
+        runningModel = m;
+      });
+    } catch (e: unknown) {
+      throw tagFailureModel(e, runningModel);
+    }
+  }
+
+  private async handleResolved(
+    req: ChatRequest,
+    sessionId: string,
+    noteModel: (model: string | undefined) => void,
+  ): Promise<ChatResponse> {
     const inlet = applyChatInletFilter((req.message ?? '').trim(), {
       sessionId,
       mode: req.mode,
@@ -446,11 +466,14 @@ export class ChatOrchestrator {
         hasAttachments,
       },
     );
+    noteModel(resolved.display);
     const now = new Date().toISOString();
     this.sessionStore.append(sessionId, { role: 'user', content: message, at: now, mode: routing.mode,
       attachments: this.attachments.messageAttachments(req.attachments ?? [], sessionId) });
 
     if (routing.mode === 'automaton_direct') {
+      // Automaton tools do not run the chat model.
+      noteModel(undefined);
       if (routing.feature_required) {
         const content = appendAssistantReply(this.sessionStore, sessionId, {
           content: routing.feature_required.message,
@@ -499,6 +522,7 @@ export class ChatOrchestrator {
     }
 
     if (routing.mode === 'org:market_research') {
+      noteModel(undefined);
       const pipelineReply = await handleMarketResearchMode({
         cqrRoot: this.cqrRoot,
         sessionStore: this.sessionStore,
@@ -508,6 +532,7 @@ export class ChatOrchestrator {
       });
       if (pipelineReply) return pipelineReply;
       // Fall through to org skill LLM chat with CQR_MARKET_INJECT.
+      noteModel(resolved.display);
     }
 
     if (routing.mode === 'deep_research') {
@@ -537,6 +562,11 @@ export class ChatOrchestrator {
         resolved,
         attachmentIds: req.attachments ?? [],
       });
+    }
+
+    if (routing.mode === 'browser_automation' || routing.mode === 'browser_agent' || routing.mode === 'web_crawl') {
+      // These pipelines do not run the selected chat model.
+      noteModel(undefined);
     }
 
     if (routing.mode === 'browser_automation') {
@@ -821,6 +851,7 @@ export class ChatOrchestrator {
 
     const requestedVideo = this.requestedVideoModel(req, sessionId);
     if (requestedVideo) {
+      const videoFailModel = failureModelLabel(requestedVideo.id);
       try {
         const resolved = await resolveChatModelAsync(
           resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
@@ -859,7 +890,8 @@ export class ChatOrchestrator {
         if (isAbortError(e) || (e instanceof Error && e.message === 'VIDEO_ABORTED')) {
           sseEvent(res, { type: 'done', model: '중지됨', mode: routing.mode });
         } else {
-          sseEvent(res, { type: 'error', message: formatChatErrorMessage(e) });
+          sseEvent(res, { type: 'error', message: withFailureModelLine(formatChatErrorMessage(e), videoFailModel) });
+          if (videoFailModel) sseEvent(res, { type: 'done', model: requestedVideo.id, mode: routing.mode });
         }
       } finally {
         sseDone(res);
@@ -908,6 +940,8 @@ export class ChatOrchestrator {
     if (workspaceAgentAvailable) {
       const agentRouting = preserveWorkspaceAgentRouting(routing);
       let userAppended = false;
+      // Model actually running this turn — kept so failure/stop replies say which model failed.
+      let runModel: string | undefined;
       try {
         const resolved = await resolveChatModelAsync(
           resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
@@ -932,6 +966,7 @@ export class ChatOrchestrator {
           userAppended = true;
         }
         sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
+        runModel = failureModelLabel(resolved.display) || undefined;
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
 
         const runAgentOnce = async (attempt = 1) =>
@@ -1088,6 +1123,7 @@ export class ChatOrchestrator {
             this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
               formattedError: '(중지됨)',
               kind: 'stopped',
+              model: runModel,
             });
             if (stoppedUsage) this.sessionStore.setLastAssistantUsage(sessionId, stoppedUsage);
           }
@@ -1125,17 +1161,19 @@ export class ChatOrchestrator {
             ? this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
                 formattedError: msg,
                 kind: classifyLlmFailure(err),
+                model: runModel,
               })
             : formatToolPlaneFailureAssistant({
                 formattedError: msg,
                 kind: classifyLlmFailure(err),
+                model: runModel,
               });
           const failedUsage = toMessageUsage(carriedUsage);
           if (userAppended && failedUsage) this.sessionStore.setLastAssistantUsage(sessionId, failedUsage);
           sseEvent(res, { type: 'content_replace', text: content });
           sseEvent(res, {
             type: 'done',
-            model: 'policy/tool-plane-failure',
+            model: runModel ?? 'policy/tool-plane-failure',
             mode: agentRouting.mode,
             ...(failedUsage ? { usage: failedUsage } : {}),
           });
@@ -1187,6 +1225,7 @@ export class ChatOrchestrator {
             this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
               formattedError: '(중지됨)',
               kind: 'stopped',
+              model: runModel,
             });
             if (thrownUsage) this.sessionStore.setLastAssistantUsage(sessionId, thrownUsage);
           }
@@ -1221,16 +1260,18 @@ export class ChatOrchestrator {
           ? this.persistToolPlaneFailure(sessionId, agentRouting.mode, {
               formattedError: msg,
               kind: classifyLlmFailure(e),
+              model: runModel,
             })
           : formatToolPlaneFailureAssistant({
               formattedError: msg,
               kind: classifyLlmFailure(e),
+              model: runModel,
             });
         if (userAppended && thrownUsage) this.sessionStore.setLastAssistantUsage(sessionId, thrownUsage);
         sseEvent(res, { type: 'content_replace', text: content });
         sseEvent(res, {
           type: 'done',
-          model: 'policy/tool-plane-failure',
+          model: runModel ?? 'policy/tool-plane-failure',
           mode: agentRouting.mode,
           ...(thrownUsage ? { usage: thrownUsage } : {}),
         });
@@ -1261,13 +1302,16 @@ export class ChatOrchestrator {
         sseEvent(res, { type: 'done', model: full.model, mode: full.mode });
       } catch (e: unknown) {
         const msg = formatChatErrorMessage(e);
+        // One-shot modes resolve the model inside handle(); it rides on the error.
+        const oneShotFailModel = failureModelFromError(e);
         this.autoReportError({
           subject: `MY Agent 오류 [${routing.mode}]`,
           summary: msg,
           mode: routing.mode,
           rawError: e instanceof Error ? e.message : String(e),
         });
-        sseEvent(res, { type: 'error', message: msg });
+        sseEvent(res, { type: 'error', message: withFailureModelLine(msg, oneShotFailModel) });
+        if (oneShotFailModel) sseEvent(res, { type: 'done', model: oneShotFailModel, mode: routing.mode });
       } finally {
         sseDone(res);
       }
@@ -1470,28 +1514,31 @@ export class ChatOrchestrator {
       sseEvent(res, { type: 'done', model: resolved.display, mode: routing.mode });
       sseDone(res);
     } catch (e: unknown) {
+      // Model that was running when the general chat stream failed/stopped (display ref).
+      const failModel = failureModelLabel(resolved.display);
       if (isAbortError(e) || signal?.aborted) {
-        this.savePartialAssistant(sessionId, streamedPartial, routing.mode, 'stopped');
+        this.savePartialAssistant(sessionId, streamedPartial, routing.mode, failModel || 'stopped');
         this.emitStopped(res, streamedPartial);
         return;
       }
       const raw = e instanceof Error ? e.message : String(e);
       if (streamedPartial.trim() && isUpstreamConnectionDrop(raw)) {
-        this.savePartialAssistant(sessionId, streamedPartial, routing.mode, 'stopped');
-        const msg = formatChatErrorMessage(e);
+        this.savePartialAssistant(sessionId, streamedPartial, routing.mode, failModel || 'stopped');
+        const msg = withFailureModelLine(formatChatErrorMessage(e), failModel);
         sseEvent(res, { type: 'error', message: msg });
         sseEvent(res, { type: 'done', model: resolved.display, mode: routing.mode });
         sseDone(res);
         return;
       }
-      const msg = formatChatErrorMessage(e);
+      const baseMsg = formatChatErrorMessage(e);
       this.autoReportError({
         subject: `MY Agent 오류 [${routing.mode}]`,
-        summary: msg,
+        summary: baseMsg,
         mode: routing.mode,
         rawError: raw,
       });
-      sseEvent(res, { type: 'error', message: msg });
+      sseEvent(res, { type: 'error', message: withFailureModelLine(baseMsg, failModel) });
+      if (failModel) sseEvent(res, { type: 'done', model: resolved.display, mode: routing.mode });
       sseDone(res);
     }
   }
@@ -1580,6 +1627,7 @@ export class ChatOrchestrator {
     opts: {
       formattedError: string;
       kind: ReturnType<typeof classifyLlmFailure> | 'stopped';
+      model?: string;
     },
   ): string {
     const prev = loadAgentRunMeta(this.cqrRoot, sessionId);
@@ -1596,10 +1644,12 @@ export class ChatOrchestrator {
       formattedError: opts.formattedError,
       mutatedPaths,
       kind: opts.kind,
+      model: opts.model,
     });
     return appendAssistantReply(this.sessionStore, sessionId, {
       content,
-      model: 'policy/tool-plane-failure',
+      // Real model when known so the reply header / premium badge show what failed.
+      model: opts.model || 'policy/tool-plane-failure',
       mode,
       userMessage: opts.formattedError,
     });

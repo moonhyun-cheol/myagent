@@ -5,6 +5,7 @@ import type { SessionStore } from '../../sessions/session-store.js';
 import type { ChatResponse, RouteDecision } from '../../router/types.js';
 import type { ResolvedModelRoute } from '../../providers/types.js';
 import { appendAssistantReply } from '../assistant-reply.js';
+import { withFailureModelLine } from '../../agent/agent-failure-plane.js';
 import { generateVideo, retrieveVideoJob, VideoJobError } from '../../video/video-generation.js';
 import { findVideoModel, hasOrganizationVideoAccess, type VideoModelDef } from '../../video/video-models.js';
 import type { MediaRecord } from '../../media/media-store.js';
@@ -136,13 +137,13 @@ export async function handleVideoGenMode(opts: {
         error: capError(msg),
       };
       return reply(
-        `**동영상 생성 실패**\n\n${msg}${e.retryable ? `\n\n${RETRIEVABLE_NOTE}` : ''}`,
+        `**동영상 생성 실패**\n\n${withFailureModelLine(msg, model.id)}${e.retryable ? `\n\n${RETRIEVABLE_NOTE}` : ''}`,
         model.id,
         undefined,
         record,
       );
     }
-    return reply(`**동영상 생성 실패**\n\n${msg}`, model.id);
+    return reply(`**동영상 생성 실패**\n\n${withFailureModelLine(msg, model.id)}`, model.id);
   }
 }
 

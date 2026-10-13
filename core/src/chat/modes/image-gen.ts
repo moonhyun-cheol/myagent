@@ -11,6 +11,7 @@ import type { ResolvedModelRoute } from '../../providers/types.js';
 import { ingestOwuiChatImages } from '../../image/owui-media.js';
 import { assertWritablePath } from '../../security/path-guard.js';
 import { appendAssistantReply } from '../assistant-reply.js';
+import { withFailureModelLine } from '../../agent/agent-failure-plane.js';
 
 function resolveInitImage(
   attachments: AttachmentService,
@@ -167,7 +168,7 @@ export async function handleImageGenMode(opts: {
             images: owui.imageUrls.map((url) => ({ url })),
           };
         }
-        owuiFail = '이미지 모델이 두 번 모두 이미지 대신 텍스트로 답했습니다.';
+        owuiFail = '이미지 모델이 이미지 대신 텍스트로 답했습니다.';
         modelReply = owui.content.trim() || null;
       } catch (e: unknown) {
         owuiFail = e instanceof Error ? e.message : String(e);
@@ -176,7 +177,7 @@ export async function handleImageGenMode(opts: {
         content: [
           '**MY OpenRouter 이미지 생성 실패**',
           '',
-          owuiFail ?? '알 수 없는 오류',
+          withFailureModelLine(owuiFail ?? '알 수 없는 오류', resolved.display),
           ...(modelReply
             ? ['', '모델 응답:', '', `> ${modelReply.slice(0, 400).replace(/\n/g, '\n> ')}`]
             : []),

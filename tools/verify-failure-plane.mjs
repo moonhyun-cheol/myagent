@@ -18,6 +18,7 @@ const {
   isNoWorkspaceBoundError,
   AgentInfraError,
   formatToolPlaneFailureAssistant,
+  withFailureModelLine,
   toolPlaneInfraRetryLimit,
   toolPlaneAutoResumeLimit,
   shouldAutoResumeAfterInfra,
@@ -87,6 +88,88 @@ assert.equal(isNoWorkspaceBoundError(new Error('OWUI_GATEWAY_TIMEOUT (504)')), f
   assert.doesNotMatch(body, /자동 재시도/);
   assert.doesNotMatch(body, /요청을 더 짧게 나눠/);
   assert.match(body, /이어서 진행/);
+}
+
+{
+  // Failure / stop copy names the model that was running.
+  const withModel = formatToolPlaneFailureAssistant({
+    formattedError: 'RESPONSES_HTTP_402: Provider returned error',
+    kind: 'other',
+    model: 'OpenRouter/anthropic/claude-opus-5.5',
+  });
+  assert.match(withModel, /작업 모델: OpenRouter\/anthropic\/claude-opus-5\.5/);
+  const stopped = formatToolPlaneFailureAssistant({
+    formattedError: '(중지됨)',
+    kind: 'stopped',
+    model: 'OpenRouter/openai/gpt-6-astra',
+  });
+  assert.match(stopped, /작업 모델: OpenRouter\/openai\/gpt-6-astra/);
+  for (const placeholder of [undefined, '', 'none', 'policy/tool-plane-failure']) {
+    const body = formatToolPlaneFailureAssistant({ formattedError: 'x', kind: 'other', model: placeholder });
+    assert.doesNotMatch(body, /작업 모델/);
+  }
+  const orchestrator = readFileSync(
+    new URL('../core/src/chat/chat-orchestrator.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(orchestrator, /model: runModel \?\? 'policy\/tool-plane-failure'/);
+  assert.match(orchestrator, /model: opts\.model \|\| 'policy\/tool-plane-failure'/);
+
+  // General (non-agent) chat stream errors also name the model.
+  assert.equal(
+    withFailureModelLine('RESPONSES_HTTP_402', 'OpenRouter/anthropic/claude-opus-5.5'),
+    'RESPONSES_HTTP_402\n작업 모델: OpenRouter/anthropic/claude-opus-5.5',
+  );
+  for (const placeholder of [undefined, '', 'none', 'policy/x']) {
+    assert.equal(withFailureModelLine('err', placeholder), 'err');
+  }
+  assert.match(orchestrator, /message: withFailureModelLine\(baseMsg, failModel\)/);
+  assert.match(orchestrator, /savePartialAssistant\(sessionId, streamedPartial, routing\.mode, failModel \|\| 'stopped'\)/);
+
+  // One-shot modes (image / research / video): the model rides on the thrown error.
+  const { tagFailureModel, failureModelFromError } = await import('../core/dist/agent/agent-failure-plane.js');
+  const tagged = tagFailureModel(new Error('IMAGE_BACKEND_FAILED'), 'OpenRouter/google/gemini-3-pro-image');
+  assert.equal(failureModelFromError(tagged), 'OpenRouter/google/gemini-3-pro-image');
+  assert.equal(Object.keys(tagged).length, 0, 'tag must stay non-enumerable');
+  assert.equal(tagFailureModel(tagged, 'other/model') === tagged, true);
+  assert.equal(failureModelFromError(tagged), 'OpenRouter/google/gemini-3-pro-image', 'first (inner) tag wins');
+  assert.equal(failureModelFromError(tagFailureModel(new Error('x'), 'policy/x')), '');
+  assert.equal(failureModelFromError(tagFailureModel(new Error('x'), undefined)), '');
+  assert.equal(tagFailureModel('plain', 'm'), 'plain');
+  assert.equal(failureModelFromError('plain'), '');
+  assert.match(orchestrator, /throw tagFailureModel\(e, runningModel\)/);
+  assert.match(orchestrator, /message: withFailureModelLine\(msg, oneShotFailModel\)/);
+  assert.match(orchestrator, /withFailureModelLine\(formatChatErrorMessage\(e\), videoFailModel\)/);
+  const imageGen = readFileSync(new URL('../core/src/chat/modes/image-gen.ts', import.meta.url), 'utf8');
+  assert.match(imageGen, /withFailureModelLine\(owuiFail \?\? '[^']+', resolved\.display\)/);
+  const videoGen = readFileSync(new URL('../core/src/chat/modes/video-gen.ts', import.meta.url), 'utf8');
+  assert.match(videoGen, /withFailureModelLine\(msg, model\.id\)/);
+}
+
+{
+  // Failure / stop copy names the model that was running.
+  const withModel = formatToolPlaneFailureAssistant({
+    formattedError: 'RESPONSES_HTTP_402: Provider returned error',
+    kind: 'other',
+    model: 'OpenRouter/anthropic/claude-opus-5.5',
+  });
+  assert.match(withModel, /\uC791\uC5C5 \uBAA8\uB378: OpenRouter\/anthropic\/claude-opus-5\.5/);
+  const stopped = formatToolPlaneFailureAssistant({
+    formattedError: '(stopped)',
+    kind: 'stopped',
+    model: 'OpenRouter/openai/gpt-6-astra',
+  });
+  assert.match(stopped, /\uC791\uC5C5 \uBAA8\uB378: OpenRouter\/openai\/gpt-6-astra/);
+  for (const placeholder of [undefined, '', 'none', 'policy/tool-plane-failure']) {
+    const body = formatToolPlaneFailureAssistant({ formattedError: 'x', kind: 'other', model: placeholder });
+    assert.doesNotMatch(body, /\uC791\uC5C5 \uBAA8\uB378/);
+  }
+  const orchestrator = readFileSync(
+    new URL('../core/src/chat/chat-orchestrator.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(orchestrator, /model: runModel \?\? 'policy\/tool-plane-failure'/);
+  assert.match(orchestrator, /model: opts\.model \|\| 'policy\/tool-plane-failure'/);
 }
 
 {

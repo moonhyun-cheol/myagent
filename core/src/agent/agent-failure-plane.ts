@@ -111,6 +111,8 @@ export function formatToolPlaneFailureAssistant(opts: {
   formattedError: string;
   mutatedPaths?: string[];
   kind?: LlmFailureClass | 'stopped';
+  /** Resolved model that was running when the run failed/stopped (display ref). */
+  model?: string | null;
 }): string {
   const err = String(opts.formattedError || '').trim() || '알 수 없는 오류';
   const paths = (opts.mutatedPaths ?? [])
@@ -126,6 +128,8 @@ export function formatToolPlaneFailureAssistant(opts: {
   } else {
     lines.push('코드 작업이 오류로 중단되었습니다.');
   }
+  const model = failureModelLabel(opts.model);
+  if (model) lines.push(`작업 모델: ${model}`);
   lines.push('');
   lines.push(err);
   if (paths.length) {
@@ -141,6 +145,46 @@ export function formatToolPlaneFailureAssistant(opts: {
   lines.push('');
   lines.push('같은 작업 대화에서 「이어서 진행」하면 현재 작업공간과 맥락을 유지합니다.');
   return lines.join('\n').trim();
+}
+
+/** Append `작업 모델: …` to a plain chat error message when the model is known. */
+export function withFailureModelLine(message: string, model: string | null | undefined): string {
+  const label = failureModelLabel(model);
+  const msg = String(message ?? '').trim();
+  return label ? `${msg}\n작업 모델: ${label}` : msg;
+}
+
+/** Usable model ref for failure copy; drops placeholders such as `none` / `policy/*`. */
+export function failureModelLabel(model: string | null | undefined): string {
+  const m = String(model ?? '').trim();
+  if (!m || m === 'none' || m.startsWith('policy/')) return '';
+  return m;
+}
+
+const FAILURE_MODEL = Symbol.for('my-agent.failureModel');
+
+/**
+ * Attach the model that was running to a thrown error so an outer catch that
+ * never saw the model resolution (e.g. one-shot image/research modes) can still
+ * name it. Non-enumerable; primitives and placeholders are left untouched.
+ */
+export function tagFailureModel<T>(err: T, model: string | null | undefined): T {
+  const label = failureModelLabel(model);
+  if (!label || !err || typeof err !== 'object') return err;
+  if (FAILURE_MODEL in (err as object)) return err;
+  try {
+    Object.defineProperty(err, FAILURE_MODEL, { value: label, enumerable: false, configurable: true });
+  } catch {
+    /* frozen error objects stay untagged */
+  }
+  return err;
+}
+
+/** Model label previously attached by `tagFailureModel` ('' when unknown). */
+export function failureModelFromError(err: unknown): string {
+  if (!err || typeof err !== 'object') return '';
+  const v = (err as Record<symbol, unknown>)[FAILURE_MODEL];
+  return typeof v === 'string' ? v : '';
 }
 
 /** Max infra retries on the same tool plane (user message already appended once). */
