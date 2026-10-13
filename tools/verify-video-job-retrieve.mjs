@@ -113,7 +113,59 @@ try {
   assert.equal(revived.media[0].kind, 'video');
   assert.equal(store.updateVideoJob(sid, 'nope', { video_job: revived.video_job }), null);
 
-  // 6. Source wiring: route + SSE + UI button.
+  // 6. Download security (P1-3): https-only off-origin, private hosts blocked,
+  //    bounded redirects re-checked per hop, key only to the provider origin.
+  const { guardedMediaFetch, checkMediaFetchUrl } = await import(new URL('media/media-fetch.js', dist));
+  const { isBlockedNetworkHost } = await import(new URL('browser/url-guard.js', dist));
+  for (const h of ['127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.0.5', '169.254.169.254', '100.64.0.1', '0.0.0.0', 'localhost', '::1', '[::1]', 'fd00::1', 'fe80::1', '::ffff:7f00:1']) {
+    assert.equal(isBlockedNetworkHost(h), true, `blocked ${h}`);
+  }
+  for (const h of ['cdn.example.com', '8.8.8.8', '172.32.0.1', '2606:4700::1111']) {
+    assert.equal(isBlockedNetworkHost(h), false, `allowed ${h}`);
+  }
+  const origin = new URL(base).origin;
+  assert.throws(() => checkMediaFetchUrl('http://cdn.example.com/a.mp4', origin), /MEDIA_FETCH_BLOCKED non-https/);
+  assert.throws(() => checkMediaFetchUrl('https://169.254.169.254/latest', origin), /private host/);
+  assert.throws(() => checkMediaFetchUrl('https://u:p@cdn.example.com/a', origin), /credentials/);
+  assert.equal(checkMediaFetchUrl('http://localhost:1234/v1', 'http://localhost:1234').trusted, true, 'configured local provider stays usable');
+
+  const redirect = (loc) => new Response(null, { status: 302, headers: { location: loc } });
+  const seen = [];
+  const hopFetch = async (u, init = {}) => {
+    seen.push({ url: String(u), auth: init.headers?.Authorization, redirect: init.redirect });
+    if (String(u) === `${base}/videos/jobR/content?index=0`) return redirect('https://cdn.example.com/r.mp4');
+    if (String(u) === 'https://cdn.example.com/r.mp4') return new Response(MP4, { status: 200 });
+    return new Response('x', { status: 500 });
+  };
+  const viaRedirect = await guardedMediaFetch(`${base}/videos/jobR/content?index=0`, { doFetch: hopFetch, trustedOrigin: origin, authHeaders: { Authorization: 'Bearer k' } });
+  assert.equal(viaRedirect.status, 200);
+  assert.equal(seen[0].auth, 'Bearer k');
+  assert.equal(seen[0].redirect, 'manual');
+  assert.equal(seen[1].auth, undefined, 'key stripped after cross-origin redirect');
+  await assert.rejects(
+    guardedMediaFetch(`${base}/x`, { doFetch: async () => redirect('https://127.0.0.1/steal'), trustedOrigin: origin }),
+    /private host 127\.0\.0\.1/,
+  );
+  await assert.rejects(
+    guardedMediaFetch(`${base}/x`, { doFetch: async () => redirect('http://cdn.example.com/a'), trustedOrigin: origin }),
+    /non-https/,
+  );
+  let loops = 0;
+  await assert.rejects(
+    guardedMediaFetch('https://cdn.example.com/0', { doFetch: async () => redirect(`https://cdn.example.com/${++loops}`), trustedOrigin: origin }),
+    /too many redirects/,
+  );
+  assert.equal(loops, 4, 'stops after 3 redirects');
+  const blockedDl = await retrieveVideoJob({
+    baseUrl: base, apiKey: 'k', jobId: 'jobP', output: output('p'),
+    fetchImpl: async (u) => String(u).endsWith('/videos/jobP')
+      ? json({ status: 'completed', unsigned_urls: ['http://10.0.0.8/v.mp4'] })
+      : new Response(MP4, { status: 200 }),
+  }).catch((e) => e);
+  assert.ok(blockedDl instanceof VideoJobError, 'blocked download surfaces as job error (id kept)');
+  assert.match(blockedDl.message, /MEDIA_FETCH_BLOCKED/);
+
+  // 7. Source wiring: route + SSE + UI button.
   const dispatch = readFileSync(new URL('../core/src/routes/dispatch.ts', import.meta.url), 'utf8');
   assert.ok(dispatch.includes('video-jobs') && dispatch.includes('orchestrator.retrieveVideoJob('));
   const orch = readFileSync(new URL('../core/src/chat/chat-orchestrator.ts', import.meta.url), 'utf8');

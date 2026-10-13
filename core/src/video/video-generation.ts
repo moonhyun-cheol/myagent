@@ -1,5 +1,6 @@
 import type { VideoModelDef } from './video-models.js';
 import { saveMediaStream, type MediaRecord } from '../media/media-store.js';
+import { guardedMediaFetch } from '../media/media-fetch.js';
 
 /** OpenRouter async video API: POST /videos → poll polling_url → GET /videos/{id}/content. */
 export interface VideoJobStatus {
@@ -131,7 +132,13 @@ async function pollJob(ctx: JobContext, job: VideoJobStatus, jobId: string): Pro
   const pollUrl = job.polling_url
     ? new URL(job.polling_url, ctx.origin).toString()
     : `${ctx.base}/videos/${encodeURIComponent(jobId)}`;
-  const poll = await ctx.doFetch(pollUrl, { headers: ctx.auth, signal: ctx.signal });
+  // polling_url comes from the provider response: re-checked, key only to the provider origin.
+  const poll = await guardedMediaFetch(pollUrl, {
+    doFetch: ctx.doFetch,
+    trustedOrigin: ctx.origin,
+    authHeaders: ctx.auth,
+    signal: ctx.signal,
+  });
   if (!poll.ok) throw new Error(`VIDEO_POLL_FAILED ${await readError(poll)}`);
   return { ...job, ...((await poll.json()) as VideoJobStatus) };
 }
@@ -141,9 +148,14 @@ async function downloadJob(ctx: JobContext, job: VideoJobStatus, jobId: string):
   const downloadUrl = unsigned
     ? new URL(unsigned, ctx.origin).toString()
     : `${ctx.base}/videos/${encodeURIComponent(jobId)}/content?index=0`;
-  // Never forward the API key to a third-party storage host.
-  const sameOrigin = new URL(downloadUrl).origin === ctx.origin;
-  const dl = await ctx.doFetch(downloadUrl, { headers: sameOrigin ? ctx.auth : undefined, signal: ctx.signal });
+  // https-only off-origin, private hosts blocked, bounded redirects, API key never
+  // forwarded to a third-party storage host (each redirect hop re-checked).
+  const dl = await guardedMediaFetch(downloadUrl, {
+    doFetch: ctx.doFetch,
+    trustedOrigin: ctx.origin,
+    authHeaders: ctx.auth,
+    signal: ctx.signal,
+  });
   if (!dl.ok) throw new Error(`VIDEO_DOWNLOAD_FAILED ${await readError(dl)}`);
   const lengthHeader = dl.headers.get('content-length');
   let media: MediaRecord;
