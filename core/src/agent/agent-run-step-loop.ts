@@ -103,7 +103,12 @@ import {
   trimSnippet,
   runWithToolBudget,
 } from './agent-run-helpers.js';
-import { agentToolOutputOk, summarizeAgentToolResult } from './agent-tool-result.js';
+import {
+  agentToolOutputOk,
+  classifyAgentToolOutcome,
+  isBodyToolSuccess,
+  summarizeAgentToolResult,
+} from './agent-tool-result.js';
 import type { EvidenceRecord } from './agent-evidence-types.js';
 import { summarizeResponsesPerfState } from './agent-perf-metrics.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
@@ -581,9 +586,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           : formatLoopGuardStop(admit);
         loopGuard.noteResult(execCall, output);
         state.reportStatus(
-          isSoftLoopGuardStop(admit)
-            ? `탐색 재호출 차단 · ${toolStatusLabel(execCall)} — 읽기/수정으로 전환`
-            : `Tool loop guard: ${execCall.function.name}`,
+          admit.errorClass === 'command_failed'
+            ? `같은 명령 반복 실패 · ${toolStatusLabel(execCall)} — 코드 수정 후 재실행`
+            : isSoftLoopGuardStop(admit)
+              ? `탐색 재호출 차단 · ${toolStatusLabel(execCall)} — 읽기/수정으로 전환`
+              : `Tool loop guard: ${execCall.function.name}`,
         );
         pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
         if (isSoftLoopGuardStop(admit)) {
@@ -892,8 +899,13 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         // Failed hunk must not sticky-block a later read_file on the same path.
         state.readBodiesFetchedThisRun.delete(normalizeAgentPath(args.path));
       }
+      // Command ran but exited non-zero = code/test miss, not a failed tool call:
+      // keep the structured result (failure_kind) instead of tool_call_failed wrapping.
+      const commandFailed = classifyAgentToolOutcome(execCall.function.name, output) === 'command_failed';
       if (
-        isRecoverableToolFailure(output)
+        !commandFailed
+        && !isBodyToolSuccess(execCall.function.name, output)
+        && isRecoverableToolFailure(output)
         && !output.includes('tool_call_failed')
         && !toolOutputHasSyntaxBroken(execCall.function.name, output)
       ) {
@@ -976,8 +988,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ok: toolOk,
         durationMs,
       });
-      if (!toolOk) toolFailuresSinceSnapshot += 1;
-      if (toolOk) consecutiveToolFailures = 0;
+      // Only tool-call failures count toward the run-wide failure stop; a command
+      // that ran and failed proves the tool layer works (code miss, model fixes it).
+      if (!toolOk && !commandFailed) toolFailuresSinceSnapshot += 1;
+      if (toolOk || commandFailed) consecutiveToolFailures = 0;
       else consecutiveToolFailures += 1;
       const afterTool = await state.hooks.afterTool?.({
         tool: execCall.function.name,

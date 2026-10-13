@@ -258,6 +258,73 @@ function assert(cond, msg) {
   assert(second.errorClass === 'success', 'same-step re-search uses success class');
 }
 
+// Command ran but exited non-zero = code miss (command_failed), not a tool-call failure.
+{
+  const cmdArgs = JSON.stringify({ command: 'npm test' });
+  const failOut = JSON.stringify({
+    ok: false, exit_code: 1, failure_kind: 'command_failed',
+    output: "AssertionError: ... not found ... \"ok\": false",
+  });
+  const term = (id) => ({ id, type: 'function', function: { name: 'run_terminal', arguments: cmdArgs } });
+  const edit = (id) => ({
+    id, type: 'function',
+    function: { name: 'edit_file', arguments: JSON.stringify({ path: `a${id}.js`, old_text: 'x', new_text: 'y' }) },
+  });
+
+  // Edit between every failing rerun → never stops (fresh verification each time).
+  const guard = createToolLoopGuard([]);
+  let stopped = false;
+  for (let i = 0; i < 8; i += 1) {
+    const d = guard.admit(term(`t${i}`));
+    if (d.triggered) stopped = true;
+    guard.noteResult(term(`t${i}`), failOut);
+    guard.admit(edit(`e${i}`));
+    guard.noteResult(edit(`e${i}`), 'Updated a.js (exact match)');
+  }
+  assert(!stopped, 'failing test rerun after each edit is never loop-guarded');
+
+  // Same failing command with no change: soft warning first, then code-miss hard stop.
+  const g2 = createToolLoopGuard([]);
+  const decisions = [];
+  for (let i = 0; i < 6; i += 1) {
+    const d = g2.admit(term(`n${i}`));
+    decisions.push(d);
+    g2.noteResult(term(`n${i}`), d.triggered
+      ? (isSoftLoopGuardStop(d) ? formatSoftExplorationLoopCorrection(d, 'run_terminal') : formatLoopGuardStop(d))
+      : failOut);
+    if (d.triggered && !isSoftLoopGuardStop(d)) break;
+  }
+  const firstTrig = decisions.find((d) => d.triggered);
+  assert(firstTrig?.errorClass === 'command_failed', 'unchanged rerun classified command_failed');
+  assert(firstTrig && isSoftLoopGuardStop(firstTrig), 'first unchanged-rerun block is soft');
+  const hard = decisions.find((d) => d.triggered && !isSoftLoopGuardStop(d));
+  assert(hard?.errorClass === 'command_failed', 'hard stop stays command_failed');
+  const msg = hard ? formatLoopGuardUserMessage(hard) : '';
+  assert(msg.includes('도구 호출은 정상') && !msg.includes('동일 도구 실패 반복'), 'user message says code miss, not call failure');
+  assert(formatSoftExplorationLoopCorrection(firstTrig, 'run_terminal').includes('NOT a tool-call failure'), 'model hint says not a call failure');
+
+  // Real call failure (blocked / no exit code) keeps the tool_error path.
+  const g3 = createToolLoopGuard([]);
+  const blocked = JSON.stringify({ ok: false, exit_code: null, failure_kind: 'call_failed', output: 'ERROR: blocked' });
+  let last;
+  for (let i = 0; i < 5; i += 1) {
+    last = g3.admit(term(`b${i}`));
+    if (last.triggered) break;
+    g3.noteResult(term(`b${i}`), blocked);
+  }
+  assert(last?.triggered && last.errorClass === 'tool_error' && !isSoftLoopGuardStop(last), 'call failure still hard-stops as tool_error');
+
+  const tr = await import('../core/dist/agent/agent-tool-result.js');
+  assert(tr.classifyAgentToolOutcome('run_terminal', failOut) === 'command_failed', 'outcome: command_failed');
+  assert(tr.classifyAgentToolOutcome('run_terminal', blocked) === 'call_failed', 'outcome: call_failed');
+  assert(tr.classifyAgentToolOutcome('git_commit', failOut) === 'call_failed', 'non-command tool exit≠0 stays call_failed');
+  assert(tr.summarizeAgentToolResult(failOut).failure_type === 'command_exit_nonzero', 'stderr "not found" does not override command_exit_nonzero');
+  assert(tr.commandFailureKind({ ok: false, exit_code: 1 }) === 'command_failed', 'kind: exit 1');
+  assert(tr.commandFailureKind({ ok: false, exit_code: 1, spawn_error: true }) === 'call_failed', 'kind: spawn error');
+  assert(tr.commandFailureKind({ ok: false, exit_code: null }) === 'call_failed', 'kind: timeout/blocked');
+  assert(tr.isBodyToolSuccess('read_file', 'if (x) throw "not found"; // "ok": false'), 'read body with error words is success');
+}
+
 if (failed) {
   console.error(`\n${failed} test(s) failed`);
   process.exit(1);

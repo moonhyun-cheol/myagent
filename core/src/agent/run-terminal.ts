@@ -3,6 +3,7 @@ import path from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath, resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
+import { commandFailureKind } from './agent-tool-result.js';
 
 export interface RunTerminalResult {
   ok: boolean;
@@ -16,6 +17,8 @@ export interface RunTerminalResult {
   cancelled?: boolean;
   /** Set when a stop was requested but the process-tree kill could not be confirmed. */
   termination_unconfirmed?: boolean;
+  /** Process could not be started / runner error (tool-call failure, not a code miss). */
+  spawn_error?: boolean;
 }
 
 /** Active long-running terminal children (agent + UI) for cancel. */
@@ -388,6 +391,7 @@ export function runTerminalCommandAsync(
         cwd,
         cancelled: cancelled || undefined,
         termination_unconfirmed: terminationUnconfirmed || undefined,
+        spawn_error: errMsg ? true : undefined,
       });
     };
 
@@ -505,6 +509,7 @@ export function runTerminalCommand(
     truncated,
     command: effectiveCommand,
     cwd,
+    spawn_error: proc.error && !timedOut ? true : undefined,
   };
 }
 
@@ -515,6 +520,7 @@ export function formatRunTerminalOutput(result: RunTerminalResult): string {
     {
       ok: result.ok,
       exit_code: result.exit_code,
+      failure_kind: commandFailureKind(result),
       cancelled: result.cancelled,
       output,
       truncated: result.truncated || truncated,

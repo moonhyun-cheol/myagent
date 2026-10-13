@@ -16,6 +16,8 @@ export interface ToolActivity {
   output: string;
   truncated: boolean;
   exitCode?: number | null;
+  /** failed only: command ran and exited non-zero vs. the tool call itself failed. */
+  failureKind?: 'command_failed' | 'call_failed';
 }
 
 
@@ -101,6 +103,9 @@ export function createToolActivity(
         : cancelled || result.cancelled === true ? 'cancelled'
         : !agentToolOutputOk(output) || result.skipped === true ? 'failed' : 'success';
       if (typeof result.exit_code === 'number' || result.exit_code === null) row.exitCode = result.exit_code;
+      if (row.state === 'failed') {
+        row.failureKind = result.failure_kind === 'command_failed' ? 'command_failed' : 'call_failed';
+      }
       row.finishedAt = Date.now();
       if (timer) clearTimeout(timer);
       publish();

@@ -2,6 +2,8 @@ import type { ChatMessage } from '../providers/openai-compatible.js';
 import { chatContentToText } from '../providers/openai-compatible.js';
 import type { AgentToolCall } from './tools.js';
 import { normalizeToolCall } from './tools.js';
+import { isCommandFailureOutput } from './agent-tool-result.js';
+import { isMutatingAgentTool } from './verify-loop.js';
 
 type ToolLoopErrorClass =
   | 'validation'
@@ -9,6 +11,8 @@ type ToolLoopErrorClass =
   | 'permission'
   | 'timeout'
   | 'tool_error'
+  /** Command ran but exited non-zero (code/test miss) — the tool call itself worked. */
+  | 'command_failed'
   | 'success'
   | 'unknown';
 
@@ -88,9 +92,19 @@ function coarseFingerprint(
   return `${toolName}|${errorClass}`;
 }
 
-function classifyToolResult(output: string): ToolLoopErrorClass {
+/** File-changing success: a re-run of a failed command afterwards is a new attempt. */
+function isWorkspaceMutation(toolName: string): boolean {
+  return isMutatingAgentTool(toolName) || toolName === 'workspace_rollback';
+}
+
+function classifyToolResult(output: string, toolName?: string): ToolLoopErrorClass {
   const text = output.trim().toLowerCase();
   if (!text) return 'unknown';
+  if (toolName && isCommandFailureOutput(toolName, output)) return 'command_failed';
+  // Soft guard reply for a repeated failing command keeps the same budget.
+  if (text.includes('tool_loop_guard') && text.includes(', command_failed)')) {
+    return 'command_failed';
+  }
   // Soft exploration re-hit must stay `success` so further identical admits keep blocking.
   // Classifying TOOL_LOOP_GUARD as validation (old bug) re-allowed the same search_files.
   if (text.includes('tool_loop_guard') && text.includes(', success)')) {
@@ -158,11 +172,13 @@ function seedFromMessages(messages: ChatMessage[]): {
   strictCounts: Map<string, number>;
   coarseCounts: Map<string, number>;
   lastByTool: Map<string, ToolLoopErrorClass>;
+  mutationEpoch: number;
 } {
   const strictCounts = new Map<string, number>();
   const coarseCounts = new Map<string, number>();
   const lastByTool = new Map<string, ToolLoopErrorClass>();
   const resultByCallId = new Map<string, string>();
+  let mutationEpoch = 0;
 
   for (const m of messages) {
     if (m.role === 'tool' && m.tool_call_id) {
@@ -175,14 +191,20 @@ function seedFromMessages(messages: ChatMessage[]): {
     for (const raw of m.tool_calls) {
       const call = normalizeToolCall(raw as AgentToolCall);
       const output = resultByCallId.get(call.id) ?? '';
-      const errorClass = classifyToolResult(output);
+      const errorClass = classifyToolResult(output, call.function.name);
       lastByTool.set(call.function.name, errorClass);
       if (errorClass === 'success') {
+        if (isWorkspaceMutation(call.function.name)) mutationEpoch += 1;
         const fp = `${call.function.name}|values:${argFingerprint(call.function.arguments)}|success`;
         strictCounts.set(fp, (strictCounts.get(fp) ?? 0) + 1);
         continue;
       }
-      const strict = `${call.function.name}|${argFingerprint(call.function.arguments)}|${errorClass}`;
+      const strict = strictFailureFingerprint(
+        call.function.name,
+        call.function.arguments,
+        errorClass,
+        mutationEpoch,
+      );
       const coarse = coarseFingerprint(
         call.function.name,
         call.function.arguments,
@@ -193,7 +215,21 @@ function seedFromMessages(messages: ChatMessage[]): {
     }
   }
 
-  return { strictCounts, coarseCounts, lastByTool };
+  return { strictCounts, coarseCounts, lastByTool, mutationEpoch };
+}
+
+/**
+ * Failed-command repeats are only counted between file changes: re-running the
+ * same test after an edit is a fresh verification, not a retry loop.
+ */
+function strictFailureFingerprint(
+  toolName: string,
+  rawArguments: string,
+  errorClass: ToolLoopErrorClass,
+  mutationEpoch: number,
+): string {
+  const base = `${toolName}|${argFingerprint(rawArguments)}|${errorClass}`;
+  return errorClass === 'command_failed' ? `${base}|m${mutationEpoch}` : base;
 }
 
 function admitCall(
@@ -203,6 +239,7 @@ function admitCall(
   strictCounts: Map<string, number>,
   coarseCounts: Map<string, number>,
   maxRepeat: number,
+  mutationEpoch = 0,
 ): ToolLoopGuardDecision {
   const exploration = EXPLORATION_TOOLS.has(toolName);
   // Successful calls are model-owned. Only repeated failures are loop-guarded.
@@ -215,7 +252,10 @@ function admitCall(
         ? 2
       : exploration
         ? Math.max(maxRepeat * 2, 4)
-        : maxRepeat;
+        // Same failing command with no file change in between: rerunning is pointless.
+        : errorClass === 'command_failed'
+          ? Math.min(maxRepeat, 2)
+          : maxRepeat;
   // Cumulative per-(tool, errorClass) hard-stop retired in favor of a run-wide
   // consecutive-failure stop (see maxConsecutiveToolFailures). Keep only the
   // edit_file coarse budget (soft), which steers write_file/apply_patch after 2
@@ -235,7 +275,7 @@ function admitCall(
     };
   }
 
-  const strictFp = `${toolName}|${argFingerprint(rawArguments)}|${errorClass}`;
+  const strictFp = strictFailureFingerprint(toolName, rawArguments, errorClass, mutationEpoch);
   const coarseFp = coarseFingerprint(toolName, rawArguments, errorClass);
   const strictCount = (strictCounts.get(strictFp) ?? 0) + 1;
   strictCounts.set(strictFp, strictCount);
@@ -280,6 +320,7 @@ export function createToolLoopGuard(messages: ChatMessage[]): ToolLoopGuard {
   const strictCounts = new Map(seeded.strictCounts);
   const coarseCounts = new Map(seeded.coarseCounts);
   const lastByTool = new Map(seeded.lastByTool);
+  let mutationEpoch = seeded.mutationEpoch;
 
   return {
     admit(call) {
@@ -294,14 +335,15 @@ export function createToolLoopGuard(messages: ChatMessage[]): ToolLoopGuard {
         EXPLORATION_TOOLS.has(name) && priorSuccess >= 1
           ? 'success'
           : (lastByTool.get(name) ?? 'unknown');
-      return admitCall(name, args, errorClass, strictCounts, coarseCounts, maxRepeat);
+      return admitCall(name, args, errorClass, strictCounts, coarseCounts, maxRepeat, mutationEpoch);
     },
 
     noteResult(call, output) {
       const normalized = normalizeToolCall(call);
       const name = normalized.function.name;
-      const cls = classifyToolResult(output);
+      const cls = classifyToolResult(output, name);
       lastByTool.set(name, cls);
+      if (cls === 'success' && isWorkspaceMutation(name)) mutationEpoch += 1;
       // First explore admit often uses `unknown`; after a real success, mark the
       // success fingerprint so the next identical call soft-blocks (count 2/1).
       if (cls === 'success' && EXPLORATION_TOOLS.has(name)) {
@@ -314,7 +356,9 @@ export function createToolLoopGuard(messages: ChatMessage[]): ToolLoopGuard {
 
 export function formatLoopGuardStop(decision: ToolLoopGuardDecision): string {
   const mutateHint =
-    decision.fingerprint.startsWith('edit_file|') && decision.errorClass !== 'success'
+    decision.errorClass === 'command_failed'
+      ? ' The command itself ran (tool call OK) and failed again with no file change since the last failure. Fix the code/test from the failure output first (edit_file / apply_patch / write_file), then rerun — or report the failing check to the user.'
+      : decision.fingerprint.startsWith('edit_file|') && decision.errorClass !== 'success'
       ? ' edit_file failed twice on this path — do not retry it. Use write_file with the complete file body (or apply_patch with fresh exact context), then verify.'
       : decision.errorClass === 'success'
         ? explorationSoftHint(decision.fingerprint)
@@ -336,6 +380,18 @@ export function formatSoftExplorationLoopCorrection(
   decision: ToolLoopGuardDecision,
   toolName: string,
 ): string {
+  if (decision.errorClass === 'command_failed') {
+    return [
+      formatLoopGuardStop(decision),
+      '',
+      'Instructions for the model (do not show to user):',
+      '- This is NOT a tool-call failure: the command executed and exited non-zero (code/test miss).',
+      '- The identical command already failed with no workspace change since. Rerunning it unchanged will fail again.',
+      '- Read the failure output, fix the code (edit_file / apply_patch / write_file), then rerun. Or tell the user which check fails and why.',
+      '- Do NOT paste TOOL_LOOP_GUARD / Fingerprint into the user-visible reply.',
+      '- Do NOT claim 완료 while the check is failing.',
+    ].join('\n');
+  }
   const next =
     toolName === 'edit_file'
       ? 'The same-path edit_file failure budget is exhausted. Do NOT call edit_file again on this path. Use write_file with the full current file body, or apply_patch after fresh exact context, then run diagnostics/tests.'
@@ -374,6 +430,14 @@ export function formatConsecutiveFailureStop(count: number, max: number): string
 }
 
 export function formatLoopGuardUserMessage(decision: ToolLoopGuardDecision): string {
+  if (decision.errorClass === 'command_failed') {
+    return [
+      '중단: 코드 수정 없이 같은 명령이 계속 실패해 code-agent를 멈췄습니다.',
+      `원인: 명령 실패(종료 코드 ≠ 0) — 도구 호출은 정상, 코드·테스트 쪽 문제 (${decision.repeatCount}회, 한도 ${decision.maxRepeat})`,
+      '실제 반영: 없음 또는 부분 — 이 상태에서 「수정 완료」라고 쓰지 마세요.',
+      '다음에: 마지막 실패 출력을 보고 원인 코드를 고치도록 다시 요청해 주세요.',
+    ].join('\n');
+  }
   const isSuccessLoop = decision.errorClass === 'success';
   const nextHint = isSuccessLoop
     ? decision.fingerprint.startsWith('search_files|')
@@ -395,6 +459,8 @@ export function formatLoopGuardUserMessage(decision: ToolLoopGuardDecision): str
 export function isSoftLoopGuardStop(decision: ToolLoopGuardDecision): boolean {
   return (
     decision.errorClass === 'success'
+    // One model-visible warning before a hard stop for an unchanged failing command.
+    || (decision.errorClass === 'command_failed' && decision.repeatCount <= decision.maxRepeat + 1)
     || (
       decision.fingerprint.startsWith('edit_file|')
       && decision.errorClass !== 'unknown'

@@ -17,6 +17,71 @@ export function agentToolOutputOk(output: string): boolean {
   return true;
 }
 
+/**
+ * Command tools whose process actually ran (call OK) but exited non-zero.
+ * That is a code/test/build miss, not a tool-invocation failure.
+ */
+export const COMMAND_RESULT_TOOLS = new Set(['run_terminal', 'run_tests', 'run_diagnostics']);
+
+export type CommandFailureKind = 'command_failed' | 'call_failed';
+
+/** Structured kind for a finished command result (undefined when ok). */
+export function commandFailureKind(result: {
+  ok: boolean;
+  exit_code: number | null;
+  cancelled?: boolean;
+  termination_unconfirmed?: boolean;
+  spawn_error?: boolean;
+}): CommandFailureKind | undefined {
+  if (result.ok) return undefined;
+  if (
+    typeof result.exit_code === 'number'
+    && result.exit_code !== 0
+    && !result.cancelled
+    && !result.termination_unconfirmed
+    && !result.spawn_error
+  ) {
+    return 'command_failed';
+  }
+  return 'call_failed';
+}
+
+/** True only when a command tool reported `failure_kind: "command_failed"`. */
+export function isCommandFailureOutput(toolName: string, output: string): boolean {
+  if (!COMMAND_RESULT_TOOLS.has(toolName)) return false;
+  const text = String(output ?? '').trim();
+  if (!text.startsWith('{')) return false;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    return parsed.failure_kind === 'command_failed' && parsed.cancelled !== true;
+  } catch {
+    return false;
+  }
+}
+
+/** Tools whose success payload is arbitrary text (file body, hits, diffs). */
+const BODY_RESULT_TOOLS = new Set([
+  'read_file', 'search_files', 'list_directory', 'query_repo_map', 'search_embeddings',
+  'evidence_read', 'git_show', 'git_diff', 'git_log', 'git_blame', 'git_history_tree',
+  'markitdown_convert', 'task_history_search', 'task_history_detail',
+]);
+
+/**
+ * Successful body payloads may contain words like "not found" / `"ok": false`
+ * (source code, search hits). Never re-label them as call failures.
+ */
+export function isBodyToolSuccess(toolName: string, output: string): boolean {
+  return BODY_RESULT_TOOLS.has(toolName) && agentToolOutputOk(output);
+}
+
+export type AgentToolOutcome = 'ok' | 'command_failed' | 'call_failed';
+
+/** ok / command ran but failed (code miss) / tool call itself failed. */
+export function classifyAgentToolOutcome(toolName: string, output: string): AgentToolOutcome {
+  if (agentToolOutputOk(output)) return 'ok';
+  return isCommandFailureOutput(toolName, output) ? 'command_failed' : 'call_failed';
+}
+
 export type AgentToolFailureType =
   | 'not_found'
   | 'permission_denied'
@@ -58,6 +123,10 @@ export function summarizeAgentToolResult(output: string): AgentToolResultSummary
   const skipped = parsed?.skipped === true || /["']?skipped["']?\s*[:=]\s*true/i.test(text);
   const weak = parsed?.weak === true || /["']?weak["']?\s*[:=]\s*true/i.test(text) || skipped;
   if (agentToolOutputOk(text)) return { ok: true, exit_code: exitCode, skipped, weak };
+  // Command output (stderr/stdout) may contain "not found" etc.; trust the structured kind.
+  if (parsed?.failure_kind === 'command_failed') {
+    return { ok: false, failure_type: 'command_exit_nonzero', exit_code: exitCode, skipped, weak };
+  }
 
   const failure_type: AgentToolFailureType =
     skipped ? 'diagnostics_skipped'

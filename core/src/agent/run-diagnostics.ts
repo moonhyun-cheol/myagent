@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
+import { commandFailureKind } from './agent-tool-result.js';
 import {
   formatRunTerminalOutput,
   runTerminalCommand,
@@ -76,6 +77,7 @@ function runArgv(
     truncated: false,
     command: `${exe} ${args.join(' ')}`,
     cwd,
+    spawn_error: proc.error && !timedOut ? true : undefined,
   };
 }
 
@@ -299,6 +301,7 @@ export function runWorkspaceDiagnostics(
         skipped: false,
         status: result.ok ? 'weak_pass' : 'fail',
         exit_code: result.exit_code,
+        failure_kind: commandFailureKind(result),
         detected: {
           kind: 'node_syntax',
           command: result.command,
@@ -378,6 +381,7 @@ export function runWorkspaceDiagnostics(
     {
       ok: result.ok,
       exit_code: result.exit_code,
+      failure_kind: commandFailureKind(result),
       detected,
       command: result.command,
       output,
