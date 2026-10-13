@@ -5,7 +5,7 @@
  * Requires a fresh core build (npx tsc -p tsconfig.json).
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -57,7 +57,10 @@ assert.equal(videoOpts.length, catalog.models.length);
 assert.ok(videoOpts[0].value.startsWith('provider:custom@'));
 
 // 4. Job client: submit → poll → download; key never sent to a foreign host.
-const out = path.join(mkdtempSync(path.join(tmpdir(), 'video-out-')), 's1', 'v.mp4');
+const outRoot = mkdtempSync(path.join(tmpdir(), 'video-out-'));
+const output = { dir: path.join(outRoot, 's1'), urlPrefix: '/outputs/videos/s1', baseName: 'v', cqrRoot: outRoot };
+// Minimal ISO-BMFF head (`ftyp isom`) so the signature check accepts it as MP4.
+const MP4_BYTES = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(12), Buffer.from('MP4DATA')]);
 const calls = [];
 let polls = 0;
 const fakeFetch = async (url, init = {}) => {
@@ -76,25 +79,59 @@ const fakeFetch = async (url, init = {}) => {
       ? { status: 'in_progress' }
       : { status: 'completed', unsigned_urls: ['https://cdn.example.com/job1.mp4'] });
   }
-  if (u === 'https://cdn.example.com/job1.mp4') return new Response(Buffer.from('MP4DATA'), { status: 200 });
+  if (u === 'https://cdn.example.com/job1.mp4') return new Response(MP4_BYTES, { status: 200 });
   return new Response('unexpected', { status: 500 });
 };
 const statuses = [];
 const result = await generateVideo({
   baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'secret', model: catalog.models[0], prompt: 'test',
-  outputPath: out, pollIntervalMs: 1, fetchImpl: fakeFetch, onStatus: (t) => statuses.push(t),
+  output, pollIntervalMs: 1, fetchImpl: fakeFetch, onStatus: (t) => statuses.push(t),
 });
 assert.equal(result.jobId, 'job1');
-assert.equal(readFileSync(out, 'utf8'), 'MP4DATA');
+assert.equal(result.media.kind, 'video');
+assert.equal(result.media.mime, 'video/mp4');
+assert.equal(result.media.url, '/outputs/videos/s1/v.mp4');
+assert.equal(result.media.bytes, MP4_BYTES.length);
+assert.match(result.media.sha256, /^[0-9a-f]{64}$/);
+assert.deepEqual(readFileSync(path.join(outRoot, 's1', 'v.mp4')), MP4_BYTES);
 assert.equal(calls.find((c) => c.url.startsWith('https://cdn.example.com')).auth, undefined, 'no key to CDN');
 assert.ok(calls.filter((c) => c.url.startsWith('https://openrouter.ai')).every((c) => c.auth === 'Bearer secret'));
 assert.ok(statuses.length >= 2);
+
+// 4b. Download validation: HTML error page / oversize body are rejected and leave no file behind.
+const completedJob = (body, headers) => async (u, init = {}) => {
+  if (init.method === 'POST') return new Response(JSON.stringify({ id: 'j2', status: 'completed' }), { status: 200 });
+  return new Response(body, { status: 200, headers });
+};
+const badOutput = { ...output, dir: path.join(outRoot, 'bad'), urlPrefix: '/outputs/videos/bad' };
+await assert.rejects(
+  generateVideo({
+    baseUrl: 'https://openrouter.ai/api/v1', apiKey: 's', model: catalog.models[0], prompt: 'x',
+    output: badOutput, pollIntervalMs: 1, fetchImpl: completedJob('<html>expired</html>'),
+  }),
+  /VIDEO_DOWNLOAD_FAILED MEDIA_UNSUPPORTED_FORMAT/,
+);
+await assert.rejects(
+  generateVideo({
+    baseUrl: 'https://openrouter.ai/api/v1', apiKey: 's', model: catalog.models[0], prompt: 'x',
+    output: { ...badOutput, maxBytes: 10 }, pollIntervalMs: 1, fetchImpl: completedJob(MP4_BYTES),
+  }),
+  /VIDEO_DOWNLOAD_FAILED MEDIA_TOO_LARGE/,
+);
+await assert.rejects(
+  generateVideo({
+    baseUrl: 'https://openrouter.ai/api/v1', apiKey: 's', model: catalog.models[0], prompt: 'x',
+    output: badOutput, pollIntervalMs: 1, fetchImpl: completedJob(new Uint8Array(0)),
+  }),
+  /VIDEO_DOWNLOAD_FAILED MEDIA_EMPTY/,
+);
+assert.deepEqual(existsSync(badOutput.dir) ? readdirSync(badOutput.dir) : [], [], 'no partial files left');
 
 // 5. Failed job surfaces an error (no silent fallback).
 await assert.rejects(
   generateVideo({
     baseUrl: 'https://openrouter.ai/api/v1', apiKey: 's', model: catalog.models[0], prompt: 'x',
-    outputPath: out, pollIntervalMs: 1,
+    output, pollIntervalMs: 1,
     fetchImpl: async (u, init = {}) => init.method === 'POST'
       ? new Response(JSON.stringify({ id: 'j', status: 'failed', error: 'moderation' }), { status: 200 })
       : new Response('', { status: 500 }),

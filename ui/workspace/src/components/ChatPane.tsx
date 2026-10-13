@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
+import { isVideoMediaUrl } from '../lib/mediaUrl';
 import { useConversationDisplayPreferences } from '../lib/conversationDisplayPreferences';
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
@@ -881,7 +882,7 @@ export function ChatPane() {
           },
         },
       ];
-      if (turn.imageUrls?.length && !/\.mp4(?:$|[?#])/i.test(turn.imageUrls[0])) {
+      if (turn.imageUrls?.length && !isVideoMediaUrl(turn.imageUrls[0])) {
         const first = turn.imageUrls[0];
         items.push(
           {
@@ -1686,7 +1687,7 @@ export function ChatPane() {
                 ) : null}
                 {turn.imageUrls?.length ? (
                   <div className={`flex flex-col gap-2 ${turn.text ? 'mb-3' : ''}`}>
-                    {turn.imageUrls.map((url) => /\.mp4(?:$|[?#])/i.test(url) ? (
+                    {turn.imageUrls.map((url) => isVideoMediaUrl(url) ? (
                       <div
                         key={url}
                         data-video-card

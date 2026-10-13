@@ -1,8 +1,6 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { assertWritablePath } from '../security/path-guard.js';
 import type { ProviderStore } from '../providers/provider-store.js';
+import { saveMediaBuffer, type MediaRecord } from '../media/media-store.js';
 
 export interface IngestOwuiImagesOpts {
   content: string;
@@ -18,6 +16,8 @@ export interface IngestOwuiImagesOpts {
 export interface IngestOwuiImagesResult {
   content: string;
   imageUrls: string[];
+  /** Same files as `imageUrls`, with signature-verified kind/mime/size/hash. */
+  media: MediaRecord[];
 }
 
 const OWUI_FILE_ID_RE = /\/api\/v1\/files\/([a-f0-9-]+)\/content/i;
@@ -85,19 +85,11 @@ function owuiOriginFromBaseUrl(baseUrl: string): string {
   }
 }
 
-function extFromMime(mime: string): string {
-  const m = mime.split(';')[0].trim().toLowerCase();
-  if (m === 'image/jpeg' || m === 'image/jpg') return '.jpg';
-  if (m === 'image/webp') return '.webp';
-  if (m === 'image/gif') return '.gif';
-  return '.png';
-}
-
 async function fetchOwuiFile(
   origin: string,
   apiKey: string,
   fileId: string,
-): Promise<{ buffer: Buffer; mime: string }> {
+): Promise<Buffer> {
   const url = `${origin}/api/v1/files/${fileId}/content`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -107,41 +99,45 @@ async function fetchOwuiFile(
     const text = await res.text().catch(() => '');
     throw new Error(`OWUI_FILE_${res.status}: ${text.slice(0, 120)}`);
   }
-  const mime = res.headers.get('content-type') ?? 'image/png';
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length === 0) throw new Error('OWUI_FILE_EMPTY');
-  return { buffer, mime };
+  return buffer;
 }
 
 export async function ingestOwuiChatImages(opts: IngestOwuiImagesOpts): Promise<IngestOwuiImagesResult> {
   const fileIds = findOwuiFileIds(opts.content);
   const dataUrls = findDataUrlImages(opts.content);
   if (!fileIds.length && !dataUrls.length) {
-    return { content: opts.content, imageUrls: [] };
+    return { content: opts.content, imageUrls: [], media: [] };
   }
 
   const resolved = opts.providerStore.resolveProvider(opts.providerId);
   if (!resolved?.secret.api_key || resolved.secret.api_key.startsWith('stub:')) {
-    return { content: opts.content, imageUrls: [] };
+    return { content: opts.content, imageUrls: [], media: [] };
   }
 
   const origin = owuiOriginFromBaseUrl(resolved.baseUrl);
   const sessionDir = path.join(opts.imageOutDir, opts.sessionId);
-  mkdirSync(sessionDir, { recursive: true });
+  const urlPrefix = `/outputs/images/${opts.sessionId}`;
 
-  const imageUrls: string[] = [];
+  const media: MediaRecord[] = [];
   const seenHashes = new Set<string>();
-  let idx = 0;
-
-  const rememberBuffer = (buffer: Buffer): boolean => {
-    const hash = createHash('sha256').update(buffer).digest('hex');
-    if (seenHashes.has(hash)) return false;
-    seenHashes.add(hash);
-    return true;
+  // Signature/size validated, atomic write; invalid payloads (HTML error pages etc.) are skipped.
+  const store = (buffer: Buffer, baseName?: string) => {
+    const record = saveMediaBuffer(buffer, {
+      expectKind: 'image',
+      dir: sessionDir,
+      urlPrefix,
+      cqrRoot: opts.cqrRoot,
+      ...(baseName ? { baseName } : {}),
+    });
+    if (seenHashes.has(record.sha256)) return;
+    seenHashes.add(record.sha256);
+    media.push(record);
   };
 
   const cap = opts.maxImages != null && opts.maxImages > 0 ? opts.maxImages : Infinity;
-  const canAddMore = () => imageUrls.length < cap;
+  const canAddMore = () => media.length < cap;
 
   // OWUI multimodal replies often include both a file reference (markdown) and an inline
   // data URL for the same image; prefer file refs and skip redundant data URLs.
@@ -151,13 +147,7 @@ export async function ingestOwuiChatImages(opts: IngestOwuiImagesOpts): Promise<
     try {
       const m = dataUrl.match(/^data:(image\/[^;]+);base64,([\s\S]+)$/i);
       if (!m) continue;
-      const buffer = Buffer.from(m[2].replace(/\s/g, ''), 'base64');
-      if (!rememberBuffer(buffer)) continue;
-      const filename = `inline-${idx++}.png`;
-      const outputPath = path.join(sessionDir, filename);
-      assertWritablePath(outputPath, opts.cqrRoot);
-      writeFileSync(outputPath, buffer);
-      imageUrls.push(`/outputs/images/${opts.sessionId}/${filename}`);
+      store(Buffer.from(m[2].replace(/\s/g, ''), 'base64'));
     } catch {
       /* skip failed data url */
     }
@@ -166,25 +156,19 @@ export async function ingestOwuiChatImages(opts: IngestOwuiImagesOpts): Promise<
   for (const fileId of fileIds) {
     if (!canAddMore()) break;
     try {
-      const { buffer, mime } = await fetchOwuiFile(origin, resolved.secret.api_key, fileId);
-      if (!rememberBuffer(buffer)) continue;
-      const ext = extFromMime(mime);
-      const filename = `${fileId}${ext}`;
-      const outputPath = path.join(sessionDir, filename);
-      assertWritablePath(outputPath, opts.cqrRoot);
-      writeFileSync(outputPath, buffer);
-      imageUrls.push(`/outputs/images/${opts.sessionId}/${filename}`);
+      store(await fetchOwuiFile(origin, resolved.secret.api_key, fileId), fileId);
     } catch {
       /* skip failed owui file fetch */
     }
   }
 
-  if (!imageUrls.length) {
-    return { content: opts.content, imageUrls: [] };
+  if (!media.length) {
+    return { content: opts.content, imageUrls: [], media: [] };
   }
 
   return {
     content: stripOwuiImageMarkdown(opts.content),
-    imageUrls,
+    imageUrls: media.map((m) => m.url),
+    media,
   };
 }

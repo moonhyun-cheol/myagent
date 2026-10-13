@@ -92,7 +92,8 @@ assert.match(approval, /APPROVAL_REVIEW_MODEL_ID = 'openai\/gpt-5\.6-luna'/);
 assert.doesNotMatch(approval, /confidence\s*>?=\s*0\.9/);
 assert.match(toolApproval, /external_write/);
 assert.match(toolApproval, /toolName === 'delete_file'/);
-assert.match(toolApproval, /toolName === 'run_terminal'\) return true/);
+// Delegation for run_terminal only when the command touches no out-of-workspace path (CQR_PA 42d9657).
+assert.match(toolApproval, /toolName === 'run_terminal'\) \{\s*return externalTerminalPaths\(/);
 
 assert.doesNotMatch(orchestrator, /RouterService|evaluateSpecializedModeFit|messagePrefersBrandSkillOverCode|isCasualChatBypass|TOOL_PLANE_MUTATE_REFUSAL/);
 assert.doesNotMatch(orchestrator, /preserveRecentToolFailureContext/);

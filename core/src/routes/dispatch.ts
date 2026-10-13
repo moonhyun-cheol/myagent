@@ -1733,6 +1733,7 @@ export async function dispatchApiRequest(
         const fp = orchestrator.getVideoPath(session, file);
         if (!fp) return sendJson(res, 404, { error: 'NOT_FOUND' });
         assertPathUnder(path.join(path.dirname(imageOut), 'videos'), fp);
+        const videoType = fp.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4';
         const size = statSync(fp).size;
         const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
         if (range && (range[1] || range[2])) {
@@ -1744,7 +1745,7 @@ export async function dispatchApiRequest(
             return;
           }
           res.writeHead(206, {
-            'Content-Type': 'video/mp4',
+            'Content-Type': videoType,
             'Accept-Ranges': 'bytes',
             'Content-Range': `bytes ${start}-${end}/${size}`,
             'Content-Length': end - start + 1,
@@ -1752,7 +1753,7 @@ export async function dispatchApiRequest(
           res.end(readFileSync(fp).subarray(start, end + 1));
           return;
         }
-        res.writeHead(200, { 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Content-Length': size });
+        res.writeHead(200, { 'Content-Type': videoType, 'Accept-Ranges': 'bytes', 'Content-Length': size });
         res.end(readFileSync(fp));
         return;
       }

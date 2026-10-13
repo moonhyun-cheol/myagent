@@ -16,6 +16,7 @@ import {
   compilePromptContext,
   type PromptContextMetadata,
 } from './prompt-context-cache.js';
+import { collectFromChatMessage, hasGeneratedMedia } from '../media/generated-media-extract.js';
 
 export type ChatContentPart =
   | { type: 'text'; text: string }
@@ -63,6 +64,8 @@ export interface ToolCompletionResult {
   reasoning?: string | null;
   response_id?: string;
   usage?: CompletionUsage;
+  /** Model-generated images (agent loop does not persist these yet; chat paths do). */
+  generated_media?: import('../media/generated-media-extract.js').GeneratedMedia;
 }
 
 export interface CompletionUsage {
@@ -78,6 +81,8 @@ export interface CompletionResult {
   model: string;
   usage?: CompletionUsage;
   response_id?: string;
+  /** Model-generated images returned alongside (or instead of) text. */
+  generated_media?: import('../media/generated-media-extract.js').GeneratedMedia;
 }
 
 export type StreamTokenHandler = (text: string) => void;
@@ -446,7 +451,8 @@ async function chatCompletionAt(
   }
 
   const content = extractAssistantContent(data.choices?.[0]?.message);
-  if (!content) {
+  const generated = collectFromChatMessage(data.choices?.[0]?.message);
+  if (!content && !hasGeneratedMedia(generated)) {
     logLlmWireResponse(reqId, {
       ok: false,
       status: res.status,
@@ -464,7 +470,12 @@ async function chatCompletionAt(
     usage: data.usage,
     durationMs: Date.now() - t0,
   });
-  return { content, model: data.model ?? model, usage: normalizeCompletionUsage(data.usage) };
+  return {
+    content: content ?? '',
+    model: data.model ?? model,
+    usage: normalizeCompletionUsage(data.usage),
+    ...(hasGeneratedMedia(generated) ? { generated_media: generated } : {}),
+  };
 }
 
 export async function chatCompletion(
@@ -592,6 +603,7 @@ async function chatCompletionStreamAt(
 
   let full = '';
   let resolvedModel = model;
+  const streamedImages: unknown[] = [];
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -615,6 +627,8 @@ async function chatCompletionStreamAt(
           choices?: { delta?: unknown }[];
         };
         if (chunk.model) resolvedModel = chunk.model;
+        const rawDelta = chunk.choices?.[0]?.delta as { images?: unknown } | undefined;
+        if (Array.isArray(rawDelta?.images)) streamedImages.push(...rawDelta.images);
         const delta = extractStreamDelta(chunk.choices?.[0]?.delta);
         if (delta.thought) opts?.onThought?.(delta.thought);
         if (delta.content) {
@@ -627,7 +641,8 @@ async function chatCompletionStreamAt(
     }
   }
 
-  if (!full) {
+  const generated = collectFromChatMessage({ images: streamedImages });
+  if (!full && !hasGeneratedMedia(generated)) {
     logLlmWireResponse(reqId, {
       ok: false,
       status: res.status,
@@ -646,7 +661,11 @@ async function chatCompletionStreamAt(
     stream: true,
     durationMs: Date.now() - t0,
   });
-  return { content: full, model: resolvedModel };
+  return {
+    content: full,
+    model: resolvedModel,
+    ...(hasGeneratedMedia(generated) ? { generated_media: generated } : {}),
+  };
 }
 
 export async function testConnection(

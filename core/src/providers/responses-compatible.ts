@@ -11,6 +11,11 @@ import type {
   ToolStreamHandlers,
 } from './openai-compatible.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
+import {
+  collectFromResponsesOutput,
+  hasGeneratedMedia,
+  mergeGeneratedMedia,
+} from '../media/generated-media-extract.js';
 
 export type ResponsesReasoningSummaryPolicy = 'detailed' | 'receive_only' | 'omit';
 
@@ -544,12 +549,19 @@ async function completionAtImpl(
   const { response } = await postResponse(baseUrl, apiKey, prepared.body, opts);
   const doc = await readDocument(response);
   const content = outputText(doc);
-  if (!content) throw new Error('EMPTY_COMPLETION');
+  const generated = collectFromResponsesOutput(doc.output);
+  if (!content && !hasGeneratedMedia(generated)) throw new Error('EMPTY_COMPLETION');
   const reasoning = outputReasoningSummary(doc);
   if (reasoning) opts?.onThought?.(reasoning);
   const usage = usageFrom(doc);
   advanceResponsesState(doc, messages, prepared, opts);
-  return { content, model: doc.model ?? model, usage, response_id: doc.id };
+  return {
+    content,
+    model: doc.model ?? model,
+    usage,
+    response_id: doc.id,
+    ...(hasGeneratedMedia(generated) ? { generated_media: generated } : {}),
+  };
 }
 
 export async function responsesCompletion(
@@ -568,6 +580,8 @@ type StreamAccumulator = {
   fallbackThought: string;
   model: string;
   calls: Map<number, AgentToolCallPayload>;
+  /** Finished output items that may carry generated images (`image_generation_call`, message parts). */
+  mediaItems: ResponseOutputItem[];
   completed?: ResponsesDocument;
 };
 
@@ -585,6 +599,9 @@ function applyStreamEvent(raw: string, acc: StreamAccumulator, handlers?: ToolSt
     if (type === 'response.output_item.done' && item?.type === 'reasoning') {
       const fallback = outputItemReasoningText(item);
       if (fallback) acc.fallbackThought = [acc.fallbackThought, fallback].filter(Boolean).join('\n\n');
+    }
+    if (type === 'response.output_item.done' && item && (item.type === 'image_generation_call' || item.type === 'message')) {
+      acc.mediaItems.push(item);
     }
     if (item?.type === 'function_call') {
       const index = Number(event.output_index ?? acc.calls.size);
@@ -637,6 +654,7 @@ async function responsesStreamAt(
     fallbackThought: '',
     model,
     calls: new Map(),
+    mediaItems: [],
   };
   const reader = response.body.getReader();
   try {
@@ -666,6 +684,11 @@ async function responsesStreamAt(
   }
   const calls = completedCalls;
   const content = outputText(acc.completed) || acc.content;
+  // Gateways may omit large items from the terminal document; streamed items are the fallback.
+  const generated = mergeGeneratedMedia(
+    collectFromResponsesOutput(acc.completed.output),
+    collectFromResponsesOutput(acc.mediaItems),
+  );
   if (!acc.thought) {
     const completedThought = acc.completed ? outputReasoningSummary(acc.completed) : '';
     const fallbackThought = completedThought || acc.fallbackThought;
@@ -674,7 +697,7 @@ async function responsesStreamAt(
       handlers.onThought?.(fallbackThought);
     }
   }
-  if (!content && calls.length === 0) throw new Error('EMPTY_COMPLETION');
+  if (!content && calls.length === 0 && !hasGeneratedMedia(generated)) throw new Error('EMPTY_COMPLETION');
   if (acc.completed.output?.length) {
     advanceResponsesState(acc.completed, messages, prepared, opts, {
       role: 'assistant', content: content || null, tool_calls: calls,
@@ -690,6 +713,7 @@ async function responsesStreamAt(
     reasoning: acc.thought || null,
     response_id: acc.completed?.id,
     usage: acc.completed ? usageFrom(acc.completed) : undefined,
+    ...(hasGeneratedMedia(generated) ? { generated_media: generated } : {}),
   };
   } finally {
     try { await reader.cancel(); } catch { /* preserve the original error */ }
@@ -714,7 +738,11 @@ export async function responsesCompletionStream(
     { onContent: onToken, onThought: opts?.onThought },
     opts,
   ));
-  return { content: result.content ?? '', model: result.model };
+  return {
+    content: result.content ?? '',
+    model: result.model,
+    ...(result.generated_media ? { generated_media: result.generated_media } : {}),
+  };
 }
 
 async function completionWithToolsImpl(

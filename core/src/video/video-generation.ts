@@ -1,6 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
 import type { VideoModelDef } from './video-models.js';
+import { saveMediaStream, type MediaRecord } from '../media/media-store.js';
 
 /** OpenRouter async video API: POST /videos → poll polling_url → GET /videos/{id}/content. */
 export interface VideoJobStatus {
@@ -16,7 +15,14 @@ export interface GenerateVideoInput {
   apiKey: string;
   model: VideoModelDef;
   prompt: string;
-  outputPath: string;
+  /** Where the verified video is stored (signature decides .mp4/.webm). */
+  output: {
+    dir: string;
+    urlPrefix: string;
+    baseName: string;
+    cqrRoot: string;
+    maxBytes?: number;
+  };
   signal?: AbortSignal;
   onStatus?: (text: string) => void;
   pollIntervalMs?: number;
@@ -27,7 +33,7 @@ export interface GenerateVideoInput {
 export interface GenerateVideoResult {
   jobId: string;
   bytes: number;
-  outputPath: string;
+  media: MediaRecord;
 }
 
 const TERMINAL_FAIL = new Set(['failed', 'cancelled', 'canceled', 'expired']);
@@ -116,9 +122,20 @@ export async function generateVideo(input: GenerateVideoInput): Promise<Generate
   const sameOrigin = new URL(downloadUrl).origin === origin;
   const dl = await doFetch(downloadUrl, { headers: sameOrigin ? auth : undefined, signal: input.signal });
   if (!dl.ok) throw new Error(`VIDEO_DOWNLOAD_FAILED ${await readError(dl)}`);
-  const buf = Buffer.from(await dl.arrayBuffer());
-  if (buf.length === 0) throw new Error('VIDEO_DOWNLOAD_FAILED 빈 파일');
-  mkdirSync(path.dirname(input.outputPath), { recursive: true });
-  writeFileSync(input.outputPath, buf);
-  return { jobId, bytes: buf.length, outputPath: input.outputPath };
+  const lengthHeader = dl.headers.get('content-length');
+  let media: MediaRecord;
+  try {
+    // Streamed to disk with size cap + signature check (MP4/WebM only; HTML error pages rejected).
+    media = await saveMediaStream(dl.body, {
+      expectKind: 'video',
+      ...input.output,
+      contentLength: lengthHeader ? Number(lengthHeader) : null,
+      signal: input.signal,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'MEDIA_ABORTED' || input.signal?.aborted) throw new Error('VIDEO_ABORTED');
+    throw new Error(`VIDEO_DOWNLOAD_FAILED ${msg}`);
+  }
+  return { jobId, bytes: media.bytes, media };
 }

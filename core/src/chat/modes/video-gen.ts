@@ -4,10 +4,10 @@ import type { ProviderStore } from '../../providers/provider-store.js';
 import type { SessionStore } from '../../sessions/session-store.js';
 import type { ChatResponse, RouteDecision } from '../../router/types.js';
 import type { ResolvedModelRoute } from '../../providers/types.js';
-import { assertWritablePath } from '../../security/path-guard.js';
 import { appendAssistantReply } from '../assistant-reply.js';
 import { generateVideo } from '../../video/video-generation.js';
 import { hasOrganizationVideoAccess, type VideoModelDef } from '../../video/video-models.js';
+import type { MediaRecord } from '../../media/media-store.js';
 
 export const VIDEO_MODEL_ORG_REQUIRED_MESSAGE = [
   '**동영상 모델을 사용할 수 없습니다**',
@@ -38,12 +38,13 @@ export async function handleVideoGenMode(opts: {
   onStatus?: (text: string) => void;
 }): Promise<ChatResponse> {
   const { providerStore, sessionStore, cqrRoot, videoOut, sessionId, message, routing, resolved, model } = opts;
-  const reply = (content: string, modelLabel: string, videoUrl?: string): ChatResponse => {
+  const reply = (content: string, modelLabel: string, video?: MediaRecord): ChatResponse => {
     const stored = appendAssistantReply(sessionStore, sessionId, {
       content,
       model: modelLabel,
       mode: routing.mode,
-      ...(videoUrl ? { image_urls: [videoUrl] } : {}),
+      // `image_urls` kept for older readers / carry; `media.kind` is authoritative.
+      ...(video ? { image_urls: [video.url], media: [video] } : {}),
     });
     return {
       role: 'assistant',
@@ -51,7 +52,7 @@ export async function handleVideoGenMode(opts: {
       mode: routing.mode,
       routing,
       model: modelLabel,
-      ...(videoUrl ? { images: [{ url: videoUrl }] } : {}),
+      ...(video ? { images: [{ url: video.url }] } : {}),
     };
   };
 
@@ -75,16 +76,19 @@ export async function handleVideoGenMode(opts: {
     return reply('**동영상 생성 실패**\n\n만들 영상을 설명하는 프롬프트를 입력하세요.', model.id);
   }
 
-  const file = `${randomUUID()}.mp4`;
-  const outputPath = path.join(videoOut, safeSegment(sessionId), file);
-  assertWritablePath(outputPath, cqrRoot);
+  const segment = safeSegment(sessionId);
   try {
     const out = await generateVideo({
       baseUrl,
       apiKey: secret.api_key,
       model,
       prompt: message,
-      outputPath,
+      output: {
+        dir: path.join(videoOut, segment),
+        urlPrefix: `/outputs/videos/${segment}`,
+        baseName: randomUUID(),
+        cqrRoot,
+      },
       signal: opts.signal,
       onStatus: opts.onStatus,
     });
@@ -92,7 +96,7 @@ export async function handleVideoGenMode(opts: {
     return reply(
       `동영상을 생성했습니다. (${model.label} · ${model.duration}초 · ${model.resolution} · ${mb}MB)`,
       model.id,
-      videoUrlFor(sessionId, file),
+      out.media,
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

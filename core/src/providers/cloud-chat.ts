@@ -21,6 +21,7 @@ interface ChatUsageResult {
   content: string;
   model: string;
   usage?: { input_tokens?: number; output_tokens?: number };
+  generated_media?: import('../media/generated-media-extract.js').GeneratedMedia;
 }
 
 function mapChatUsage(
@@ -229,7 +230,12 @@ export class CloudChatService {
       ...(opts?.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
       ...(opts?.onThought ? { onThought: opts.onThought } : {}),
     });
-    return { content: result.content, model: `${def.name}/${result.model}`, usage: mapChatUsage(result.usage) };
+    return {
+      content: result.content,
+      model: `${def.name}/${result.model}`,
+      usage: mapChatUsage(result.usage),
+      ...(result.generated_media ? { generated_media: result.generated_media } : {}),
+    };
   }
 
   private async completeStreamAt(
@@ -281,6 +287,11 @@ export class CloudChatService {
         ...(opts?.onThought ? { onThought: opts.onThought } : {}),
       },
     );
-    return { content: result.content, model: `${def.name}/${result.model}`, usage: mapChatUsage(result.usage) };
+    return {
+      content: result.content,
+      model: `${def.name}/${result.model}`,
+      usage: mapChatUsage(result.usage),
+      ...(result.generated_media ? { generated_media: result.generated_media } : {}),
+    };
   }
 }

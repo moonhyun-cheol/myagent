@@ -17,6 +17,10 @@ import type { ChatRequest, ChatResponse, ChatMode, RouteDecision } from '../rout
 import { DeepResearchPipeline } from '../research/deep-research.js';
 import { AutoImageBackend } from '../image/image-backend.js';
 import { ingestOwuiChatImages } from '../image/owui-media.js';
+import type { GeneratedMedia } from '../media/generated-media-extract.js';
+import { persistGeneratedImages, unverifiedMediaNotice } from '../media/generated-media-persist.js';
+import type { MediaRecord } from '../media/media-store.js';
+import type { ApplicationNotice } from '../sessions/types.js';
 import { parseProviderPreference, resolveChatModelAsync } from '../models/model-picker.js';
 import { findVideoModel, type VideoModelDef } from '../video/video-models.js';
 import { handleVideoGenMode } from './modes/video-gen.js';
@@ -669,7 +673,7 @@ export class ChatOrchestrator {
       chatResult.content,
       sessionId,
       resolved.route.type === 'provider' ? resolved.route.providerId : null,
-      { userMessage: message },
+      { userMessage: message, generated: chatResult.generated_media, model: chatResult.model },
     );
 
     this.sessionStore.append(sessionId, {
@@ -679,6 +683,8 @@ export class ChatOrchestrator {
       model: chatResult.model,
       mode: chatLikeMode,
       image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
+      ...(finalized.media.length ? { media: finalized.media } : {}),
+      ...(finalized.notice ? { application_notice: finalized.notice } : {}),
       ...(chatResult.usage ? { usage: chatResult.usage } : {}),
     });
 
@@ -1393,7 +1399,7 @@ export class ChatOrchestrator {
           out.content,
           sessionId,
           resolved.route.providerId,
-          { userMessage: message },
+          { userMessage: message, generated: out.generated_media, model: out.model },
         );
         if (finalized.content !== out.content) {
           sseEvent(res, { type: 'content_replace', text: finalized.content });
@@ -1408,6 +1414,8 @@ export class ChatOrchestrator {
           model: out.model,
           mode: routing.mode,
           image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
+          ...(finalized.media.length ? { media: finalized.media } : {}),
+          ...(finalized.notice ? { application_notice: finalized.notice } : {}),
           ...(out.usage ? { usage: out.usage } : {}),
         });
         sseEvent(res, {
@@ -1415,6 +1423,7 @@ export class ChatOrchestrator {
           model: out.model,
           mode: routing.mode,
           ...(out.usage ? { usage: out.usage } : {}),
+          ...(finalized.notice ? { applicationNotice: finalized.notice } : {}),
         });
         sseDone(res);
         return;
@@ -1495,7 +1504,12 @@ export class ChatOrchestrator {
     hasWorkspaceContext = false,
     imageDataUrls: string[] = [],
     sessionId?: string,
-  ): Promise<{ content: string; model: string; usage?: { input_tokens?: number; output_tokens?: number } }> {
+  ): Promise<{
+    content: string;
+    model: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
+    generated_media?: GeneratedMedia;
+  }> {
     if (resolved.route.type === 'provider') {
       try {
         return await this.cloudChat.complete(
@@ -1607,15 +1621,15 @@ export class ChatOrchestrator {
     content: string,
     sessionId: string,
     providerId: string | null,
-    opts?: { maxImages?: number; userMessage?: string },
-  ): Promise<{ content: string; imageUrls: string[] }> {
+    opts?: { maxImages?: number; userMessage?: string; generated?: GeneratedMedia; model?: string },
+  ): Promise<{ content: string; imageUrls: string[]; media: MediaRecord[]; notice?: ApplicationNotice }> {
     const outlet = applyChatOutletFilter(content, {
       sessionId,
       userMessage: opts?.userMessage,
     });
     const scrubbed = outlet.text;
-    if (!providerId) return { content: scrubbed, imageUrls: [] };
-    return ingestOwuiChatImages({
+    if (!providerId) return { content: scrubbed, imageUrls: [], media: [] };
+    const owui = await ingestOwuiChatImages({
       content: scrubbed,
       providerStore: this.providerStore,
       providerId,
@@ -1624,6 +1638,27 @@ export class ChatOrchestrator {
       cqrRoot: this.cqrRoot,
       maxImages: opts?.maxImages,
     });
+    if (!opts?.generated) return owui;
+    // Images carried as structured provider output (not text) — CQR_PA image-missing P0.
+    const persisted = persistGeneratedImages(opts.generated, {
+      imageOutDir: this.imageOut,
+      sessionId,
+      cqrRoot: this.cqrRoot,
+      knownSha256: owui.media.map((m) => m.sha256),
+      maxImages: opts.maxImages,
+    });
+    const media = [...owui.media, ...persisted.media];
+    const notice = unverifiedMediaNotice(persisted, opts.model);
+    let text = owui.content;
+    if (!text.trim() && !media.length) {
+      text = '모델이 글 없이 생성 결과만 보냈지만 파일로 저장하지 못했습니다.';
+    }
+    return {
+      content: text,
+      imageUrls: media.map((m) => m.url),
+      media,
+      ...(notice ? { notice } : {}),
+    };
   }
 
   getResearchMarkdown(sessionId: string, id: string): string | null {
@@ -1639,7 +1674,7 @@ export class ChatOrchestrator {
   }
 
   getVideoPath(sessionId: string, filename: string): string | null {
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !/^[A-Za-z0-9-]+\.mp4$/.test(filename)) return null;
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !/^[A-Za-z0-9-]+\.(mp4|webm)$/.test(filename)) return null;
     const p = path.join(this.videoOut, sessionId, filename);
     if (!existsSync(p)) return null;
     return p;

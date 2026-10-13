@@ -43,6 +43,11 @@ export interface SessionMessage {
   work_timeline?: import('./work-timeline.js').WorkTimelineItem[];
   /** Local `/outputs/images/...` URLs for chat + image_gen restore */
   image_urls?: string[];
+  /**
+   * Signature-verified generated media (image/video) for this reply. `image_urls`
+   * is still written with the same URLs for older readers and carry/import paths.
+   */
+  media?: import('../media/media-store.js').MediaRecord[];
   /** Uploaded files owned by the originating chat; no blob URLs or absolute paths. */
   attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice rendered separately from model-authored content. */
