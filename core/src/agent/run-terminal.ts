@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type ChildProcessWithoutNullStream
 import path from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath, resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
+import { externalTerminalPaths } from './terminal-path-policy.js';
 
 export interface RunTerminalResult {
   ok: boolean;
@@ -260,7 +261,7 @@ export function tryShortcutExistingRemoteClone(
   }
 }
 
-function validateShellCommand(command: string, workspaceRoot: string): string | null {
+export function validateShellCommand(command: string, workspaceRoot: string, approvedCommand?: string): string | null {
   const trimmed = command.trim();
   if (!trimmed) return 'command must be non-empty';
   if (/\.\.[\\/]|[\\/]\.\./.test(trimmed)) {
@@ -281,16 +282,9 @@ function validateShellCommand(command: string, workspaceRoot: string): string | 
       return `command blocked by safety policy: ${pattern.source}.${cloneHint}`;
     }
   }
-  const root = normalizeWorkspacePath(workspaceRoot).toLowerCase();
-  const driveLetterMatch = trimmed.match(/\b([A-Za-z]):[\\/]/g);
-  if (driveLetterMatch) {
-    for (const token of driveLetterMatch) {
-      const abs = path.resolve(token.slice(0, -1));
-      const rel = path.relative(root, abs.toLowerCase());
-      if (rel.startsWith('..') || path.isAbsolute(rel)) {
-        return `absolute path outside workspace is not allowed: ${token}`;
-      }
-    }
+  const external = externalTerminalPaths(trimmed, normalizeWorkspacePath(workspaceRoot));
+  if (external.length && approvedCommand !== command) {
+    return `absolute path outside workspace requires approval for this exact command: ${external[0]}`;
   }
   return null;
 }
@@ -302,13 +296,14 @@ function validateShellCommand(command: string, workspaceRoot: string): string | 
 export function runTerminalCommandAsync(
   workspaceRoot: string,
   command: string,
-  opts?: { timeoutMs?: number; signal?: AbortSignal; jobId?: string; onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void },
+  opts?: { timeoutMs?: number; signal?: AbortSignal; jobId?: string; onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void; approvedCommand?: string },
 ): Promise<RunTerminalResult> {
   assertDevWorkspaceRootReadable(workspaceRoot);
   const cwd = normalizeWorkspacePath(workspaceRoot);
   const sanitized = sanitizeShellCommandForPolicy(command);
   const effectiveCommand = sanitized.command;
-  const validationError = validateShellCommand(effectiveCommand, cwd);
+  const validationError = validateShellCommand(effectiveCommand, cwd,
+    opts?.approvedCommand === command ? effectiveCommand : undefined);
   if (validationError) {
     return Promise.resolve({
       ok: false,
@@ -450,13 +445,14 @@ export function runTerminalCommandAsync(
 export function runTerminalCommand(
   workspaceRoot: string,
   command: string,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; approvedCommand?: string },
 ): RunTerminalResult {
   assertDevWorkspaceRootReadable(workspaceRoot);
   const cwd = normalizeWorkspacePath(workspaceRoot);
   const sanitized = sanitizeShellCommandForPolicy(command);
   const effectiveCommand = sanitized.command;
-  const validationError = validateShellCommand(effectiveCommand, cwd);
+  const validationError = validateShellCommand(effectiveCommand, cwd,
+    opts?.approvedCommand === command ? effectiveCommand : undefined);
   if (validationError) {
     return {
       ok: false,

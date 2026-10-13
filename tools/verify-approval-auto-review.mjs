@@ -160,7 +160,7 @@ try {
   assert.match(orchestrator, /const wait = waitForToolApproval/);
   assert.match(orchestrator, /access: approvalReq\.access/);
   assert.match(client, /워크스페이스 외부 읽기/);
-  assert.match(client, /return confirmDialog\(\{/);
+  assert.match(client, /return (?:await )?confirmDialog\(\{/);
   assert.doesNotMatch(client, /승인 확인|거절 확인|거절 확정|다시 선택/);
   const approvalExecutionIndex = stepLoop.indexOf('const hitl = needsHumanApproval(execCall.function.name');
   const checkpointExecutionIndex = stepLoop.indexOf(

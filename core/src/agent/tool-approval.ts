@@ -5,6 +5,7 @@ import { pluginInstallNeedsHitl } from './agent-plugin-capability.js';
 import path from 'node:path';
 import { isOfficeBinaryPath } from '../security/workspace-capabilities.js';
 import { isAbsoluteUserPath, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
+import { externalTerminalPaths } from './terminal-path-policy.js';
 
 export type ToolApprovalAccess =
   | 'operation'
@@ -114,7 +115,9 @@ export function canDelegateToolApproval(
   args: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
-  if (toolName === 'run_terminal') return true;
+  if (toolName === 'run_terminal') {
+    return externalTerminalPaths(String(args.command ?? ''), workspaceRoot).length === 0;
+  }
   if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files') {
     const target = toolPathTargets(toolName, args).paths[0];
     return typeof target === 'string' && target.trim().length > 0;
@@ -346,13 +349,18 @@ export function needsHumanApproval(
   }
   if (toolName === 'run_terminal') {
     const cmd = typeof args.command === 'string' ? args.command : '?';
-    if (hitlSafeTerminalEnabled(env) && isSafeVerifyTerminalCommand(cmd)) {
+    const external = context?.workspaceRoot
+      ? externalTerminalPaths(cmd, context.workspaceRoot) : [];
+    if (!external.length && hitlSafeTerminalEnabled(env) && isSafeVerifyTerminalCommand(cmd)) {
       return { needed: false, danger: false, summary: '' };
     }
     return {
       needed: true,
       danger: true,
-      summary: `터미널 실행: ${cmd.slice(0, 200)}${cmd.length > 200 ? '…' : ''}`,
+      access: 'operation',
+      targets: external.length ? external : undefined,
+      expires: 'once',
+      summary: `터미널 실행: ${cmd}`,
     };
   }
   if (toolName === 'write_file') {

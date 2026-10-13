@@ -147,3 +147,10 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
   - `tools/commands/services.example.json`: 플레이스홀더 예제(실제 서비스로 교체용).
 - **미이식(범위 밖, (b)~)**: 실제 NS_FBE/EVAL 서비스 런처 연동(`run_local.ps1` `-TerminalWindowName`/`-NoActivate`), 사내 자동화 작업 갱신/일시정지 등 사내 배포 운영 항목. 이들은 MY Agent 제품 저장소 대상이 아니며 필요 시 별도 사내 배포 단위에서 반영해야 한다.
 - 검증: `npm run verify:service-orchestration` **12/12 통과** — 스키마 구조/예제 적합성, 골격의 CQR_PA 머신 종속값 부재(경로·포트·ID 정적 스캔), 계약 요소(전용 창 기본값·헬스 우선 스킵·포커스 캡처/복원·단일 최종 활성화·pwsh fallback·wt.exe 실패), 그리고 실제 PowerShell 파서 검사 + `-WhatIf -NoFinalActivate` 드라이런 exit 0. ⚠️ 실제 Windows Terminal 다중 탭 기동/포커스 복원은 앱·환경 실행 검증 아님(정적·파서·드라이런까지).
+
+## #12 terminal-command-approval (CQR_PA `42d9657`, 2026-10-12) — 포팅 완료
+- 터미널 명령 안의 작업 폴더 밖 절대 경로(Windows 드라이브·UNC)를 `core/src/agent/terminal-path-policy.ts`로 판별한다. 예전에는 무조건 차단했지만, 이제는 **그 명령 그대로를 1회 승인**받으면 실행한다.
+- 승인된 명령은 드라이버가 `approvedTerminalCommand`로 넘긴다(`agent-run-step-loop.ts` → `agent-tool-execute.ts` → `run-terminal.ts`). 모델이 보낸 인자로는 승인을 만들 수 없고, 명령이 한 글자라도 다르거나 다음 호출이면 다시 막는다. `..`·git push/pull/reset·재귀 삭제 같은 하드 차단은 승인과 무관하게 유지된다.
+- 외부 경로가 있는 터미널 명령은 대신 승인(`canDelegateToolApproval`)과 안전 명령 자동 통과에서 제외하고, 승인 카드에 대상 경로와 전체 명령을 표시한다(`access: 'operation'`, `expires: 'once'`).
+- 함께 이식: `tools/verify-terminal-command-approval.mjs`(신규), `tools/verify-approval-auto-review.mjs` 정규식 1줄. 같은 커밋의 `2026-10-08-cc-image-missing-investigation.md`는 코드가 아니라 계획이며 `docs/media-output-persistence-plan.md`에 영상까지 넓혀 정리했다.
+- 검증: `tsc -p tsconfig.json` exit 0, `verify-terminal-command-approval`·`verify-approval-auto-review`·`verify-run-terminal-sanitize` 통과. ⚠️ 실제 앱 승인 카드 UI 확인은 하지 않음.

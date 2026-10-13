@@ -613,6 +613,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       // Approval is evaluated before retrieval auto-heal, read-before-write and
       // checkpoint creation. No outside-workspace path may be touched while the
       // user is still looking at an approval card.
+      let approvedTerminalCommand: string | undefined;
       const hitl = needsHumanApproval(execCall.function.name, args, process.env, {
         workspaceRoot: state.opts.workspaceRoot,
         allowedWriteRoots: state.opts.allowedWriteRoots,
@@ -665,6 +666,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (거절됨)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
           continue;
+        }
+        if (execCall.function.name === 'run_terminal') {
+          approvedTerminalCommand = String(args.command ?? '').trim();
         }
         if (hitl.access === 'external_read') {
           for (const root of hitl.grantRoots ?? []) state.approvedExternalReadRoots.add(root);
@@ -869,7 +873,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         const toolStarted = Date.now();
         state.toolCallCount += 1;
         noteFirstTool(state);
-        const execResult = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, batchToolCtx);
+        const execResult = await executeAgentTool(state.opts.workspaceRoot, execCall, state.guard, {
+          ...batchToolCtx,
+          approvedTerminalCommand,
+        });
         output = execResult.output;
         followUpImage = execResult.followUpImage;
         durationMs = Date.now() - toolStarted;

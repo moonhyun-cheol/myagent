@@ -743,6 +743,7 @@ async function executeAgentToolInner(
           };
         }
         const run = await runTerminalCommandAsync(workspaceRoot, command, {
+          approvedCommand: ctx?.approvedTerminalCommand,
           signal: ctx?.signal,
           onOutput: ctx?.onOutput,
           jobId: ctx?.sessionId ? `agent_${ctx.sessionId}_${normalized.id}` : undefined,

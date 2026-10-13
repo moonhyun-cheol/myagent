@@ -33,6 +33,8 @@ export interface AgentToolContext {
   browserRouting?: 'interactive' | 'background';
   /** Cancel long-running tools (run_terminal). */
   signal?: AbortSignal;
+  /** Driver-only, exact command approved for this call; never sourced from model args. */
+  approvedTerminalCommand?: string;
   /** Exact current/continued run tool evidence and evidence_read source. */
   evidenceStore?: AgentEvidenceStore;
   /** Live evidence callback used by model-authored task completion. */
