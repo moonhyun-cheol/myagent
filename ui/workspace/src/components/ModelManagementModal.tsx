@@ -146,6 +146,8 @@ export function ModelManagementModal({
     () => providers.filter((p) => p.user_defined),
     [providers],
   );
+  const videoCompanyModels = useMemo(() => new Set(companyModels?.video ?? []), [companyModels]);
+  const labelFor = (id: string) => (videoCompanyModels.has(id) ? `${companyModelLabel(id)} · 동영상` : companyModelLabel(id));
   const companyModelChoices = useMemo(() => {
     if (!companyModels) return [];
     const query = companyModelSearch.trim().toLowerCase();
@@ -153,9 +155,11 @@ export function ModelManagementModal({
     const discovery = query
       ? companyModels.available
       : [...companyModels.featured, ...companyModels.recent];
+    const video = new Set(companyModels.video ?? []);
+    const label = (id: string) => (video.has(id) ? `${companyModelLabel(id)} · 동영상 video` : companyModelLabel(id));
     return [...new Set(discovery)]
       .filter((id) => !selected.has(id))
-      .filter((id) => !query || companyModelLabel(id).toLowerCase().includes(query))
+      .filter((id) => !query || label(id).toLowerCase().includes(query))
       .slice(0, 40);
   }, [companyModels, companyModelDraft, companyModelSearch]);
 
@@ -427,7 +431,7 @@ export function ModelManagementModal({
 
                 <div className="mt-4 grid gap-2">
                   {companyModelDraft.length ? companyModelDraft.map((id) => {
-                    const label = companyModelLabel(id);
+                    const label = labelFor(id);
                     return (
                       <div key={id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel-2/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <span className="min-w-0 break-all text-sm font-medium leading-5 sm:truncate" title={label}>
@@ -473,7 +477,7 @@ export function ModelManagementModal({
                         onClick={() => addCompanyModel(id)}
                         className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-emerald-50 hover:text-emerald-800"
                       >
-                        {companyModelLabel(id)}
+                        {labelFor(id)}
                         {premiumCompanyModels.has(id) ? <PremiumCostBadge /> : null}
                       </button>
                     )) : companyModelSearch.includes('/') || companyModelSearch.startsWith('open_webui_openrouter_integration.') ? (

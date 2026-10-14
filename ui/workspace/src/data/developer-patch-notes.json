@@ -2,6 +2,22 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "video-models-search-only",
+      "status": "development",
+      "title": "동영상 모델은 검색으로만 추가",
+      "detail": "Veo·Seedance 같은 동영상 생성 모델이 채팅 모델 목록에 기본으로 나오지 않습니다. 모델 관리의 MY 모델 찾기에서 veo, seedance, 동영상으로 검색해 MY 모델에 추가하면 그때부터 채팅 모델 목록에 보입니다.",
+      "area": "models",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/models/model-picker.ts",
+        "ui/workspace/src/components/ModelManagementModal.tsx"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "model-cards-one-per-row",
       "status": "released",
       "title": "선택한 모델을 한 줄에 하나씩 넓은 카드로 표시",

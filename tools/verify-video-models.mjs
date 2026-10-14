@@ -40,7 +40,8 @@ try {
   rmSync(root, { recursive: true, force: true });
 }
 
-// 3. Picker: video options appear only when passed (org-filtered) for the managed provider.
+// 3. Picker: video models are search-only. They never auto-list; they join the searchable
+//    catalog (org-filtered) and reach the picker only once selected in MY Models.
 const fakeStore = {
   listDefinitions: () => [{ id: 'custom', name: 'OpenRouter', custom: true, base_url: 'https://openrouter.ai/api/v1' }],
   getConfiguredIds: () => ['custom'],
@@ -51,9 +52,19 @@ const fakeStore = {
 const registry = { load: () => ({ models: [], default_llm_id: null }) };
 const without = await buildModelPicker(registry, {}, fakeStore, {});
 assert.ok(!without.options.some((o) => o.category === 'video'), 'no video without org');
+assert.equal(without.company_models?.video, undefined, 'no video ids without org');
 const withVideo = await buildModelPicker(registry, {}, fakeStore, { videoModels: catalog.models });
-const videoOpts = withVideo.options.filter((o) => o.category === 'video');
-assert.equal(videoOpts.length, catalog.models.length);
+assert.ok(!withVideo.options.some((o) => o.category === 'video'), 'video not auto-listed in picker');
+assert.deepEqual(withVideo.company_models?.video, catalog.models.map((m) => m.id), 'video ids exposed for search');
+const picked = await buildModelPicker(
+  registry,
+  { company_model_ids: ['openai/gpt-5.6-sol', catalog.models[0].id] },
+  fakeStore,
+  { videoModels: catalog.models },
+);
+const videoOpts = picked.options.filter((o) => o.category === 'video');
+assert.equal(videoOpts.length, 1, 'selected video model appears in picker');
+assert.equal(videoOpts[0].label, catalog.models[0].label);
 assert.ok(videoOpts[0].value.startsWith('provider:custom@'));
 
 // 4. Job client: submit → poll → download; key never sent to a foreign host.

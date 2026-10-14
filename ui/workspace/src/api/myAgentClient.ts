@@ -1135,6 +1135,8 @@ export interface CompanyModelSettings {
   recent: string[];
   /** Model ids at/above the high-cost output-price threshold. */
   premium?: string[];
+  /** Video-generation model ids (search-only; shown with a 동영상 suffix). */
+  video?: string[];
 }
 
 export async function fetchCompanyModelSettings(refreshRemote = false): Promise<CompanyModelSettings> {

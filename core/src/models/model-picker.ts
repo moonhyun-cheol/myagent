@@ -74,6 +74,8 @@ export interface ModelPickerPayload {
     recent: string[];
     /** Model ids at/above the high-cost threshold (same rule as `premium_model_ids`). */
     premium?: string[];
+    /** Core video-catalog ids (organization gate passed). Search-only: never auto-listed in the picker. */
+    video?: string[];
   };
 }
 
@@ -278,16 +280,38 @@ export async function buildModelPicker(
         const selectedModels = describeRemoteModels(selectedIds, curateCfg);
         remoteModelsShown[def.id] = selectedModels.length;
         modeHints = buildModeHints(def.id, selectedModels);
+        // Video models are search-only in MY 모델 찾기: they join the searchable
+        // catalog (when the org gate passed) but reach the picker only after the
+        // user adds them to the MY Models selection, like any other model.
+        const videoById = new Map((opts?.videoModels ?? []).map((v) => [v.id, v] as const));
+        const videoIds = [...videoById.keys()];
+        const searchable = remote.models.length
+          ? [...remote.models, ...videoIds.filter((id) => !remote.models.includes(id))]
+          : remote.models;
         companyModels = {
           source: overrides.company_model_ids?.length ? 'personalized' : 'default',
           selected: selectedModels.map((model) => model.id),
           defaults: companyDefaults,
-          available: remote.models,
+          available: searchable,
           featured: companyDefaults.filter((id) => remote.models.includes(id)),
           recent: remote.recent,
+          ...(videoIds.length ? { video: videoIds } : {}),
         };
 
         for (const m of selectedModels) {
+          const video = videoById.get(m.id);
+          if (video) {
+            options.push({
+              value: encodeProviderModelPick(def.id, video.id),
+              label: video.label,
+              kind: 'provider',
+              access_mode: 'managed',
+              provider_id: def.id,
+              configured: true,
+              category: 'video',
+            });
+            continue;
+          }
           options.push({
             value: encodeProviderModelPick(def.id, m.id),
             label: m.displayName,
@@ -298,18 +322,6 @@ export async function buildModelPicker(
             category: m.category,
             reasoning_capability: modelReasoningCapability(m.id),
             cost_tier: modelCostTier(def.id, m.id, premiumThreshold),
-          });
-        }
-
-        for (const v of opts?.videoModels ?? []) {
-          options.push({
-            value: encodeProviderModelPick(def.id, v.id),
-            label: v.label,
-            kind: 'provider',
-            access_mode: 'managed',
-            provider_id: def.id,
-            configured: true,
-            category: 'video',
           });
         }
 
