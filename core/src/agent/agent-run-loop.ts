@@ -102,7 +102,11 @@ import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
-import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
+import {
+  buildAgentContinuationSnapshot,
+  fingerprintWorkspacePaths,
+  partitionPathsByFingerprint,
+} from './agent-continuation-snapshot.js';
 import { isAgentExecutionLimit } from './agent-failure-plane.js';
 import {
   formatLockedConstraintsSystemNote,
@@ -185,6 +189,9 @@ export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentRes
           ...opts,
           providerId: 'ollama',
           modelId: ollama.modelId,
+          // Same user turn re-run on another provider: resume what the failed attempt
+          // persisted without counting it as a user 「이어서」.
+          continuationRetry: true,
         });
       }
     }
@@ -559,11 +566,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     retry: opts.continuationRetry === true,
   });
   if (continuationResume.exhausted) {
-    try {
-      clearSessionContinuationState(opts.cqrRoot, opts.sessionId);
-    } catch {
-      /* meta best-effort */
-    }
+    // Keep the snapshot (and its resumeCount) so another 「이어서」 stays exhausted.
+    // Clearing here reset the counter to 0 and made the cap bypassable; a fresh request
+    // still clears it through the non-continuity branch above.
     reportStatus(`이어가기 한도 도달 (${continuationResume.max}회)`);
     return finish({
       content: '',
@@ -606,14 +611,31 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     workspaceRoot: opts.workspaceRoot,
   });
   if (taskTopicManifest) appendTurnContext(messages, taskTopicManifest);
+  // Seed read_before_write only from this continuation chain's paths, and only for files
+  // whose disk fingerprint is unchanged since the snapshot. Anything edited meanwhile
+  // (user, git, another chat) must be re-read before write/delete.
+  const continuitySeedSelection = sessionContinuity
+    ? partitionPathsByFingerprint(
+        opts.workspaceRoot,
+        continuationSnapshot
+          ? [...continuationSnapshot.mutatedPaths, ...continuationSnapshot.readPaths]
+          : [],
+        continuationSnapshot?.pathFingerprints,
+      )
+    : { unchanged: [] as string[], changed: [] as string[] };
   if (sessionContinuity) {
     appendTurnContext(messages, formatSessionContinuitySystemNote({
       readPaths: sessionReadPaths,
       mutatedPaths: sessionMetaForGate.mutatedPaths,
       continuationSnapshot,
       progressCheckpoint: continuationCheckpoint,
+      seededPaths: continuitySeedSelection.unchanged,
+      stalePaths: continuitySeedSelection.changed,
     }));
-    pushThought('Session continuity — readGate 시드 · 재진단 스킵');
+    pushThought(
+      `Session continuity — readGate 시드 ${continuitySeedSelection.unchanged.length}개`
+        + (continuitySeedSelection.changed.length ? ` · 변경/미확인 ${continuitySeedSelection.changed.length}개 재읽기 필요` : ''),
+    );
     reportStatus('Session continuity · 이전 읽기/수정 경로 재사용');
   }
   const lockedNote = formatLockedConstraintsSystemNote(lockedConstraints);
@@ -680,12 +702,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     }),
   };
   const readGate = new WorkspaceReadGate();
-  const continuitySeedPaths = [
-    ...sessionReadPaths,
-    ...sessionMetaForGate.mutatedPaths,
-  ];
-  if (sessionContinuity && continuitySeedPaths.length) {
-    const seeded = seedReadGateFromSession(readGate, continuitySeedPaths);
+  if (sessionContinuity && continuitySeedSelection.unchanged.length) {
+    const seeded = seedReadGateFromSession(readGate, continuitySeedSelection.unchanged);
     for (const p of seeded) successfulReadsThisRun.add(p);
   }
   let autoCheckpointTaken = false;
@@ -824,6 +842,10 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
           || meta.lastProgressCheckpoint?.runtime?.model,
         elapsedMs: live.priorElapsedMs + (Date.now() - live.runStartedAt),
         payloadChars: estimateChatPayloadChars(live.messages),
+        pathFingerprints: fingerprintWorkspacePaths(opts.workspaceRoot, [
+          ...live.mutatedPathsThisRun,
+          ...live.successfulReadsThisRun,
+        ]),
       });
       recordSessionContinuationSnapshot(opts.cqrRoot, opts.sessionId, snapshot);
       persistLiveSessionMeta();

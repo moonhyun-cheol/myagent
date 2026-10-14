@@ -115,7 +115,10 @@ import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentInfraError } from './agent-failure-plane.js';
 import { TokenEfficiencyAdvisor } from './agent-token-efficiency.js';
 import { prepareAgentContextForRequest } from './agent-context-assembler.js';
-import { buildAgentContinuationSnapshot } from './agent-continuation-snapshot.js';
+import {
+  buildAgentContinuationSnapshot,
+  fingerprintWorkspacePaths,
+} from './agent-continuation-snapshot.js';
 import {
   clearSessionContinuationState,
   loadAgentRunMeta,
@@ -199,6 +202,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       verifyWitness: state.verifyWitness,
       lastModelOutput: state.lastModelOutput || state.answerBuf.trim(),
       resumeCount: state.resumeCount,
+      pathFingerprints: fingerprintWorkspacePaths(state.opts.workspaceRoot, [
+        ...state.mutatedPathsThisRun,
+        ...state.successfulReadsThisRun,
+      ]),
     });
     recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
     state.persistLiveSessionMeta();

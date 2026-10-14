@@ -79,15 +79,31 @@ export function formatSessionContinuitySystemNote(opts: {
   mutatedPaths: string[];
   progressCheckpoint?: AgentProgressCheckpoint;
   continuationSnapshot?: AgentContinuationSnapshot;
+  /**
+   * Paths actually seeded into read_before_write (unchanged on disk since the snapshot).
+   * When provided, only these are announced as known.
+   */
+  seededPaths?: string[];
+  /** Chain paths that changed on disk (or lack a fingerprint) — must be re-read. */
+  stalePaths?: string[];
 }): string {
-  const known = [...new Set([...opts.readPaths, ...opts.mutatedPaths])].slice(0, 16);
+  const known = (opts.seededPaths
+    ? [...new Set(opts.seededPaths)]
+    : [...new Set([...opts.readPaths, ...opts.mutatedPaths])]).slice(0, 16);
+  const stale = [...new Set(opts.stalePaths ?? [])].slice(0, 16);
   const lines = [
     '## Session continuity (readGate seeded)',
-    'This run reuses paths inspected/mutated earlier in the session. Do NOT re-list the whole repo or re-read every file from scratch.',
+    'This run resumes earlier work. Do NOT re-list the whole repo or redo completed discovery.',
     'If edit_file fails (stale snippet), then read_file that one path and retry — not a full diagnosis.',
   ];
   if (known.length) {
-    lines.push(`Known paths (read_before_write already satisfied): ${known.join(', ')}`);
+    lines.push(`Known paths (unchanged on disk; read_before_write already satisfied): ${known.join(', ')}`);
+  }
+  if (stale.length) {
+    lines.push(`Changed on disk or not verified since the last run (read_file again before mutating): ${stale.join(', ')}`);
+  }
+  if (opts.seededPaths) {
+    lines.push('Any path not listed as known must be read_file\'d before write/edit/delete.');
   }
   lines.push('Continue from the known paths. Skip query_repo_map unless the target path is unknown.');
   if (opts.continuationSnapshot) {
