@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Stop progress detail: /chat/cancel reports which tools are still running and
- * how long the cancellation has been pending; UI keeps re-checking and only
- * offers a UI-only force release after a long unconfirmed stop.
+ * how long the cancellation has been pending; UI keeps re-checking until the
+ * server confirms the stop (no UI-only force release).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -44,12 +44,10 @@ assert.match(toolExec, /trackChatRunTool\(normalized\.function\.name\)/, 'tool e
 assert.match(toolExec, /untrack\(\);/, 'tool tracking released in finally');
 
 const store = readFileSync('ui/workspace/src/store/workspaceStore.ts', 'utf8');
-assert.match(store, /STOP_FORCE_RELEASE_MS = 60_000/, 'force release only after 60s');
 assert.match(store, /watchUntilStopped\(sid, expected\)/, 'auto re-check after first window');
-assert.match(store, /Never auto-send queued work after a forced release/, 'forced release keeps queue in review');
+assert.doesNotMatch(store, /forceReleaseStoppedRun|stopForceReleasable|STOP_FORCE_RELEASE_MS/, 'UI-only force release removed');
 assert.doesNotMatch(store, /정지 버튼으로 재확인/, 'old manual re-check wording removed');
 const pane = readFileSync('ui/workspace/src/components/ChatPane.tsx', 'utf8');
-assert.match(pane, /stopForceReleasable \?/, 'force release button gated');
-assert.match(pane, /then\(\(ok\) => \{ if \(ok\) forceReleaseStoppedRun\(\); \}\)/, 'force release requires confirm');
+assert.doesNotMatch(pane, /forceReleaseStoppedRun|stopForceReleasable|강제 해제/, 'force release button removed');
 
 console.log('verify-chat-run-stop-detail: ok');

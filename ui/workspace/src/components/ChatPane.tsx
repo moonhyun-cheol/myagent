@@ -27,7 +27,6 @@ import {
   type ReactNode,
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
-import { confirmDialog } from '../lib/confirmDialog';
 import { isVideoMediaUrl } from '../lib/mediaUrl';
 import { isPremiumModelRef } from '../lib/modelCost';
 import { PremiumCostBadge } from './PremiumCostBadge';
@@ -291,8 +290,6 @@ export function ChatPane() {
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
   const continueQueuedMessages = useWorkspaceStore((s) => s.continueQueuedMessages);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
-  const forceReleaseStoppedRun = useWorkspaceStore((s) => s.forceReleaseStoppedRun);
-  const stopForceReleasable = useWorkspaceStore((s) => Boolean(s.activeSessionId && s.stopForceReleasable[s.activeSessionId]));
 
   const activeSessionId = useWorkspaceStore((s) => s.activeSessionId);
   const composerSessionPromotionId = useWorkspaceStore((s) => s.composerSessionPromotionId);
@@ -2378,25 +2375,6 @@ export function ChatPane() {
                     <Stop size={14} weight="fill" />
                     중지
                     </button>
-                    {stopForceReleasable ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void confirmDialog({
-                            title: '강제 해제',
-                            message: '서버가 아직 정지를 확인하지 않았습니다. 앞 작업이 아직 파일을 고치고 있을 수 있습니다.\n\n화면 보류만 풀고, 대기 중인 메시지는 자동으로 보내지 않습니다. 서버 작업이 실제로 끝나기 전에는 이 대화에서 새 메시지가 거부될 수 있습니다.',
-                            danger: true,
-                            confirmLabel: '강제 해제',
-                            cancelLabel: '취소',
-                            allowEnterConfirm: false,
-                          }).then((ok) => { if (ok) forceReleaseStoppedRun(); });
-                        }}
-                        title="서버 정지 확인 없이 화면 보류만 해제"
-                        className="composer-stop-button"
-                      >
-                        강제 해제
-                      </button>
-                    ) : null}
                   </>
                 ) : (
                   <button

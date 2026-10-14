@@ -499,8 +499,6 @@ interface WorkspaceState {
   messageQueue: QueuedMessage[];
   /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
   queueReviewSessions: Record<string, boolean>;
-  /** Sessions whose stop stayed unconfirmed long enough to offer a UI-only force release. */
-  stopForceReleasable: Record<string, boolean>;
   updateQueuedMessage: (id: string, text: string) => void;
   removeQueuedMessage: (id: string) => void;
   /** Patch one visible chat turn in place (e.g. video result retrieved later). */
@@ -613,11 +611,8 @@ interface WorkspaceState {
   /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
   buildFromPlan: (assistantTurnId: string) => Promise<void>;
   stopAiMessage: () => void;
-  /** Last resort: release the UI after an unconfirmed stop (server run may still be alive). */
-  forceReleaseStoppedRun: () => void;
 }
 
-const STOP_FORCE_RELEASE_MS = 60_000;
 const STOP_WATCH_INTERVAL_MS = 2_500;
 
 function formatStopRunningTools(progress?: ChatRunStopProgress): string {
@@ -896,9 +891,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     job.stopProgress = progress;
     if (get().sessionPhases[sid] === 'stop_failed') {
       patchLiveChat(sid, job.chat, formatStopPending(job));
-      if (job.stopRequestedAt && Date.now() - job.stopRequestedAt >= STOP_FORCE_RELEASE_MS && !get().stopForceReleasable[sid]) {
-        set({ stopForceReleasable: { ...get().stopForceReleasable, [sid]: true } });
-      }
     } else {
       const running = formatStopRunningTools(progress);
       patchLiveChat(sid, job.chat, running ? `중지 중… · ${running}` : '중지 중…');
@@ -932,13 +924,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         job.stopWatching = false;
       }
     })();
-  };
-
-  const clearStopForceReleasable = (sid: string) => {
-    if (!get().stopForceReleasable[sid]) return;
-    const next = { ...get().stopForceReleasable };
-    delete next[sid];
-    set({ stopForceReleasable: next });
   };
 
   const finishJob = async (sid: string, expected: LiveJob) => {
@@ -988,7 +973,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const phases = { ...get().sessionPhases };
     delete phases[sid];
     set({ sessionPhases: phases });
-    clearStopForceReleasable(sid);
     if (get().activeSessionId === sid) {
       set({
         busy: false,
@@ -1491,7 +1475,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     unseenCompletions: {},
     messageQueue: loadMessageQueue(),
     queueReviewSessions: {},
-    stopForceReleasable: {},
     updateQueuedMessage: (id, text) => {
       const queue = get().messageQueue.map((item) => (
         item.id === id ? { ...item, text } : item
@@ -3310,29 +3293,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       job.stopRequestedAt ??= Date.now();
       job.abort.abort();
       void requestStopConfirmation(sid, job);
-    },
-
-    forceReleaseStoppedRun: () => {
-      const sid = get().activeSessionId;
-      if (!sid) return;
-      const job = liveJobs.get(sid);
-      if (!job || get().sessionPhases[sid] !== 'stop_failed' || !get().stopForceReleasable[sid]) return;
-      const completedAt = new Date().toISOString();
-      const chat = job.chat.map((turn) => turn.id !== job.assistantId ? turn : {
-        ...turn, streamPreview: undefined, planBuildOffer: false, completedAt,
-        text: `${turn.text?.trim() && turn.text !== '작업 중…' ? `${turn.text}\n\n` : ''}(중지됨 · 서버 정지 확인 전에 강제 해제)`,
-      });
-      patchLiveChat(sid, chat);
-      liveJobs.delete(sid);
-      const phases = { ...get().sessionPhases };
-      delete phases[sid];
-      set({ sessionPhases: phases });
-      clearStopForceReleasable(sid);
-      // Never auto-send queued work after a forced release: the old run may still be alive.
-      if (get().messageQueue.some((item) => item.sessionId === sid)) {
-        set({ queueReviewSessions: { ...get().queueReviewSessions, [sid]: true } });
-      }
-      set({ busy: false, statusText: '', streamAbort: null });
     },
   };
 });
