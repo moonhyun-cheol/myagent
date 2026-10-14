@@ -60,7 +60,7 @@ import { browserNavigateViaMcp, browserScreenshotViaMcp, getPlaywrightMcpDiagnos
 import { parseChatRequest } from '../chat/chat-orchestrator.js';
 import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
 import { clientAbortSignal } from '../chat/abort.js';
-import { beginChatRun, cancelChatRun, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
+import { beginChatRun, cancelChatRun, chatRunStopDetail, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
 import { ProjectStoreError } from '../projects/project-store.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
@@ -2958,7 +2958,7 @@ export async function dispatchApiRequest(
         const doc = JSON.parse(await readBody(req)) as { runId?: unknown };
         if (!validChatRunId(doc.runId)) return sendJson(res, 400, { error: 'INVALID_RUN_ID' });
         const state = cancelChatRun(session, doc.runId);
-        return sendJson(res, 200, { runId: doc.runId, state });
+        return sendJson(res, 200, { runId: doc.runId, state, ...chatRunStopDetail(session, doc.runId) });
       }
 
       if (method === 'POST' && url.pathname === '/chat/stream') {

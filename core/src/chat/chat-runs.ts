@@ -12,6 +12,36 @@ export interface ChatRun {
   /** Storage hooks installed only after the user message commits. */
   checkpoint?: (force?: boolean) => void;
   finalizePersistence?: () => void;
+  /** When the user requested cancellation (ms epoch). */
+  cancelRequestedAt?: number;
+  /** Tools currently executing inside this run (parallel calls allowed). */
+  activeTools?: Map<number, { name: string; startedAt: number }>;
+}
+
+export interface ChatRunStopDetail {
+  cancelling_ms?: number;
+  active_tools: { name: string; elapsed_ms: number }[];
+}
+
+let toolSeq = 0;
+/** Record that a tool started inside the current run; call the returned fn when it ends. */
+export function trackChatRunTool(name: string, run = context.getStore()): () => void {
+  if (!run) return () => {};
+  const id = ++toolSeq;
+  (run.activeTools ??= new Map()).set(id, { name, startedAt: Date.now() });
+  return () => { run.activeTools?.delete(id); };
+}
+
+/** Read-only progress for a stop request: what is still running and for how long. */
+export function chatRunStopDetail(sessionId: string, runId: string, now = Date.now()): ChatRunStopDetail {
+  const run = runs.get(key(sessionId, runId));
+  if (!run || run.state !== 'cancelling') return { active_tools: [] };
+  return {
+    ...(run.cancelRequestedAt ? { cancelling_ms: Math.max(0, now - run.cancelRequestedAt) } : {}),
+    active_tools: [...(run.activeTools?.values() ?? [])].map((tool) => ({
+      name: tool.name, elapsed_ms: Math.max(0, now - tool.startedAt),
+    })),
+  };
 }
 
 const context = new AsyncLocalStorage<ChatRun>();
@@ -77,6 +107,7 @@ export function cancelChatRun(sessionId: string, runId: string): ChatRunState {
   } else if (run.state === 'running') {
     run.state = 'cancelling';
     run.updatedAt = Date.now();
+    run.cancelRequestedAt = run.updatedAt;
     run.controller.abort();
   }
   return run.state;
@@ -118,6 +149,7 @@ export async function executeChatRun<T>(
       run.partial = '';
       delete run.checkpoint;
       delete run.finalizePersistence;
+      run.activeTools?.clear();
       if (active.get(run.sessionId) === run) {
         active.delete(run.sessionId);
         endActiveWork(workKey(run.sessionId));

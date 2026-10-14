@@ -103,7 +103,7 @@ import { createToolActivity } from './tool-activity.js';
 import { registerToolExecution } from './tool-execution-cancel.js';
 import { randomUUID } from 'node:crypto';
 import { getPersonalSchedulerRuntime } from '../scheduler/runtime-registry.js';
-import { assertChatRunWritable } from '../chat/chat-runs.js';
+import { assertChatRunWritable, trackChatRunTool } from '../chat/chat-runs.js';
 import { throwIfAborted } from '../chat/abort.js';
 import type { SchedulerTaskInput } from '../scheduler/types.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
@@ -203,6 +203,7 @@ export async function executeAgentTool(
     cancellable ? ctx?.sessionId : undefined, ctx?.activityGroupId);
   const execution = cancellable ? registerToolExecution(id, ctx!.sessionId!, ctx?.signal, () => activity.requestCancel()) : undefined;
   const signal = execution?.signal ?? ctx?.signal;
+  const untrack = trackChatRunTool(normalized.function.name);
   try {
     const result = await executeAgentToolInner(workspaceRoot, normalized, guard, {
       ...ctx, signal, onOutput: (stream, chunk) => activity.output(stream, chunk),
@@ -221,6 +222,7 @@ export async function executeAgentTool(
     activity.finish('ERROR: execution failed', signal?.aborted);
     throw error;
   } finally {
+    untrack();
     execution?.dispose();
   }
 }

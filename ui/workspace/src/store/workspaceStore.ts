@@ -55,6 +55,7 @@ import {
   rollbackWorkspaceCheckpoint,
   cancelRunTerminalJob,
   confirmChatRunStopped,
+  type ChatRunStopProgress,
   type PickerModel,
   type SessionMessage,
   type ExecutionPolicy,
@@ -366,6 +367,12 @@ interface LiveJob {
   sessionId: string;
   runId: string;
   stopConfirmation?: Promise<boolean>;
+  /** When the user pressed stop (ms epoch). */
+  stopRequestedAt?: number;
+  /** Latest server-reported stop progress (running tools). */
+  stopProgress?: ChatRunStopProgress;
+  /** Background re-confirmation loop is active after the first 20s window. */
+  stopWatching?: boolean;
   abort: AbortController;
   userTurn: ChatTurn;
   assistantId: string;
@@ -492,6 +499,8 @@ interface WorkspaceState {
   messageQueue: QueuedMessage[];
   /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
   queueReviewSessions: Record<string, boolean>;
+  /** Sessions whose stop stayed unconfirmed long enough to offer a UI-only force release. */
+  stopForceReleasable: Record<string, boolean>;
   updateQueuedMessage: (id: string, text: string) => void;
   removeQueuedMessage: (id: string) => void;
   /** Patch one visible chat turn in place (e.g. video result retrieved later). */
@@ -604,6 +613,23 @@ interface WorkspaceState {
   /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
   buildFromPlan: (assistantTurnId: string) => Promise<void>;
   stopAiMessage: () => void;
+  /** Last resort: release the UI after an unconfirmed stop (server run may still be alive). */
+  forceReleaseStoppedRun: () => void;
+}
+
+const STOP_FORCE_RELEASE_MS = 60_000;
+const STOP_WATCH_INTERVAL_MS = 2_500;
+
+function formatStopRunningTools(progress?: ChatRunStopProgress): string {
+  const tools = progress?.activeTools ?? [];
+  if (!tools.length) return '';
+  return `실행 중: ${tools.map((tool) => `${tool.name} (${Math.round(tool.elapsedMs / 1000)}초째)`).join(', ')}`;
+}
+
+function formatStopPending(job: { stopRequestedAt?: number; stopProgress?: ChatRunStopProgress }): string {
+  const since = job.stopRequestedAt ? Math.max(0, Math.round((Date.now() - job.stopRequestedAt) / 1000)) : 0;
+  const running = formatStopRunningTools(job.stopProgress) || '작업 정리 중';
+  return `정지 요청 후 ${since}초 · 서버 작업이 아직 끝나지 않음 · ${running} · 다음 작업 보류 · 자동 확인 중`;
 }
 
 /** In-flight jobs keyed by session. Different sessions may run concurrently. */
@@ -865,19 +891,73 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     writeAttachmentDraft(sid, composerAttachments);
   };
 
+  const onStopProgress = (sid: string, job: LiveJob, progress: ChatRunStopProgress) => {
+    if (liveJobs.get(sid) !== job) return;
+    job.stopProgress = progress;
+    if (get().sessionPhases[sid] === 'stop_failed') {
+      patchLiveChat(sid, job.chat, formatStopPending(job));
+      if (job.stopRequestedAt && Date.now() - job.stopRequestedAt >= STOP_FORCE_RELEASE_MS && !get().stopForceReleasable[sid]) {
+        set({ stopForceReleasable: { ...get().stopForceReleasable, [sid]: true } });
+      }
+    } else {
+      const running = formatStopRunningTools(progress);
+      patchLiveChat(sid, job.chat, running ? `중지 중… · ${running}` : '중지 중…');
+    }
+  };
+
+  const requestStopConfirmation = (sid: string, job: LiveJob): Promise<boolean> => {
+    job.stopRequestedAt ??= Date.now();
+    return job.stopConfirmation ??= confirmChatRunStopped(sid, job.runId, {
+      onPending: (progress) => onStopProgress(sid, job, progress),
+    });
+  };
+
+  /** Keep re-checking after the first window so the user need not press stop again. */
+  const watchUntilStopped = (sid: string, job: LiveJob) => {
+    if (job.stopWatching) return;
+    job.stopWatching = true;
+    void (async () => {
+      try {
+        while (liveJobs.get(sid) === job) {
+          await new Promise((resolve) => setTimeout(resolve, STOP_WATCH_INTERVAL_MS));
+          if (liveJobs.get(sid) !== job) return;
+          const stopped = await confirmChatRunStopped(sid, job.runId, {
+            timeoutMs: 0,
+            onPending: (progress) => onStopProgress(sid, job, progress),
+          });
+          if (liveJobs.get(sid) !== job) return;
+          if (stopped) { void finishJob(sid, job); return; }
+        }
+      } finally {
+        job.stopWatching = false;
+      }
+    })();
+  };
+
+  const clearStopForceReleasable = (sid: string) => {
+    if (!get().stopForceReleasable[sid]) return;
+    const next = { ...get().stopForceReleasable };
+    delete next[sid];
+    set({ stopForceReleasable: next });
+  };
+
   const finishJob = async (sid: string, expected: LiveJob) => {
     if (liveJobs.get(sid) !== expected) return;
     if (expected.abort.signal.aborted) {
-      expected.statusText = '중지 중…';
-      set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stopping' } });
-      patchLiveChat(sid, expected.chat, expected.statusText);
-      const confirmation = expected.stopConfirmation ??= confirmChatRunStopped(sid, expected.runId);
+      if (get().sessionPhases[sid] !== 'stop_failed') {
+        const running = formatStopRunningTools(expected.stopProgress);
+        expected.statusText = running ? `중지 중… · ${running}` : '중지 중…';
+        set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stopping' } });
+        patchLiveChat(sid, expected.chat, expected.statusText);
+      }
+      const confirmation = requestStopConfirmation(sid, expected);
       const stopped = await confirmation;
       if (expected.stopConfirmation === confirmation) expected.stopConfirmation = undefined;
       if (liveJobs.get(sid) !== expected) return;
       if (!stopped) {
         set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stop_failed' } });
-        patchLiveChat(sid, expected.chat, '정지 확인 실패 · 다음 작업 보류 (정지 버튼으로 재확인)');
+        patchLiveChat(sid, expected.chat, formatStopPending(expected));
+        watchUntilStopped(sid, expected);
         return;
       }
       expected.chat = expected.chat.map((turn) => turn.id !== expected.assistantId ? turn : {
@@ -908,6 +988,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const phases = { ...get().sessionPhases };
     delete phases[sid];
     set({ sessionPhases: phases });
+    clearStopForceReleasable(sid);
     if (get().activeSessionId === sid) {
       set({
         busy: false,
@@ -1410,6 +1491,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     unseenCompletions: {},
     messageQueue: loadMessageQueue(),
     queueReviewSessions: {},
+    stopForceReleasable: {},
     updateQueuedMessage: (id, text) => {
       const queue = get().messageQueue.map((item) => (
         item.id === id ? { ...item, text } : item
@@ -3225,8 +3307,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (phase === 'stop_failed') { void finishJob(sid, job); return; }
       job.statusText = '중지 중…';
       set({ statusText: '중지 중…' });
+      job.stopRequestedAt ??= Date.now();
       job.abort.abort();
-      job.stopConfirmation ??= confirmChatRunStopped(sid, job.runId);
+      void requestStopConfirmation(sid, job);
+    },
+
+    forceReleaseStoppedRun: () => {
+      const sid = get().activeSessionId;
+      if (!sid) return;
+      const job = liveJobs.get(sid);
+      if (!job || get().sessionPhases[sid] !== 'stop_failed' || !get().stopForceReleasable[sid]) return;
+      const completedAt = new Date().toISOString();
+      const chat = job.chat.map((turn) => turn.id !== job.assistantId ? turn : {
+        ...turn, streamPreview: undefined, planBuildOffer: false, completedAt,
+        text: `${turn.text?.trim() && turn.text !== '작업 중…' ? `${turn.text}\n\n` : ''}(중지됨 · 서버 정지 확인 전에 강제 해제)`,
+      });
+      patchLiveChat(sid, chat);
+      liveJobs.delete(sid);
+      const phases = { ...get().sessionPhases };
+      delete phases[sid];
+      set({ sessionPhases: phases });
+      clearStopForceReleasable(sid);
+      // Never auto-send queued work after a forced release: the old run may still be alive.
+      if (get().messageQueue.some((item) => item.sessionId === sid)) {
+        set({ queueReviewSessions: { ...get().queueReviewSessions, [sid]: true } });
+      }
+      set({ busy: false, statusText: '', streamAbort: null });
     },
   };
 });

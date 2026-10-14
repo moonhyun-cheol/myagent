@@ -1993,10 +1993,22 @@ export async function streamChat(
   }
 }
 
+export interface ChatRunStopProgress {
+  state: string;
+  cancellingMs?: number;
+  activeTools: { name: string; elapsedMs: number }[];
+}
+
 /** Explicit run-scoped cancellation. Never release the UI queue on transport abort alone. */
-export async function confirmChatRunStopped(sessionId: string, runId: string): Promise<boolean> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
+export async function confirmChatRunStopped(
+  sessionId: string,
+  runId: string,
+  opts: { timeoutMs?: number; intervalMs?: number; onPending?: (progress: ChatRunStopProgress) => void } = {},
+): Promise<boolean> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 20_000);
+  const intervalMs = opts.intervalMs ?? 250;
+  let lastProgressAt = 0;
+  do {
     try {
       const res = await fetch('/chat/cancel', {
         method: 'POST',
@@ -2006,9 +2018,26 @@ export async function confirmChatRunStopped(sessionId: string, runId: string): P
       });
       const result = await res.json();
       if (res.ok && result.runId === runId && ['stopped', 'completed', 'failed'].includes(result.state)) return true;
+      if (res.ok && result.runId === runId && opts.onPending && Date.now() - lastProgressAt >= 1_000) {
+        lastProgressAt = Date.now();
+        opts.onPending({
+          state: String(result.state ?? ''),
+          cancellingMs: typeof result.cancelling_ms === 'number' ? result.cancelling_ms : undefined,
+          activeTools: Array.isArray(result.active_tools)
+            ? result.active_tools
+              .filter((tool: unknown): tool is { name: unknown; elapsed_ms: unknown } => !!tool && typeof tool === 'object')
+              .map((tool: { name: unknown; elapsed_ms: unknown }) => ({
+                name: String(tool.name ?? ''),
+                elapsedMs: typeof tool.elapsed_ms === 'number' ? tool.elapsed_ms : 0,
+              }))
+              .filter((tool: { name: string }) => tool.name)
+            : [],
+        });
+      }
     } catch { /* Retain ownership and retry; do not assume the server stopped. */ }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  } while (Date.now() < deadline);
   return false;
 }
 
