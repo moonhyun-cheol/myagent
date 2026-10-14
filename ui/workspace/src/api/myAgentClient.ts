@@ -445,6 +445,8 @@ export interface PickerModel {
   };
   /** Provider-price tier (output >= threshold USD/1M = premium). For `auto`: the resolved model. */
   cost_tier?: 'premium' | 'standard' | 'unknown';
+  /** `video` = catalog video model (not a language model). */
+  category?: string;
 }
 
 export async function fetchModelPicker(refreshRemote = false): Promise<{
@@ -475,6 +477,7 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
         provider_id?: string;
         reasoning_capability?: PickerModel['reasoning_capability'];
         cost_tier?: PickerModel['cost_tier'];
+        category?: string;
       }) => ({
         id: String(m.value ?? m.id ?? ''),
         label: String(m.label ?? m.name ?? m.value ?? m.id ?? ''),
@@ -482,6 +485,7 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
         provider_id: m.provider_id,
         reasoning_capability: m.reasoning_capability,
         cost_tier: m.cost_tier,
+        category: m.category,
       }),
     )
     .filter((m: PickerModel) => m.id);

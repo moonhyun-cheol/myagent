@@ -2,6 +2,22 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "model-switch-notice",
+      "status": "development",
+      "title": "같은 대화에서 모델이 바뀌면 표시",
+      "detail": "이전 답변과 다른 언어 모델로 이어서 보내면, 그 답변 위에 「모델 변경 · 이전 → 현재」 구분선이 한 번 나옵니다. AI에게도 이전 답변이 다른 모델이 쓴 것임을 그 요청에만 알립니다. 브라우저·동영상·업무 명령 답변은 비교하지 않습니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/chat/model-switch.ts",
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "agent-continuation-model-decided",
       "status": "development",
       "title": "끊긴 작업은 말투와 상관없이 이어서 진행",

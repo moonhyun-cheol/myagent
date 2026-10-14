@@ -29,6 +29,7 @@ import {
 import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { isVideoMediaUrl } from '../lib/mediaUrl';
 import { isPremiumModelRef } from '../lib/modelCost';
+import { modelSwitchBefore, videoIdsFromPicker } from '../lib/modelSwitch';
 import { PremiumCostBadge } from './PremiumCostBadge';
 import { useConversationDisplayPreferences } from '../lib/conversationDisplayPreferences';
 import { createPortal } from 'react-dom';
@@ -685,6 +686,7 @@ export function ChatPane() {
   const { menu, openAt, close } = useContextMenu();
 
   const visibleChat = useMemo(() => chat.filter((turn) => !isChatTurnUiHidden(turn, chat)), [chat]);
+  const videoModelIds = useMemo(() => videoIdsFromPicker(modelOptions), [modelOptions]);
   const modelLabels = useMemo(() => new Map(modelOptions.map((option) => [option.id, option.label])), [modelOptions]);
   const hasChatTurns = visibleChat.length > 0;
   const latestUserTurnId = [...visibleChat].reverse().find((t) => t.role === 'user')?.id ?? null;
@@ -1645,7 +1647,11 @@ export function ChatPane() {
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
             </div>
           ) : null}
-          {visibleChat.map((turn) => (
+          {visibleChat.map((turn, index) => {
+            const switched = modelSwitchBefore(visibleChat, index, videoModelIds);
+            const modelName = (ref: string) => String(modelLabels.get(ref) ?? ref)
+              .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter');
+            return (
             <div
               key={turn.id}
               ref={(el) => {
@@ -1654,6 +1660,18 @@ export function ChatPane() {
               }}
               className={`flex w-full min-w-0 flex-col gap-1 ${turn.role === 'user' ? 'items-end' : 'items-start'}`}
             >
+              {switched ? (
+                <div
+                  className="chat-model-switch"
+                  role="separator"
+                  aria-label={`모델 변경: ${modelName(switched.previous)}에서 ${modelName(switched.current)}`}
+                >
+                  <span>모델 변경 · {modelName(switched.previous)} → {modelName(switched.current)}</span>
+                  {isPremiumModelRef(switched.current, premiumModelIds, modelOptions)
+                    ? <PremiumCostBadge small />
+                    : null}
+                </div>
+              ) : null}
               <span className="inline-flex items-center text-[10px] uppercase tracking-[0.14em] text-muted">
                 {turn.role === 'user'
                   ? 'You'
@@ -1910,7 +1928,8 @@ export function ChatPane() {
                 </aside>
               ) : null}
             </div>
-          ))}
+            );
+          })}
           {openGateText && !busy ? (
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-100/90">
               <div className="min-w-0">
