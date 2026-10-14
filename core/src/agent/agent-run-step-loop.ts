@@ -174,12 +174,23 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // Display/persisted count across the continuation chain. The per-run budget below is
   // state.steps alone, so a resume after hitting the cap gets a fresh budget.
   const cumulativeSteps = (): number => state.priorSteps + state.steps;
-  // Normal completion ends the chain: a later 「이어서」 must not inherit this run's snapshot.
+  // While a stored run is pending (not resumed/discarded), this run may not touch the
+  // resume state. Its first mutation makes it a new run that replaces the stored one.
+  const ownsContinuation = (): boolean => {
+    if (!state.continuationOwner && state.mutatedPathsThisRun.size > 0) {
+      state.continuationOwner = true;
+      state.pendingContinuation = null;
+    }
+    return state.continuationOwner;
+  };
+  // Normal completion ends the chain: a later resume must not inherit this run's snapshot.
   const clearContinuationOnComplete = () => {
-    try {
-      clearSessionContinuationState(state.opts.cqrRoot, state.opts.sessionId);
-    } catch {
-      /* meta best-effort */
+    if (ownsContinuation()) {
+      try {
+        clearSessionContinuationState(state.opts.cqrRoot, state.opts.sessionId);
+      } catch {
+        /* meta best-effort */
+      }
     }
     state.persistLiveSessionMeta();
   };
@@ -207,7 +218,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ...state.successfulReadsThisRun,
       ]),
     });
-    recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
+    if (ownsContinuation()) {
+      recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
+    }
     state.persistLiveSessionMeta();
     if (status) state.reportStatus(status);
     return snapshot;

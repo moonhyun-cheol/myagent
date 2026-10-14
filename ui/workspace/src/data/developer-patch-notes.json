@@ -2,6 +2,23 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "agent-continuation-model-decided",
+      "status": "development",
+      "title": "끊긴 작업은 말투와 상관없이 이어서 진행",
+      "detail": "작업이 중간에 끊긴 뒤 「ㅇㅋ 진행」「ㄱㄱ」처럼 어떤 말로 요청해도 AI가 대화 흐름을 보고 이전 작업을 이어갈지 정합니다. 중간에 다른 질문을 해도 끊긴 작업 상태가 지워지지 않고 24시간 동안 남습니다. 이어갈 때는 그 사이 바뀐 파일을 다시 읽은 뒤 고칩니다.",
+      "area": "agent",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/agent/agent-session-continuity.ts",
+        "core/src/agent/agent-run-loop.ts",
+        "core/src/agent/agent-run-step-loop.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "video-models-search-only",
       "status": "development",
       "title": "동영상 모델은 검색으로만 추가",

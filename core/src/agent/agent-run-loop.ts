@@ -80,10 +80,13 @@ import {
 } from './agent-run-meta.js';
 import {
   flushLiveSessionProgress,
+  formatPendingContinuationTurnNote,
   formatSessionContinuitySystemNote,
+  isContinuationExpired,
   persistInterruptedAgentProgress,
   resolveContinuationResume,
   seedReadGateFromSession,
+  selectPendingContinuation,
   shouldUseSessionContinuity,
 } from './agent-session-continuity.js';
 import { buildTaskLedgerTopicManifest } from './task-ledger.js';
@@ -534,8 +537,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     ? sessionMetaForGate.activeTask
     : null;
   const sessionReadPaths = sessionMetaForGate.readPaths ?? [];
+  // Auto-resume at run start is host-owned only (same-turn infra retry). User wording is
+  // never classified: stored state stays pending and the model resumes/discards it.
   const sessionContinuity = shouldUseSessionContinuity({
-    userMessage: opts.userMessage,
     readPaths: sessionReadPaths,
     mutatedPaths: sessionMetaForGate.mutatedPaths,
     hasProgressCheckpoint: Boolean(sessionMetaForGate.lastProgressCheckpoint),
@@ -548,12 +552,16 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const continuationCheckpoint = sessionContinuity && !continuationSnapshot
     ? sessionMetaForGate.lastProgressCheckpoint
     : undefined;
+  let pendingContinuation = sessionContinuity ? null : selectPendingContinuation(sessionMetaForGate);
   if (
     !sessionContinuity
+    && !pendingContinuation
     && (sessionMetaForGate.continuationSnapshot || sessionMetaForGate.lastProgressCheckpoint)
+    && isContinuationExpired(
+      sessionMetaForGate.continuationSnapshot?.at ?? sessionMetaForGate.lastProgressCheckpoint?.at,
+    )
   ) {
-    // A fresh request starts a new chain: stale resume state must not leak into a later
-    // 「이어서」 or a host retry of this turn.
+    // Expired resume state is dropped; unexpired state stays pending for the model.
     try {
       clearSessionContinuationState(opts.cqrRoot, opts.sessionId);
     } catch {
@@ -637,6 +645,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         + (continuitySeedSelection.changed.length ? ` · 변경/미확인 ${continuitySeedSelection.changed.length}개 재읽기 필요` : ''),
     );
     reportStatus('Session continuity · 이전 읽기/수정 경로 재사용');
+  } else if (pendingContinuation) {
+    appendTurnContext(messages, formatPendingContinuationTurnNote(pendingContinuation));
+    pushThought('미완료 이전 실행 있음 — 이어갈지는 모델이 결정 (resume_run / discard_run)');
   }
   const lockedNote = formatLockedConstraintsSystemNote(lockedConstraints);
   if (lockedNote) {
@@ -700,6 +711,64 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,
     }),
+    onContinuationDecision: (action) => decideContinuation(action),
+  };
+  // Model-decided resume/discard of a stored run (active_task resume_run / discard_run).
+  const decideContinuation = (action: 'resume' | 'discard'): string => {
+    const live = stepState;
+    const pending = live?.pendingContinuation ?? null;
+    if (!live || !pending) {
+      return 'ERROR: NO_PENDING_RUN — there is no stored unfinished run to resume or discard (already resumed, discarded, or replaced by this run\'s mutations).';
+    }
+    if (action === 'discard') {
+      try {
+        clearSessionContinuationState(opts.cqrRoot, opts.sessionId);
+      } catch {
+        /* meta best-effort */
+      }
+      live.pendingContinuation = null;
+      live.continuationOwner = true;
+      pushThought('이전 미완료 실행 폐기 (discard_run)');
+      return JSON.stringify({ ok: true, discarded: true });
+    }
+    const snap = pending.snapshot;
+    const cp = pending.checkpoint;
+    const resume = resolveContinuationResume({
+      hasSnapshot: true,
+      snapshotResumeCount: snap?.resumeCount,
+      retry: false,
+    });
+    if (resume.exhausted) {
+      // Keep the stored run and its counter so another resume stays exhausted.
+      reportStatus(`이어가기 한도 도달 (${resume.max}회)`);
+      return `ERROR: CONTINUATION_RESUME_LIMIT — this run was already resumed ${resume.max} times. Do not continue it; tell the user to restart with a narrower new request (TODO and file history are kept).`;
+    }
+    const split = partitionPathsByFingerprint(
+      opts.workspaceRoot,
+      snap ? [...snap.mutatedPaths, ...snap.readPaths] : [],
+      snap?.pathFingerprints,
+    );
+    for (const p of seedReadGateFromSession(live.readGate, split.unchanged)) {
+      live.successfulReadsThisRun.add(p);
+    }
+    live.resumeCount = resume.resumeCount;
+    live.priorSteps = Math.max(0, snap?.step ?? cp?.step ?? 0);
+    live.priorElapsedMs = Math.max(0, snap?.elapsedMs ?? cp?.runtime?.elapsedMs ?? 0);
+    live.pendingContinuation = null;
+    live.continuationOwner = true;
+    pushThought(
+      `이전 실행 이어감 (resume ${resume.resumeCount}/${resume.max}) · readGate 시드 ${split.unchanged.length}개`
+        + (split.changed.length ? ` · 재읽기 필요 ${split.changed.length}개` : ''),
+    );
+    reportStatus('Session continuity · 이전 실행 이어감');
+    return formatSessionContinuitySystemNote({
+      readPaths: snap?.readPaths ?? [],
+      mutatedPaths: snap?.mutatedPaths ?? [],
+      continuationSnapshot: snap,
+      progressCheckpoint: cp,
+      seededPaths: split.unchanged,
+      stalePaths: split.changed,
+    });
   };
   const readGate = new WorkspaceReadGate();
   if (sessionContinuity && continuitySeedSelection.unchanged.length) {
@@ -752,6 +821,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     autopilot,
     priorSteps,
     resumeCount: continuationResume.resumeCount,
+    pendingContinuation,
+    continuationOwner: !pendingContinuation,
     selfWorkspace,
     uiFacts,
     reportStatus,
@@ -820,6 +891,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     // logical MAX_AGENT_STEPS cap.
     if (!finished && stepState && isAgentExecutionLimit(e)) {
       const live = stepState;
+      const ownsContinuation = live.continuationOwner || live.mutatedPathsThisRun.size > 0;
       const meta = loadAgentRunMeta(opts.cqrRoot, opts.sessionId);
       const recentFailures = live.toolTrace
         .filter((entry) => !entry.ok)
@@ -847,7 +919,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
           ...live.successfulReadsThisRun,
         ]),
       });
-      recordSessionContinuationSnapshot(opts.cqrRoot, opts.sessionId, snapshot);
+      // A side run that neither resumed nor mutated must not overwrite the stored run.
+      if (ownsContinuation) recordSessionContinuationSnapshot(opts.cqrRoot, opts.sessionId, snapshot);
       persistLiveSessionMeta();
       reportStatus('호스트 실행 제한 · TODO/Evidence 재개 상태 보존');
       return await finish({

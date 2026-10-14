@@ -18,33 +18,27 @@ const { formatSessionContinuitySystemNote } = await import(
   '../core/dist/agent/agent-session-continuity.js'
 );
 
+// Auto-resume at run start is host-owned only; user wording is never classified.
 assert.equal(
-  shouldUseSessionContinuity({
-    userMessage: '이어서',
-    readPaths: ['src/app.ts'],
-    mutatedPaths: [],
-  }),
-  true,
-);
-assert.equal(
-  shouldUseSessionContinuity({
-    userMessage: '이어서',
-    readPaths: [],
-    mutatedPaths: [],
-    hasProgressCheckpoint: true,
-  }),
-  true,
-  'a durable checkpoint alone is enough to resume',
-);
-assert.equal(
-  shouldUseSessionContinuity({
-    userMessage: '새 기능을 만들어줘',
-    readPaths: ['src/app.ts'],
-    mutatedPaths: ['src/app.ts'],
-  }),
+  shouldUseSessionContinuity({ readPaths: ['src/app.ts'], mutatedPaths: [] }),
   false,
-  'stored metadata must not hijack a fresh request',
+  'a user turn never auto-resumes',
 );
+assert.equal(
+  shouldUseSessionContinuity({ readPaths: [], mutatedPaths: [], hasProgressCheckpoint: true, force: true }),
+  true,
+  'host retry resumes from a durable checkpoint',
+);
+assert.equal(
+  shouldUseSessionContinuity({ readPaths: [], mutatedPaths: [], force: true }),
+  false,
+  'host retry with no stored state has nothing to resume',
+);
+{
+  const mod = await import('../core/dist/agent/agent-session-continuity.js');
+  assert.equal('SESSION_CONTINUE_RE' in mod, false, 'continue regex removed');
+  assert.equal('looksLikeSessionContinue' in mod, false, 'continue regex helper removed');
+}
 
 const root = mkdtempSync(path.join(os.tmpdir(), 'cqr-continuity-'));
 try {
@@ -153,14 +147,39 @@ try {
   );
   assert.equal(
     shouldUseSessionContinuity({
-      userMessage: '계속 작업하자',
       readPaths: [],
       mutatedPaths: [],
       hasContinuationSnapshot: true,
+      force: true,
     }),
     true,
-    'a Continuation Snapshot alone is enough to resume',
+    'a Continuation Snapshot alone is enough for a host retry',
   );
+  // Pending run: kept across turns (TTL), announced to the model, resumed only by the model.
+  const {
+    selectPendingContinuation,
+    formatPendingContinuationTurnNote,
+    isContinuationExpired,
+  } = await import('../core/dist/agent/agent-session-continuity.js');
+  const now = Date.parse('2026-01-01T12:00:00.000Z');
+  const pending = selectPendingContinuation({ continuationSnapshot: loadedSnapshot }, now, 24 * 3_600_000);
+  assert.equal(pending?.snapshot?.step, 21, 'unexpired snapshot stays pending');
+  assert.equal(
+    selectPendingContinuation({ continuationSnapshot: loadedSnapshot }, now + 48 * 3_600_000, 24 * 3_600_000),
+    null,
+    'expired snapshot is not pending',
+  );
+  assert.equal(isContinuationExpired(undefined), false);
+  const pendingNote = formatPendingContinuationTurnNote(pending, 5);
+  assert.match(pendingNote, /Unfinished previous run/);
+  assert.match(pendingNote, /resume_run/);
+  assert.match(pendingNote, /discard_run/);
+  assert.match(pendingNote, /T2: Continuation Snapshot 기반 재개/);
+  const toolDefsSrc = readFileSync(path.resolve('core/src/agent/agent-tool-definitions.ts'), 'utf8');
+  assert.match(toolDefsSrc, /'resume_run', 'discard_run'/, 'active_task exposes resume_run/discard_run');
+  const stepLoopSrc = readFileSync(path.resolve('core/src/agent/agent-run-step-loop.ts'), 'utf8');
+  assert.match(stepLoopSrc, /if \(ownsContinuation\(\)\) \{\s*recordSessionContinuationSnapshot/, 'side run does not overwrite a pending snapshot');
+  assert.match(stepLoopSrc, /if \(ownsContinuation\(\)\) \{\s*try \{\s*clearSessionContinuationState/, 'side run does not clear a pending snapshot');
   // Stale-read guard: only paths unchanged on disk since the snapshot are seeded.
   const { fingerprintWorkspacePaths, partitionPathsByFingerprint } = await import(
     '../core/dist/agent/agent-continuation-snapshot.js'

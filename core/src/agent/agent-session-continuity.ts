@@ -1,6 +1,7 @@
 /**
- * Session continuity — seed readGate / skip cold-start re-diagnosis on continue turns.
- * Applies only to an explicit short continue request.
+ * Session continuity — seed readGate / skip cold-start re-diagnosis on resumed runs.
+ * The user's wording is never classified here: a host retry resumes automatically, and
+ * otherwise the model decides via active_task resume_run / discard_run.
  */
 import {
   appendSessionMutatedPaths,
@@ -13,24 +14,18 @@ import {
   formatAgentProgressResumeNote,
   type AgentProgressCheckpoint,
 } from './agent-progress-checkpoint.js';
+import type { AgentRunMeta as PendingMeta } from './agent-run-meta.js';
 import {
   formatAgentContinuationResumeNote,
   type AgentContinuationSnapshot,
 } from './agent-continuation-snapshot.js';
 
 /**
- * The single short-continue recognizer. Whole-message match only, so a new request that
- * merely contains 「이어서」 never hijacks stored progress.
+ * Automatic resume at run start is host-owned only (infra retry of the same turn).
+ * A user turn never auto-resumes from its wording; stored state stays pending and the
+ * model chooses resume_run / discard_run.
  */
-export const SESSION_CONTINUE_RE =
-  /^(?:(?:이어서|계속(?:해서)?|마저)(?:\s*(?:진행|작업))?(?:\s*(?:하자|해|해줘|해주세요))?|계속해(?:요|줘|주세요)?)\s*[.!。]*$/i;
-
-export function looksLikeSessionContinue(message: string): boolean {
-  return SESSION_CONTINUE_RE.test(String(message || '').trim());
-}
-
 export function shouldUseSessionContinuity(opts: {
-  userMessage: string;
   readPaths: string[];
   mutatedPaths: string[];
   hasProgressCheckpoint?: boolean;
@@ -46,8 +41,74 @@ export function shouldUseSessionContinuity(opts: {
     && !opts.hasProgressCheckpoint
     && !opts.hasContinuationSnapshot
   ) return false;
-  if (opts.force === true) return true;
-  return looksLikeSessionContinue(opts.userMessage);
+  return opts.force === true;
+}
+
+/** Pending resume state older than this is dropped at run start (default 24h). */
+export const DEFAULT_CONTINUATION_TTL_HOURS = 24;
+
+export function continuationTtlMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseFloat(String(env.MY_AGENT_CONTINUATION_TTL_HOURS ?? ''));
+  const hours = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CONTINUATION_TTL_HOURS;
+  return hours * 3_600_000;
+}
+
+export function isContinuationExpired(
+  at: string | undefined,
+  nowMs: number = Date.now(),
+  ttlMs: number = continuationTtlMs(),
+): boolean {
+  const t = Date.parse(String(at || ''));
+  if (!Number.isFinite(t)) return false;
+  return nowMs - t > ttlMs;
+}
+
+export interface PendingContinuation {
+  snapshot?: AgentContinuationSnapshot;
+  checkpoint?: AgentProgressCheckpoint;
+}
+
+/** Unexpired stored resume state of this session, or null. */
+export function selectPendingContinuation(
+  meta: Pick<PendingMeta, 'continuationSnapshot' | 'lastProgressCheckpoint'>,
+  nowMs: number = Date.now(),
+  ttlMs: number = continuationTtlMs(),
+): PendingContinuation | null {
+  const snapshot = meta.continuationSnapshot;
+  const checkpoint = snapshot ? undefined : meta.lastProgressCheckpoint;
+  if (!snapshot && !checkpoint) return null;
+  if (isContinuationExpired(snapshot?.at ?? checkpoint?.at, nowMs, ttlMs)) return null;
+  return snapshot ? { snapshot } : { checkpoint };
+}
+
+/**
+ * Turn-context note for a stored, not-yet-resumed run. The model decides from the
+ * conversation whether the latest request continues it; the runtime does not.
+ */
+export function formatPendingContinuationTurnNote(
+  pending: PendingContinuation,
+  max: number = maxContinuationResumes(),
+): string {
+  const snap = pending.snapshot;
+  const cp = pending.checkpoint;
+  const used = snap?.resumeCount ?? 0;
+  const todos = snap?.todoLedger?.todos
+    .filter((todo) => todo.status !== 'done')
+    .slice(0, 8)
+    .map((todo) => `- [${todo.status}] ${todo.id}: ${todo.text}`) ?? [];
+  return [
+    '## Unfinished previous run (stored, not resumed)',
+    `saved_at=${snap?.at ?? cp?.at ?? 'unknown'} step=${snap?.step ?? cp?.step ?? 0} resumes_used=${used}/${max}${snap?.model ? ` model=${snap.model}` : ''}`,
+    snap?.mutatedPaths.length ? `mutated=${snap.mutatedPaths.slice(0, 12).join(', ')}` : '',
+    snap?.unresolvedFailures.length ? `unresolved_failures=${snap.unresolvedFailures.slice(0, 4).join(' | ')}` : '',
+    cp?.resumeFrom ? `resume_from=${cp.resumeFrom}` : '',
+    todos.length ? 'Unfinished TODO:' : '',
+    ...todos,
+    'Decide from the conversation whether the latest request continues this run:',
+    '- Continue it: call active_task action=resume_run before other work. It restores the run state and lists files unchanged since then (read_before_write satisfied) vs. files to re-read.',
+    '- Clearly obsolete: call active_task action=discard_run.',
+    '- Unrelated question: answer it; the stored run stays pending. Mutating files without resume_run starts a new run and replaces the stored state.',
+  ].filter(Boolean).join('\n');
 }
 
 /** Default cap on user 「이어서」 resumes of one continuation chain (each gets a fresh step budget). */

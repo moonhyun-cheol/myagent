@@ -41,6 +41,14 @@ export interface AgentRunStepState {
   priorSteps: number;
   /** User 「이어서」 resumes spent on this chain, persisted with each snapshot. */
   resumeCount: number;
+  /** Stored unfinished run the model has neither resumed nor discarded yet. */
+  pendingContinuation: import('./agent-session-continuity.js').PendingContinuation | null;
+  /**
+   * Whether this run may write/clear the session's resume state. False while a stored run
+   * is pending, so a side question cannot overwrite or erase it; becomes true on
+   * resume_run, discard_run, or the first mutation (a new run replaces the stored one).
+   */
+  continuationOwner: boolean;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
   selfWorkspace: boolean;
   uiFacts: UiFacts | null;

@@ -37,6 +37,11 @@ export interface AgentToolContext {
   approvedTerminalCommand?: string;
   /** Exact current/continued run tool evidence and evidence_read source. */
   evidenceStore?: AgentEvidenceStore;
+  /**
+   * Model-decided resume/discard of a stored unfinished run (active_task resume_run /
+   * discard_run). Returns the tool output text.
+   */
+  onContinuationDecision?: (action: 'resume' | 'discard') => string;
   /** Live evidence callback used by model-authored task completion. */
   getRunEvidence?: () => {
     mutatedPaths: string[];

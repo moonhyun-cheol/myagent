@@ -77,11 +77,11 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'active_task',
       description:
-        'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus successful model-requested outcome-relevant verification, and cancel/replace when the user changes direction. Verification may be content review, diagnostics, targeted tests, terminal execution, or browser checks as appropriate. Never infer a task from keywords.',
+        'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus successful model-requested outcome-relevant verification, and cancel/replace when the user changes direction. Verification may be content review, diagnostics, targeted tests, terminal execution, or browser checks as appropriate. When the turn context reports an unfinished previous run, use resume_run to continue it (restores its state and unchanged-file read marks) or discard_run when it is obsolete. Never infer a task from keywords.',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['set', 'block', 'complete', 'cancel'] },
+          action: { type: 'string', enum: ['set', 'block', 'complete', 'cancel', 'resume_run', 'discard_run'] },
           objective: { type: 'string', description: 'Concrete user outcome; required for set' },
           acceptance: { type: 'string', description: 'Disk/runtime completion condition; required for set' },
           blocker: { type: 'string', description: 'Current blocker; required for block' },

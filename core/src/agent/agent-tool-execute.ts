@@ -306,6 +306,16 @@ async function executeAgentToolInner(
           return { label: 'active task', output: 'ERROR: active_task requires a session context' };
         }
         const action = String(args.action || '').trim();
+        if (action === 'resume_run' || action === 'discard_run') {
+          if (!ctx.onContinuationDecision) {
+            return { label: 'active task', output: `ERROR: active_task ${action} is unavailable in this run` };
+          }
+          const output = ctx.onContinuationDecision(action === 'resume_run' ? 'resume' : 'discard');
+          return {
+            label: action === 'resume_run' ? 'previous run resumed' : 'previous run discarded',
+            output,
+          };
+        }
         const previous = loadAgentRunMeta(ctx.cqrRoot, ctx.sessionId).activeTask ?? null;
         if (action === 'set') {
           const objective = String(args.objective || '').trim();
