@@ -143,8 +143,7 @@ body {
 .chat-model-select {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   max-width: 100%;
   min-height: 34px;
   padding: 5px 8px 5px 10px;
@@ -157,8 +156,10 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.chat-model-select span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-model-caret { flex-shrink: 0; pointer-events: none; }
+.chat-model-select > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Badge hugs the label; only the caret is pushed to the far edge. */
+.chat-model-select .premium-cost-badge { margin-left: 0; }
+.chat-model-caret { flex-shrink: 0; margin-left: auto; pointer-events: none; }
 .chat-model-menu {
   position: fixed;
   z-index: 90;
@@ -213,7 +214,10 @@ body {
   text-transform: none;
   vertical-align: middle;
 }
-.premium-cost-badge--small { min-width: 14px; height: 14px; margin-left: 5px; padding: 0 4px; font-size: 9px; }
+.premium-cost-badge--small { min-width: 14px; height: 14px; margin-left: 5px; padding: 0 4px; font-size: 9px; letter-spacing: 0; }
+/* Assistant bubble produced by a high-cost model: only the border color changes. */
+.chat-bubble--premium { border-color: #ea580c99; }
+:root[data-theme='dark'] .chat-bubble--premium { border-color: #f9731680; }
 .premium-model-banner {
   display: flex;
   align-items: center;

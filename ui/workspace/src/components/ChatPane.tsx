@@ -1365,7 +1365,7 @@ export function ChatPane() {
               setModelPickerOpen((open) => !open);
             }}
             className="chat-model-select"
-            style={{ width: `${Math.min(33, Math.max(14, selectedModelLabel.length + (selectedModelPremium ? 8 : 5)))}ch` }}
+            style={{ width: `${Math.min(33, Math.max(14, selectedModelLabel.length + (selectedModelPremium ? 7 : 5)))}ch` }}
             title={`${selectedModelLabel}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
           >
             <span>{selectedModelLabel}</span>
@@ -1654,7 +1654,7 @@ export function ChatPane() {
               }}
               className={`flex w-full min-w-0 flex-col gap-1 ${turn.role === 'user' ? 'items-end' : 'items-start'}`}
             >
-              <span className="text-[10px] uppercase tracking-[0.14em] text-muted">
+              <span className="inline-flex items-center text-[10px] uppercase tracking-[0.14em] text-muted">
                 {turn.role === 'user'
                   ? 'You'
                   : String(modelLabels.get(turn.model ?? '') ?? turn.model ?? 'Assistant')
@@ -1668,7 +1668,9 @@ export function ChatPane() {
                 className={`min-w-0 max-w-[92%] overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
                   turn.role === 'user'
                     ? 'bg-panel-2 text-text'
-                    : 'border border-line bg-panel text-text/90'
+                    : `border bg-panel text-text/90 ${
+                      isPremiumModelRef(turn.model, premiumModelIds, modelOptions) ? 'chat-bubble--premium' : 'border-line'
+                    }`
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
               >
