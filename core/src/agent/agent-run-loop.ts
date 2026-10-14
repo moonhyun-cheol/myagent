@@ -106,6 +106,12 @@ import { AgentEvidenceStore } from './agent-evidence-store.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
 import {
+  detectModelSwitch,
+  formatModelSwitchTurnNote,
+  formatResumeModelSwitchLine,
+  sameModelRef,
+} from '../chat/model-switch.js';
+import {
   buildAgentContinuationSnapshot,
   fingerprintWorkspacePaths,
   partitionPathsByFingerprint,
@@ -645,8 +651,18 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         + (continuitySeedSelection.changed.length ? ` · 변경/미확인 ${continuitySeedSelection.changed.length}개 재읽기 필요` : ''),
     );
     reportStatus('Session continuity · 이전 읽기/수정 경로 재사용');
-  } else if (pendingContinuation) {
-    appendTurnContext(messages, formatPendingContinuationTurnNote(pendingContinuation));
+  }
+  const modelSwitch = detectModelSwitch(opts.history ?? [], lastModel);
+  if (modelSwitch) {
+    appendTurnContext(messages, formatModelSwitchTurnNote(modelSwitch));
+    pushThought(`모델 변경 감지: ${modelSwitch.previous} → ${modelSwitch.current}`);
+  }
+  if (pendingContinuation && !sessionContinuity) {
+    const snapModel = pendingContinuation.snapshot?.model;
+    const resumeLine = !modelSwitch && snapModel && !sameModelRef(snapModel, lastModel)
+      ? `\n${formatResumeModelSwitchLine(snapModel, lastModel)}`
+      : '';
+    appendTurnContext(messages, `${formatPendingContinuationTurnNote(pendingContinuation)}${resumeLine}`);
     pushThought('미완료 이전 실행 있음 — 이어갈지는 모델이 결정 (resume_run / discard_run)');
   }
   const lockedNote = formatLockedConstraintsSystemNote(lockedConstraints);
@@ -761,7 +777,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         + (split.changed.length ? ` · 재읽기 필요 ${split.changed.length}개` : ''),
     );
     reportStatus('Session continuity · 이전 실행 이어감');
-    return formatSessionContinuitySystemNote({
+    const note = formatSessionContinuitySystemNote({
       readPaths: snap?.readPaths ?? [],
       mutatedPaths: snap?.mutatedPaths ?? [],
       continuationSnapshot: snap,
@@ -769,6 +785,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       seededPaths: split.unchanged,
       stalePaths: split.changed,
     });
+    const snapModel = snap?.model;
+    // Skip when the turn-context model-switch note already covered this pair.
+    if (snapModel && !modelSwitch && !sameModelRef(snapModel, lastModel)) {
+      return `${note}\n${formatResumeModelSwitchLine(snapModel, lastModel)}`;
+    }
+    return note;
   };
   const readGate = new WorkspaceReadGate();
   if (sessionContinuity && continuitySeedSelection.unchanged.length) {

@@ -22,6 +22,7 @@ import { persistGeneratedImages, unverifiedMediaNotice } from '../media/generate
 import type { MediaRecord } from '../media/media-store.js';
 import type { ApplicationNotice } from '../sessions/types.js';
 import { parseProviderPreference, resolveChatModelAsync } from '../models/model-picker.js';
+import { prependModelSwitchContext } from './model-switch.js';
 import { findVideoModel, type VideoModelDef } from '../video/video-models.js';
 import { handleVideoGenMode, retrieveStoredVideoJob, type RetrieveVideoOutcome } from './modes/video-gen.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
@@ -687,11 +688,12 @@ export class ChatOrchestrator {
       process.env,
       histBudget,
     );
+    const modelCtx = prependModelSwitchContext(mergedCtx || undefined, history, resolved.display);
 
     const chatResult = await this.runChatModel(
       resolved,
       message,
-      mergedCtx || undefined,
+      modelCtx,
       history,
       systemPrompt ?? undefined,
       hasWorkspaceContext,
@@ -1411,6 +1413,7 @@ export class ChatOrchestrator {
       process.env,
       histBudget,
     );
+    const modelCtx = prependModelSwitchContext(mergedCtx || undefined, history, resolved.display);
     {
       const { loadAgentRunMeta } = await import('../agent/agent-run-meta.js');
       const snap = loadAgentRunMeta(this.cqrRoot, sessionId).lastContextBudget;
@@ -1423,7 +1426,7 @@ export class ChatOrchestrator {
         const out = await this.cloudChat.completeStream(
           resolved.route.providerId,
           message,
-          mergedCtx || undefined,
+          modelCtx,
           history,
           (text) => {
             streamedPartial += text;
@@ -1479,7 +1482,7 @@ export class ChatOrchestrator {
           resolved.route.path,
           resolved.route.filename,
           message,
-          mergedCtx || undefined,
+          modelCtx,
           history,
           (text) => {
             streamedPartial += text;

@@ -75,6 +75,7 @@
     "verify:message-markdown-ui": "node tools/verify-message-markdown-ui.mjs",
     "verify:chat-history-navigation": "node tools/verify-chat-history-navigation.mjs && node tools/verify-chat-history-navigation-browser.mjs",
     "verify:session-continuity": "node tools/verify-session-continuity.mjs",
+    "verify:model-switch-notice": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-model-switch-notice.mjs",
     "verify:task-ledger": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-task-ledger.mjs",
     "benchmark:task-ledger": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/benchmark-task-ledger.mjs",
     "verify:workspace-lock": "node tools/verify-workspace-lock.mjs",
