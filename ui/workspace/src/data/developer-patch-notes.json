@@ -3,7 +3,7 @@
   "notes": [
     {
       "id": "model-switch-notice",
-      "status": "development",
+      "status": "released",
       "title": "같은 대화에서 모델이 바뀌면 표시",
       "detail": "이전 답변과 다른 언어 모델로 이어서 보내면, 그 답변 위에 「모델 변경 · 이전 → 현재」 구분선이 한 번 나옵니다. AI에게도 이전 답변이 다른 모델이 쓴 것임을 그 요청에만 알립니다. 브라우저·동영상·업무 명령 답변은 비교하지 않습니다.",
       "area": "chat",
@@ -13,13 +13,13 @@
         "ui/workspace/src/components/ChatPane.tsx"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.17",
+        "update_sequence": 65
       }
     },
     {
       "id": "agent-continuation-model-decided",
-      "status": "development",
+      "status": "released",
       "title": "끊긴 작업은 말투와 상관없이 이어서 진행",
       "detail": "작업이 중간에 끊긴 뒤 「ㅇㅋ 진행」「ㄱㄱ」처럼 어떤 말로 요청해도 AI가 대화 흐름을 보고 이전 작업을 이어갈지 정합니다. 중간에 다른 질문을 해도 끊긴 작업 상태가 지워지지 않고 24시간 동안 남습니다. 이어갈 때는 그 사이 바뀐 파일을 다시 읽은 뒤 고칩니다.",
       "area": "agent",
@@ -30,13 +30,13 @@
         "core/src/agent/agent-run-step-loop.ts"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.17",
+        "update_sequence": 65
       }
     },
     {
       "id": "video-models-search-only",
-      "status": "development",
+      "status": "released",
       "title": "동영상 모델은 검색으로만 추가",
       "detail": "Veo·Seedance 같은 동영상 생성 모델이 채팅 모델 목록에 기본으로 나오지 않습니다. 모델 관리의 MY 모델 찾기에서 veo, seedance, 동영상으로 검색해 MY 모델에 추가하면 그때부터 채팅 모델 목록에 보입니다.",
       "area": "models",
@@ -46,8 +46,8 @@
         "ui/workspace/src/components/ModelManagementModal.tsx"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.17",
+        "update_sequence": 65
       }
     },
     {
