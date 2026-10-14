@@ -51,6 +51,148 @@
       }
     },
     {
+      "id": "premium-cost-badge",
+      "status": "released",
+      "title": "고비용 모델은 배지와 테두리로 구분",
+      "detail": "출력 가격이 기준 이상인 모델은 선택 목록과 답변에 배지, 「고비용 모델 사용 중」 안내, 주황 테두리로 구분됩니다. 가격은 공급자가 알려 준 값만 쓰며 앱을 켠 뒤 받아 둡니다. 가격이 없으면 표시하지 않습니다.",
+      "area": "models",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/models/model-pricing.ts",
+        "ui/workspace/src/components/PremiumCostBadge.tsx",
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "stop-progress-recheck",
+      "status": "released",
+      "title": "정지를 누르면 진행 중인 도구가 보입니다",
+      "detail": "정지를 누르면 실행 중인 도구 이름과 지난 시간이 보이고, 서버 작업이 끝날 때까지 자동으로 다시 확인합니다. 그때까지 다음 작업은 보류됩니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "ui/workspace/src/store/workspaceStore.ts"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "failure-shows-working-model",
+      "status": "released",
+      "title": "실패한 작업에 사용 중이던 모델을 표시",
+      "detail": "작업이나 일반 대화가 실패하면 안내와 답변에 그때 쓰던 모델이 「작업 모델」로 표시됩니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/agent/agent-failure-plane.ts"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "generated-media-retrieve",
+      "status": "released",
+      "title": "만든 영상은 저장하고 결과만 다시 받음",
+      "detail": "만든 이미지와 동영상은 대화에 남습니다. 동영상은 작업 번호를 저장하고, 정지로 화면만 멈춰도 공급자 작업과 비용은 계속될 수 있습니다. 「결과 다시 받기」는 같은 작업만 확인합니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/chat/modes/video-gen.ts",
+        "core/src/media/media-store.ts",
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "out-of-workspace-command-approval",
+      "status": "released",
+      "title": "작업 폴더 밖 명령은 그 명령만 승인",
+      "detail": "작업 폴더 밖 경로를 쓰는 터미널 명령은 그 명령 한 번만 승인하면 실행됩니다. 명령이 달라지면 다시 확인합니다.",
+      "area": "agent",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/agent/run-terminal.ts",
+        "core/src/agent/terminal-path-policy.ts"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "command-vs-call-failure",
+      "status": "released",
+      "title": "명령 실패와 도구 호출 실패를 구분",
+      "detail": "코드나 테스트 명령이 실패하면 「명령 실패」로, 도구 호출 자체가 실패하면 「호출 실패」로 구분해서 보여 줍니다.",
+      "area": "agent",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "ui/workspace/src/components/ToolActivityLog.tsx",
+        "core/src/agent/agent-tool-result.ts"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "per-conversation-model",
+      "status": "released",
+      "title": "대화마다 선택한 모델을 기억",
+      "detail": "대화에서 고른 모델은 그 대화에 저장됩니다. 다른 대화로 옮겨도 앞 대화의 모델이 따라오지 않습니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "core/src/sessions/session-store.ts",
+        "ui/workspace/src/store/workspaceStore.ts"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "skill-picker-names-only",
+      "status": "released",
+      "title": "스킬 목록은 이름만 표시",
+      "detail": "입력창의 스킬 목록은 이름만 보여 줍니다. 설명은 마우스를 올렸을 때만 나옵니다.",
+      "area": "chat",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
+      "id": "graphics-device-fallback",
+      "status": "released",
+      "title": "그래픽 장치를 못 써도 화면이 열림",
+      "detail": "그래픽 장치를 사용할 수 없으면 창 방식으로 화면을 띄워 앱이 열리게 합니다.",
+      "area": "shell",
+      "created_at": "2026-10-14",
+      "source_paths": [
+        "shell/CqrPa.Shell/MainWindow.WorkspaceWebView.cs"
+      ],
+      "release": {
+        "version": "1.1.17",
+        "update_sequence": 65
+      }
+    },
+    {
       "id": "model-cards-one-per-row",
       "status": "released",
       "title": "선택한 모델을 한 줄에 하나씩 넓은 카드로 표시",
