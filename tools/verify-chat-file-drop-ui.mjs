@@ -8,6 +8,7 @@ const chatPane = readFileSync(path.join(root, 'ui/workspace/src/components/ChatP
 const transferHelper = readFileSync(path.join(root, 'ui/workspace/src/lib/clipboardImages.ts'), 'utf8');
 const workspaceStore = readFileSync(path.join(root, 'ui/workspace/src/store/workspaceStore.ts'), 'utf8');
 const shellXaml = readFileSync(path.join(root, 'shell/CqrPa.Shell/MainWindow.xaml'), 'utf8');
+const shellWebView = readFileSync(path.join(root, 'shell/CqrPa.Shell/MainWindow.WorkspaceWebView.cs'), 'utf8');
 const shellMain = readFileSync(path.join(root, 'shell/CqrPa.Shell/MainWindow.xaml.cs'), 'utf8');
 const shellDrop = readFileSync(path.join(root, 'shell/CqrPa.Shell/MainWindow.ExternalFileDrop.cs'), 'utf8');
 
@@ -19,7 +20,9 @@ assert.match(transferHelper, /data\.files/, 'standard DataTransfer files must be
 assert.match(transferHelper, /data\.items/, 'WebView2 DataTransfer item fallback must be supported');
 assert.match(transferHelper, /getAsFile\(\)/, 'file items must be converted synchronously during drop');
 assert.match(shellXaml, /AllowDrop="True"/, 'the WPF shell must accept Explorer OLE drops');
-assert.match(shellXaml, /WebView2CompositionControl[^>]+AllowExternalDrop="False"/, 'the shell must own external drops instead of WebView2 swallowing them');
+assert.match(shellWebView, /new WebView2CompositionControl \{ AllowExternalDrop = false \}/, 'the shell must own external drops instead of WebView2 swallowing them');
+assert.match(shellWebView, /new WebView2 \{ AllowExternalDrop = false/, 'the HWND fallback must also refuse WebView2 drops');
+assert.match(shellMain, /WebView\.AllowExternalDrop = false/, 'the in-app browser WebView must refuse external drops');
 assert.match(shellMain, /InitializeExternalFileDrop\(\)/, 'the native drop bridge must initialize with the shell');
 assert.match(shellMain, /composer\.externalDrop\.accept/, 'the shell must receive composer acceptance');
 assert.match(shellDrop, /DragDrop\.DropEvent/, 'the shell must subscribe to native drop events');
