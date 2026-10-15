@@ -154,3 +154,25 @@ CQR_PA 클론 자체는 수정·삭제·push 하지 않는다.
 - 외부 경로가 있는 터미널 명령은 대신 승인(`canDelegateToolApproval`)과 안전 명령 자동 통과에서 제외하고, 승인 카드에 대상 경로와 전체 명령을 표시한다(`access: 'operation'`, `expires: 'once'`).
 - 함께 이식: `tools/verify-terminal-command-approval.mjs`(신규), `tools/verify-approval-auto-review.mjs` 정규식 1줄. 같은 커밋의 `2026-10-08-cc-image-missing-investigation.md`는 코드가 아니라 계획이며 `docs/media-output-persistence-plan.md`에 영상까지 넓혀 정리했다.
 - 검증: `tsc -p tsconfig.json` exit 0, `verify-terminal-command-approval`·`verify-approval-auto-review`·`verify-run-terminal-sanitize` 통과. ⚠️ 실제 앱 승인 카드 UI 확인은 하지 않음.
+
+## CQR_PA patch-candidates 정리 (2026-10-14 / update 65)
+
+기준: GitHub `moonhyun-cheol/CQR_PA` `origin/master` `42d9657` (`2387146..42d9657`, 9커밋). 점검 클론은 fetch 전 `2387146`으로 9커밋 뒤였다. `C:\MY_FULL_AI\CQR_PA`는 `4ebafaf`이고 `tools/bootstrap-npm-deps.ps1`·`tools/install/install.ps1`이 로컬 수정이라 그 트리는 당기지 않았다.
+
+| 후보 | 판정 | MY Agent 근거 |
+|------|------|----------------|
+| `rulebook/.../patch-candidate-mixed-dpi-popup-positioning.md` | 수용 완료 | `shell/CqrPa.Shell/app.manifest` `PerMonitorV2,PerMonitor` |
+| `2026-09-28-model-label-feed-cleanup.md` | 수용 완료 | `AutomationFeedModal` 「읽은 항목 정리」, `clearFeed('read')`, update 64 노트 |
+| `2026-09-29-window-frame-shadow.md` | 수용 완료 | `GlassFrameThickness` 복원 1 / 최대화 0, update 64 노트 |
+| `2026-10-01-fixed-tools-token-efficiency.md` | 수용 완료 | `agent-token-efficiency.ts`, `tools/verify-token-efficiency.mjs` |
+| `2026-10-01-per-call-token-usage-implementation.md` | 수용 완료 | `providers/llm-usage-log.ts`, `tools/verify-llm-usage.mjs`, `tools/summarize-llm-usage.mjs` |
+| `2026-10-01-responses-400-investigation.md` | 조사 문서, 구현 수용 | 아래 요청 경계 구현에 흡수. 별도 코드 없음 |
+| `2026-10-01-responses-benchmark.md` | 조사 문서, 구현 수용 | 同上 |
+| `2026-10-01-responses-request-boundary-plan.md` | 계획 문서, 구현 수용 | 同上 |
+| `2026-10-01-responses-request-boundary-implementation.md` | 수용 완료 | `responses-compatible.ts` `settings_hash`, `tools/verify-responses-request-boundary.mjs` |
+| `2026-10-08-terminal-command-approval.md` | 수용 완료 | 위 #12. `approvedTerminalCommand` |
+| `2026-10-08-cc-image-missing-investigation.md` | 제품 요구 수용, 사건 복구는 미실시 | `generated-media-extract.ts`가 `image_generation_call`/`output_image`를 수집하고 `persistGeneratedImages`로 저장. 세션 `60d92c89-…` 원본 복구는 하지 않음 |
+| `2026-09-18-brand-manual-hub-live-update.md` | 유지 | 사내 `192.168.1.20` 스킬 패키지. 제품 소스에 없음 |
+| `2026-09-30-cqr-product-lineup/` + `skillsets/cqr-product-lineup*` | 유지 | 공유 스킬 ZIP. 앱 코드 변경이 아니고 내부 URL이 있어 제품에 넣지 않음 |
+
+수용 완료 11개 명세만 CQR_PA에서 삭제·push 완료: `5f9aa58` (`42d9657..5f9aa58`). 브랜드 매뉴얼·상품 라인업은 남겼다.
