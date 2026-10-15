@@ -99,6 +99,11 @@ export interface ChatTurn {
   uiHidden?: boolean;
   /** Model id/name used for this specific assistant response. */
   model?: string;
+  /**
+   * Composer selection for this reply, kept after `model` is replaced by the
+   * provider-resolved id. The model-switch divider compares this when present.
+   */
+  selectedModel?: string;
   /** ISO timestamp when this assistant execution started. */
   startedAt?: string;
   /** ISO timestamp when this assistant execution finished. */

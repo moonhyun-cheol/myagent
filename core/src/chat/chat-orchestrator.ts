@@ -22,7 +22,7 @@ import { persistGeneratedImages, unverifiedMediaNotice } from '../media/generate
 import type { MediaRecord } from '../media/media-store.js';
 import type { ApplicationNotice } from '../sessions/types.js';
 import { parseProviderPreference, resolveChatModelAsync } from '../models/model-picker.js';
-import { prependModelSwitchContext } from './model-switch.js';
+import { composerSelectionRef, prependModelSwitchContext } from './model-switch.js';
 import { findVideoModel, type VideoModelDef } from '../video/video-models.js';
 import { handleVideoGenMode, retrieveStoredVideoJob, type RetrieveVideoOutcome } from './modes/video-gen.js';
 import { initSse, sseEvent, sseDone } from './sse.js';
@@ -1126,6 +1126,7 @@ export class ChatOrchestrator {
               formattedError: '(중지됨)',
               kind: 'stopped',
               model: runModel,
+              selected_model: composerSelectionRef(req.model),
             });
             if (stoppedUsage) this.sessionStore.setLastAssistantUsage(sessionId, stoppedUsage);
           }
@@ -1164,6 +1165,7 @@ export class ChatOrchestrator {
                 formattedError: msg,
                 kind: classifyLlmFailure(err),
                 model: runModel,
+                selected_model: composerSelectionRef(req.model),
               })
             : formatToolPlaneFailureAssistant({
                 formattedError: msg,
@@ -1228,6 +1230,7 @@ export class ChatOrchestrator {
               formattedError: '(중지됨)',
               kind: 'stopped',
               model: runModel,
+              selected_model: composerSelectionRef(req.model),
             });
             if (thrownUsage) this.sessionStore.setLastAssistantUsage(sessionId, thrownUsage);
           }
@@ -1263,6 +1266,7 @@ export class ChatOrchestrator {
               formattedError: msg,
               kind: classifyLlmFailure(e),
               model: runModel,
+              selected_model: composerSelectionRef(req.model),
             })
           : formatToolPlaneFailureAssistant({
               formattedError: msg,
@@ -1460,6 +1464,7 @@ export class ChatOrchestrator {
           content: finalized.content,
           at: new Date().toISOString(),
           model: out.model,
+          ...(composerSelectionRef(req.model) ? { selected_model: composerSelectionRef(req.model) } : {}),
           mode: routing.mode,
           image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
           ...(finalized.media.length ? { media: finalized.media } : {}),
@@ -1497,6 +1502,7 @@ export class ChatOrchestrator {
           content: out.content,
           at: new Date().toISOString(),
           model: out.model,
+          ...(composerSelectionRef(req.model) ? { selected_model: composerSelectionRef(req.model) } : {}),
           mode: routing.mode,
         });
         sseEvent(res, { type: 'done', model: out.model, mode: routing.mode });
@@ -1631,6 +1637,7 @@ export class ChatOrchestrator {
       formattedError: string;
       kind: ReturnType<typeof classifyLlmFailure> | 'stopped';
       model?: string;
+      selected_model?: string;
     },
   ): string {
     const prev = loadAgentRunMeta(this.cqrRoot, sessionId);
@@ -1653,6 +1660,7 @@ export class ChatOrchestrator {
       content,
       // Real model when known so the reply header / premium badge show what failed.
       model: opts.model || 'policy/tool-plane-failure',
+      ...(opts.selected_model ? { selected_model: opts.selected_model } : {}),
       mode,
       userMessage: opts.formattedError,
     });

@@ -102,6 +102,8 @@ export interface SessionMessage {
   content: string;
   at: string;
   model?: string;
+  /** Composer selection, kept after `model` is rewritten to the provider id. */
+  selected_model?: string;
   mode?: string;
   image_urls?: string[];
   /** Provider async video job (job id + status) for retrieve-without-regenerate. */

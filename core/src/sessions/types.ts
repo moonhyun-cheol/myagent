@@ -40,6 +40,11 @@ export interface SessionMessage {
   content: string;
   at: string;
   model?: string;
+  /**
+   * Composer selection that produced this reply. Kept separately so a provider
+   * alias rewrite of `model` does not erase the user's model-switch boundary.
+   */
+  selected_model?: string;
   mode?: string;
   /** Normalized public reasoning/work log for this exact assistant response. */
   reasoning?: PublicReasoningRecord;

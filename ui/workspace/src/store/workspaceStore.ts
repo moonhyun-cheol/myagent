@@ -274,6 +274,9 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
       text: m.status === 'stopped' && text !== '(중지됨)' ? `${text}\n\n(중지됨)` : isPlaceholder ? '' : text,
       uiHidden: uiHidden || undefined,
       model: m.role === 'assistant' ? m.reasoning?.model ?? m.model : undefined,
+      selectedModel: m.role === 'assistant' && m.selected_model?.trim()
+        ? m.selected_model
+        : undefined,
       thought: m.role === 'assistant'
         ? (typeof m.reasoning?.content === 'string' && m.reasoning.content.trim()
           ? m.reasoning.content
@@ -1266,7 +1269,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                   });
                 }
               }
-        if (info.model && info.model !== '중지됨') patchAssistant({ model: info.model });
+        if (info.model && info.model !== '중지됨') {
+          patchAssistant({ model: info.model, selectedModel: job.model });
+        }
               if (info.applicationNotice) {
                 patchAssistant({ applicationNotice: info.applicationNotice });
               }
@@ -3195,6 +3200,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       text: '',
       uiHidden: uiHidden || undefined,
       model,
+      selectedModel: model,
       startedAt: new Date().toISOString(),
     };
       const chat = [...get().chat, userTurn, assistantTurn];

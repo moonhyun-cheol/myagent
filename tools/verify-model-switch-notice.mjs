@@ -3,14 +3,17 @@
  * Model-switch notice: stored model refs only, one-shot, turn context not system.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { appendTurnContext } from '../core/dist/agent/agent-context-assembler.js';
 import { wrapUserMessageWithContext } from '../core/dist/chat/chat-context.js';
 import {
+  composerSelectionRef,
   detectModelSwitch,
   formatModelSwitchTurnNote,
   formatResumeModelSwitchLine,
   prependModelSwitchContext,
+  sameDividerModelRef,
   sameModelRef,
 } from '../core/dist/chat/model-switch.js';
 
@@ -26,6 +29,92 @@ assert.equal(
   'display-prefix and bare vendor/model are the same model',
 );
 assert.equal(sameModelRef('OpenAI/gpt-4o', 'gpt-4o'), true);
+assert.equal(
+  sameModelRef('OpenRouter/~x-ai/grok-latest', 'OpenRouter/x-ai/grok-4.7'),
+  true,
+  'latest alias and the concrete id it resolves to are the same model',
+);
+assert.equal(
+  detectModelSwitch([reply('OpenRouter/x-ai/grok-4.7')], 'OpenRouter/~x-ai/grok-latest'),
+  null,
+  'grok-latest after grok-4.7 is not a model switch',
+);
+assert.ok(
+  detectModelSwitch([reply('OpenRouter/x-ai/grok-4.7')], 'OpenRouter/anthropic/claude-opus-5.5'),
+  'a different vendor is still a switch',
+);
+assert.ok(
+  detectModelSwitch([reply('OpenRouter/x-ai/grok-4.7')], 'OpenRouter/x-ai/grok-4.6'),
+  'two pinned versions are still a switch',
+);
+assert.equal(sameModelRef('OpenRouter/~x-ai/grok-latest', 'OpenRouter/x-ai/grok-imagine'), false);
+assert.equal(
+  sameDividerModelRef('OpenRouter/~x-ai/grok-latest', 'OpenRouter/x-ai/grok-4.7'),
+  false,
+  'the visible divider keeps a latest alias distinct from the resolved id',
+);
+assert.equal(
+  sameDividerModelRef('OpenRouter/~x-ai/grok-latest', '~x-ai/grok-latest'),
+  true,
+  'display prefix does not create a divider',
+);
+assert.equal(
+  sameDividerModelRef('OpenRouter/anthropic/claude-opus-5.5', 'provider:company-openrouter@anthropic%2Fclaude-opus-5.5'),
+  true,
+  'a composer pick and the resolved ref of the same model are not a switch',
+);
+assert.equal(
+  sameDividerModelRef('OpenRouter/anthropic/claude-opus-5.5', 'provider:company-openrouter@openai%2Fgpt-6-astra'),
+  false,
+  'a composer pick of another model is still a switch',
+);
+assert.equal(composerSelectionRef('auto'), undefined);
+assert.equal(composerSelectionRef(' OpenRouter/~x-ai/grok-latest '), 'OpenRouter/~x-ai/grok-latest');
+{
+  const ui = readFileSync(new URL('../ui/workspace/src/lib/modelSwitch.ts', import.meta.url), 'utf8');
+  const start = ui.indexOf('export function sameSelectionRef');
+  const end = ui.indexOf('function isVideoRef');
+  assert.ok(start >= 0 && end > start, 'divider uses a selection comparison');
+  assert.doesNotMatch(ui.slice(start, end), /latestAliasEquivalent/);
+  assert.match(ui, /sameSelectionRef\(previous, current\)/);
+  const agent = readFileSync(new URL('../core/src/chat/modes/workspace-agent.ts', import.meta.url), 'utf8');
+  assert.match(agent, /selected_model: composerSelectionRef\(req\.model\)/);
+  const store = readFileSync(new URL('../ui/workspace/src/store/workspaceStore.ts', import.meta.url), 'utf8');
+  assert.match(store, /patchAssistant\(\{ model: info\.model, selectedModel: job\.model \}\)/);
+  const uiUrl = new URL('../ui/workspace/src/lib/modelSwitch.ts', import.meta.url);
+  const probe = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', `
+    import { modelSwitchBefore } from ${JSON.stringify(uiUrl.href)};
+    const resolved = 'OpenRouter/x-ai/grok-4.7';
+    const selected = 'OpenRouter/~x-ai/grok-latest';
+    const previous = { role: 'assistant', model: resolved, text: 'before' };
+    const completed = { role: 'assistant', model: resolved, selectedModel: selected, text: 'after' };
+    const hit = modelSwitchBefore([previous, completed], 1);
+    if (!hit || !String(hit.current).includes('grok-latest')) {
+      console.error('divider vanished after the reply model was normalized');
+      process.exit(1);
+    }
+    const repeat = modelSwitchBefore([
+      { role: 'assistant', model: resolved, selectedModel: selected, text: 'before' },
+      completed,
+    ], 1);
+    if (repeat) {
+      console.error('the same composer selection must not repeat the divider');
+      process.exit(1);
+    }
+    const legacy = { role: 'assistant', model: 'OpenRouter/anthropic/claude-opus-5.5', text: 'before' };
+    const picked = { role: 'assistant', model: 'OpenRouter/anthropic/claude-opus-5.5', selectedModel: 'provider:company-openrouter@anthropic%2Fclaude-opus-5.5', text: 'after' };
+    if (modelSwitchBefore([legacy, picked], 1)) {
+      console.error('resolved ref vs composer pick of the same model drew a divider');
+      process.exit(1);
+    }
+    const other = { ...picked, selectedModel: 'provider:company-openrouter@openai%2Fgpt-6-astra' };
+    if (!modelSwitchBefore([legacy, other], 1)) {
+      console.error('a real model change lost its divider');
+      process.exit(1);
+    }
+  `], { encoding: 'utf8' });
+  assert.equal(probe.status, 0, probe.stderr || probe.stdout || 'ui divider probe failed');
+}
 
 {
   const hit = detectModelSwitch([reply(A), reply(A), reply(A)], B);

@@ -17,6 +17,7 @@ import { resolveAutopilotEnabled } from '../../agent/agent-autopilot.js';
 import { TOOL_PLANE_NO_WORKSPACE_REFUSAL } from '../../agent/agent-failure-plane.js';
 import { hasNasWriteConsent } from '../../security/nas-write-consent.js';
 import { appendAssistantReply } from '../assistant-reply.js';
+import { composerSelectionRef } from '../model-switch.js';
 import { sanitizeHistoryForModel } from '../chat-filters.js';
 import { applyHistoryContentBudget, getHistoryTurns } from '../history-budget.js';
 import {
@@ -371,6 +372,7 @@ export async function runWorkspaceCodeAgent(opts: {
     content: agent.content,
     tool_activity: [...activities.values()],
     model: agent.model,
+    selected_model: composerSelectionRef(req.model),
     mode: routing.mode,
     application_notice: agent.applicationNotice,
     userMessage: message,

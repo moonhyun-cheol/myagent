@@ -30,6 +30,7 @@ export function appendAssistantReply(
   opts: {
     content: string;
     model: string;
+    selected_model?: string;
     mode: ChatMode | string;
     image_urls?: string[];
     media?: import('../media/media-store.js').MediaRecord[];
@@ -50,6 +51,7 @@ export function appendAssistantReply(
     content,
     at: new Date().toISOString(),
     model: opts.model,
+    ...(opts.selected_model?.trim() ? { selected_model: opts.selected_model.trim() } : {}),
     mode: opts.mode,
     ...(opts.image_urls?.length ? { image_urls: opts.image_urls } : {}),
     ...(opts.media?.length ? { media: opts.media } : {}),
