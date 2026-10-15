@@ -121,6 +121,29 @@ export function formatToolDeferralRetryNote(): string {
   ].join(' ');
 }
 
+/**
+ * Hold answer and thought until this step is classified.
+ * Only the first pre-tool step can still be a discarded promise.
+ */
+export function shouldHoldPublicationUntilToolDeferralCheck(opts: {
+  retryAlreadyUsed: boolean;
+  toolsAvailable: boolean;
+  toolsUsed: boolean;
+}): boolean {
+  return !opts.retryAlreadyUsed && opts.toolsAvailable && !opts.toolsUsed;
+}
+
+/** Drop the held prose instead of showing it. The one retry has not been used yet. */
+export function shouldWithholdToolDeferralPublication(opts: {
+  text: string;
+  retryAlreadyUsed: boolean;
+  toolsAvailable: boolean;
+  toolsUsed: boolean;
+}): boolean {
+  if (!shouldHoldPublicationUntilToolDeferralCheck(opts)) return false;
+  return isBareToolDeferral(opts.text);
+}
+
 /** Single Exit Gate + one TOOL_CALL (RCA: one unclosed evidence gate per turn). */
 export function formatExitGateToolNudge(opts: {
   gate: string;

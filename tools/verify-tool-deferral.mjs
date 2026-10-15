@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 
-const { isBareToolDeferral } = await import('../core/dist/agent/agent-claim-gates.js');
+const {
+  isBareToolDeferral,
+  shouldHoldPublicationUntilToolDeferralCheck,
+  shouldWithholdToolDeferralPublication,
+} = await import('../core/dist/agent/agent-claim-gates.js');
 
 assert.equal(
   isBareToolDeferral('코드에서 확인하겠습니다. 기억만으로 단정하지 않겠습니다.'),
@@ -45,6 +49,43 @@ assert.equal(
   isBareToolDeferral('agent-run-step-loop.ts 497줄에서 문구를 띄웁니다. 확인하겠습니다.'),
   false,
   'a path citation is already a finding',
+);
+
+const hold = {
+  retryAlreadyUsed: false,
+  toolsAvailable: true,
+  toolsUsed: false,
+};
+assert.equal(shouldHoldPublicationUntilToolDeferralCheck(hold), true);
+assert.equal(
+  shouldWithholdToolDeferralPublication({
+    ...hold,
+    text: '코드에서 확인하겠습니다. 기억만으로 단정하지 않겠습니다.',
+  }),
+  true,
+  'a held promise is not published',
+);
+assert.equal(
+  shouldWithholdToolDeferralPublication({
+    ...hold,
+    text: '오류가 아닙니다. 스킬은 그대로 쓸 수 있습니다.',
+  }),
+  false,
+  'a finished explanation is published after the hold',
+);
+assert.equal(
+  shouldWithholdToolDeferralPublication({
+    ...hold,
+    retryAlreadyUsed: true,
+    text: '코드에서 확인하겠습니다.',
+  }),
+  false,
+  'the second promise is shown; retry stays once',
+);
+assert.equal(
+  shouldHoldPublicationUntilToolDeferralCheck({ ...hold, toolsUsed: true }),
+  false,
+  'after a tool call, publication is not held',
 );
 
 console.log('verify-tool-deferral: ok');

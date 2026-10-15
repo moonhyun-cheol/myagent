@@ -43,7 +43,11 @@ import {
 import { addAgentUsage } from './agent-usage-carry.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
-import { formatToolDeferralRetryNote, isBareToolDeferral } from './agent-claim-gates.js';
+import {
+  formatToolDeferralRetryNote,
+  shouldHoldPublicationUntilToolDeferralCheck,
+  shouldWithholdToolDeferralPublication,
+} from './agent-claim-gates.js';
 import { diagnosticsEvidenceStatus } from './agent-outcome-gate.js';
 import { formatLockedConstraintsSystemNote } from './agent-locked-constraints.js';
 import {
@@ -401,14 +405,33 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     state.hooks.onEvent?.({ type: 'model_start', step: state.steps });
 
     const streamAnswer = true;
+    // A short promise must not reach the timeline or bubble before the one tool retry is decided.
+    const holdPublication = shouldHoldPublicationUntilToolDeferralCheck({
+      retryAlreadyUsed: deferralRetryUsed,
+      toolsAvailable: state.agentTools.length > 0 || state.toolNames.length > 0,
+      toolsUsed: state.toolsUsedThisRun.size > 0 || state.toolCallCount > 0,
+    });
+    let heldPublicationReleased = false;
     const publishModelThought = (delta: string) => {
       state.thoughtBuf += delta;
-      state.publishThoughtPanel();
+      if (!holdPublication) state.publishThoughtPanel();
     };
     const publishModelAnswer = (delta: string) => {
       state.answerBuf += delta;
       // Main chat bubble: only stream when this step is an answer turn (not tool-first).
-      if (streamAnswer) state.opts.onAnswer?.(delta);
+      if (!holdPublication && streamAnswer) state.opts.onAnswer?.(delta);
+    };
+    const releaseHeldPublication = () => {
+      if (!holdPublication || heldPublicationReleased) return;
+      heldPublicationReleased = true;
+      if (state.thoughtBuf) state.publishThoughtPanel();
+      if (streamAnswer && state.answerBuf.trim()) state.opts.onAnswer?.(state.answerBuf);
+    };
+    const dropHeldPublication = (dropped: string) => {
+      state.thoughtBuf = '';
+      state.answerBuf = '';
+      heldPublicationReleased = true;
+      if (dropped && state.lastModelOutput.trim() === dropped.trim()) state.lastModelOutput = '';
     };
     // Always mirror Open WebUI content into the thought panel (even on tool-first state.steps).
     const streamHandlers = {
@@ -467,10 +490,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     }
     addAgentUsage(state.llmUsage, result.usage);
 
-    // Non-stream completions never call onContent — mirror Open WebUI text into thought.
+    // Non-stream completions never call onContent. Keep the text in the buffer;
+    // a held promise is published only after this step is classified.
     if (result.content?.trim() && !state.answerBuf.trim()) {
       state.answerBuf = result.content.trim();
-      state.publishThoughtPanel();
+      if (!holdPublication) state.publishThoughtPanel();
     }
 
     // Legacy TEXT mode may embed XML/<invoke> tool mimetics in content. Never
@@ -521,10 +545,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         addAgentUsage(state.llmUsage, retry.usage);
         const retryText = (retry.content ?? '').trim();
         if (retryText) {
-          if (!state.answerBuf.trim()) {
-            state.answerBuf = retryText;
-            state.publishThoughtPanel();
-          }
+          if (!state.answerBuf.trim()) state.answerBuf = retryText;
+          releaseHeldPublication();
           if (!streamAnswer) state.opts.onAnswer?.(retryText);
           clearContinuationOnComplete();
           return state.finish({ content: retryText, model: state.lastModel, steps: state.steps });
@@ -548,29 +570,28 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
       }
 
-      if (
-        !deferralRetryUsed
-        && (state.agentTools.length > 0 || state.toolNames.length > 0)
-        && state.toolsUsedThisRun.size === 0
-        && state.toolCallCount === 0
-        && isBareToolDeferral(text)
-      ) {
+      if (shouldWithholdToolDeferralPublication({
+        text,
+        retryAlreadyUsed: deferralRetryUsed,
+        toolsAvailable: state.agentTools.length > 0 || state.toolNames.length > 0,
+        toolsUsed: state.toolsUsedThisRun.size > 0 || state.toolCallCount > 0,
+      })) {
         deferralRetryUsed = true;
         deferralForceTool = true;
         deferralNote = formatToolDeferralRetryNote();
+        dropHeldPublication(text);
         state.reportStatus('도구 없는 약속 답변 — 도구 호출 1회 재요구');
         continue;
       }
 
-      if (text && !state.answerBuf.trim()) {
-        state.answerBuf = text;
-        state.publishThoughtPanel();
-      }
+      if (text && !state.answerBuf.trim()) state.answerBuf = text;
+      releaseHeldPublication();
       if (!streamAnswer && text) state.opts.onAnswer?.(text);
       clearContinuationOnComplete();
       return state.finish({ content: text, model: state.lastModel, steps: state.steps });
     }
 
+    releaseHeldPublication();
     const toolCalls = result.tool_calls.map((call) => normalizeToolCall(call as AgentToolCall));
     const batchToolCtx = {
       ...state.toolCtx,
