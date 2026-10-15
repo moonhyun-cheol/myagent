@@ -49,6 +49,11 @@ export interface AgentRunStepState {
    * resume_run, discard_run, or the first mutation (a new run replaces the stored one).
    */
   continuationOwner: boolean;
+  /**
+   * True when this turn started with a stored run (pending, or a host retry of that chain).
+   * Survives resume_run clearing pendingContinuation.
+   */
+  hadStoredContinuationAtStart: boolean;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
   selfWorkspace: boolean;
   uiFacts: UiFacts | null;

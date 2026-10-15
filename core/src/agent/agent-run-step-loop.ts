@@ -43,6 +43,7 @@ import {
 import { addAgentUsage } from './agent-usage-carry.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
+import { formatToolDeferralRetryNote, isBareToolDeferral } from './agent-claim-gates.js';
 import { diagnosticsEvidenceStatus } from './agent-outcome-gate.js';
 import { formatLockedConstraintsSystemNote } from './agent-locked-constraints.js';
 import {
@@ -124,6 +125,12 @@ import {
   loadAgentRunMeta,
   recordSessionContinuationSnapshot,
 } from './agent-run-meta.js';
+import {
+  CONTINUATION_UNSAVED_NOTICE,
+  carriedResumeCountOnReplace,
+  continuationPersistStatus,
+  shouldKeepStoredContinuationOnTextComplete,
+} from './agent-session-continuity.js';
 
 import {
   isParallelReadOnlyTool,
@@ -171,6 +178,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // Run ends when tools fail this many times in a row (successes reset it).
   let consecutiveToolFailures = 0;
   const maxConsecutiveFailures = maxConsecutiveToolFailures();
+  // One same-turn retry when the model promises to inspect or edit but emits no tool call.
+  let deferralRetryUsed = false;
+  let deferralForceTool = false;
+  let deferralNote: string | null = null;
   // Display/persisted count across the continuation chain. The per-run budget below is
   // state.steps alone, so a resume after hitting the cap gets a fresh budget.
   const cumulativeSteps = (): number => state.priorSteps + state.steps;
@@ -178,13 +189,30 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // resume state. Its first mutation makes it a new run that replaces the stored one.
   const ownsContinuation = (): boolean => {
     if (!state.continuationOwner && state.mutatedPathsThisRun.size > 0) {
+      state.resumeCount = carriedResumeCountOnReplace(
+        state.resumeCount,
+        state.pendingContinuation?.snapshot?.resumeCount,
+      );
       state.continuationOwner = true;
       state.pendingContinuation = null;
     }
     return state.continuationOwner;
   };
+  const textCompleteToolNames = (): string[] => {
+    const names = state.toolTrace.map((entry) => entry.name);
+    if (state.toolCallCount > names.length) names.push('untraced');
+    return names;
+  };
   // Normal completion ends the chain: a later resume must not inherit this run's snapshot.
+  // A text answer with no work tools must not erase a run that was already stored.
   const clearContinuationOnComplete = () => {
+    if (shouldKeepStoredContinuationOnTextComplete({
+      toolNames: textCompleteToolNames(),
+      hadStoredContinuationAtStart: state.hadStoredContinuationAtStart,
+    })) {
+      state.persistLiveSessionMeta();
+      return;
+    }
     if (ownsContinuation()) {
       try {
         clearSessionContinuationState(state.opts.cqrRoot, state.opts.sessionId);
@@ -218,12 +246,34 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         ...state.successfulReadsThisRun,
       ]),
     });
+    let saved = false;
     if (ownsContinuation()) {
       recordSessionContinuationSnapshot(state.opts.cqrRoot, state.opts.sessionId, snapshot);
+      saved = true;
     }
     state.persistLiveSessionMeta();
-    if (status) state.reportStatus(status);
-    return snapshot;
+    if (status) state.reportStatus(continuationPersistStatus(saved, status));
+    return { snapshot, saved };
+  };
+  const finishKeptRun = (content: string, title: string) => {
+    const persisted = persistContinuationSnapshot();
+    const message = persisted.saved
+      ? '작업을 멈췄습니다. TODO와 Evidence 기반 재개 상태를 저장했습니다. 같은 대화에서 이어서 진행할 수 있습니다.'
+      : CONTINUATION_UNSAVED_NOTICE;
+    state.reportStatus(continuationPersistStatus(persisted.saved, `${title} · 재개 상태 저장`));
+    return state.finish({
+      content,
+      model: persisted.snapshot.model ?? state.lastModel,
+      steps: state.steps,
+      applicationNotice: {
+        kind: 'continuation',
+        title,
+        message,
+        model: persisted.snapshot.model ?? state.lastModel,
+        elapsedMs: persisted.snapshot.elapsedMs,
+        step: persisted.snapshot.step,
+      },
+    });
   };
 
   const withApiTimeout = <T extends object>(opts: T): T & { timeoutMs?: number } => {
@@ -260,6 +310,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       forceRebuild: state.steps === 1 && state.priorSteps > 0,
     });
     state.messages = preparedContext.messages;
+    if (deferralNote) {
+      state.messages.push({ role: 'user', content: deferralNote });
+      deferralNote = null;
+    }
     if (preparedContext.action !== 'unchanged') {
       state.reportStatus(
         `Context View ${preparedContext.action === 'full_rebuild' ? '전면 재조립' : '선별 재조립'} · ${(preparedContext.utilization * 100).toFixed(0)}%`,
@@ -342,7 +396,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     const beforeModel = await state.hooks.beforeModel?.({ step: state.steps, messageCount: state.messages.length });
     if (isHookStop(beforeModel)) {
       state.hooks.onEvent?.({ type: 'hook_stop', reason: beforeModel.reason, phase: 'beforeModel' });
-      return state.finish({ content: `Agent stopped: ${beforeModel.reason}`, model: state.lastModel, steps: state.steps });
+      return finishKeptRun(`Agent stopped: ${beforeModel.reason}`, 'hook으로 작업 중단');
     }
     state.hooks.onEvent?.({ type: 'model_start', step: state.steps });
 
@@ -366,6 +420,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       .filter((record) => !record.observedByModel)
       .map((record) => record.evidenceId);
     let result: ToolCompletionResult;
+
+    const toolChoiceThisStep = deferralForceTool ? 'required' as const : 'auto' as const;
+    deferralForceTool = false;
 
     if (state.toolProtocol === 'client') {
       result = await waitForModel(modelWaitLabel, () =>
@@ -392,10 +449,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           withApiTimeout({
             streamHandlers,
             stream: true,
-            // The model decides whether a native tool is needed. Completion is
-            // judged from tool/disk/diagnostic evidence later; prose never forces
-            // a second tool-call turn.
-            toolChoice: 'auto' as const,
+            // A bare "I will check" with zero tool calls gets one required retry.
+            // Any other prose still finishes; user wording is not classified.
+            toolChoice: toolChoiceThisStep,
           }),
           state.protocolCacheKey,
         ),
@@ -473,7 +529,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           clearContinuationOnComplete();
           return state.finish({ content: retryText, model: state.lastModel, steps: state.steps });
         } else {
-          const snapshot = persistContinuationSnapshot('최종 모델 응답 실패 · 재개 상태 보존');
+          const persisted = persistContinuationSnapshot('최종 모델 응답 실패 · 재개 상태 보존');
           return state.finish({
             content: '',
             model: state.lastModel,
@@ -481,13 +537,29 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             applicationNotice: {
               kind: 'continuation',
               title: '최종 답변 생성 중단',
-              message: '모델의 최종 답변을 받지 못했습니다. TODO와 Evidence는 보존되어 같은 대화에서 이어서 진행할 수 있습니다.',
-              model: snapshot.model ?? state.lastModel,
-              elapsedMs: snapshot.elapsedMs,
-              step: snapshot.step,
+              message: persisted.saved
+                ? '모델의 최종 답변을 받지 못했습니다. TODO와 Evidence는 보존되어 같은 대화에서 이어서 진행할 수 있습니다.'
+                : `모델의 최종 답변을 받지 못했습니다. ${CONTINUATION_UNSAVED_NOTICE}`,
+              model: persisted.snapshot.model ?? state.lastModel,
+              elapsedMs: persisted.snapshot.elapsedMs,
+              step: persisted.snapshot.step,
             },
           });
         }
+      }
+
+      if (
+        !deferralRetryUsed
+        && (state.agentTools.length > 0 || state.toolNames.length > 0)
+        && state.toolsUsedThisRun.size === 0
+        && state.toolCallCount === 0
+        && isBareToolDeferral(text)
+      ) {
+        deferralRetryUsed = true;
+        deferralForceTool = true;
+        deferralNote = formatToolDeferralRetryNote();
+        state.reportStatus('도구 없는 약속 답변 — 도구 호출 1회 재요구');
+        continue;
       }
 
       if (text && !state.answerBuf.trim()) {
@@ -1029,7 +1101,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           projectEvidenceForModel(evidenceRecord, output),
           execCall.function.name,
         );
-        return state.finish({ content: `Agent stopped after tool: ${afterTool.reason}`, model: state.lastModel, steps: state.steps });
+        return finishKeptRun(`Agent stopped after tool: ${afterTool.reason}`, 'hook으로 작업 중단');
       }
       loopGuard.noteResult(execCall, output);
 
@@ -1193,7 +1265,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     if (efficiencyNote) state.messages.push({ role: 'user', content: `[Runtime advisory]\n${efficiencyNote}` });
 
     if (loopHardStop) {
-      return state.finish({ content: loopHardStop, model: state.lastModel, steps: state.steps });
+      return finishKeptRun(loopHardStop, '도구 연속 실패로 중단');
     }
 
     if (toolFailuresSinceSnapshot >= 3) {
@@ -1239,19 +1311,21 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     persistContinuationSnapshot();
   }
 
-  const snapshot = persistContinuationSnapshot('실행 상한 도달 · 재개 상태 저장');
+  const persisted = persistContinuationSnapshot('실행 상한 도달 · 재개 상태 저장');
   const modelContent = (state.lastModelOutput || state.answerBuf).trim();
   return state.finish({
     content: modelContent,
-    model: snapshot.model ?? state.lastModel,
+    model: persisted.snapshot.model ?? state.lastModel,
     steps: state.steps,
     applicationNotice: {
       kind: 'continuation',
       title: '실행 제한으로 중간 종료',
-      message: `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 저장했습니다.`,
-      model: snapshot.model ?? state.lastModel,
-      elapsedMs: snapshot.elapsedMs,
-      step: snapshot.step,
+      message: persisted.saved
+        ? `누적 ${persisted.snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 저장했습니다.`
+        : `누적 ${persisted.snapshot.step} 오케스트레이션 스텝까지 진행했습니다. ${CONTINUATION_UNSAVED_NOTICE}`,
+      model: persisted.snapshot.model ?? state.lastModel,
+      elapsedMs: persisted.snapshot.elapsedMs,
+      step: persisted.snapshot.step,
     },
   });
 }

@@ -97,6 +97,30 @@ export function isMinDepthTool(toolName: string): boolean {
   return MIN_DEPTH_TOOLS.has(toolName);
 }
 
+const BARE_DEFERRAL_PROMISE =
+  /(?:확인|찾아|살펴|대조|검토|분석|고치|수정|구현|검색|보)(?:하|해)?겠(?:습니다|어요|다)|보겠습니다|볼게요|확인합니다|단정하지 않/;
+
+/**
+ * Short promise to inspect or change files, with no finding.
+ * A finished explanation, an offer waiting for confirmation, or a path citation is not this.
+ */
+export function isBareToolDeferral(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (!t || t.length > 500) return false;
+  if (t.includes('```')) return false;
+  if (/[\w./\\-]+\.(?:ts|tsx|js|mjs|cs|xaml|json|md)\b/.test(t)) return false;
+  if (/(?:원인|통과했|커밋했|오류가 아닙니다|아닙니다)/.test(t)) return false;
+  const withoutOffer = t.replace(/원하시면[^.]{0,80}/g, '');
+  return BARE_DEFERRAL_PROMISE.test(withoutOffer);
+}
+
+export function formatToolDeferralRetryNote(): string {
+  return [
+    'TOOL_DEFERRAL: the previous reply promised to inspect or change files but called no tool.',
+    'Call a tool now. Do not repeat the promise. Do not finish with status prose.',
+  ].join(' ');
+}
+
 /** Single Exit Gate + one TOOL_CALL (RCA: one unclosed evidence gate per turn). */
 export function formatExitGateToolNudge(opts: {
   gate: string;

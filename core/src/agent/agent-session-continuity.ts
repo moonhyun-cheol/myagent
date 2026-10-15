@@ -224,3 +224,36 @@ export function flushLiveSessionProgress(opts: {
     appendSessionReadPaths(opts.cqrRoot, opts.sessionId, opts.readPaths);
   }
 }
+
+/**
+ * A text answer must not erase a stored run when this turn did no work.
+ * active_task resume/discard is a decision, not work. Any other tool name counts as work.
+ */
+export function shouldKeepStoredContinuationOnTextComplete(opts: {
+  toolNames: readonly string[];
+  hadStoredContinuationAtStart: boolean;
+}): boolean {
+  if (!opts.hadStoredContinuationAtStart) return false;
+  return opts.toolNames.every((name) => name === 'active_task');
+}
+
+/**
+ * Replacing a pending run by mutating without resume_run must not reset the cap.
+ * Carry the stored count; do not increment (increment is only for resume_run).
+ */
+export function carriedResumeCountOnReplace(
+  current: number,
+  pendingResumeCount: number | undefined,
+): number {
+  const carried = Math.max(0, Math.trunc(Number(pendingResumeCount) || 0));
+  const now = Math.max(0, Math.trunc(Number(current) || 0));
+  return Math.max(now, carried);
+}
+
+/** Shown when this run must not overwrite the stored resume state. */
+export const CONTINUATION_UNSAVED_NOTICE =
+  '이번 실행은 재개 상태를 저장하지 못했습니다. 이전 실행은 그대로입니다.';
+
+export function continuationPersistStatus(saved: boolean, savedStatus: string): string {
+  return saved ? savedStatus : '재개 상태 저장 안 함 · 이전 실행은 그대로';
+}

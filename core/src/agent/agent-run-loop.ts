@@ -79,6 +79,9 @@ import {
   recordSessionContinuationSnapshot,
 } from './agent-run-meta.js';
 import {
+  CONTINUATION_UNSAVED_NOTICE,
+  carriedResumeCountOnReplace,
+  continuationPersistStatus,
   flushLiveSessionProgress,
   formatPendingContinuationTurnNote,
   formatSessionContinuitySystemNote,
@@ -847,6 +850,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     resumeCount: continuationResume.resumeCount,
     pendingContinuation,
     continuationOwner: !pendingContinuation,
+    hadStoredContinuationAtStart: Boolean(pendingContinuation) || sessionContinuity,
     selfWorkspace,
     uiFacts,
     reportStatus,
@@ -915,7 +919,15 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     // logical MAX_AGENT_STEPS cap.
     if (!finished && stepState && isAgentExecutionLimit(e)) {
       const live = stepState;
-      const ownsContinuation = live.continuationOwner || live.mutatedPathsThisRun.size > 0;
+      if (!live.continuationOwner && live.mutatedPathsThisRun.size > 0) {
+        live.resumeCount = carriedResumeCountOnReplace(
+          live.resumeCount,
+          live.pendingContinuation?.snapshot?.resumeCount,
+        );
+        live.continuationOwner = true;
+        live.pendingContinuation = null;
+      }
+      const ownsContinuation = live.continuationOwner;
       const meta = loadAgentRunMeta(opts.cqrRoot, opts.sessionId);
       const recentFailures = live.toolTrace
         .filter((entry) => !entry.ok)
@@ -946,7 +958,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       // A side run that neither resumed nor mutated must not overwrite the stored run.
       if (ownsContinuation) recordSessionContinuationSnapshot(opts.cqrRoot, opts.sessionId, snapshot);
       persistLiveSessionMeta();
-      reportStatus('호스트 실행 제한 · TODO/Evidence 재개 상태 보존');
+      reportStatus(continuationPersistStatus(ownsContinuation, '호스트 실행 제한 · TODO/Evidence 재개 상태 보존'));
       return await finish({
         content: snapshot.lastModelOutput || '',
         model: snapshot.model ?? live.lastModel,
@@ -954,7 +966,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         applicationNotice: {
           kind: 'continuation',
           title: '실행 제한으로 중간 종료',
-          message: `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 보존했습니다.`,
+          message: ownsContinuation
+            ? `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 보존했습니다.`
+            : `누적 ${snapshot.step} 오케스트레이션 스텝까지 진행했습니다. ${CONTINUATION_UNSAVED_NOTICE}`,
           model: snapshot.model ?? live.lastModel,
           elapsedMs: snapshot.elapsedMs,
           step: snapshot.step,

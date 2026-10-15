@@ -217,6 +217,39 @@ try {
 
   // Resume cap: exhausted state is kept so a repeated 「이어서」 stays exhausted.
   const { resolveContinuationResume } = await import('../core/dist/agent/agent-session-continuity.js');
+  const {
+    shouldKeepStoredContinuationOnTextComplete,
+    carriedResumeCountOnReplace,
+    CONTINUATION_UNSAVED_NOTICE,
+  } = await import('../core/dist/agent/agent-session-continuity.js');
+  assert.equal(
+    shouldKeepStoredContinuationOnTextComplete({ toolNames: [], hadStoredContinuationAtStart: true }),
+    true,
+    'text-only turn keeps a stored run',
+  );
+  assert.equal(
+    shouldKeepStoredContinuationOnTextComplete({ toolNames: ['active_task'], hadStoredContinuationAtStart: true }),
+    true,
+    'resume/discard alone is not work',
+  );
+  assert.equal(
+    shouldKeepStoredContinuationOnTextComplete({ toolNames: ['read_file'], hadStoredContinuationAtStart: true }),
+    false,
+    'a work tool may complete the chain',
+  );
+  assert.equal(
+    shouldKeepStoredContinuationOnTextComplete({ toolNames: [], hadStoredContinuationAtStart: false }),
+    false,
+    'no stored run means a text answer does not invent one',
+  );
+  assert.equal(carriedResumeCountOnReplace(0, 3), 3, 'replace without resume_run keeps the stored count');
+  assert.equal(carriedResumeCountOnReplace(4, 3), 4, 'a higher in-run count is not lowered');
+  assert.match(CONTINUATION_UNSAVED_NOTICE, /저장하지 못했습니다/);
+  assert.match(stepLoopSrc, /shouldKeepStoredContinuationOnTextComplete/, 'text complete consults the keep rule');
+  assert.match(stepLoopSrc, /carriedResumeCountOnReplace/, 'mutation replace carries resumeCount');
+  assert.match(stepLoopSrc, /return finishKeptRun\(`Agent stopped: \$\{beforeModel\.reason\}`/, 'beforeModel hook stop saves resume state');
+  assert.match(stepLoopSrc, /return finishKeptRun\(loopHardStop/, 'consecutive failure stop saves resume state');
+
   assert.equal(resolveContinuationResume({ hasSnapshot: true, snapshotResumeCount: 5, retry: false, max: 5 }).exhausted, true);
   assert.equal(
     resolveContinuationResume({ hasSnapshot: true, snapshotResumeCount: 5, retry: true, max: 5 }).exhausted,
@@ -231,6 +264,8 @@ try {
   assert.ok(exhaustedBlock.length > 0, 'exhausted branch present');
   assert.doesNotMatch(exhaustedBlock, /clearSessionContinuationState\(/, 'exhaustion must not reset the resume counter');
   assert.match(loopSrc, /modelId: ollama\.modelId,[\s\S]{0,200}continuationRetry: true/, 'host retry path sets continuationRetry');
+  assert.match(loopSrc, /carriedResumeCountOnReplace/, 'host limit replace carries resumeCount');
+  assert.match(loopSrc, /CONTINUATION_UNSAVED_NOTICE/, 'host limit does not claim a save it skipped');
 } finally {
   rmSync(root, { recursive: true, force: true });
 }
