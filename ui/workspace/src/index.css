@@ -65,9 +65,11 @@ body {
   color-scheme: inherit;
 }
 
+/* Wider than the old 8px thumb. The shell also insets the page past the
+   WindowChrome resize band, so this track is not stolen by window resizing. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-line);

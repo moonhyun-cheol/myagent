@@ -15,6 +15,9 @@
         AllowDrop="True"
         StateChanged="OnWindowStateChanged">
   <shell:WindowChrome.WindowChrome>
+    <!-- ResizeBorderThickness=10 is the restored grab band. MaximizeWorkArea
+         insets BrowserLayout by 12 on the right and bottom so page scrollbars
+         sit inside that band instead of resizing the window. -->
     <shell:WindowChrome CaptionHeight="36"
                         ResizeBorderThickness="10"
                         GlassFrameThickness="1"

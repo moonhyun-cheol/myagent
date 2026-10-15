@@ -13,6 +13,15 @@ namespace CqrPa.Shell;
 /// </summary>
 internal static class MaximizeWorkArea
 {
+    /// <summary>Must match MainWindow.xaml WindowChrome.ResizeBorderThickness.</summary>
+    internal const double RestoredResizeBorder = 10;
+
+    /// <summary>
+    /// Right/bottom WebView inset while restored. Larger than the resize band so an
+    /// edge scrollbar is clicked as a scrollbar, not as a window-width drag.
+    /// </summary>
+    internal const double ScrollbarClearance = 12;
+
     private const int WmGetMinMaxInfo = 0x0024;
     private const int WmNcLButtonDblClk = 0x00A3;
     private const int HtCaption = 2;
@@ -226,19 +235,46 @@ internal static class MaximizeWorkArea
             }
             // Exact work-area size — no fake inset (old inset was only ~7px and still hid under taskbar).
             if (root != null) root.Margin = new Thickness(0);
+            ApplyScrollbarClearance(root, filled: true);
         }
         else
         {
             window.BorderThickness = restoredBorder;
             if (chrome != null)
             {
-                // Match XAML ResizeBorderThickness (10) so the grab band stays wide after restore.
-                chrome.ResizeBorderThickness = new Thickness(10);
+                chrome.ResizeBorderThickness = new Thickness(RestoredResizeBorder);
                 // 1px glass frame enables the native DWM drop shadow while restored.
                 chrome.GlassFrameThickness = new Thickness(1);
             }
             if (root != null) root.Margin = new Thickness(0);
+            ApplyScrollbarClearance(root, filled: false);
         }
+    }
+
+    /// <summary>
+    /// Keep BrowserLayout inside the resize band. RootLayout itself stays full-bleed so the
+    /// caption is unchanged. Maximized/work-area fill has no resize band, so the inset is 0.
+    /// </summary>
+    private static void ApplyScrollbarClearance(FrameworkElement? root, bool filled)
+    {
+        var layout = FindNamed(root, "BrowserLayout");
+        if (layout == null) return;
+        layout.Margin = filled
+            ? new Thickness(0)
+            : new Thickness(0, 0, ScrollbarClearance, ScrollbarClearance);
+    }
+
+    private static FrameworkElement? FindNamed(DependencyObject? node, string name)
+    {
+        if (node == null) return null;
+        if (node is FrameworkElement element && element.Name == name) return element;
+        foreach (var child in LogicalTreeHelper.GetChildren(node))
+        {
+            if (child is not DependencyObject next) continue;
+            var found = FindNamed(next, name);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private static Rect GetWorkAreaDip(Window window)
