@@ -494,13 +494,15 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     reportStatus('툴 프로토콜: TEXT TOOL_CALL · 첫 TOOL_CALL 대기…');
   }
   reportStatus(`에이전트 실행${autopilot ? ' · Autopilot' : ''}`);
-  if (!selfWorkspace) {
-    reportStatus('외부 워크스페이스 — CQR product memory / ui-target-map 미주입');
-  }
+  // Workspace scope is a developer diagnostic, not user-facing progress.
+  // External folders (normal user projects) skip CQR product memory / ui-target-map;
+  // record it in the audit ledger only so ordinary users never see internal jargon.
   appendAgentAuditEvent(opts.cqrRoot, {
     type: 'turn_decision',
     sessionId: opts.sessionId,
-    detail: 'model_directed_single_agent',
+    detail: selfWorkspace
+      ? 'model_directed_single_agent;workspace_scope=self'
+      : 'model_directed_single_agent;workspace_scope=external(product_memory_skipped)',
   });
 
   let thoughtBuf = '';
