@@ -78,7 +78,9 @@ for (const source of [autopilot, planner]) {
 
 assert.doesNotMatch(stepLoop, /evaluateProseTurn\(/);
 assert.doesNotMatch(stepLoop, /contentLooksLikeTokenSalad\(/);
-assert.match(stepLoop, /toolChoice: 'auto'/);
+// Default auto; required only for the one deferral/absence retry (model output, not user wording).
+assert.match(stepLoop, /deferralForceTool \? 'required' as const : 'auto' as const/);
+assert.match(stepLoop, /toolChoice: toolChoiceThisStep/);
 assert.doesNotMatch(stepLoop, /work_mode_locked|retrieval_required|autoInvokePendingPlugins|preloadExternalReportGrounding/);
 assert.doesNotMatch(stepLoop, /sanitizeToolNotFoundPoison|contentLooksLikeToolNotFoundPoison/);
 assert.doesNotMatch(stepLoop, /runWorkspaceDiagnostics\(|runWorkspaceTests\(|ERROR: ALREADY_READ/);
@@ -105,7 +107,10 @@ assert.match(automatonIntent, /getSlashAutomatonPatterns/);
 assert.doesNotMatch(automatonIntent, /chatCompletion|scoreToolsBySimilarity|resolveAutomatonIntent|intent_phrases|intent_patterns/);
 assert.match(orchestrator, /routing\.mode === 'web_dev' && !workspaceAgentAvailable/);
 assert.doesNotMatch(workspaceAgent, /looksLikeToolTask|messagePrefersBrandSkillOverCode|looksLikeAcceptanceReviewTask|requiresLiveFsCapability|requiresShellNetCapability/);
-assert.match(workspaceAgent, /sessionRoot \|\| \(scope === 'standalone' && hasDevWorkspace\(configPath\)\)/);
+// Standalone/개인 작업 must not inherit the PC default workspace for tools.
+assert.match(workspaceAgent, /if \(!sessionRoot\) return false;/);
+assert.doesNotMatch(workspaceAgent, /scope === 'standalone'/);
+assert.doesNotMatch(workspaceAgent, /tryGetDevWorkspaceRoot|hasDevWorkspace/);
 assert.doesNotMatch(workspaceAgent, /previousLockedRoot|editorContext: req\.editor_context|setSessionLockedTarget/);
 // Agent plane (R-301/RC-013) ≠ route rewrite: workspace tools keep routing.mode.
 const skillFlow = read('core/src/skills/chat-skill-flow.ts');

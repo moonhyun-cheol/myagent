@@ -144,6 +144,46 @@ export function shouldWithholdToolDeferralPublication(opts: {
   return isBareToolDeferral(opts.text);
 }
 
+const ABSENCE_SUBJECT =
+  '(?:파일|경로|폴더|디렉터리|명령(?:어)?|스크립트|코드|모듈|API|파이프라인|데이터|카탈로그|설정|구현)';
+const ABSENCE_CLAIM_RES: RegExp[] = [
+  /(?:지어냈|지어낸|꾸며냈|꾸며낸|날조)/,
+  new RegExp(`${ABSENCE_SUBJECT}[가-힣A-Za-z·\\s]{0,12}(?:없습니다|없어요|없다|없음|존재하지\\s*않|부재)`),
+  new RegExp(`(?:없습니다|존재하지\\s*않습니다|부재합니다)[^.\\n]{0,8}${ABSENCE_SUBJECT}`),
+];
+
+/**
+ * Reply asserts workspace things are missing or were invented.
+ * Saying 「없다」 is a claim too; it needs a search like any other.
+ */
+export function contentClaimsWorkspaceAbsence(text: string): boolean {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return false;
+  // Asking/hedging about absence is not asserting it.
+  const stripped = t.replace(/없는지[^.]{0,40}/g, '');
+  return ABSENCE_CLAIM_RES.some((re) => re.test(stripped));
+}
+
+/** Absence claim with no direct search/read this run. One retry per turn. */
+export function shouldFlagUncheckedAbsenceClaim(opts: {
+  text: string;
+  retryAlreadyUsed: boolean;
+  toolsAvailable: boolean;
+  depthToolUsed: boolean;
+}): boolean {
+  if (opts.retryAlreadyUsed || !opts.toolsAvailable || opts.depthToolUsed) return false;
+  return contentClaimsWorkspaceAbsence(opts.text);
+}
+
+export function formatUncheckedAbsenceClaimNote(): string {
+  return [
+    'UNCHECKED_ABSENCE_CLAIM: the previous reply said files/paths/commands/data are missing or were invented,',
+    'but no search_files, read_file, or list_directory ran this turn.',
+    'The Turn context map and retrieval hits are truncated; they are not proof of absence.',
+    'Call search_files with the exact name or list_directory on the likely folder now, then answer from the result.',
+  ].join(' ');
+}
+
 /** Single Exit Gate + one TOOL_CALL (RCA: one unclosed evidence gate per turn). */
 export function formatExitGateToolNudge(opts: {
   gate: string;

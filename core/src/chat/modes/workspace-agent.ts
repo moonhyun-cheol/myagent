@@ -26,9 +26,6 @@ import {
 } from '../session-history-budget.js';
 import { loadAgentRunMeta } from '../../agent/agent-run-meta.js';
 import {
-  hasDevWorkspace,
-  tryGetDevWorkspaceRoot,
-  resolveSessionContextScope,
   resolveMemoryProjectId,
   resolveWorkspaceRootForSession,
   resolveWorkspaceRootsForSession,
@@ -47,8 +44,9 @@ import {
  * skill or rewrite the user's route. Dedicated structured modes keep their own
  * handlers, while chat/code/user-skill modes may use workspace tools.
  *
- * Top-level「새 채팅」(standalone, no project_id) must NOT inherit the connected
- * notebook folder — only chats under that folder/project do.
+ * Top-level「새 채팅」/개인 작업 (standalone, no project_id) must NOT inherit the
+ * PC-wide default workspace — only chats under that folder/project get tools.
+ * Same rule as dispatch.ts file routes and session-context.ts.
  */
 export function shouldUseWorkspaceAgentRuntime(
   configPath: string,
@@ -57,12 +55,9 @@ export function shouldUseWorkspaceAgentRuntime(
   sessionId: string,
   mode: ChatMode,
 ): boolean {
+  void configPath;
   const sessionRoot = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
-  const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
-  const workspaceAvailable = Boolean(
-    sessionRoot || (scope === 'standalone' && hasDevWorkspace(configPath)),
-  );
-  if (!workspaceAvailable) return false;
+  if (!sessionRoot) return false;
   return mode === 'chat'
     || mode === 'web_dev'
     || mode === 'code_agent'
@@ -197,10 +192,8 @@ export async function runWorkspaceCodeAgent(opts: {
   const routing = preserveWorkspaceAgentRouting(rawRouting);
   const sessionRoots = resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId);
   const sessionRoot = sessionRoots[0] ?? null;
-  const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
-  let workspaceRoot =
-    sessionRoot
-    ?? (scope === 'standalone' ? tryGetDevWorkspaceRoot(configPath) : null);
+  // Standalone chats never borrow the PC default folder (see shouldUseWorkspaceAgentRuntime).
+  let workspaceRoot = sessionRoot;
   if (!workspaceRoot) {
     // ADR-008: policy reply on tool plane — never throw → INTERNAL_ERROR 500.
     const content = appendAssistantReply(sessionStore, sessionId, {

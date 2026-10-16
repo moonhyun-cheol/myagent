@@ -45,6 +45,9 @@ import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
 import {
   formatToolDeferralRetryNote,
+  formatUncheckedAbsenceClaimNote,
+  isMinDepthTool,
+  shouldFlagUncheckedAbsenceClaim,
   shouldHoldPublicationUntilToolDeferralCheck,
   shouldWithholdToolDeferralPublication,
 } from './agent-claim-gates.js';
@@ -184,6 +187,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   const maxConsecutiveFailures = maxConsecutiveToolFailures();
   // One same-turn retry when the model promises to inspect or edit but emits no tool call.
   let deferralRetryUsed = false;
+  /** One required search when the reply says something is missing/invented without looking. */
+  let absenceRetryUsed = false;
   let deferralForceTool = false;
   let deferralNote: string | null = null;
   // Display/persisted count across the continuation chain. The per-run budget below is
@@ -406,11 +411,15 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
 
     const streamAnswer = true;
     // A short promise must not reach the timeline or bubble before the one tool retry is decided.
+    const toolsAvailableThisStep = state.agentTools.length > 0 || state.toolNames.length > 0;
+    const depthToolUsedThisRun = [...state.toolsUsedThisRun].some((name) => isMinDepthTool(name));
     const holdPublication = shouldHoldPublicationUntilToolDeferralCheck({
       retryAlreadyUsed: deferralRetryUsed,
-      toolsAvailable: state.agentTools.length > 0 || state.toolNames.length > 0,
+      toolsAvailable: toolsAvailableThisStep,
       toolsUsed: state.toolsUsedThisRun.size > 0 || state.toolCallCount > 0,
-    });
+    })
+      // An unchecked 「없다/지어냈다」 must not reach the bubble before its one search retry.
+      || (!absenceRetryUsed && toolsAvailableThisStep && !depthToolUsedThisRun);
     let heldPublicationReleased = false;
     const publishModelThought = (delta: string) => {
       state.thoughtBuf += delta;
@@ -581,6 +590,20 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         deferralNote = formatToolDeferralRetryNote();
         dropHeldPublication(text);
         state.reportStatus('도구 없는 약속 답변 — 도구 호출 1회 재요구');
+        continue;
+      }
+
+      if (shouldFlagUncheckedAbsenceClaim({
+        text,
+        retryAlreadyUsed: absenceRetryUsed,
+        toolsAvailable: toolsAvailableThisStep,
+        depthToolUsed: depthToolUsedThisRun,
+      })) {
+        absenceRetryUsed = true;
+        deferralForceTool = true;
+        deferralNote = formatUncheckedAbsenceClaimNote();
+        dropHeldPublication(text);
+        state.reportStatus('검색 없이 「없다」고 답함 — 검색 1회 재요구');
         continue;
       }
 
