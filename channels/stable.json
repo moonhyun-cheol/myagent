@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 65,
+    "update_sequence": 66,
     "minimum_supported_sequence": 1,
-    "version": "1.1.17",
+    "version": "1.1.18",
     "channel": "stable",
-    "published_at": "2026-10-14T04:00:27.134Z",
+    "published_at": "2026-10-16T05:35:04.587Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-65",
-      "name": "MYAgent-v1.1.17-delta.zip",
-      "size": 278905353,
-      "sha256": "95ca24c98bfa0e72b8597ea822b7d72669e3bfeb099835a914df37d9e725b8b9"
+      "release_tag": "update-66",
+      "name": "MYAgent-v1.1.18-delta.zip",
+      "size": 278916970,
+      "sha256": "1a97dad10f778baf9a2ccec8b115e2b462a454a3359e9f02ec6031edeadd5823"
     },
-    "payload_manifest_sha256": "7d1603a68c4e7757967e5c291ab84f8d4dce54b128b0b4b3c0fd5fa0a44c6675",
-    "release_notes": "## update 65\n\n- 같은 대화에서 모델이 바뀌면 그 답변 위에 「모델 변경」 구분선이 나옵니다. AI에게도 이전 답변이 다른 모델이 쓴 것임을 그 요청에만 알립니다.\n- 작업이 중간에 끊겨도 말투와 상관없이 이어서 진행할 수 있습니다. 그 사이 바뀐 파일은 다시 읽은 뒤 고칩니다.\n- 동영상 모델은 채팅 목록에 기본으로 나오지 않습니다. 모델 찾기에서 검색해 추가하면 보입니다.\n- 출력 가격이 높은 모델은 배지, 「고비용 모델 사용 중」 안내, 답변 테두리로 구분됩니다. 가격은 공급자가 알려 준 값만 쓰며, 없으면 표시하지 않습니다.\n- 정지를 누르면 실행 중인 도구와 지난 시간이 보이고, 서버가 멈출 때까지 자동으로 다시 확인합니다.\n- 작업이 실패하면 어떤 모델로 작업 중이었는지 안내와 답변에 표시됩니다.\n- 만든 이미지와 동영상은 대화에 남습니다. 정지로 화면만 멈춰도 공급자 작업과 비용은 계속될 수 있으니, 「결과 다시 받기」로 같은 작업만 확인합니다.\n- 작업 폴더 밖 경로를 쓰는 명령은 그 명령 한 번만 승인하면 실행됩니다.\n- 명령 실패와 도구 호출 실패를 구분해서 보여 줍니다.\n- 대화에서 고른 모델은 그 대화에만 저장됩니다.\n- 스킬 목록은 이름만 보이고, 설명은 마우스를 올렸을 때 나옵니다.\n- 그래픽 장치를 사용할 수 없으면 창 방식으로 화면을 띄웁니다.\n"
+    "payload_manifest_sha256": "6927275307cb81e5feddbd688780036490fa2e6a492721b22eb5bda519ccb1d2",
+    "release_notes": ""
   },
-  "signature": "j3B5xqwdcJws8HqcI8gUd83KTffT7Of/BQPeJQUUhP1/xeq3Iy+TU3of4m6hJlkVhlGX7Up6NwtvoHRCmPFCjLAJ2cI4gpL9O56HwMS1/xsawFGKmkuBuouCDYiYNJQ/dxuZjXHuVinzwRtNCLOALNdRtvrYf2AWCYypXWTJW0yhDAi6ZqgTi5dXgw5PjjgJW1z/GZkddP/ibzwFF0Kvzn+SfTf8XSj8g39JQohZqIGR6XjK6Wlag9ROyTwuJPlmOVdHS8TkOt/9aYVW+875Fqte0Z7xy1WyyOIxMpviKCaGggoo2PBZlxaD4PKTEptIer+I9gmHf2eupUDKhXx1zXhKxkEkOFo7dG4fdGGW/CBc5yhX8PB6Y9tmEed5qzH4lgcASGmJQQ8iOTWqoQYHxJ6j1/AnangatZr/1TU4QCrUbuekiPNxYvk7hAxGVXlLRymgCGHnbFWdIX9UvQbd7TwTTK1V4anNB+TpG/DifvmhS+qe5JpkGMuP7pW5k+xK"
+  "signature": "xOC7iTS+DiuswaJsrLDl8vFS+SrVs1dWeYrLACyqXbffD2pa9FvMN8RpfCLrMqqSZ8tatsouFR9gbPLrhbwacjZTtsp2Vu+jB01jbO34VxrOgJeCQVQLyIV3HVfaRk0OMWKyUUZktMs730GYtNkJ0nLJyYb3gwpP0C+WoMzyMZ9S+GwG2tWtAHMbyQ+E5VmjDW2JIiRrAxLMrH7obALh8G3Gu0Y0n6qgN9ZhwBxou5TSTOi2+JUfFmLOLfprtiVxNMQR2lhMuEYv5wmPVXNmQ9xNBba482D+V/kkJdSx2CX5dBBMQE1Ednqaf//xXhMMOOLGRBIZZomghPIFQmH7DEVYbokvaDRo6xPL36iX1JQXBNmT5Gl0BKz37kz5pliVhg9MjqwWRt2hrplY7SITXnFk6+6skLYBnxZYhuSs+sLjets0Tjekm1CX3GS909XH1NLC/bvjcrKTVme/heEIIarifUWetoy4/IrtezJYUJWiRYwHWTQ8M6a+ij75N+Yc"
 }
