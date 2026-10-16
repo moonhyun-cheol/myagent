@@ -2,6 +2,85 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "queued-attachments-visible",
+      "status": "released",
+      "title": "대기 중인 명령에 첨부 파일 표시",
+      "detail": "작업 중에 넣어 둔 대기 명령마다 첨부 개수, 이미지 미리보기, 파일 이름이 함께 나옵니다. 이름이 같은 파일에는 번호를 붙여 구분하고, 대기 명령을 고칠 때 첨부를 하나씩 뺄 수 있습니다.",
+      "area": "chat",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "ui/workspace/src/components/ChatPane.tsx",
+        "ui/workspace/src/store/workspaceStore.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "paste-image-blocks-send",
+      "status": "released",
+      "title": "이미지를 붙여넣는 동안 보내기 잠시 막음",
+      "detail": "캡처 이미지를 붙여넣고 바로 Enter를 누르면 글만 먼저 보내지던 틈을 막았습니다. 이미지를 읽는 동안에는 「업로드 중…」이 표시되고, 끝나면 이미지와 글이 함께 보내집니다.",
+      "area": "chat",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "chat-location-single-scope",
+      "status": "released",
+      "title": "대화 목록 위치가 AI가 보는 범위와 같아짐",
+      "detail": "대화가 목록에서 놓인 작업 폴더·하위 폴더 위치 하나로 AI가 보는 파일, 지식, 위치 안내가 정해집니다. 새 대화와 가져온 대화도 화면에 보이는 위치에 바로 들어갑니다.",
+      "area": "chat",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "core/src/chat/session-context.ts",
+        "ui/workspace/src/components/ProjectsTree.tsx"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "subfolder-memory-inherits",
+      "status": "released",
+      "title": "하위 폴더 대화도 상위 작업 폴더 지식을 사용",
+      "detail": "하위 폴더 대화에서도 상위 작업 폴더에 저장한 지식이 함께 적용됩니다. 지식이 많아 줄여야 할 때는 대화와 가까운 폴더의 지식을 먼저 남깁니다.",
+      "area": "memory",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "core/src/memory/user-memory-store.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "folder-delete-keeps-chats",
+      "status": "released",
+      "title": "폴더를 지울 때 대화를 위로 옮길지 선택",
+      "detail": "작업 폴더나 하위 폴더를 지우기 전에 안에 든 대화와 지식 수를 보여 주고, 위 폴더로 옮길지 영구 삭제할지 고를 수 있습니다. 기본은 위로 옮기기이며, 옮겨진 대화는 지운 폴더의 파일을 더 보지 않습니다.",
+      "area": "chat",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "core/src/projects/project-store.ts",
+        "core/src/sessions/session-store.ts",
+        "ui/workspace/src/components/ProjectsTree.tsx"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
       "id": "explorer-refresh-on-chat-switch",
       "status": "released",
       "title": "대화를 바꾸면 문서 열기 목록도 새로 고침",
