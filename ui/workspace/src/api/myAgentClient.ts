@@ -605,12 +605,12 @@ export async function ensureSession(): Promise<string> {
   return createSession();
 }
 
-export async function createSession(projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): Promise<string> {
-  const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
+/** `projectId` is the sidebar location (workspace root, folder, or project); null = 개인 작업. */
+export async function createSession(projectId: string | null = null): Promise<string> {
   const res = await fetch('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: membershipProjectId }),
+    body: JSON.stringify({ project_id: projectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) {
@@ -620,12 +620,11 @@ export async function createSession(projectId: string | null = null, legacyWorks
   return data.id as string;
 }
 
-export async function importSession(session: unknown, projectId: string | null = null, legacyWorkspaceProjectId: string | null = null): Promise<SessionSummary> {
-  const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
+export async function importSession(session: unknown, projectId: string | null = null): Promise<SessionSummary> {
   const res = await fetch('/sessions/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session, project_id: membershipProjectId }),
+    body: JSON.stringify({ session, project_id: projectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) throw new Error(data.message || data.error || '세션 가져오기 실패');
@@ -717,11 +716,25 @@ export async function updateProjectColor(id: string, color: ProjectColor | null)
   return updateProject(id, { color });
 }
 
-export async function deleteProject(id: string, unlink = false): Promise<void> {
-  const q = unlink ? '?unlink=1' : '';
-  const res = await fetch(`/projects/${encodeURIComponent(id)}${q}`, { method: 'DELETE' });
+/** lift = chats/knowledge move one level up (default); delete = remove chats permanently. */
+export async function deleteProject(id: string, mode: 'lift' | 'delete' = 'lift'): Promise<void> {
+  const res = await fetch(`/projects/${encodeURIComponent(id)}?mode=${mode}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `삭제 실패 (${res.status})`);
+}
+
+export interface ProjectDeletePreview {
+  sessions: number;
+  memories: number;
+  folders: number;
+  target: { id: string; title: string } | null;
+}
+
+export async function fetchProjectDeletePreview(id: string): Promise<ProjectDeletePreview> {
+  const res = await fetch(`/projects/${encodeURIComponent(id)}/delete-preview`, { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `삭제 확인 실패 (${res.status})`);
+  return data as ProjectDeletePreview;
 }
 
 export type UserMemoryScope = 'global' | 'project' | 'session';

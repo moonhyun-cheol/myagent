@@ -69,14 +69,12 @@ try {
 
   // Both workspace-tree nodes and ordinary projects expose a context-menu action.
   assert.ok((projectsTree.match(/<ChatTeardropText size=\{13\} \/>새 대화/g) ?? []).length >= 2);
-  assert.match(projectsTree, /const findWorkspaceTarget = \(id: string\)/);
-  assert.match(projectsTree, /startNewChat\(isWorkspaceRoot \? null : id, target\?\.root\.id \?\? null\)/);
+  // update 66: the clicked node is the location; the core derives the workspace folder from it.
+  assert.match(projectsTree, /await startNewChat\(id\);/);
 
-  // The left-most action inherits the currently focused project/workspace binding.
+  // The left-most action opens the chat at the current sidebar location (개인 작업 stays 개인 작업).
   assert.match(sidebar, /const activeProjectId = useWorkspaceStore/);
-  assert.match(sidebar, /const activeWorkspaceProjectId = useWorkspaceStore/);
-  assert.match(sidebar, /activeProjectId === activeWorkspaceProjectId \? null : activeProjectId/);
-  assert.match(sidebar, /startNewChat\(projectId, activeWorkspaceProjectId\)/);
+  assert.match(sidebar, /startNewChat\(activeProjectId \?\? null\)/);
   assert.match(sidebar, /label="현재 위치에 새 대화"/);
 
   // Model management edits only the persisted global override.

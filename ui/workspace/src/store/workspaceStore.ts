@@ -602,7 +602,8 @@ interface WorkspaceState {
   adoptExternalFileDrop: (sessionId: string, items: Array<{ id: string; name: string; mime?: string }>) => void;
   /** @deprecated Prefer uploadFiles — kept for clipboard paste call sites. */
   uploadClipboardImages: (files: File[]) => Promise<void>;
-  startNewChat: (projectId?: string | null, workspaceProjectId?: string | null) => Promise<void>;
+  /** projectId = sidebar location (workspace root, folder, project); null = 개인 작업. */
+  startNewChat: (projectId?: string | null) => Promise<void>;
   /** Clear current chat without creating a replacement session (allows zero chats). */
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
@@ -1963,10 +1964,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    startNewChat: async (projectId = null, legacyWorkspaceProjectId = null) => {
+    startNewChat: async (projectId = null) => {
       const revision = ++navigationRevision;
       cacheActiveSessionView();
-      const membershipProjectId = projectId ?? legacyWorkspaceProjectId;
+      const membershipProjectId = projectId;
       const id = await createSession(membershipProjectId);
       const [rec, workspaceRootProjectId] = await Promise.all([
         fetchSession(id),

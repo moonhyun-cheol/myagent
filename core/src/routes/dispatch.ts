@@ -1901,6 +1901,27 @@ export async function dispatchApiRequest(
       }
 
       const projectMatch = url.pathname.match(/^\/projects\/([^/]+)$/);
+      const projectDeletePreviewMatch = url.pathname.match(/^\/projects\/([^/]+)\/delete-preview$/);
+      if (projectDeletePreviewMatch && method === 'GET') {
+        license.assertFeature('chat');
+        const pid = projectDeletePreviewMatch[1];
+        const rec = projectStore.get(pid);
+        if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        const allIds = [rec.id, ...projectStore.collectDescendantIds(rec.id)];
+        const parent = rec.parent_id ? projectStore.get(rec.parent_id) : null;
+        let memories = 0;
+        try {
+          memories = getUserMemoryStore(path.dirname(path.dirname(userConfigPath))).countByProject(allIds);
+        } catch {
+          memories = 0;
+        }
+        return sendJson(res, 200, {
+          sessions: sessionStore.countInProjects(allIds),
+          memories,
+          folders: allIds.length - 1,
+          target: parent ? { id: parent.id, title: projectStore.pathLabel(parent.id) } : null,
+        });
+      }
       if (projectMatch) {
         const pid = projectMatch[1];
         if (method === 'PUT') {
@@ -1931,18 +1952,25 @@ export async function dispatchApiRequest(
           if (!projectStore.isDeletable(pid)) {
             return sendJson(res, 404, { error: 'NOT_FOUND' });
           }
-          const unlink = url.searchParams.get('unlink') === '1';
+          // Default is lift: chats (and knowledge, when a parent exists) move one
+          // level up instead of vanishing. Only mode=delete removes them for good.
+          const hardDelete = url.searchParams.get('mode') === 'delete';
           const descendantIds = projectStore.collectDescendantIds(pid);
           const allIds = [pid, ...descendantIds];
-          if (unlink) {
-            for (const id of allIds) sessionStore.unlinkAllFromProject(id);
+          const parent = rec.parent_id ? projectStore.get(rec.parent_id) : null;
+          const liftTarget = parent?.id ?? null;
+          if (!hardDelete) {
+            for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
           } else {
             for (const id of allIds) sessionStore.deleteAllInProject(id);
           }
           const ok = projectStore.delete(pid);
           if (ok) {
             try {
-              getUserMemoryStore(path.dirname(path.dirname(userConfigPath))).removeByProject(allIds);
+              const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
+              if (!hardDelete && liftTarget) memoryStore.reassignProject(allIds, liftTarget);
+              // Top-level nodes have no parent scope; 개인 작업 has no place for project knowledge.
+              memoryStore.removeByProject(allIds);
             } catch {
               /* memory cleanup must never block project deletion */
             }

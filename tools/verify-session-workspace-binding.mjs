@@ -57,6 +57,11 @@ try {
   assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'openai/project-model');
   sessions.setProject('chat-a', null);
   assert.equal(resolveSessionContextScope(sessions, projects, 'chat-a'), 'standalone');
+  // update 66: moving re-derives scope from the new sidebar location; the old
+  // per-chat folder link does not follow the chat into 개인 작업.
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
+  assert.equal(sessions.load('chat-a')?.workspace_project_id, null);
+  sessions.setWorkspaceProject('chat-a', workspace.id);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
   assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), null);
   assert.equal(resolveRequestedModelForSession(sessions, projects, 'chat-a', 'auto'), 'auto');
@@ -92,8 +97,11 @@ try {
   sessions.setScopeSettings('chat-a', { preferred_model: null, allowed_paths: [] });
   sessions.setWorkspaceProject('chat-a', null);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), null);
-  // Explicit disconnect survives reload even when ownership itself has a root.
+  // Moving into a workspace re-derives the root; an explicit disconnect made
+  // afterwards survives reload even when ownership itself has a root.
   sessions.setProject('chat-a', workspace.id);
+  assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'chat-a'), path.resolve(workspaceDir));
+  sessions.setWorkspaceProject('chat-a', null);
   assert.equal(resolveWorkspaceRootForSession(new SessionStore(sessionsDir, temp), projects, 'chat-a'), null);
   assert.equal(resolveMemoryProjectId(sessions, 'chat-a'), workspace.id);
   sessions.setScopeSettings('chat-a', { allowed_paths: [extraDir] });

@@ -84,7 +84,7 @@ export function SettingsWorkspacePage({ readOnly, onWorkspaceChanged }: Settings
     setBusy(true);
     setMessage('');
     try {
-      await deleteProject(node.id, true);
+      await deleteProject(node.id, 'lift');
       setMessage('워크스페이스를 제거했습니다.');
       await refresh();
     } catch (error) {

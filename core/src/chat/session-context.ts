@@ -27,8 +27,10 @@ export function resolveSessionScopeProjectId(
   sessionStore: SessionStore,
   sessionId: string,
 ): string | null {
-  const session = sessionStore.load(sessionId);
-  return session?.project_id ?? (session?.workspace_binding_explicit ? null : session?.workspace_project_id) ?? null;
+  // The sidebar location (project_id) is the only scope source. A chat the
+  // sidebar lists under 개인 작업 has no project scope, whatever legacy
+  // workspace_project_id it still carries.
+  return sessionStore.load(sessionId)?.project_id ?? null;
 }
 
 /** Project id whose memory applies to this session (workspace node or general project). */
@@ -68,9 +70,11 @@ export function buildUserMemoryContext(
   try {
     const store = getUserMemoryStore(dataDirFromConfigPath(configPath));
     const projectId = resolveMemoryProjectId(sessionStore, sessionId);
-    const title = projectId ? projectStore.get(projectId)?.title ?? null : null;
+    // Nearest first: this folder, then each parent up to the workspace root.
+    const chain = projectId ? projectStore.ancestorChain(projectId) : [];
+    const scopes = chain.map((p) => ({ id: p.id, title: projectStore.pathLabel(p.id) }));
     const sessionTitle = sessionStore.load(sessionId)?.title ?? null;
-    return store.formatForPrompt(projectId, title, sessionId, sessionTitle);
+    return store.formatForPrompt(scopes, sessionId, sessionTitle);
   } catch {
     return ''; // memory must never break context assembly
   }
@@ -109,7 +113,6 @@ export function resolveSessionContextScope(
     const kind = projectStore.resolveKind(project);
     return kind === 'project' ? 'general_project' : 'workspace_tree';
   }
-  if (!session?.workspace_binding_explicit && session?.workspace_project_id) return 'workspace_tree';
   return 'standalone';
 }
 
@@ -196,25 +199,34 @@ function buildProjectContext(
   sessionId: string,
 ): string {
   const session = sessionStore.load(sessionId);
-  const contextProjectId = session?.project_id ?? session?.workspace_project_id;
+  const contextProjectId = resolveSessionScopeProjectId(sessionStore, sessionId);
   if (!contextProjectId) return '';
   const project = projectStore.get(contextProjectId);
   if (!project || projectStore.resolveKind(project) !== 'project') return '';
-  const siblings = sessionStore
-    .listByProject(contextProjectId)
-    .filter((s) => s.id !== sessionId)
-    .slice(0, 5)
-    .map((s) => s.title)
-    .filter(Boolean);
+  const siblings = siblingTitles(sessionStore, contextProjectId, session?.id ?? sessionId);
   const lines = [
     '## 현재 프로젝트',
     `이름: ${project.title}`,
     '이 프로젝트 맥락에 맞게 답변하세요.',
   ];
   if (siblings.length) {
-    lines.push(`같은 프로젝트의 다른 대화: ${siblings.join(', ')}`);
+    lines.push(`같은 프로젝트의 다른 대화(제목만, 이 대화의 내용 아님): ${siblings.join(' / ')}`);
   }
   return lines.join('\n');
+}
+
+const SIBLING_TITLE_MAX = 40;
+const SIBLING_MAX = 5;
+
+/** Short titles only: another chat's opening message must not read as this chat's context. */
+function siblingTitles(sessionStore: SessionStore, projectId: string, sessionId: string): string[] {
+  return sessionStore
+    .listByProject(projectId)
+    .filter((s) => s.id !== sessionId)
+    .slice(0, SIBLING_MAX)
+    .map((s) => (s.title ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((t) => (t.length > SIBLING_TITLE_MAX ? `${t.slice(0, SIBLING_TITLE_MAX)}…` : t));
 }
 
 function buildWorkspaceTreeContext(
@@ -223,22 +235,17 @@ function buildWorkspaceTreeContext(
   sessionId: string,
   focusMessage?: string,
 ): string {
-  const session = sessionStore.load(sessionId);
-  const contextProjectId = session?.project_id ?? session?.workspace_project_id;
+  const contextProjectId = resolveSessionScopeProjectId(sessionStore, sessionId);
   if (!contextProjectId) return '';
   const project = projectStore.get(contextProjectId);
   if (!project) return '';
   const kind = projectStore.resolveKind(project);
   if (kind !== 'workspace_root' && kind !== 'folder') return '';
 
+  // Same resolver as file access, so the location note and the real file scope cannot disagree.
   const root = resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId);
-
-  const siblings = sessionStore
-    .listByProject(contextProjectId)
-    .filter((s) => s.id !== sessionId)
-    .slice(0, 5)
-    .map((s) => s.title)
-    .filter(Boolean);
+  const locationRoot = projectStore.resolveWorkspaceRootForProject(contextProjectId);
+  const siblings = siblingTitles(sessionStore, contextProjectId, sessionId);
 
   const parts: string[] = [
     root ? buildDevWorkspaceContext(root, {}, {
@@ -248,13 +255,17 @@ function buildWorkspaceTreeContext(
       focusMessage,
     }) : '',
   ];
+  const breadcrumb = projectStore.pathLabel(contextProjectId);
   const location =
     kind === 'workspace_root'
       ? `작업 폴더「${project.title}」루트 아래 대화입니다.`
-      : `작업 폴더 트리의「${project.title}」폴더 아래 대화입니다.`;
+      : `작업 폴더 트리의「${breadcrumb}」폴더 아래 대화입니다.`;
   const meta = ['## 대화 위치', location, '이 작업 폴더 맥락에 맞게 답변하세요.'];
+  if (root && locationRoot && path.resolve(root).toLowerCase() !== path.resolve(locationRoot).toLowerCase()) {
+    meta.push(`AI가 보는 폴더: ${root} (대화 또는 폴더 설정에서 따로 지정한 범위로, 대화 위치의 작업 폴더와 다릅니다)`);
+  }
   if (siblings.length) {
-    meta.push(`같은 위치의 다른 대화: ${siblings.join(', ')}`);
+    meta.push(`같은 위치의 다른 대화(제목만, 이 대화의 내용 아님): ${siblings.join(' / ')}`);
   }
   parts.push(meta.join('\n'));
   return parts.filter((p) => p.trim()).join('\n\n');

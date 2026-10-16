@@ -24,6 +24,7 @@ import {
   createProject,
   deleteProject,
   deleteSession,
+  fetchProjectDeletePreview,
   importSession,
   renameSession,
   fetchWorkspaceTree,
@@ -39,7 +40,7 @@ import {
   type WorkspaceTreePayload,
 } from '../api/myAgentClient';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { confirmDialog, promptDialog } from '../lib/confirmDialog';
+import { choiceDialog, confirmDialog, promptDialog } from '../lib/confirmDialog';
 import { pickPortableSessionFile } from '../lib/sessionImport';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
@@ -57,6 +58,16 @@ const PROJECT_COLOR_HEX: Record<ProjectColor, string> = {
   green: '#4ade80', teal: '#2dd4bf', blue: '#60a5fa', pink: '#f472b6',
 };
 const SIDEBAR_MENU_OPEN_EVENT = 'cqr:sidebar-menu-open';
+
+/** After a permanent delete the open chat may be gone; 404 means it was removed. */
+async function sessionStillExists(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/sessions/${encodeURIComponent(id)}`, { cache: 'no-store' });
+    return res.status !== 404;
+  } catch {
+    return true;
+  }
+}
 
 /** Three top-level kinds must use different shapes (not color alone). */
 type TreeIconProps = { size?: number; weight?: 'fill' | 'regular' | 'bold'; className?: string; style?: { color?: string } };
@@ -374,10 +385,10 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     }
   };
 
-  const importPortableSession = async (file: File, projectId: string | null, workspaceProjectId: string | null) => {
+  const importPortableSession = async (file: File, projectId: string | null) => {
     try {
       const raw = JSON.parse(await file.text());
-      await importSession(raw, projectId, workspaceProjectId);
+      await importSession(raw, projectId);
       await refresh();
       onMessage?.('세션을 가져왔습니다.');
     } catch (err) {
@@ -385,32 +396,15 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     }
   };
 
-  const chooseAndImportSession = async (projectId: string | null, workspaceProjectId: string | null) => {
+  /** projectId = the node whose menu was used (root, folder, or project): the chat lands exactly there. */
+  const chooseAndImportSession = async (projectId: string | null) => {
     const file = await pickPortableSessionFile();
-    if (file) await importPortableSession(file, projectId, workspaceProjectId);
-  };
-
-
-  const findWorkspaceTarget = (id: string): { node: WorkspaceNode; root: WorkspaceNode } | null => {
-    const visit = (node: WorkspaceNode, root: WorkspaceNode): { node: WorkspaceNode; root: WorkspaceNode } | null => {
-      if (node.id === id) return { node, root };
-      for (const child of node.children ?? []) {
-        const found = visit(child, root);
-        if (found) return found;
-      }
-      return null;
-    };
-    for (const root of tree?.workspace_trees ?? []) {
-      const found = visit(root, root);
-      if (found) return found;
-    }
-    return null;
+    if (file) await importPortableSession(file, projectId);
   };
 
   const onNewChatIn = async (id: string) => {
-    const target = findWorkspaceTarget(id);
-    const isWorkspaceRoot = target?.node.kind === 'workspace_root';
-    await startNewChat(isWorkspaceRoot ? null : id, target?.root.id ?? null);
+    // The sidebar location is the only input; the core derives the workspace folder from it.
+    await startNewChat(id);
     onChatOpened?.();
   };
 
@@ -468,22 +462,66 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     }
   };
 
-  const onDeleteNode = async (node: WorkspaceNode) => {
+  const onDeleteNode = async (node: Pick<WorkspaceNode, 'id' | 'title' | 'kind'>) => {
     const label =
       node.kind === 'workspace_root'
         ? '작업 폴더'
         : node.kind === 'folder'
           ? '폴더'
           : '프로젝트';
-    const ok = await confirmDialog({
-      title: `${label} 삭제`,
-      message: `${label} "${node.title}"을(를) 삭제할까요?`,
-      danger: true,
-      confirmLabel: '삭제',
-    });
-    if (!ok) return;
+    let mode: 'lift' | 'delete' = 'lift';
     try {
-      await deleteProject(node.id, node.kind === 'workspace_root');
+      const preview = await fetchProjectDeletePreview(node.id);
+      const targetLabel = preview.target ? `「${preview.target.title}」` : '개인 작업';
+      const sub = preview.folders > 0 ? ` (하위 폴더 ${preview.folders}개 포함)` : '';
+      if (preview.sessions === 0) {
+        const memoryNote = preview.memories > 0
+          ? preview.target
+            ? `\n지식·메모리 ${preview.memories}개는 ${targetLabel}(으)로 옮겨집니다.`
+            : `\n지식·메모리 ${preview.memories}개도 함께 삭제됩니다.`
+          : '';
+        const ok = await confirmDialog({
+          title: `${label} 삭제`,
+          message: `${label} "${node.title}"${sub}을(를) 삭제할까요?${memoryNote}`,
+          danger: true,
+          confirmLabel: '삭제',
+        });
+        if (!ok) return;
+      } else {
+        const memoryNote = preview.memories > 0
+          ? preview.target
+            ? ` 지식·메모리 ${preview.memories}개도 함께 옮겨집니다.`
+            : ` 지식·메모리 ${preview.memories}개는 개인 작업에 둘 곳이 없어 삭제됩니다.`
+          : '';
+        const choice = await choiceDialog({
+          title: `${label} 삭제`,
+          message:
+            `${label} "${node.title}"${sub} 안에 대화 ${preview.sessions}개가 있습니다.\n` +
+            `기본으로는 대화를 ${targetLabel}(으)로 옮기고 ${label}만 삭제합니다.${memoryNote}`,
+          options: [
+            { id: 'lift', label: `대화 옮기고 ${label} 삭제` },
+            { id: 'delete', label: `대화 ${preview.sessions}개까지 영구 삭제`, danger: true },
+            { id: 'cancel', label: '취소' },
+          ],
+        });
+        if (choice !== 'lift' && choice !== 'delete') return;
+        if (choice === 'delete') {
+          const sure = await confirmDialog({
+            title: '대화 영구 삭제',
+            message: `대화 ${preview.sessions}개를 되돌릴 수 없게 삭제합니다. 계속할까요?`,
+            danger: true,
+            confirmLabel: '영구 삭제',
+            allowEnterConfirm: false,
+          });
+          if (!sure) return;
+        }
+        mode = choice;
+      }
+      await deleteProject(node.id, mode);
+      if (mode === 'delete') {
+        const sid = activeSessionId ?? getStoredSessionId();
+        if (sid && !(await sessionStillExists(sid))) clearActiveChat();
+      }
       await refresh();
     } catch (err) {
       onMessage?.(err instanceof Error ? err.message : '삭제 실패');
@@ -497,7 +535,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       await refresh();
       const projectId = result.active_workspace_project_id ?? null;
       if (projectId) {
-        await startNewChat(null, projectId);
+        await startNewChat(projectId);
         onChatOpened?.();
         onMessage?.(`작업 폴더 연결 · 새 대화 시작: ${folderPath}`);
       } else {
@@ -641,7 +679,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                 onDeleteSession={(id) => void onDeleteSession(id)}
                 onToggleSessionPin={togglePin}
                 onNewChat={(id) => void onNewChatIn(id)}
-                onImportSession={(projectId, workspaceProjectId) => void chooseAndImportSession(projectId, workspaceProjectId)}
+                onImportSession={(projectId) => void chooseAndImportSession(projectId)}
                 onAddFolder={(id) => void onAddFolder(id)}
                 onRenameNode={(n) => void onRenameNode(n)}
                 onDeleteNode={(n) => void onDeleteNode(n)}
@@ -693,11 +731,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   })}
                   onTogglePin={() => toggleNodePin(p.id)}
                   onChangeColor={(color) => void changeNodeColor(p.id, color)}
-                  onDelete={() =>
-                    void deleteProject(p.id).then(refresh).catch((err) => {
-                      onMessage?.(err instanceof Error ? err.message : '삭제 실패');
-                    })
-                  }
+                  onDelete={() => void onDeleteNode({ id: p.id, title: p.title, kind: 'project' })}
                 />
           );
         })}
@@ -774,7 +808,7 @@ function TreeNode({
   onDeleteSession: (id: string) => void;
   onToggleSessionPin: (id: string) => void;
   onNewChat: (projectId: string) => void;
-  onImportSession: (projectId: string | null, workspaceProjectId: string | null) => void;
+  onImportSession: (projectId: string | null) => void;
   onAddFolder: (parentId: string) => void;
   onRenameNode: (node: WorkspaceNode) => void;
   onDeleteNode: (node: WorkspaceNode) => void;
@@ -889,11 +923,11 @@ function TreeNode({
                 ))}
               </div>
               <div className="border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.kind === 'project' ? node.id : null, workspaceRoot.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
+                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />{node.kind === 'workspace_root' ? '작업폴더 설정' : '프로젝트 설정'}</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />{node.kind === 'workspace_root' ? '작업폴더 지식·메모리' : '프로젝트 지식·메모리'}</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />{node.kind === 'workspace_root' ? '작업폴더 설정' : node.kind === 'folder' ? '폴더 설정' : '프로젝트 설정'}</button>
+                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />{node.kind === 'workspace_root' ? '작업폴더 지식·메모리' : node.kind === 'folder' ? '폴더 지식·메모리' : '프로젝트 지식·메모리'}</button>
                 <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
                 <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
               </div>

@@ -249,6 +249,26 @@ export class ProjectStore {
     return this.get(id) !== null;
   }
 
+  /** Self first, then each parent up to the top-level node (cycle-safe). */
+  ancestorChain(id: string): ProjectRecord[] {
+    const index = this.loadIndex();
+    const byId = new Map(index.projects.map((p) => [p.id, p]));
+    const out: ProjectRecord[] = [];
+    const seen = new Set<string>();
+    let cur = byId.get(sanitizeId(id) ?? '');
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      out.push(cur);
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    return out;
+  }
+
+  /** Same breadcrumb the sidebar shows: "Root › Folder › Sub". */
+  pathLabel(id: string): string {
+    return this.ancestorChain(id).reverse().map((p) => p.title).join(' › ');
+  }
+
   delete(id: string): boolean {
     const safe = sanitizeId(id);
     if (!safe) return false;

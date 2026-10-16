@@ -218,6 +218,9 @@ export class SessionStore {
     const rec = this.load(id);
     if (!rec) return null;
     rec.project_id = projectId ? sanitizeId(projectId) : null;
+    // Moving re-derives every scope from the new sidebar location: a folder
+    // link or path grant made for the old place must not follow the chat.
+    clearLocationOverrides(rec);
     rec.updated_at = new Date().toISOString();
     this.save(rec);
     return rec;
@@ -260,19 +263,32 @@ export class SessionStore {
     return rec;
   }
 
-  unlinkAllFromProject(projectId: string): number {
+  /** Move every chat (archived included) of one node to another location; null = 개인 작업. */
+  moveAllInProject(projectId: string, targetProjectId: string | null): number {
     const safe = sanitizeId(projectId);
     if (!safe) return 0;
+    const target = targetProjectId ? sanitizeId(targetProjectId) : null;
     let n = 0;
     for (const s of this.list()) {
       if (s.project_id !== safe) continue;
       const rec = this.load(s.id);
       if (!rec) continue;
-      rec.project_id = null;
+      rec.project_id = target;
+      clearLocationOverrides(rec);
       this.save(rec);
       n++;
     }
     return n;
+  }
+
+  /** @deprecated Use moveAllInProject(id, null). */
+  unlinkAllFromProject(projectId: string): number {
+    return this.moveAllInProject(projectId, null);
+  }
+
+  countInProjects(projectIds: string[]): number {
+    const ids = new Set(projectIds.map((id) => sanitizeId(id)).filter(Boolean));
+    return this.list().filter((s) => s.project_id && ids.has(s.project_id)).length;
   }
 
   deleteAllInProject(projectId: string): number {
@@ -740,4 +756,11 @@ function sanitizeId(id: string): string | null {
   const s = id.trim().slice(0, 64);
   if (!/^[a-zA-Z0-9_-]+$/.test(s)) return null;
   return s;
+}
+
+/** Location is the single scope source after a move: drop per-chat folder links and path grants. */
+function clearLocationOverrides(rec: SessionRecord): void {
+  rec.workspace_project_id = null;
+  delete rec.workspace_binding_explicit;
+  delete rec.allowed_paths;
 }

@@ -831,8 +831,7 @@ export function ChatPane() {
               title: session.title,
               created_at: session.created_at,
               updated_at: session.updated_at,
-              project_id: session.project_id ?? null,
-              workspace_project_id: session.workspace_project_id ?? null,
+              // Sidebar ids are local to this PC; import places the chat where the user picks.
               messages: session.messages.map((message) => ({
                 role: message.role,
                 content: message.content,
@@ -840,6 +839,7 @@ export function ChatPane() {
                 ...(message.model ? { model: message.model } : {}),
                 ...(message.mode ? { mode: message.mode } : {}),
                 ...(message.image_urls?.length ? { image_urls: message.image_urls } : {}),
+                ...(message.reasoning?.content?.trim() ? { reasoning: message.reasoning } : {}),
               })),
             },
           };

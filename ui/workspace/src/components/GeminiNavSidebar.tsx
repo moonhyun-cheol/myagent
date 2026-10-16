@@ -53,7 +53,6 @@ export function GeminiNavSidebar({
 
   const startNewChat = useWorkspaceStore((state) => state.startNewChat);
   const activeProjectId = useWorkspaceStore((state) => state.activeProjectId);
-  const activeWorkspaceProjectId = useWorkspaceStore((state) => state.activeWorkspaceProjectId);
 
   const refreshProviders = useCallback(async () => {
     try {
@@ -82,8 +81,8 @@ export function GeminiNavSidebar({
   const onNewChat = async () => {
     setBusyMsg('');
     try {
-      const projectId = activeProjectId === activeWorkspaceProjectId ? null : activeProjectId;
-      await startNewChat(projectId, activeWorkspaceProjectId);
+      // New chat lands where the user currently is; 개인 작업 stays 개인 작업.
+      await startNewChat(activeProjectId ?? null);
       onSurfaceChange('chat');
     } catch (err) {
       setBusyMsg(err instanceof Error ? err.message : '새 대화를 만들지 못했습니다.');

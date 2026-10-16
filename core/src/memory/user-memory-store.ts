@@ -64,7 +64,15 @@ export class UserMemoryStoreError extends Error {
 const MAX_TEXT_CHARS = 500;
 const MAX_ENTRIES_PER_SCOPE = 100;
 const PROMPT_MAX_ENTRIES = 20;
-const PROMPT_MAX_CHARS = 2_400;
+const PROMPT_MAX_CHARS = 3_200;
+/** One scope can never crowd the others out of the prompt budget. */
+const PROMPT_SECTION_MAX_CHARS = 1_400;
+
+export interface MemoryScopeRef {
+  id: string;
+  /** Breadcrumb shown in the prompt (e.g. "Root › Folder"). */
+  title?: string | null;
+}
 
 function normalizeForDedupe(text: string): string {
   return text.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -405,6 +413,41 @@ export class UserMemoryStore {
     return removed;
   }
 
+  countByProject(projectIds: string[]): number {
+    const ids = new Set(projectIds);
+    return this.loadIndex().entries.filter((e) => e.scope === 'project' && e.project_id && ids.has(e.project_id)).length;
+  }
+
+  /** Lift project-scope entries of deleted nodes into the surviving parent (duplicates collapse). */
+  reassignProject(fromIds: string[], toId: string): number {
+    if (!fromIds.length) return 0;
+    const ids = new Set(fromIds);
+    const index = this.loadIndex();
+    const existing = new Set(
+      index.entries
+        .filter((e) => e.scope === 'project' && e.project_id === toId)
+        .map((e) => normalizeForDedupe(e.text)),
+    );
+    let moved = 0;
+    const kept: MemoryEntry[] = [];
+    for (const e of index.entries) {
+      if (e.scope === 'project' && e.project_id && ids.has(e.project_id)) {
+        const key = normalizeForDedupe(e.text);
+        if (existing.has(key)) continue;
+        existing.add(key);
+        kept.push({ ...e, project_id: toId });
+        moved++;
+        continue;
+      }
+      kept.push(e);
+    }
+    if (kept.length !== index.entries.length || moved > 0) {
+      index.entries = kept;
+      this.saveIndex(index);
+    }
+    return moved;
+  }
+
   /** Remove session-scope entries when their conversation is deleted. */
   removeBySession(sessionIds: string[]): number {
     if (!sessionIds.length) return 0;
@@ -427,42 +470,79 @@ export class UserMemoryStore {
     return null;
   }
 
-  /** Prompt block for context injection. Empty string when nothing to inject. Pending/rejected never appear. */
+  /**
+   * Prompt block for context injection. Empty string when nothing to inject. Pending/rejected never appear.
+   * `scopes` is the sidebar location chain, nearest first (current folder → parents → workspace root).
+   * Budget goes to the most specific scope first: conversation → current location → parents → global,
+   * whole entries only, so a long global list can no longer cut off the location's own knowledge.
+   */
   formatForPrompt(
-    projectId?: string | null,
-    projectTitle?: string | null,
+    scopeInput: MemoryScopeRef[] | string | null = [],
     sessionId?: string | null,
     sessionTitle?: string | null,
   ): string {
-    const { global, project, session } = this.list(projectId, sessionId);
+    const scopes: MemoryScopeRef[] = typeof scopeInput === 'string'
+      ? [{ id: scopeInput }]
+      : scopeInput ?? [];
+    const index = this.loadIndex();
     const pick = (entries: MemoryEntry[]) =>
       entries
         .filter((e) => isPromptEligible(e))
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
         .slice(0, PROMPT_MAX_ENTRIES);
-    const g = pick(global);
-    const p = pick(project);
-    const s = pick(session);
-    if (!g.length && !p.length && !s.length) return '';
-    const lines: string[] = [
+    type Section = { heading: string; entries: MemoryEntry[]; order: number };
+    const sections: Section[] = [];
+    if (sessionId) {
+      sections.push({
+        heading: sessionTitle ? `### 대화 메모리: ${sessionTitle}` : '### 대화 메모리',
+        entries: pick(index.entries.filter((e) => e.scope === 'session' && e.session_id === sessionId)),
+        order: 1_000,
+      });
+    }
+    scopes.forEach((scope, i) => {
+      const label = scope.title?.trim();
+      sections.push({
+        heading: i === 0
+          ? (label ? `### 프로젝트 메모리: ${label}` : '### 프로젝트 메모리')
+          : (label ? `### 상위 위치 메모리: ${label}` : '### 상위 위치 메모리'),
+        entries: pick(index.entries.filter((e) => e.scope === 'project' && e.project_id === scope.id)),
+        order: 999 - i,
+      });
+    });
+    sections.push({
+      heading: '### 전역 맥락',
+      entries: pick(index.entries.filter((e) => e.scope === 'global')),
+      order: 0,
+    });
+    const header = [
       '## 사용자 메모리 (알잘딱)',
       '아래는 사용자가 저장한 맥락이다. 답변과 판단에 반영하라.',
     ];
-    if (g.length) {
-      lines.push('### 전역 맥락');
-      for (const e of g) lines.push(`- ${e.text}`);
+    let remaining = PROMPT_MAX_CHARS - header.join('\n').length;
+    const rendered: Array<{ order: number; text: string }> = [];
+    for (const section of sections) {
+      if (!section.entries.length) continue;
+      const lines = [section.heading];
+      let used = section.heading.length + 1;
+      const cap = Math.min(PROMPT_SECTION_MAX_CHARS, remaining);
+      let dropped = 0;
+      for (const e of section.entries) {
+        const line = `- ${e.text}`;
+        if (used + line.length + 1 > cap) { dropped++; continue; }
+        lines.push(line);
+        used += line.length + 1;
+      }
+      if (lines.length === 1) continue;
+      if (dropped) lines.push(`- (분량 제한으로 ${dropped}개 생략)`);
+      const text = lines.join('\n');
+      remaining -= text.length + 1;
+      rendered.push({ order: section.order, text });
+      if (remaining <= 0) break;
     }
-    if (p.length) {
-      lines.push(projectTitle ? `### 프로젝트 메모리: ${projectTitle}` : '### 프로젝트 메모리');
-      for (const e of p) lines.push(`- ${e.text}`);
-    }
-    if (s.length) {
-      lines.push(sessionTitle ? `### 대화 메모리: ${sessionTitle}` : '### 대화 메모리');
-      for (const e of s) lines.push(`- ${e.text}`);
-    }
-    let block = lines.join('\n');
-    if (block.length > PROMPT_MAX_CHARS) block = `${block.slice(0, PROMPT_MAX_CHARS)}…`;
-    return block;
+    if (!rendered.length) return '';
+    // Display general → specific; selection above already protected the specific scopes.
+    rendered.sort((a, b) => a.order - b.order);
+    return [...header, ...rendered.map((r) => r.text)].join('\n');
   }
 
   private loadIndex(): MemoryIndex {
