@@ -2,6 +2,100 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "explorer-refresh-on-chat-switch",
+      "status": "released",
+      "title": "대화를 바꾸면 문서 열기 목록도 새로 고침",
+      "detail": "다른 대화로 옮기거나 새 대화를 열면 문서 열기 목록을 그 대화의 작업 폴더 기준으로 다시 불러옵니다. 이전 대화의 파일이 남아 보이던 문제를 고쳤습니다.",
+      "area": "chat",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "ui/workspace/src/store/workspaceStore.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "standalone-chat-no-default-folder",
+      "status": "released",
+      "title": "개인 작업 대화는 PC 기본 작업 폴더를 보지 않음",
+      "detail": "작업 폴더가 없는 개인 작업 대화는 PC 기본 작업 폴더의 파일을 검색하거나 읽지 않습니다. AI가 찾아보지도 않고 「없다」고 답하면 같은 답변 안에서 먼저 찾아보게 합니다.",
+      "area": "agent",
+      "created_at": "2026-10-16",
+      "source_paths": [
+        "core/src/chat/modes/workspace-agent.ts",
+        "core/src/agent/agent-claim-gates.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "bare-promise-continues",
+      "status": "released",
+      "title": "「확인하겠습니다」만 남기고 멈추지 않음",
+      "detail": "AI가 「확인하겠습니다」처럼 말만 하고 도구를 쓰지 않으면 한 번 더 실제로 진행하게 합니다. 그 짧은 문장은 화면에 먼저 보내지 않고, 글로만 끝난 답변 뒤에도 끊긴 작업을 이어서 진행할 수 있습니다.",
+      "area": "agent",
+      "created_at": "2026-10-15",
+      "source_paths": [
+        "core/src/agent/agent-run-step-loop.ts",
+        "core/src/agent/agent-session-continuity.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "model-switch-same-model",
+      "status": "released",
+      "title": "같은 모델인데 모델 변경 표시가 뜨던 문제 수정",
+      "detail": "입력창에서 고른 모델 이름과 실제로 호출된 이름이 달라도 같은 모델이면 「모델 변경」 구분선을 띄우지 않습니다.",
+      "area": "chat",
+      "created_at": "2026-10-15",
+      "source_paths": [
+        "core/src/chat/model-switch.ts",
+        "ui/workspace/src/lib/modelSwitch.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "restored-window-scrollbar",
+      "status": "released",
+      "title": "창을 되돌린 뒤 스크롤바가 테두리와 겹치지 않음",
+      "detail": "창을 최대화했다가 원래 크기로 되돌려도 스크롤바가 창 크기 조절 영역과 겹치지 않아 스크롤바를 바로 잡을 수 있습니다.",
+      "area": "shell",
+      "created_at": "2026-10-15",
+      "source_paths": [
+        "shell/CqrPa.Shell/MaximizeWorkArea.cs",
+        "shell/CqrPa.Shell/MainWindow.xaml"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
+      "id": "external-folder-scope-hidden",
+      "status": "released",
+      "title": "다른 작업 폴더 범위 안내를 진행 표시에서 숨김",
+      "detail": "다른 작업 폴더를 쓰는 대화에서 내부 범위 안내가 진행 표시에 섞여 나오지 않습니다. 이 내용은 작업 기록에만 남깁니다.",
+      "area": "agent",
+      "created_at": "2026-10-15",
+      "source_paths": [
+        "core/src/agent/agent-run-loop.ts"
+      ],
+      "release": {
+        "version": "1.1.18",
+        "update_sequence": 66
+      }
+    },
+    {
       "id": "model-switch-notice",
       "status": "released",
       "title": "같은 대화에서 모델이 바뀌면 표시",

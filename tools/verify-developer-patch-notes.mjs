@@ -7,7 +7,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const notesPath = path.join(root, 'ui/workspace/src/data/developer-patch-notes.json');
 const componentPath = path.join(root, 'ui/workspace/src/components/DeveloperPatchNotesMenu.tsx');
 const allowedStatuses = new Set(['development', 'released']);
-const CURRENT_RELEASE_NOTE_DATE = '2026-10-14';
 const allowedEntryKeys = ['area', 'created_at', 'detail', 'id', 'release', 'source_paths', 'status', 'title'];
 const bannedPublicText = /(?:commit|sha\b|pull request|\bpr\b|branch|stack trace|stdout|stderr|request_?id|update_sequence|\.tsx\b|\.mjs\b|(?:src|core|tools)\/)/i;
 
@@ -58,10 +57,10 @@ try {
     } else {
       if (!/^\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(note.release.version)) fail(`${label} released note requires a valid version`);
       if (!Number.isSafeInteger(note.release.update_sequence) || note.release.update_sequence < 1) fail(`${label} released note requires update_sequence`);
-      if (
-        note.created_at >= CURRENT_RELEASE_NOTE_DATE
-        && (note.release.version !== releaseManifest.version || note.release.update_sequence !== releaseManifest.update_sequence)
-      ) {
+      if (note.release.update_sequence > releaseManifest.update_sequence) {
+        fail(`${label} claims a release newer than the current release manifest`);
+      }
+      if (note.release.update_sequence === releaseManifest.update_sequence && note.release.version !== releaseManifest.version) {
         fail(`${label} released state must match the current release manifest`);
       }
     }
