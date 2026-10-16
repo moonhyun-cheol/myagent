@@ -408,6 +408,8 @@ export interface QueuedMessage {
   text: string;
   attachmentIds: string[];
   attachmentNames: string[];
+  /** Parallel to attachmentIds; '' when unknown (older queue entries have none). */
+  attachmentMimes?: string[];
   contextPaths: string[];
   model?: string;
   createdAt: string;
@@ -503,6 +505,8 @@ interface WorkspaceState {
   /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
   queueReviewSessions: Record<string, boolean>;
   updateQueuedMessage: (id: string, text: string) => void;
+  /** Drop one attachment from a queued message (keeps its order slot for the rest). */
+  removeQueuedAttachment: (id: string, attachmentId: string) => void;
   removeQueuedMessage: (id: string) => void;
   /** Patch one visible chat turn in place (e.g. video result retrieved later). */
   patchChatTurn: (sessionId: string, turnId: string, partial: Partial<ChatTurn>) => void;
@@ -877,10 +881,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     set({
       messageQueue: remaining,
       queueReviewSessions: reviewSessions,
-      pendingAttachments: next.attachmentIds.map((id, index) => ({
-        id,
-        name: next.attachmentNames[index] ?? '첨부 파일',
-      })),
+      pendingAttachments: next.attachmentIds.map((id, index) => {
+        const mime = next.attachmentMimes?.[index];
+        return {
+          id,
+          name: next.attachmentNames[index] ?? '첨부 파일',
+          ...(mime ? { mime } : {}),
+        };
+      }),
       pendingContextPaths: next.contextPaths,
     });
     void get().sendAiMessage(next.text, next.model, {
@@ -1485,6 +1493,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const queue = get().messageQueue.map((item) => (
         item.id === id ? { ...item, text } : item
       ));
+      saveMessageQueue(queue);
+      set({ messageQueue: queue });
+    },
+    removeQueuedAttachment: (id, attachmentId) => {
+      const queue = get().messageQueue.map((item) => {
+        if (item.id !== id) return item;
+        const index = item.attachmentIds.indexOf(attachmentId);
+        if (index < 0) return item;
+        const drop = <T,>(values: T[] | undefined) => values?.filter((_, i) => i !== index);
+        return {
+          ...item,
+          attachmentIds: drop(item.attachmentIds) ?? [],
+          attachmentNames: drop(item.attachmentNames) ?? [],
+          ...(item.attachmentMimes ? { attachmentMimes: drop(item.attachmentMimes) } : {}),
+        };
+      });
       saveMessageQueue(queue);
       set({ messageQueue: queue });
     },
@@ -3172,6 +3196,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           text: trimmed,
           attachmentIds,
           attachmentNames,
+          attachmentMimes: pending.map((a) => a.mime ?? ''),
           contextPaths: [...get().pendingContextPaths],
           model: get().selectedModel || 'auto',
           createdAt: new Date().toISOString(),

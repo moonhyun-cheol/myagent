@@ -127,6 +127,18 @@ function indexedAttachmentName(name: string, ordinal: number, total: number): st
     : `${name}_${ordinal}`;
 }
 
+/** Same-name attachments in one message get _1, _2 … so queue rows and sent chips match. */
+function indexedAttachmentNames(names: string[]): string[] {
+  const totals = new Map<string, number>();
+  const seen = new Map<string, number>();
+  for (const name of names) totals.set(name, (totals.get(name) ?? 0) + 1);
+  return names.map((name) => {
+    const ordinal = (seen.get(name) ?? 0) + 1;
+    seen.set(name, ordinal);
+    return indexedAttachmentName(name, ordinal, totals.get(name) ?? 1);
+  });
+}
+
 function queuedMessageNeedsExpansion(text: string, attachmentNames: string[]): boolean {
   const content = text || attachmentNames.join(', ');
   return content.length > 240 || content.split(/\r?\n/).length > 3;
@@ -289,6 +301,7 @@ export function ChatPane() {
   const queueReviewSessions = useWorkspaceStore((s) => s.queueReviewSessions);
   const updateQueuedMessage = useWorkspaceStore((s) => s.updateQueuedMessage);
   const removeQueuedMessage = useWorkspaceStore((s) => s.removeQueuedMessage);
+  const removeQueuedAttachment = useWorkspaceStore((s) => s.removeQueuedAttachment);
   const continueQueuedMessages = useWorkspaceStore((s) => s.continueQueuedMessages);
   const stopAiMessage = useWorkspaceStore((s) => s.stopAiMessage);
 
@@ -1052,6 +1065,9 @@ export function ChatPane() {
 
       e.preventDefault();
       e.stopPropagation();
+      // Block send while the clipboard API read is in flight; otherwise Enter
+      // right after paste queues text without the image (attached later).
+      setPasting(true);
       void (async () => {
         try {
           if (!navigator.clipboard?.read) {
@@ -1066,6 +1082,8 @@ export function ChatPane() {
           await ingestFiles(images);
         } catch (err) {
           flashPasteHint(err instanceof Error ? err.message : String(err));
+        } finally {
+          setPasting(false);
         }
       })();
     },
@@ -1223,18 +1241,10 @@ export function ChatPane() {
 
   const attachDisabled = pasting;
 
-  const attachmentDisplayNames = useMemo(() => {
-    const totals = new Map<string, number>();
-    const seen = new Map<string, number>();
-    for (const attachment of pendingAttachments) {
-      totals.set(attachment.name, (totals.get(attachment.name) ?? 0) + 1);
-    }
-    return pendingAttachments.map((attachment) => {
-      const ordinal = (seen.get(attachment.name) ?? 0) + 1;
-      seen.set(attachment.name, ordinal);
-      return indexedAttachmentName(attachment.name, ordinal, totals.get(attachment.name) ?? 1);
-    });
-  }, [pendingAttachments]);
+  const attachmentDisplayNames = useMemo(
+    () => indexedAttachmentNames(pendingAttachments.map((attachment) => attachment.name)),
+    [pendingAttachments],
+  );
 
   const canSend = (!!draft.trim() || pendingAttachments.length > 0 || messageReferences.length > 0) && !pasting;
 
@@ -1704,9 +1714,9 @@ export function ChatPane() {
                 ) : null}
                 {turn.attachmentNames?.length ? (
                   <div className="mb-2 flex flex-wrap gap-1.5">
-                    {turn.attachmentNames.map((name) => (
+                    {indexedAttachmentNames(turn.attachmentNames).map((name, index) => (
                       <span
-                        key={name}
+                        key={`${index}:${name}`}
                         className="inline-flex items-center gap-1 rounded-lg border border-line/70 bg-ink/30 px-2 py-0.5 text-[11px] text-muted"
                       >
                         {isImageAttachment(undefined, name) ? (
@@ -2147,13 +2157,18 @@ export function ChatPane() {
                 ) : null}
                 <div className="max-h-[min(28vh,220px)] overflow-y-auto overscroll-contain pr-1">
                   {activeQueue.map((item, index) => {
-                    const queueText = item.text || item.attachmentNames.join(', ');
-                    const canExpand = queuedMessageNeedsExpansion(item.text, item.attachmentNames);
+                    const canExpand = queuedMessageNeedsExpansion(item.text, []);
                     const expanded = expandedQueueIds.has(item.id);
+                    const isEditing = editingQueueId === item.id;
+                    const queueNames = indexedAttachmentNames(
+                      item.attachmentIds.map((_, i) => item.attachmentNames[i] ?? '첨부 파일'),
+                    );
+                    const canRemoveAttachment = item.text.trim().length > 0 || item.attachmentIds.length > 1;
                     return (
                   <div key={item.id} className="flex items-start gap-2 border-t border-line/50 py-1.5 text-[11px] text-text first:border-t-0">
                     <span className="pt-0.5 text-muted">{index + 1}</span>
-                    {editingQueueId === item.id ? (
+                    <div className="min-w-0 flex-1">
+                    {isEditing ? (
                       <textarea
                         autoFocus
                         rows={2}
@@ -2174,13 +2189,15 @@ export function ChatPane() {
                             }
                           }
                         }}
-                        className="max-h-40 min-w-0 flex-1 resize-y overflow-y-auto rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-text outline-none focus:border-accent"
+                        className="max-h-40 w-full min-w-0 resize-y overflow-y-auto rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-text outline-none focus:border-accent"
                       />
                     ) : (
-                      <div className="min-w-0 flex-1">
-                        <p className={`whitespace-pre-wrap break-words leading-5 ${expanded ? '' : 'line-clamp-3'}`}>
-                          {queueText}
-                        </p>
+                      <>
+                        {item.text ? (
+                          <p className={`whitespace-pre-wrap break-words leading-5 ${expanded ? '' : 'line-clamp-3'}`}>
+                            {item.text}
+                          </p>
+                        ) : null}
                         {canExpand ? (
                           <button
                             type="button"
@@ -2197,9 +2214,51 @@ export function ChatPane() {
                             {expanded ? '접기' : '전체 보기'}
                           </button>
                         ) : null}
-                      </div>
+                      </>
                     )}
-                    {editingQueueId === item.id ? (
+                    {item.attachmentIds.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="queue-attachments">
+                        <span className="text-[10px] text-muted">첨부 {item.attachmentIds.length}개</span>
+                        {queueNames.map((name, i) => {
+                          const attachmentId = item.attachmentIds[i]!;
+                          const image = isImageAttachment(item.attachmentMimes?.[i] || undefined, name);
+                          return (
+                            <span
+                              key={attachmentId}
+                              title={name}
+                              className="inline-flex max-w-[180px] items-center gap-1 rounded-md border border-line/70 bg-ink/30 px-1.5 py-0.5 text-[10px] text-muted"
+                            >
+                              {image ? (
+                                <img
+                                  src={`/attachments/${encodeURIComponent(attachmentId)}?session=${encodeURIComponent(item.sessionId)}`}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-6 w-6 shrink-0 rounded object-cover"
+                                  onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                                />
+                              ) : (
+                                <FileIcon size={11} className="shrink-0" />
+                              )}
+                              <span className="truncate">{name}</span>
+                              {isEditing ? (
+                                <button
+                                  type="button"
+                                  aria-label={`${name} 첨부 빼기`}
+                                  title={canRemoveAttachment ? '이 첨부 빼기' : '글이나 다른 첨부가 없어 뺄 수 없습니다'}
+                                  disabled={!canRemoveAttachment}
+                                  onClick={() => removeQueuedAttachment(item.id, attachmentId)}
+                                  className="shrink-0 px-0.5 text-muted hover:text-red-300 disabled:opacity-30"
+                                >
+                                  ×
+                                </button>
+                              ) : null}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    </div>
+                    {isEditing ? (
                       <>
                         <button
                           type="button"
