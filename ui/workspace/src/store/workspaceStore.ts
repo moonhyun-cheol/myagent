@@ -2016,6 +2016,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
       cacheActiveSessionView();
       syncViewBusy();
+      // The file list belongs to the conversation's workspace; the previous chat's tree must not
+      // remain as the Document picker / explorer source for the new chat.
+      set({ files: [], filesRoot: null, filesMessage: null });
+      void get().refreshExplorer();
     },
 
     clearActiveChat: () => {
@@ -2045,11 +2049,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         ...emptyDocumentState(),
       });
       syncViewBusy();
+      set({ files: [], filesRoot: null, filesMessage: null });
+      void get().refreshExplorer();
     },
 
     loadChatSession: async (sessionId) => {
       const loadRevision = ++navigationRevision;
       const bindingRevision = workspaceRevisions.get(sessionId) ?? 0;
+      const sessionChanged = get().activeSessionId !== sessionId;
       if (get().unseenCompletions[sessionId]) {
         const seen = { ...get().unseenCompletions };
         delete seen[sessionId];
@@ -2103,6 +2110,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
       syncViewBusy();
       queueMicrotask(() => dispatchNextQueuedMessage(sessionId));
+      // Each conversation resolves its own workspace root on the server (session header).
+      // Without this the explorer / Document picker kept the previously opened chat's tree.
+      if (sessionChanged) set({ files: [], filesRoot: null, filesMessage: null });
+      void get().refreshExplorer();
 
       // Refresh from the server without blocking the visible session switch.
       void fetchSession(sessionId).then(async (rec) => {
