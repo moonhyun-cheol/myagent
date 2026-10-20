@@ -16,7 +16,13 @@ public partial class App : Application
 
         var args = e.Args;
         var root = CqrPaths.ResolveCqrRoot();
-        CleanupLegacyWorkKitLauncher(root);
+        // NOTE: The former CleanupLegacyWorkKitLauncher() startup sweep was removed.
+        // The operator admin program is now reinstalled into this same install folder
+        // as WorkKitLauncher.exe with a "MY Agent 관리자.lnk" desktop shortcut, so the
+        // filename-based legacy delete-list ended up wiping the current admin app and its
+        // shortcut on every MY Agent launch (e.g. breaking admin 1.0.12 / skill 21 sync).
+        // Pre-update-51 launcher leftovers are inert (core no longer calls /launcher/*),
+        // so blind deletion in a now-shared folder is removed entirely.
 
         if (args.Contains("--verify-update-feed", StringComparer.OrdinalIgnoreCase))
         {
@@ -72,38 +78,6 @@ public partial class App : Application
             };
         }
         win.Show();
-    }
-
-    private static void CleanupLegacyWorkKitLauncher(string root)
-    {
-        // Best-effort migration only. A locked legacy exe must never block MY Agent startup.
-        foreach (var file in new[]
-        {
-            Path.Combine(root, "WorkKitLauncher.exe"),
-            Path.Combine(root, "launcher-manifest.json"),
-        })
-        {
-            try { if (File.Exists(file)) File.Delete(file); } catch { }
-        }
-        foreach (var directory in new[]
-        {
-            Path.Combine(root, "bin", "work-kit-launcher"),
-            Path.Combine(root, "ui", "work-kit-launcher"),
-            Path.Combine(root, "shell", "WorkKitLauncher"),
-        })
-        {
-            try { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); } catch { }
-        }
-        var desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        foreach (var name in new[] { "MY Agent 관리자.lnk", "WorkKitLauncher.lnk", "MY Agent Work Kit.lnk", "MY Agent 작업 환경.lnk" })
-        {
-            try
-            {
-                var shortcut = Path.Combine(desktop, name);
-                if (File.Exists(shortcut)) File.Delete(shortcut);
-            }
-            catch { }
-        }
     }
 
     private static int VerifyUpdateFeedCommand(string[] args)

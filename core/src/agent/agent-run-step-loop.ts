@@ -124,6 +124,11 @@ import { AgentInfraError } from './agent-failure-plane.js';
 import { TokenEfficiencyAdvisor } from './agent-token-efficiency.js';
 import { prepareAgentContextForRequest } from './agent-context-assembler.js';
 import {
+  agentBudgetBandNote,
+  resolveAgentBudgetBand,
+  type AgentBudgetBand,
+} from './agent-context-profile.js';
+import {
   buildAgentContinuationSnapshot,
   fingerprintWorkspacePaths,
 } from './agent-continuation-snapshot.js';
@@ -191,6 +196,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   let absenceRetryUsed = false;
   let deferralForceTool = false;
   let deferralNote: string | null = null;
+  // Budget-band convergence signal. Emits once when the per-run step budget
+  // crosses the converge (70%) then finalize (90%) threshold. We surface the
+  // phase, never the raw step number, to avoid early rush / anchoring.
+  let lastBudgetBand: AgentBudgetBand | null = null;
   // Display/persisted count across the continuation chain. The per-run budget below is
   // state.steps alone, so a resume after hitting the cap gets a fresh budget.
   const cumulativeSteps = (): number => state.priorSteps + state.steps;
@@ -322,6 +331,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     if (deferralNote) {
       state.messages.push({ role: 'user', content: deferralNote });
       deferralNote = null;
+    }
+    const budgetBand = resolveAgentBudgetBand(state.steps, MAX_AGENT_STEPS);
+    if (budgetBand && budgetBand !== lastBudgetBand) {
+      lastBudgetBand = budgetBand;
+      state.messages.push({ role: 'user', content: agentBudgetBandNote(budgetBand) });
     }
     if (preparedContext.action !== 'unchanged') {
       state.reportStatus(

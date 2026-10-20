@@ -1,4 +1,4 @@
-import { Archive, FolderOpen, Package, Trash } from '@phosphor-icons/react';
+import { Archive, Buildings, FolderOpen, Package, Trash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   deleteSkill,
@@ -94,6 +94,10 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     () => skills.filter((skill) => skill.source === 'bundled').sort(byLabel),
     [skills],
   );
+  const organization = useMemo(
+    () => skills.filter((skill) => skill.source === 'organization').sort(byLabel),
+    [skills],
+  );
 
   useEffect(() => {
     if (!highlightId) return;
@@ -169,7 +173,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       <header className="mb-5 pr-12">
         <h2 className="text-xl font-semibold">스킬</h2>
         <p className="mt-1 text-sm text-muted">
-          사용자 ZIP 스킬을 설치하거나 제거합니다. 현재 대화에서 사용할 스킬은 입력창의 + 메뉴에서 켜고 끕니다.
+          사용자 ZIP 스킬을 설치하거나 제거합니다. 작업 키트로 들어온 조직 스킬은 아래에서 조회만 하며, 받기·적용·삭제는 작업 키트(WorkKitManager)에서 관리합니다. 현재 대화에서 사용할 스킬은 입력창의 + 메뉴에서 켜고 끕니다.
         </p>
       </header>
 
@@ -223,6 +227,49 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
               </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      <section className="mb-5 max-w-4xl">
+        <div className="mb-1 flex items-center gap-2">
+          <Buildings size={21} className="text-accent" />
+          <h3 className="font-semibold">조직 스킬 (작업 키트)</h3>
+          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">{organization.length}</span>
+          <span className="rounded bg-ink/60 px-1.5 py-0.5 text-[10px] text-muted">조회 전용</span>
+        </div>
+        <p className="mb-4 text-xs leading-5 text-muted">
+          작업 키트로 적용된 조직 스킬입니다. 여기서는 설치·제거하지 않습니다. 받기·적용·삭제는 작업 키트(WorkKitManager),
+          대화에서 켜고 끄기는 입력창의 + 메뉴에서 합니다.
+        </p>
+        {busy && organization.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {!busy && organization.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">적용된 조직 스킬이 없습니다. 작업 키트를 적용하면 여기에 표시됩니다.</p>
+        ) : (
+          <div className="space-y-3">
+            {organization.map((skill) => (
+              <div
+                key={skill.id}
+                data-testid={`organization-skill-${skill.id}`}
+                className="flex items-start justify-between gap-4 rounded-xl border border-line bg-ink/40 p-4"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-text">{skill.label}</p>
+                    {skill.selectable ? (
+                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-500">대화 + 에서 선택 가능</span>
+                    ) : (
+                      <span className="rounded bg-ink/60 px-1.5 py-0.5 text-[10px] text-muted">내부 스킬</span>
+                    )}
+                    {skill.feature ? (
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">기능: {skill.feature}</span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] text-muted">{skill.id}</p>
+                  {skill.description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{skill.description}</p> : null}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>

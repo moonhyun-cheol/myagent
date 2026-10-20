@@ -171,6 +171,7 @@ export interface SkillListItem {
   install_kind?: 'prompt' | 'package';
   description?: string;
   file_count?: number;
+  feature?: string;
   selectable?: boolean;
   selector_group?: string;
   selector_order?: number;
