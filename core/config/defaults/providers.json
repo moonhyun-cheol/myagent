@@ -2,25 +2,6 @@
   "version": 1,
   "providers": [
     {
-      "id": "ollama",
-      "name": "Ollama",
-      "kind": "openai_compatible",
-      "base_url": "http://127.0.0.1:11434/v1",
-      "default_model": "qwen2.5:latest",
-      "wire_api": "chat_completions",
-      "local_only_ok": true,
-      "note": "로컬 또는 사용자가 관리하는 OpenAI 호환 endpoint를 모델 탭에서 설정합니다."
-    },
-    {
-      "id": "minimax",
-      "name": "MiniMax",
-      "kind": "openai_compatible",
-      "base_url": "https://api.minimaxi.com/v1",
-      "default_model": "MiniMax-M2.1",
-      "wire_api": "chat_completions",
-      "docs_url": "https://platform.minimaxi.com/document"
-    },
-    {
       "id": "openai",
       "name": "OpenAI",
       "kind": "openai_compatible",
