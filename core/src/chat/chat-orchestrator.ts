@@ -39,7 +39,7 @@ import {
 import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
 import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-session-log.js';
-import { createToolApprovalId, waitForToolApproval } from '../agent/tool-approval.js';
+import { createToolApprovalId, TOOL_APPROVAL_TIMEOUT_MS, waitForToolApproval } from '../agent/tool-approval.js';
 import {
   STEP_BUDGET_EXTENSION,
   STEP_BUDGET_MAX_AUTO_GRANTS,
@@ -1092,6 +1092,8 @@ export class ChatOrchestrator {
                   access: approvalReq.access,
                   targets: approvalReq.targets,
                   expires: approvalReq.expires,
+                  timeout_ms: TOOL_APPROVAL_TIMEOUT_MS,
+                  session_title: this.sessionStore.load(sessionId)?.title ?? '',
                 });
                 return wait;
               },
@@ -1130,6 +1132,8 @@ export class ChatOrchestrator {
                   danger: false,
                   access: 'operation',
                   expires: 'once',
+                  timeout_ms: TOOL_APPROVAL_TIMEOUT_MS,
+                  session_title: this.sessionStore.load(sessionId)?.title ?? '',
                 });
                 const approved = await wait;
                 if (!approved) return { extend: 0, stopReason: '추가 실행 예산을 승인하지 않아 멈췄습니다.' };

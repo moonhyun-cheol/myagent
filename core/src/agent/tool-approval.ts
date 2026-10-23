@@ -254,7 +254,9 @@ type Pending = {
 };
 
 const pending = new Map<string, Pending>();
-const DEFAULT_TIMEOUT_MS = 5 * 60_000;
+/** Server-side approval wait; sent to the UI as timeout_ms so the dialog closes in step. */
+export const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_TIMEOUT_MS = TOOL_APPROVAL_TIMEOUT_MS;
 
 export function createToolApprovalId(): string {
   return randomUUID();

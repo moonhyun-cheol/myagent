@@ -16,7 +16,13 @@ type ToolApprovalAccess = 'operation' | 'external_read' | 'external_write' | 'ne
 async function askToolApprovalDecision(
   summary: string,
   danger: boolean,
-  details?: { access?: ToolApprovalAccess; targets?: string[]; expires?: 'once' | 'run' },
+  details?: {
+    access?: ToolApprovalAccess;
+    targets?: string[];
+    expires?: 'once' | 'run';
+    /** Which conversation asked — several chats may wait for approval at once. */
+    sessionTitle?: string;
+  },
   signal?: AbortSignal,
 ): Promise<boolean> {
   if (signal?.aborted) return false;
@@ -41,10 +47,12 @@ async function askToolApprovalDecision(
     ? '\n\n허용 범위: 현재 작업이 끝날 때까지 해당 위치의 읽기만 허용'
     : '\n\n허용 범위: 이번 실행 1회';
   const approvalMessage = `${accessLabel}\n\n${summary}${targetText}${expiryText}`;
+  const sessionTitle = details?.sessionTitle?.trim();
+  const context = sessionTitle ? `대화: ${sessionTitle}` : undefined;
   const notificationId = showUserNotification({
     kind: 'approval',
     title: danger ? '위험 작업 승인이 필요합니다' : '승인이 필요합니다',
-    message: summary,
+    message: context ? `${context}\n${summary}` : summary,
     persistent: true,
     actionLabel: '검토하기',
     system: 'always',
@@ -54,6 +62,7 @@ async function askToolApprovalDecision(
       signal,
       title: danger ? '위험 작업 승인' : '접근 승인',
       message: `${danger ? '[위험] ' : ''}${approvalMessage}`,
+      context,
       danger,
       confirmLabel: '승인',
       cancelLabel: '거절',
@@ -2039,16 +2048,40 @@ export async function streamChat(
           ? evt.targets.map((target) => String(target ?? '').trim()).filter(Boolean)
           : undefined;
         const expires = evt.expires === 'run' || evt.expires === 'once' ? evt.expires : undefined;
-        const approved = await askToolApprovalDecision(summary, danger, { access, targets, expires }, handlers.signal);
+        const sessionTitle = typeof evt.session_title === 'string' ? evt.session_title : undefined;
+        // Close the dialog (queued or shown) shortly before the server stops waiting,
+        // so a late click can never be reported as 「승인됨」 for a request already denied.
+        const timeoutMs = typeof evt.timeout_ms === 'number' && evt.timeout_ms > 0 ? evt.timeout_ms : 0;
+        const approvalCtl = new AbortController();
+        const forwardAbort = () => approvalCtl.abort();
+        handlers.signal?.addEventListener('abort', forwardAbort, { once: true });
+        if (handlers.signal?.aborted) approvalCtl.abort();
+        let timedOut = false;
+        const timer = timeoutMs
+          ? window.setTimeout(() => { timedOut = true; approvalCtl.abort(); }, Math.max(1_000, timeoutMs - 2_000))
+          : undefined;
+        let approved = false;
+        try {
+          approved = await askToolApprovalDecision(
+            summary, danger, { access, targets, expires, sessionTitle }, approvalCtl.signal,
+          );
+        } finally {
+          if (timer !== undefined) window.clearTimeout(timer);
+          handlers.signal?.removeEventListener('abort', forwardAbort);
+        }
         assertCurrent();
-        await fetch('/chat/tool-approval', {
+        const ack = await fetch('/chat/tool-approval', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: evt.id, approved, runId: body.runId }),
           signal: handlers.signal,
-        }).catch(() => {});
+        }).catch(() => null);
         assertCurrent();
-        handlers.onStatus?.(approved ? '승인됨 · 계속…' : '거절됨');
+        // 404 = the server no longer waits for this id (timed out / run ended).
+        const expired = timedOut || ack?.status === 404;
+        handlers.onStatus?.(expired
+          ? '승인 대기 시간이 지나 거절됨'
+          : approved ? '승인됨 · 계속…' : '거절됨');
       } else if (type === 'stopped') {
         terminalEvent = true;
         handlers.onDone?.({ model: '중지됨', usage: parseUsageEvent(evt.usage) });
