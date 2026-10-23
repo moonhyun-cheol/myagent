@@ -145,7 +145,7 @@ type DecideReview = (input: {
 export const DECISION_QUESTIONS = {
   severity: {
     type: 'choice',
-    instructions: "Rate how severe the damage would be if this action is wrong. Reference level for 'severe': wiping a whole folder/directory tree of user or project data, or destroying a database (dropping it, deleting the DB file, erasing or overwriting all rows). Judge by similarity to that reference: irreversible, large-scale loss of data, history or system state. Single-file deletes, deleting rebuildable output (dist, build, node_modules, caches, temp folders), builds, installs, edits, commits and read-only queries are normal.",
+    instructions: "Rate how severe the damage would be if this action is wrong. Reference level for 'severe': wiping a whole folder/directory tree of user or project data, or destroying a database (dropping it, deleting the DB file, erasing or overwriting all rows). Judge by similarity to that reference: irreversible, large-scale loss of data, history or system state. Single-file deletes, deleting rebuildable output (dist, build, node_modules, caches, temp folders), builds, installs, edits, commits, branch switches, fast-forward pulls and read-only queries are normal.",
     criteria: {
       normal: 'Clearly less damaging than the reference: routine, reversible, limited in scope, or only removes regenerable artifacts.',
       severe: 'Comparable to the reference: irreversible large-scale loss of user/project data, repository history, a database, a disk, or system configuration.',
@@ -153,7 +153,7 @@ export const DECISION_QUESTIONS = {
   },
   explicit: {
     type: 'choice',
-    instructions: "Did the user_request explicitly ask for this specific destructive effect (naming the deletion, wipe, reset, drop or force operation and its target)? A vague request like 'clean up', 'fix', or 'check' is not explicit.",
+    instructions: "Did the user_request explicitly ask for this specific destructive effect (naming the deletion, wipe, reset, drop, discard, push or force operation and its target)? A vague request like 'clean up', 'fix', or 'check' is not explicit.",
     criteria: {
       yes: 'The user clearly and directly commanded this destructive effect on this target.',
       no: 'The user did not explicitly ask for it, or the request is vague or about something else.',
@@ -197,7 +197,7 @@ export function decideFromAnswers(
     if (mode === 'delegate' && exp.label === 'yes' && exp.p !== null && exp.p >= FIXED_SEVERE_EXPLICIT_MIN) {
       return { decision: 'allow', confidence: exp.p, reason: `${note} · 사용자가 직접 지시` };
     }
-    return { decision: 'ask_user', confidence: exp.p ?? 0, reason: `${note} · 폴더 통째 삭제/DB 삭제는 확실한 직접 지시만 자동 실행` };
+    return { decision: 'ask_user', confidence: exp.p ?? 0, reason: `${note} · 되돌리기 어려운 작업(폴더 통째 삭제/DB 삭제/push 등)은 확실한 직접 지시만 자동 실행` };
   }
   const sev = topAnswer(answers.severity);
   if (sev.label !== 'normal' && sev.label !== 'severe') {
@@ -420,8 +420,15 @@ function safeArgsFacts(argsPreview: string): Record<string, unknown> {
   const facts: Record<string, unknown> = { preview_chars: argsPreview.length };
   try {
     const args = JSON.parse(argsPreview) as Record<string, unknown>;
-    for (const key of ['path', 'new_path', 'action', 'command']) {
+    for (const key of ['path', 'new_path', 'action', 'command', 'mode', 'branch', 'remote', 'name', 'message']) {
       if (typeof args[key] === 'string') facts[key] = redactSecrets(String(args[key])).slice(0, 400);
+    }
+    for (const key of ['force_dirty', 'create', 'set_upstream', 'confirm']) {
+      if (typeof args[key] === 'boolean') facts[key] = args[key];
+    }
+    if (typeof args.index === 'number') facts.index = args.index;
+    if (Array.isArray(args.paths)) {
+      facts.paths = args.paths.slice(0, 20).map((p) => redactSecrets(String(p)).slice(0, 400));
     }
     if (typeof args.content === 'string') facts.content_chars = args.content.length;
     if (typeof args.patch === 'string') {
@@ -459,7 +466,7 @@ export function buildApprovalReviewContext(userMessage: string, request: ToolApp
     // reviewer refuse routine work. Severity is judged from the operation itself.
     deterministic_policy: {
       ...(request.fixedSeverity
-        ? { fixed_severity: 'severe: allow only if the user explicitly commanded this exact deletion/drop on this target' }
+        ? { fixed_severity: 'severe: allow only if the user explicitly commanded this exact irreversible operation (deletion, drop, discard, push) on this target' }
         : {}),
       workspace_contained: request.delegable === true,
       access: request.access ?? 'operation',
@@ -540,9 +547,9 @@ export async function reviewToolApproval(input: {
     return policyFail('The operation is outside the delegable safe boundary.');
   }
   const fixedSeverity = input.request.fixedSeverity;
-  // 「매번 승인」 triage never skips the card for a folder wipe / DB destruction.
+  // 「매번 승인」 triage never skips the card for a folder wipe / DB destruction / push.
   if (fixedSeverity === 'severe' && mode === 'triage') {
-    return policyFail('폴더 통째 삭제/DB 삭제 수준은 승인 카드를 건너뛰지 않습니다.');
+    return policyFail('폴더 통째 삭제/DB 삭제/push 같은 되돌리기 어려운 작업은 승인 카드를 건너뛰지 않습니다.');
   }
 
   // Configured reviewer first, then the auto-updating Jev decision model, then the general
@@ -633,7 +640,7 @@ export async function reviewToolApproval(input: {
       });
       let parsed = parseApprovalReview(response.content);
       if (fixedSeverity === 'severe' && parsed.decision === 'allow' && parsed.confidence < FIXED_SEVERE_EXPLICIT_MIN) {
-        parsed = { ...parsed, decision: 'ask_user', reason: `${parsed.reason} · 고정 목록 심각 명령: 확신 ${Math.round(parsed.confidence * 100)}% < 85%` };
+        parsed = { ...parsed, decision: 'ask_user', reason: `${parsed.reason} · 고정 심각 작업: 확신 ${Math.round(parsed.confidence * 100)}% < 85%` };
       }
       const result: ApprovalReviewResult = { ...parsed, reviewer: label, ...(index > 0 ? { fallback: true } : {}) };
       auditReview(input.cqrRoot, { type: 'approval_review', sessionId: input.sessionId, tool: input.request.tool, ok: result.decision === 'allow', durationMs: Date.now() - started, detail: `${mode}:${label}:${result.decision}:${result.confidence}:${result.reason}` });

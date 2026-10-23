@@ -28,8 +28,9 @@ export interface ToolApprovalRequest {
   /** Approval lifetime. External reads are reused only inside the current agent run. */
   expires?: 'once' | 'run';
   /**
-   * Fixed by the terminal risk list (recursive folder delete / DB destruction). The decision
-   * model cannot downgrade it; it may only approve when the user explicitly commanded it.
+   * Fixed by the terminal risk list (recursive folder delete / DB destruction) or the git tool
+   * tiers (push, discarding edits, stash pop/drop). The decision model cannot downgrade it;
+   * it may only approve when the user explicitly commanded it.
    */
   fixedSeverity?: 'severe';
 }
@@ -81,6 +82,63 @@ function extractPatchTextPaths(patch: unknown): string[] {
     paths.push(match[1].trim());
   }
   return paths;
+}
+
+export type GitToolTier = 'read' | 'normal' | 'severe';
+
+/**
+ * Git builtin tools, same 3 tiers as the terminal list:
+ * - read: inspection, index-only (stage / restore staged) and stash push (all reversible);
+ * - normal: commit, pull (ff-only), branch create, clean switch, init — decision model judges;
+ * - severe: push (leaves the machine), discarding worktree edits, stash pop/drop, dirty switch —
+ *   fixed severe, so only a confident explicit user command auto-approves.
+ * Returns null for non-git tools.
+ */
+export function classifyGitToolCall(
+  toolName: string,
+  args: Record<string, unknown>,
+): { tier: GitToolTier; requiresConfirm: boolean; summary: string } | null {
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  const read = (summary = '') => ({ tier: 'read' as const, requiresConfirm: false, summary });
+  switch (toolName) {
+    case 'git_status': case 'git_diff': case 'git_log': case 'git_show': case 'git_blame':
+    case 'git_history_tree': case 'git_sync_preview': case 'git_fetch': case 'git_stage':
+      return read();
+    case 'git_branch':
+      return args.action === 'create'
+        ? { tier: 'normal', requiresConfirm: true, summary: `Git 브랜치 만들기: ${str(args.name) || '?'}` }
+        : read();
+    case 'git_stash': {
+      const action = str(args.action) || 'list';
+      if (action === 'pop' || action === 'drop') {
+        const index = typeof args.index === 'number' ? args.index : 0;
+        return { tier: 'severe', requiresConfirm: true, summary: `Git stash ${action} (보관한 변경 ${action === 'drop' ? '삭제' : '꺼내기'}): stash@{${index}}` };
+      }
+      return read();
+    }
+    case 'git_restore': {
+      const mode = args.mode === 'staged' || args.mode === 'both' ? args.mode : 'worktree';
+      if (mode === 'staged') return read();
+      const paths = Array.isArray(args.paths) ? args.paths.map(String).slice(0, 5).join(', ') : '';
+      return { tier: 'severe', requiresConfirm: true, summary: `Git restore ${mode} (커밋 안 한 변경 버림): ${paths || '?'}` };
+    }
+    case 'git_switch': {
+      const branch = str(args.branch) || '?';
+      return args.force_dirty === true
+        ? { tier: 'severe', requiresConfirm: true, summary: `Git 브랜치 전환 (커밋 안 한 변경이 있어도 강제): ${branch}` }
+        : { tier: 'normal', requiresConfirm: true, summary: `Git 브랜치 전환: ${branch}${args.create === true ? ' (새로 만들기)' : ''}` };
+    }
+    case 'git_commit':
+      return { tier: 'normal', requiresConfirm: true, summary: `Git 커밋: ${str(args.message).slice(0, 120) || '?'}` };
+    case 'git_pull':
+      return { tier: 'normal', requiresConfirm: true, summary: `Git pull (ff-only): ${str(args.remote) || 'origin'} ${str(args.branch)}`.trim() };
+    case 'git_init':
+      return { tier: 'normal', requiresConfirm: true, summary: 'Git 저장소 만들기 (git init)' };
+    case 'git_push':
+      return { tier: 'severe', requiresConfirm: true, summary: `Git push (원격 저장소에 올림): ${str(args.remote) || 'origin'} ${str(args.branch)}`.trim() };
+    default:
+      return null;
+  }
 }
 
 /** Paths a tool will read or mutate. This is structural tool metadata, not NLP intent. */
@@ -150,6 +208,10 @@ export function canDelegateToolApproval(
     if (/\\\\[^\\\s"']+\\/.test(command)) return false;
     return externalTerminalPaths(command, workspaceRoot).length === 0;
   }
+  // Git builtins act on the bound repo only (NAS repos were rejected above). Push is
+  // delegable but fixed severe, so the decision model needs an explicit user command.
+  const git = classifyGitToolCall(toolName, args);
+  if (git) return git.tier !== 'read';
   if (readOnlyTool) {
     const target = toolPathTargets(toolName, args).paths[0];
     return typeof target === 'string' && target.trim().length > 0;
@@ -380,6 +442,20 @@ export function needsHumanApproval(
       needed: true,
       danger: true,
       summary: `체크포인트 롤백: ${id}`,
+    };
+  }
+  const git = classifyGitToolCall(toolName, args);
+  if (git && git.tier !== 'read') {
+    // Without confirm=true the tool refuses by itself, so a card would approve nothing.
+    if (git.requiresConfirm && args.confirm !== true) return { needed: false, danger: false, summary: '' };
+    const severe = git.tier === 'severe';
+    return {
+      needed: true,
+      danger: severe,
+      access: 'operation',
+      expires: 'once',
+      ...(severe ? { fixedSeverity: 'severe' as const } : {}),
+      summary: git.summary,
     };
   }
   if (toolName === 'delete_file') {
