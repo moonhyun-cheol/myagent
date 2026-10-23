@@ -6,13 +6,13 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+const continuity = await import('../core/dist/agent/agent-session-continuity.js');
 const {
-  looksLikeSessionContinue,
   shouldUseSessionContinuity,
   resolveContinuationResume,
   maxContinuationResumes,
   DEFAULT_MAX_CONTINUATION_RESUMES,
-} = await import('../core/dist/agent/agent-session-continuity.js');
+} = continuity;
 const {
   loadAgentRunMeta,
   recordSessionContinuationSnapshot,
@@ -23,27 +23,22 @@ const { buildAgentContinuationSnapshot } = await import(
   '../core/dist/agent/agent-continuation-snapshot.js'
 );
 
-// Single recognizer (whole-message).
-for (const t of ['이어서', '이어서 진행', '계속 진행해', '마저 작업해']) {
-  assert.equal(looksLikeSessionContinue(t), true, t);
-}
-for (const t of ['이어서 진행하고 테스트도', '새 기능 만들어줘']) {
-  assert.equal(looksLikeSessionContinue(t), false, t);
-}
+// No wording recognizer (af6b5f3): the model chooses active_task resume_run/discard_run.
+assert.equal(continuity.looksLikeSessionContinue, undefined, 'wording recognizer stays retired');
+assert.equal(
+  shouldUseSessionContinuity({ readPaths: ['a.ts'], mutatedPaths: [] }),
+  false,
+  '「이어서」 wording alone never auto-resumes',
+);
 
 // 3) Host retry resumes regardless of wording, but only when state exists.
 assert.equal(
-  shouldUseSessionContinuity({ userMessage: '로그인 버그 고쳐줘', readPaths: ['a.ts'], mutatedPaths: [], force: true }),
+  shouldUseSessionContinuity({ readPaths: ['a.ts'], mutatedPaths: [], force: true }),
   true,
   'retry resumes regardless of wording',
 );
 assert.equal(
-  shouldUseSessionContinuity({ userMessage: '로그인 버그 고쳐줘', readPaths: ['a.ts'], mutatedPaths: [] }),
-  false,
-  'fresh wording without force stays fresh',
-);
-assert.equal(
-  shouldUseSessionContinuity({ userMessage: 'x', readPaths: [], mutatedPaths: [], force: true }),
+  shouldUseSessionContinuity({ readPaths: [], mutatedPaths: [], force: true }),
   false,
   'nothing to resume',
 );
@@ -74,8 +69,9 @@ assert.equal(
 
 // Static wiring: per-run budget no longer uses the cumulative count.
 const stepLoop = readFileSync(new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url), 'utf8');
-assert.match(stepLoop, /while \(state\.steps < MAX_AGENT_STEPS\)/, 'fresh per-run budget');
-assert.doesNotMatch(stepLoop, /while \(cumulativeSteps\(\) < MAX_AGENT_STEPS\)/);
+assert.match(stepLoop, /let stepLimit = MAX_AGENT_STEPS;/, 'fresh per-run budget');
+assert.match(stepLoop, /while \(state\.steps < stepLimit \|\| await extendStepBudget\(\)\)/, 'per-run budget, host may extend at the cap');
+assert.doesNotMatch(stepLoop, /while \(cumulativeSteps\(\) < /);
 const runLoop = readFileSync(new URL('../core/src/agent/agent-run-loop.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(runLoop, /shouldOrInContinuityAutopilot/, '4) continuation must not OR-in Autopilot');
 assert.doesNotMatch(runLoop, /autopilot = true;/);

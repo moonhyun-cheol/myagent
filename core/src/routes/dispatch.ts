@@ -60,7 +60,7 @@ import { browserNavigateViaMcp, browserScreenshotViaMcp, getPlaywrightMcpDiagnos
 import { parseChatRequest } from '../chat/chat-orchestrator.js';
 import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
 import { clientAbortSignal } from '../chat/abort.js';
-import { beginChatRun, cancelChatRun, chatRunStopDetail, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
+import { activeChatRunInfo, beginChatRun, cancelChatRun, chatRunStopDetail, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
 import { ProjectStoreError } from '../projects/project-store.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import { parseMultipart } from '../attachments/multipart.js';
@@ -2928,6 +2928,15 @@ export async function dispatchApiRequest(
         }
       }
 
+      // Live run + its last checkpointed draft, so a reopened UI knows a turn is still
+      // running or finishing a stop (otherwise a new send would hit CHAT_RUN_BUSY blind).
+      const liveRunView = (sessionId: string) => {
+        const info = activeChatRunInfo(sessionId);
+        if (!info) return null;
+        const draft = sessionStore.liveDraft(sessionId, info.run_id);
+        return { ...info, ...(draft ? { draft } : {}) };
+      };
+
       const messagePageMatch = url.pathname.match(/^\/sessions\/([^/]+)\/messages$/);
       if (method === 'GET' && messagePageMatch) {
         const limit = Number(url.searchParams.get('limit') ?? '50');
@@ -2938,7 +2947,10 @@ export async function dispatchApiRequest(
           return sendJson(res, 400, { error: 'INVALID_MESSAGE_PAGE' });
         }
         const page = sessionStore.messagePage(messagePageMatch[1], limit, before);
-        return sendJson(res, page ? 200 : 404, page ?? { error: 'SESSION_NOT_FOUND' });
+        if (!page) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        // Only the newest page carries live-run state; older pages are history only.
+        const activeRun = before === undefined ? liveRunView(messagePageMatch[1]) : null;
+        return sendJson(res, 200, activeRun ? { ...page, active_run: activeRun } : page);
       }
 
       const sessionMatch = url.pathname.match(/^\/sessions\/([^/]+)$/);
@@ -2948,7 +2960,9 @@ export async function dispatchApiRequest(
           license.assertFeature('chat');
           const rec = sessionStore.load(sid);
           if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
-          return sendJson(res, 200, sessionStore.publicRecord(rec));
+          const activeRun = liveRunView(sid);
+          const publicRec = sessionStore.publicRecord(rec);
+          return sendJson(res, 200, activeRun ? { ...publicRec, active_run: activeRun } : publicRec);
         }
         if (method === 'PUT') {
           license.assertWritable();

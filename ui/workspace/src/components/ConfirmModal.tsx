@@ -2,12 +2,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   getConfirmDialogPending,
+  getConfirmDialogWaitingCount,
   settleConfirmDialog,
   subscribeConfirmDialog,
   type ConfirmDialogPending,
 } from '../lib/confirmDialog';
 
-type View = ConfirmDialogPending & { open: boolean };
+type View = ConfirmDialogPending & { open: boolean; waitingCount: number };
 
 function allowsBackdropDismiss(view: View): boolean {
   return view.allowBackdropDismiss !== false;
@@ -33,6 +34,7 @@ export function ConfirmModal() {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const inputValueRef = useRef('');
+  const shownRowIdRef = useRef<number | null>(null);
   const inputId = useId();
 
   useEffect(() => {
@@ -43,11 +45,19 @@ export function ConfirmModal() {
     const sync = () => {
       const p = getConfirmDialogPending();
       if (p) {
-        setView({ ...p, open: true });
+        const waitingCount = getConfirmDialogWaitingCount();
+        // Same dialog, only the queue length changed: keep typed input.
+        if (shownRowIdRef.current === p.rowId) {
+          setView((prev) => (prev ? { ...prev, waitingCount } : { ...p, open: true, waitingCount }));
+          return;
+        }
+        shownRowIdRef.current = p.rowId;
+        setView({ ...p, open: true, waitingCount });
         const initial = p.kind === 'prompt' ? (p.defaultValue ?? '') : '';
         setInputValue(initial);
         inputValueRef.current = initial;
       } else {
+        shownRowIdRef.current = null;
         setView(null);
       }
     };
@@ -75,14 +85,14 @@ export function ConfirmModal() {
           return;
         }
         e.preventDefault();
-        settleConfirmDialog(false);
+        settleConfirmDialog(false, undefined, view.rowId);
         return;
       }
       if (e.key === 'Enter') {
         if (view.kind === 'choice' || e.target instanceof HTMLTextAreaElement) return;
         if (!allowsEnterConfirm(view)) return;
         e.preventDefault();
-        settleConfirmDialog(true, inputValueRef.current);
+        settleConfirmDialog(true, inputValueRef.current, view.rowId);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -105,7 +115,7 @@ export function ConfirmModal() {
       aria-labelledby="my-agent-confirm-title"
       aria-describedby="my-agent-confirm-message"
       onClick={() => {
-        if (backdropDismiss) settleConfirmDialog(false);
+        if (backdropDismiss) settleConfirmDialog(false, undefined, view.rowId);
       }}
     >
       <div
@@ -145,6 +155,16 @@ export function ConfirmModal() {
               {view.title ?? '확인'}
             </h2>
           )}
+          {view.kind === 'confirm' && view.context ? (
+            <p data-testid="confirm-dialog-context" className="mt-2 text-[13px] font-medium leading-snug text-muted">
+              {view.context}
+            </p>
+          ) : null}
+          {view.waitingCount > 0 ? (
+            <p data-testid="confirm-dialog-waiting" className="mt-1 text-[12px] font-semibold leading-snug text-amber-700">
+              이 창을 닫으면 다음 확인 요청 {view.waitingCount}개가 이어서 표시됩니다.
+            </p>
+          ) : null}
           {isApproval ? (
             <div className="mt-5">
               <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-red-700">
@@ -201,7 +221,7 @@ export function ConfirmModal() {
                         ? 'min-w-[80px] rounded-xl bg-accent px-3.5 py-2.5 text-xs font-semibold text-ink shadow-[0_0_0_1px_rgba(45,212,191,0.2)] transition-colors hover:bg-accent/90'
                         : 'min-w-[80px] rounded-xl border border-line bg-panel-2/80 px-3.5 py-2.5 text-xs font-medium text-muted transition-colors hover:border-accent/50 hover:bg-panel-2 hover:text-text'
                   }
-                  onClick={() => settleConfirmDialog(option.id)}
+                  onClick={() => settleConfirmDialog(option.id, undefined, view.rowId)}
                 >
                   {option.label}
                 </button>
@@ -211,7 +231,7 @@ export function ConfirmModal() {
                 <button
                   type="button"
                   className="min-w-[96px] rounded-xl border border-slate-400 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition-colors hover:border-slate-600 hover:bg-slate-100"
-                  onClick={() => settleConfirmDialog(false)}
+                  onClick={() => settleConfirmDialog(false, undefined, view.rowId)}
                 >
                   {view.cancelLabel ?? '취소'}
                 </button>
@@ -223,7 +243,7 @@ export function ConfirmModal() {
                       ? 'min-w-[96px] rounded-xl border border-red-700 bg-red-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-red-700'
                       : 'min-w-[80px] rounded-xl bg-accent px-3.5 py-2.5 text-xs font-semibold text-ink shadow-[0_0_0_1px_rgba(45,212,191,0.2)] transition-colors hover:bg-accent/90'
                   }
-                  onClick={() => settleConfirmDialog(true, inputValue)}
+                  onClick={() => settleConfirmDialog(true, inputValue, view.rowId)}
                 >
                   {view.confirmLabel ?? '확인'}
                 </button>

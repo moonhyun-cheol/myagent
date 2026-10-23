@@ -65,7 +65,13 @@ assert.doesNotMatch(
   /PROSE_FORCED_TOOL_RETRY/,
   'prose-pattern tool forcing must stay retired',
 );
-assert.match(stepLoopSource, /toolChoice: 'auto' as const/, 'native tools stay model-selected');
+// Default is model-selected; 'required' only for the one-shot bare-promise / unchecked-absence retry (2dd8ea9).
+assert.match(
+  stepLoopSource,
+  /const toolChoiceThisStep = deferralForceTool \? 'required' as const : 'auto' as const;/,
+  'native tools stay model-selected except the one-shot deferral retry',
+);
+assert.match(stepLoopSource, /toolChoice: toolChoiceThisStep,/);
 assert.doesNotMatch(
   stepLoopSource,
   /toolChoice:\s*\(preferToolsFirst\s*\?\s*'required'/,

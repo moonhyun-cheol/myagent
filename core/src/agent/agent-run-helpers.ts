@@ -38,6 +38,22 @@ import { formatTurnContextMessage } from './agent-context-assembler.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
+/**
+ * Reply language. Agent prompts, tool results and runtime nudges are mostly English,
+ * which made long runs drift into English/Japanese final answers for Korean users.
+ * Static system line (cache-safe) + a short per-turn reminder near the latest request.
+ */
+export const AGENT_REPLY_LANGUAGE_RULE = [
+  '## Reply language',
+  '- Write every user-facing sentence (final answers, progress/status text, questions, summaries) in Korean (한국어).',
+  '- This holds even when the system prompt, tool output, logs, code, or runtime notes are in English, and even if an earlier assistant turn was not in Korean.',
+  '- Never answer in Japanese or Chinese. Use English only when the user\'s latest message is written entirely in English or the user explicitly asks for another language.',
+  '- Keep code, identifiers, paths, commands and quoted source text as-is; explain them in Korean.',
+].join('\n');
+
+export const AGENT_REPLY_LANGUAGE_REMINDER =
+  '### Reply language\n사용자에게 보이는 답변은 한국어로 작성하세요(사용자가 영어로만 쓰거나 다른 언어를 요청한 경우만 예외). 코드·경로·명령은 원문 유지.';
+
 /** Live P88 dumped CURRENT_STATUS because secretary still got the coding GIT/plugin tax. */
 export const SECRETARY_OPS_SPINE = [
   'SECRETARY spine: ≤8 Korean lines. Answer the ops/HITL/status question only.',
@@ -48,7 +64,7 @@ export const SECRETARY_OPS_SPINE = [
 export function codingTaxSystemLines(): string[] {
   return [
     'Mutate rules: read_file (or list_directory for new files) before write/edit/delete/apply_patch — auto-heal may read for you. Prefer edit_file (one) / apply_patch (multi). No chat-only full-file paste. The built-in agent owns IDE mutations so Responses continuity, approvals, cache invalidation, and verification remain in one runtime.',
-    'HITL Accept: delete_file, run_terminal, workspace_rollback, freeform plugin_install (no template_id), plugin_set_enabled (and oversized write/patch). Workspace git_* for the bound repo — but public remote inspect (github.com URL + 설명/구조) → run_terminal `git clone --depth 1 <url> .my_agent_remote/<owner>__<repo>` then list/read. Full history asks → `remote_git_inspect` (ensure_full) — never ask for git bundle upload. Never force-push.',
+    'HITL Accept: delete_file, run_terminal, workspace_rollback, freeform plugin_install (no template_id), plugin_set_enabled (and oversized write/patch), git_commit/pull/push/switch/init, git_branch create, git_restore worktree|both, git_stash pop|drop (still pass confirm=true only when the user asked). Workspace git_* for the bound repo — but public remote inspect (github.com URL + 설명/구조) → run_terminal `git clone --depth 1 <url> .my_agent_remote/<owner>__<repo>` then list/read. Full history asks → `remote_git_inspect` (ensure_full) — never ask for git bundle upload. Never force-push.',
     'GIT (enterprise/Cursor parity):',
     '- History/branch tree: use builtin git_history_tree (do not install plugin template git_history_tree).',
     '- Compare/sync/pull-diff: call git_sync_preview first (fetch+incoming/outgoing/local dirty). Then detail with git_diff/git_show as needed.',
@@ -176,6 +192,7 @@ export function buildAgentMessages(
         '',
         'You are one workspace agent. Decide from the conversation whether to explain, inspect, plan, mutate, or call tools.',
         'The local runtime does not classify the request or choose tools for you.',
+        AGENT_REPLY_LANGUAGE_RULE,
         '## General Work Principles',
         '- Keep responses concise and lead with the result. Omit unnecessary background, repetition, and examples unless requested.',
         '- For implementation requests, complete discovery, modification, and verification in the current run when practical. Do not modify files or run tests for explanation-only requests.',
@@ -237,6 +254,7 @@ export function buildAgentMessages(
     }
   }
   const turnContext = formatTurnContextMessage([
+    AGENT_REPLY_LANGUAGE_REMINDER,
     [
       '### Workspace files (discovery context only; read concrete files before file-content claims)',
       workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),

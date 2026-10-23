@@ -25,7 +25,8 @@ export type AgentAuditEventType =
   | 'role_start'
   | 'role_end'
   | 'turn_decision'
-  | 'approval_review';
+  | 'approval_review'
+  | 'budget_review';
 
 export interface AgentAuditEvent {
   id: string;

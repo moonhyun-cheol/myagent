@@ -38,6 +38,8 @@ const DB_DESTROY_RES: RegExp[] = [
   /\bTRUNCATE\s+(?:TABLE\s+)?[\w."`[\]]+/i,
   // DELETE without WHERE wipes every row.
   /\bDELETE\s+FROM\s+[\w."`[\]]+\s*(?:;|$|["'`)])/i,
+  // UPDATE without WHERE overwrites every row (e.g. SET content='').
+  /\bUPDATE\s+[\w."`[\]]+\s+SET\b(?:(?!\bWHERE\b)[^;])*(?:;|$)/i,
   /\bdropDatabase\s*\(/i,
   /\bFLUSHALL\b|\bFLUSHDB\b/i,
   /\bprisma\s+(?:migrate\s+reset|db\s+push\s+[^;&|]*--force-reset)\b/i,
@@ -196,7 +198,7 @@ export function classifyTerminalCommand(command: string, workspaceRoot = ''): Te
   }
 
   if (!severeReason) {
-    if (DB_DESTROY_RES.some((re) => re.test(trimmed))) severeReason = 'database destruction (DROP/TRUNCATE/DELETE without WHERE)';
+    if (DB_DESTROY_RES.some((re) => re.test(trimmed))) severeReason = 'database destruction (DROP/TRUNCATE/DELETE or UPDATE without WHERE)';
     else if (splitSegments(trimmed).some((seg) => {
       const s = unwrapSegment(seg);
       return /^(?:Remove-Item|ri|rm|del|erase)\b/i.test(s) && DB_FILE_RE.test(s);
