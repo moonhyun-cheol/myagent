@@ -52,6 +52,28 @@ const workKey = (sessionId: string) => `chat:${sessionId}`;
 export const validChatRunId = (id: unknown): id is string =>
   typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 
+export interface ActiveChatRunInfo {
+  run_id: string;
+  /** running = 작업 중, stopping = 중지 요청 후 마무리 중 */
+  state: 'running' | 'stopping';
+  cancelling_ms?: number;
+  active_tools: { name: string; elapsed_ms: number }[];
+}
+
+/** Read-only view of the run that currently holds this session's admission lock. */
+export function activeChatRunInfo(sessionId: string, now = Date.now()): ActiveChatRunInfo | null {
+  const run = active.get(sessionId);
+  if (!run) return null;
+  return {
+    run_id: run.runId,
+    state: run.state === 'cancelling' ? 'stopping' : 'running',
+    ...(run.cancelRequestedAt ? { cancelling_ms: Math.max(0, now - run.cancelRequestedAt) } : {}),
+    active_tools: [...(run.activeTools?.values() ?? [])].map((tool) => ({
+      name: tool.name, elapsed_ms: Math.max(0, now - tool.startedAt),
+    })),
+  };
+}
+
 /** True while any chat/agent turn is in flight (update idle gate: session alive). */
 export function hasActiveChatRuns(): boolean {
   return active.size > 0;

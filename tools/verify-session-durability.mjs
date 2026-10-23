@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { SessionStore } from '../core/dist/sessions/session-store.js';
-import { beginChatRun, executeChatRun, cancelChatRun, hasActiveChatRuns } from '../core/dist/chat/chat-runs.js';
+import { beginChatRun, executeChatRun, cancelChatRun, hasActiveChatRuns, activeChatRunInfo } from '../core/dist/chat/chat-runs.js';
 import { sseEvent } from '../core/dist/chat/sse.js';
 
 const at = '2026-01-01T00:00:00.000Z';
@@ -78,9 +78,21 @@ if (process.argv[2] === '--crash-child') {
       sseEvent(response(), { type: 'token', text: 'cancel partial' });
       store.appendAssistantThought('cancel', 'cancel log');
       store.appendToolActivity('cancel', activity);
+      // Live view while running: state + last checkpointed draft (tool activity forces a save).
+      const live = activeChatRunInfo('cancel');
+      assert.equal(live?.run_id, run.runId);
+      assert.equal(live?.state, 'running');
+      const liveDraft = store.liveDraft('cancel', run.runId);
+      assert.deepEqual(liveDraft?.tool_activity, [activity]);
+      assert.equal(store.load('cancel').messages.length, 1, 'draft leaked into committed messages');
       cancelChatRun(run.sessionId, run.runId);
+      assert.equal(activeChatRunInfo('cancel')?.state, 'stopping');
     });
+    assert.equal(activeChatRunInfo('cancel'), null, 'finished run still reported live');
+    assert.equal(store.liveDraft('cancel', 'cancel-run'), null);
     const stopped = store.load('cancel').messages[1];
+    assert.equal(stopped.reasoning?.content, 'cancel log');
+    assert.equal(stopped.thought, undefined, 'stopped reply still uses legacy thought field');
     assert.equal(stopped.status, 'stopped');
     assert.equal(stopped.model_exclude, true);
     assert.equal(stopped.content, 'cancel partial');

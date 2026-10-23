@@ -515,6 +515,7 @@ export class SessionStore {
       const activities = this.pendingToolActivity.get(rec.id);
       const timeline = this.pendingWorkTimeline.get(rec.id);
       const videoJob = this.pendingVideoJob.get(rec.id);
+      const thought = this.pendingAssistantThought.get(rec.id);
       rec.messages.push({
         role: 'assistant',
         // A submitted (paid) video job always keeps the cost/retrieve notice, even with partial text.
@@ -526,7 +527,7 @@ export class SessionStore {
         reply_to_run_id: run.runId,
         status: 'stopped',
         model_exclude: true,
-        thought: this.pendingAssistantThought.get(rec.id),
+        ...(thought?.trim() ? { reasoning: { version: 1 as const, format: 'public_summary' as const, content: thought } } : {}),
         ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
         ...(timeline?.length ? { work_timeline: timeline } : {}),
         ...(videoJob ? { video_job: { ...videoJob, status: 'pending' as const, updated_at: new Date().toISOString() } } : {}),
@@ -562,6 +563,12 @@ export class SessionStore {
   recentMessages(id: string, limit = 20): SessionMessage[] {
     const safe = sanitizeId(id);
     return safe ? this.database.recent(safe, limit) : [];
+  }
+
+  /** In-flight assistant draft for a live run (not yet a committed message). */
+  liveDraft(id: string, runId: string): SessionMessage | null {
+    const safe = sanitizeId(id);
+    return safe ? this.database.draft(safe, runId) : null;
   }
 
   messagePage(id: string, limit = 50, before?: number): MessagePage | null {

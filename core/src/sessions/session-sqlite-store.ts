@@ -198,6 +198,15 @@ export class SessionSqliteStore {
     }));
   }
 
+  /** Last checkpoint of an in-flight assistant reply (read-only; null when none). */
+  draft(id: string, runId: string): SessionMessage | null {
+    return this.withDbReadOnly((db) => {
+      const row = db.prepare('SELECT body FROM assistant_drafts WHERE session_id = ? AND run_id = ?')
+        .get(id, runId) as { body: string } | undefined;
+      return row ? JSON.parse(row.body) as SessionMessage : null;
+    });
+  }
+
   private recoverDraft(db: DatabaseSync, draft: DraftRow): void {
     const row = db.prepare('SELECT body FROM sessions WHERE id = ?').get(draft.session_id) as { body: string } | undefined;
     if (row) {
