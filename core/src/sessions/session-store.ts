@@ -41,6 +41,8 @@ export class SessionStore {
   private readonly pendingWorkTimeline = new Map<string, WorkTimelineItem[]>();
   /** Accepted provider video job for the in-flight turn; attached even when the run is stopped. */
   private readonly pendingVideoJob = new Map<string, VideoJobRecord>();
+  /** Live (unthrottled) draft builders for runs owned by this process, keyed by session. */
+  private readonly liveDraftBuilders = new Map<string, { runId: string; build: () => SessionMessage }>();
 
   constructor(
     private readonly sessionsDir: string,
@@ -391,6 +393,19 @@ export class SessionStore {
     let lastSaved = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let checkpointFailure: unknown;
+    const buildDraft = (now: number): SessionMessage => {
+      const thought = this.pendingAssistantThought.get(run.sessionId);
+      const activities = this.pendingToolActivity.get(run.sessionId);
+      const timeline = this.pendingWorkTimeline.get(run.sessionId);
+      return {
+        role: 'assistant', content: run.partial, at: new Date(now).toISOString(),
+        run_id: run.runId, reply_to_run_id: run.runId, mode: user.mode,
+        ...(thought ? { reasoning: { version: 1, format: 'public_summary', content: thought } } : {}),
+        ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
+        ...(timeline?.length ? { work_timeline: [...timeline] } : {}),
+      };
+    };
+    this.liveDraftBuilders.set(run.sessionId, { runId: run.runId, build: () => buildDraft(Date.now()) });
     run.checkpoint = (force = false) => {
       if (checkpointFailure) throw checkpointFailure;
       const now = Date.now();
@@ -410,16 +425,7 @@ export class SessionStore {
         return;
       }
       if (timer) { clearTimeout(timer); timer = undefined; }
-      const thought = this.pendingAssistantThought.get(run.sessionId);
-      const activities = this.pendingToolActivity.get(run.sessionId);
-      const timeline = this.pendingWorkTimeline.get(run.sessionId);
-      this.database.checkpointDraft(run.sessionId, run.runId, {
-        role: 'assistant', content: run.partial, at: new Date(now).toISOString(),
-        run_id: run.runId, reply_to_run_id: run.runId, mode: user.mode,
-        ...(thought ? { reasoning: { version: 1, format: 'public_summary', content: thought } } : {}),
-        ...(activities?.size ? { tool_activity: [...activities.values()] } : {}),
-        ...(timeline?.length ? { work_timeline: timeline } : {}),
-      });
+      this.database.checkpointDraft(run.sessionId, run.runId, buildDraft(now));
       lastSaved = now;
     };
     run.finalizePersistence = () => {
@@ -428,6 +434,7 @@ export class SessionStore {
         run.checkpoint?.(true);
         this.database.finishDraft(run.sessionId, run.runId);
       } finally {
+        if (this.liveDraftBuilders.get(run.sessionId)?.runId === run.runId) this.liveDraftBuilders.delete(run.sessionId);
         this.pendingAssistantThought.delete(run.sessionId);
         this.pendingToolActivity.delete(run.sessionId);
         this.pendingWorkTimeline.delete(run.sessionId);
@@ -548,6 +555,7 @@ export class SessionStore {
     if (!safe) return false;
     const rec = this.load(safe);
     if (!this.database.delete(safe)) return false;
+    this.liveDraftBuilders.delete(safe);
     this.pendingWorkTimeline.delete(safe);
     this.pendingAssistantThought.delete(safe);
     this.pendingToolActivity.delete(safe);
@@ -565,10 +573,16 @@ export class SessionStore {
     return safe ? this.database.recent(safe, limit) : [];
   }
 
-  /** In-flight assistant draft for a live run (not yet a committed message). */
+  /**
+   * In-flight assistant draft for a live run (not yet a committed message). Runs owned by
+   * this process answer from memory (no 1 s checkpoint lag); otherwise the last DB checkpoint.
+   */
   liveDraft(id: string, runId: string): SessionMessage | null {
     const safe = sanitizeId(id);
-    return safe ? this.database.draft(safe, runId) : null;
+    if (!safe) return null;
+    const live = this.liveDraftBuilders.get(safe);
+    if (live?.runId === runId) return live.build();
+    return this.database.draft(safe, runId);
   }
 
   messagePage(id: string, limit = 50, before?: number): MessagePage | null {

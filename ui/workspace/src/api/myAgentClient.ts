@@ -144,6 +144,8 @@ export interface SessionRecord {
   created_at: string;
   updated_at: string;
   messages: SessionMessage[];
+  /** Server-side run still holding this conversation (absent when idle). */
+  active_run?: SessionActiveRun;
   project_id?: string | null;
   /** Per-conversation execution binding; independent of tree membership. */
   workspace_project_id?: string | null;
@@ -152,6 +154,16 @@ export interface SessionRecord {
   effective_preferred_model?: string;
   allowed_paths?: string[];
   execution_policy?: ExecutionPolicy;
+}
+
+export interface SessionActiveRun {
+  run_id: string;
+  /** running = 작업 중, stopping = 중지 요청 후 마무리 중 */
+  state: 'running' | 'stopping';
+  cancelling_ms?: number;
+  active_tools: { name: string; elapsed_ms: number }[];
+  /** Uncommitted in-flight assistant reply; never part of `messages`. */
+  draft?: SessionMessage;
 }
 
 export type ReasoningLevel = 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';

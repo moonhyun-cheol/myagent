@@ -57,6 +57,7 @@ import {
   confirmChatRunStopped,
   type ChatRunStopProgress,
   type PickerModel,
+  type SessionActiveRun,
   type SessionMessage,
   type ExecutionPolicy,
   type EffectiveExecutionPolicy,
@@ -637,6 +638,39 @@ function formatStopPending(job: { stopRequestedAt?: number; stopProgress?: ChatR
 
 /** In-flight jobs keyed by session. Different sessions may run concurrently. */
 const liveJobs = new Map<string, LiveJob>();
+/**
+ * Server runs this UI does not stream (e.g. the view reloaded mid-turn and the server is
+ * still finishing the stop). Holding a phase for them queues sends instead of hitting 409.
+ */
+const detachedRuns = new Map<string, { runId: string; statusText: string }>();
+const DETACHED_RUN_POLL_MS = 1_500;
+const DETACHED_RUN_MAX_FAILURES = 20;
+
+function describeDetachedRun(run: SessionActiveRun): string {
+  const tools = (run.active_tools ?? [])
+    .map((tool) => `${tool.name} (${Math.round(tool.elapsed_ms / 1000)}초째)`)
+    .join(', ');
+  const base = run.state === 'stopping'
+    ? `중지 처리 중…${typeof run.cancelling_ms === 'number' ? ` · ${Math.round(run.cancelling_ms / 1000)}초째` : ''}`
+    : '이전 화면에서 시작한 작업이 진행 중…';
+  return tools ? `${base} · 실행 중: ${tools}` : base;
+}
+
+/** Committed transcript plus the server's uncommitted draft as an in-progress turn. */
+function chatWithRunDraft(messages: SessionMessage[], run: SessionActiveRun): ChatTurn[] {
+  if (!run.draft) return sessionMessagesToChat(messages);
+  const chat = sessionMessagesToChat([...messages, run.draft]);
+  const last = chat[chat.length - 1];
+  chat[chat.length - 1] = {
+    ...last,
+    // Stable id: the draft's timestamp changes every poll and would remount the turn.
+    id: `detached-${run.run_id}`,
+    text: last.text?.trim() ? last.text : '작업 중…',
+    completedAt: undefined,
+    planBuildOffer: false,
+  };
+  return chat;
+}
 const MESSAGE_QUEUE_KEY = 'my-agent-message-queue-v1';
 const WORK_OBJECTS_KEY = 'my-agent-work-objects-v1';
 
@@ -835,7 +869,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const live = sid ? liveJobs.get(sid) : undefined;
     set({
       busy: Boolean(phase),
-      statusText: live?.statusText ?? '',
+      statusText: live?.statusText ?? (sid ? detachedRuns.get(sid)?.statusText : undefined) ?? '',
       streamAbort: live?.abort ?? null,
     });
   };
@@ -896,6 +930,74 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     });
     // Existing-session dispatch consumes queue attachments synchronously, not the draft.
     writeAttachmentDraft(sid, composerAttachments);
+  };
+
+  const clearSessionPhase = (sid: string) => {
+    if (!get().sessionPhases[sid]) return;
+    const phases = { ...get().sessionPhases };
+    delete phases[sid];
+    set({ sessionPhases: phases });
+  };
+
+  const showSessionChat = (sid: string, chat: ChatTurn[]) => {
+    const cached = sessionViewCache.get(sid);
+    if (cached) sessionViewCache.set(sid, { ...cached, chat });
+    if (get().activeSessionId === sid) set({ chat });
+  };
+
+  /** Detached run ended on the server: drop its phase, show the committed result, drain queue. */
+  const endDetachedRun = (sid: string, messages?: SessionMessage[]) => {
+    if (!detachedRuns.delete(sid)) return;
+    if (!liveJobs.has(sid)) clearSessionPhase(sid);
+    if (messages && !liveJobs.has(sid)) showSessionChat(sid, sessionMessagesToChat(messages));
+    if (get().activeSessionId === sid) syncViewBusy();
+    queueMicrotask(() => dispatchNextQueuedMessage(sid));
+  };
+
+  /** Poll the session until the server releases the run this view did not start. */
+  const watchDetachedRun = (sid: string, runId: string) => {
+    void (async () => {
+      let failures = 0;
+      while (detachedRuns.get(sid)?.runId === runId && !liveJobs.has(sid)) {
+        await new Promise((resolve) => setTimeout(resolve, DETACHED_RUN_POLL_MS));
+        if (detachedRuns.get(sid)?.runId !== runId || liveJobs.has(sid)) return;
+        let rec: Awaited<ReturnType<typeof fetchSession>>;
+        try {
+          rec = await fetchSession(sid);
+          failures = 0;
+        } catch {
+          // Deleted conversation / API gone: stop holding the composer after a bounded wait.
+          if (++failures >= DETACHED_RUN_MAX_FAILURES) endDetachedRun(sid);
+          continue;
+        }
+        if (detachedRuns.get(sid)?.runId !== runId || liveJobs.has(sid)) return;
+        const run = rec.active_run;
+        if (run?.run_id === runId) {
+          applyDetachedRun(sid, run);
+          showSessionChat(sid, chatWithRunDraft(rec.messages ?? [], run));
+          continue;
+        }
+        endDetachedRun(sid, rec.messages ?? []);
+        if (run) {
+          applyDetachedRun(sid, run);
+          showSessionChat(sid, chatWithRunDraft(rec.messages ?? [], run));
+        }
+        return;
+      }
+    })();
+  };
+
+  /** Mirror a server-reported run this view does not stream. Own streams always win. */
+  const applyDetachedRun = (sid: string, run: SessionActiveRun) => {
+    if (liveJobs.has(sid)) return;
+    const previous = detachedRuns.get(sid);
+    detachedRuns.set(sid, { runId: run.run_id, statusText: describeDetachedRun(run) });
+    const phase: SessionRunPhase = run.state === 'stopping' ? 'stopping' : 'running';
+    if (get().sessionPhases[sid] !== phase) {
+      set({ sessionPhases: { ...get().sessionPhases, [sid]: phase } });
+    }
+    if (get().activeSessionId === sid) syncViewBusy();
+    if (previous?.runId !== run.run_id) watchDetachedRun(sid, run.run_id);
   };
 
   const onStopProgress = (sid: string, job: LiveJob, progress: ChatRunStopProgress) => {
@@ -2150,13 +2252,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
+        // A run this view does not stream (reloaded mid-turn / stop still finishing on the server).
+        const detachedRun = !currentLive ? rec.active_run : undefined;
         const selectedModel = rec.preferred_model ?? 'auto';
         const rawPolicy = currentLive?.executionPolicy ?? rec.execution_policy ?? { reasoning: 'auto' as const, autopilot: 'auto' as const, approval: 'ask' as const, workspace_behavior: 'agent' as const };
         const refreshed: SessionViewSnapshot = {
           activeProjectId: membershipProjectId,
           selectedModel,
           activeWorkspaceProjectId: workspaceRootProjectId,
-          chat: currentLive?.chat ?? sessionMessagesToChat(messages),
+          chat: currentLive?.chat
+            ?? (detachedRun ? chatWithRunDraft(messages, detachedRun) : sessionMessagesToChat(messages)),
           activeExecutionPolicy: {
             ...rawPolicy,
             reasoning: normalizeReasoningLevelForModel(
@@ -2176,6 +2281,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activeDocumentTabId: previous?.activeDocumentTabId ?? null,
         };
         sessionViewCache.set(sessionId, refreshed);
+        if (detachedRun) applyDetachedRun(sessionId, detachedRun);
+        else if (!currentLive && detachedRuns.has(sessionId)) endDetachedRun(sessionId);
         if (get().activeSessionId !== sessionId) return;
         set({
           activeProjectId: refreshed.activeProjectId,
@@ -3328,6 +3435,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (!sid) return;
       const phase = get().sessionPhases[sid];
       const job = liveJobs.get(sid);
+      const detached = detachedRuns.get(sid);
+      if (!job && detached && phase === 'running') {
+        // Not our stream: request the server-side stop; the detached watcher reloads on release.
+        set({ sessionPhases: { ...get().sessionPhases, [sid]: 'stopping' } });
+        detached.statusText = '중지 처리 중…';
+        syncViewBusy();
+        void confirmChatRunStopped(sid, detached.runId, { timeoutMs: 0 });
+        return;
+      }
       if (!phase || !job) return;
       if (phase === 'stopping') return;
       if (phase === 'stop_failed') { void finishJob(sid, job); return; }

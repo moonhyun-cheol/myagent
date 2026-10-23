@@ -84,6 +84,12 @@ if (process.argv[2] === '--crash-child') {
       assert.equal(live?.state, 'running');
       const liveDraft = store.liveDraft('cancel', run.runId);
       assert.deepEqual(liveDraft?.tool_activity, [activity]);
+      // Owner process answers from memory: text added inside the 1 s throttle is visible at once.
+      sseEvent(response(), { type: 'token', text: ' more' });
+      store.appendAssistantThought('cancel', ' +1');
+      const fresh = store.liveDraft('cancel', run.runId);
+      assert.equal(fresh?.content, 'cancel partial more', 'live draft lagged behind the run');
+      assert.equal(fresh?.reasoning?.content, 'cancel log +1');
       assert.equal(store.load('cancel').messages.length, 1, 'draft leaked into committed messages');
       cancelChatRun(run.sessionId, run.runId);
       assert.equal(activeChatRunInfo('cancel')?.state, 'stopping');
@@ -91,11 +97,11 @@ if (process.argv[2] === '--crash-child') {
     assert.equal(activeChatRunInfo('cancel'), null, 'finished run still reported live');
     assert.equal(store.liveDraft('cancel', 'cancel-run'), null);
     const stopped = store.load('cancel').messages[1];
-    assert.equal(stopped.reasoning?.content, 'cancel log');
+    assert.equal(stopped.reasoning?.content, 'cancel log +1');
     assert.equal(stopped.thought, undefined, 'stopped reply still uses legacy thought field');
     assert.equal(stopped.status, 'stopped');
     assert.equal(stopped.model_exclude, true);
-    assert.equal(stopped.content, 'cancel partial');
+    assert.equal(stopped.content, 'cancel partial more');
     assert.deepEqual(stopped.tool_activity, [activity]);
     assert.equal(drafts(), 0);
     await assert.rejects(runCase('failed', async () => {
