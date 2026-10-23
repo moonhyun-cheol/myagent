@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 67,
+    "update_sequence": 68,
     "minimum_supported_sequence": 1,
-    "version": "1.1.19",
+    "version": "1.1.20",
     "channel": "stable",
-    "published_at": "2026-10-20T05:18:03.239Z",
+    "published_at": "2026-10-23T04:29:12.600Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-67",
-      "name": "MYAgent-v1.1.19-delta.zip",
-      "size": 278922434,
-      "sha256": "ef91c596066a174ad4cc67a0a6b81baa59dd058d6ca45256b7a721dd5a6ef4ab"
+      "release_tag": "update-68",
+      "name": "MYAgent-v1.1.20-delta.zip",
+      "size": 278954254,
+      "sha256": "e6997ca60563f1e79a3b234539c57c0513c84c8690062f5c583d6942066af910"
     },
-    "payload_manifest_sha256": "286c8dc81c3ad0675eb505ca705124fedb585f4445daf08dbef40e02e8b1b7e6",
+    "payload_manifest_sha256": "0d5633c9c8060b0aa503e30c7b214f2526f7fd08e38962d1e3b17df77e17e5fe",
     "release_notes": ""
   },
-  "signature": "AYaM8e56y5+u/TJN7+puHCCdRW/JX236k4gWHVZbOTYieJzgnL8VMgBuBwgCdClKzqwwyvrC8kPRDHp/mYzoOpZLGQOcSo6X5wF0v5KF9An6fFL91DhqtXE5PPsAAEIHjFy0qxuF4z8nQ2Hq6o/YtVvj8jKNuaKs7vZgfa6Kg5h860PI2Z/kbvi7WuLs1oy7RYUy6pIo/6kmyNxLplNxjLRTuYrBQUatAXsuYK9Lq7kiJPc+pGCEboJrtBkNrQEJoICZq3is2jfdX3hoW8e/KunLKsYgcsgAMDf9hBlm3BQVer6ZfvpHmgZtt/xj9DJZeK3iEJU/iziQLgqEZy6VQcHUs/Q8UwaMOypXMljCLosbXSkio2CSluzt9S9T/ForTgYoaPZsKkdKUaxQpV9Y4EAhpzfN8YZWmJeRxlyf77zahQYWOYTNNGFOqQRylL2m1vl+r7ojUDBC24KK1eLm2WXk7vO72b5f+z8XR6+FMzfL78ugkRWeNwCosk3fyZ1E"
+  "signature": "bEErFvGS4wDFwAkXypvhyNKqCz5CdMz2WVvouk3ALqZSeDaHBrHqBTBOKIxBud/XvQo/t5bHG+nBiL3oLYGvawpY056RkM4N6J8TA3Xvs/4vc90dXUcFNswN2Up5VkewUr3Ywm1lPjKDJGjgSvp/u/qsTEYMxdkc0ijhgoNS1HEW02GRSb1HFOZfrLwEh/94sAaT90tA5CMVIVEMBKJaINC9VX166PpKGi1UzcMLJMCx0Aa7ydSFMyLD70zmN6XyHD+qeO26dEc/FcnkxRGBF/Ax4/9UmWQF11AyWjRc6Z+6ilTfrRqm7bntiYyxnBUGQHFf5OvtUfNsJiLhoXkXY9aJ3bMBk7iw1GqXf/6twQBDuCAVLZ32ZQI+SUzVaHD0IauUcvO+vS3gfpLTwn3yhTPAeRGULwAtrsiMLREnxiQs2LP9zqgE/FN7ttJxzN/s4r4bHo45puPShY/FQHVArI3Eulw/j1bkm3D+rVlkc9+hoO/buAAb6d2E98p/o1Ky"
 }
