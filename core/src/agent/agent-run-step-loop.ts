@@ -797,6 +797,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             access: hitl.access,
             targets: hitl.targets,
             expires: hitl.expires,
+            ...(hitl.fixedSeverity ? { fixedSeverity: hitl.fixedSeverity } : {}),
           }));
           approved = outcome.approved;
           if (outcome.approved && outcome.by === 'reviewer') {

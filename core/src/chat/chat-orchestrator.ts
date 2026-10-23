@@ -1030,7 +1030,8 @@ export class ChatOrchestrator {
               onAnswer: undefined,
               onToolApproval: async (approvalReq) => {
                 const approvalPolicy = requestedExecutionPolicy.approval;
-                if (approvalPolicy === 'autopilot' && approvalReq.delegable === true) {
+                const fixedSevere = approvalReq.fixedSeverity === 'severe';
+                if (approvalPolicy === 'autopilot' && approvalReq.delegable === true && !fixedSevere) {
                   sseEvent(res, { type: 'status', text: `Autopilot 승인 · 워크스페이스 안전 범위 — ${approvalReq.summary}` });
                   return { approved: true, by: 'policy' };
                 }
@@ -1041,7 +1042,8 @@ export class ChatOrchestrator {
                   return { approved: true, by: 'policy' };
                 }
                 const approvalOverrides = loadUserOverrides(this.configPath);
-                const reviewMode = approvalPolicy === 'delegate'
+                // Autopilot still asks the decision model for folder wipes / DB destruction.
+                const reviewMode = approvalPolicy === 'delegate' || (approvalPolicy === 'autopilot' && fixedSevere)
                   ? 'delegate'
                   : approvalPolicy === 'ask' && approvalOverrides.approval_card_triage === true ? 'triage' : null;
                 if (reviewMode && approvalReq.delegable === true) {

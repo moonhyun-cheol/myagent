@@ -46,6 +46,12 @@ assert.equal(reviewer.decideFromAnswers(ans('normal', 0.5, 'yes', 0.99), 'delega
 assert.equal(reviewer.decideFromAnswers(ans('normal', 0.95, 'no', 0.9), 'triage').decision, 'allow');
 assert.equal(reviewer.decideFromAnswers(ans('normal', 0.7, 'no', 0.9), 'triage').decision, 'ask_user');
 assert.equal(reviewer.decideFromAnswers(ans('severe', 0.98, 'yes', 0.9), 'triage').decision, 'ask_user');
+// Fixed-severe (terminal list): model severity is ignored; only a confident explicit command runs.
+assert.equal(reviewer.decideFromAnswers(ans('normal', 0.99, 'no', 0.9), 'delegate', 'severe').decision, 'ask_user', 'model cannot downgrade fixed severe');
+assert.equal(reviewer.decideFromAnswers(ans('normal', 0.99, 'yes', 0.7), 'delegate', 'severe').decision, 'ask_user', 'explicit below 85% asks');
+assert.equal(reviewer.decideFromAnswers(ans('severe', 0.99, 'yes', 0.9), 'delegate', 'severe').decision, 'allow', 'confident explicit command runs');
+assert.equal(reviewer.decideFromAnswers({ severity: { choice: 'severe' }, explicit: { choice: 'yes' } }, 'delegate', 'severe').decision, 'ask_user', 'unknown probability asks');
+assert.equal(reviewer.decideFromAnswers(ans('severe', 0.99, 'yes', 0.99), 'triage', 'severe').decision, 'ask_user');
 assert.equal(reviewer.decisionsEndpoint('https://openrouter.ai/api/v1'), 'https://openrouter.ai/api/alpha/decisions');
 assert.equal(reviewer.decisionsEndpoint('https://api.openai.com/v1'), null);
 assert.equal(reviewer.isDecisionModelId('microsoft/microsoft-decision-1'), true);
@@ -111,7 +117,7 @@ const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-auto-review-'));
 const responsesProvider = {
   resolveProvider: (providerId, modelId) => {
     assert.equal(providerId, 'custom');
-    assert.ok(['openai/gpt-5.6-luna', '~microsoft/microsoft-decision-latest', '~typesafe/jev-latest'].includes(modelId));
+    assert.ok(['~openai/gpt-luna-latest', '~microsoft/microsoft-decision-latest', '~typesafe/jev-latest'].includes(modelId));
     return {
       def: { name: 'Fixture Responses' },
       secret: { api_key: 'fixture-key' },
@@ -235,7 +241,11 @@ try {
     decide: async () => { throw new Error('decisions HTTP 503'); },
     complete: async ({ model }) => { chatSeen.push(model); return { content: '{"decision":"allow","confidence":0.9,"reason":"ok"}' }; },
   });
-  assert.deepEqual(chatSeen, ['openai/gpt-5.6-luna']);
+  assert.deepEqual(chatSeen, ['~openai/gpt-luna-latest']);
+  assert.deepEqual(
+    reviewer.parseApprovalReviewerPreference('provider:custom@' + encodeURIComponent('openai/gpt-5.6-luna')),
+    { providerId: 'custom', modelId: '~openai/gpt-luna-latest' },
+  );
   assert.equal(decisionDown.decision, 'allow');
   assert.equal(decisionDown.fallback, true);
 
@@ -290,7 +300,7 @@ try {
       return { content: '{"decision":"allow","confidence":0.8,"reason":"ok"}' };
     },
   });
-  assert.deepEqual(seen, ['openai/gpt-oss-safeguard-20b', 'openai/gpt-5.6-luna']);
+  assert.deepEqual(seen, ['openai/gpt-oss-safeguard-20b', '~openai/gpt-luna-latest']);
   assert.equal(viaFallback.decision, 'allow');
   assert.equal(viaFallback.fallback, true);
   seen.length = 0;

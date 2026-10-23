@@ -169,7 +169,9 @@ try {
     'git switch main',
     'git stash',
     'git add .',
-    'git branch',
+    // Listing (`git branch`, `git branch -a`) is read-only and allowed; create/delete is not.
+    'git branch new-x',
+    'git branch -D feat-x',
   ]) {
     const blocked = runTerminalCommand(dir, cmd);
     if (blocked.ok || !String(blocked.stderr).includes('blocked')) {

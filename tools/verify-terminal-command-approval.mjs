@@ -23,9 +23,25 @@ assert.equal(terminal.validateShellCommand(command, ws, command), null);
 assert.match(terminal.validateShellCommand(command + '; Write-Output changed', ws, command), /requires approval/);
 assert.match(terminal.validateShellCommand(command, ws, 'different command'), /requires approval/);
 assert.equal(terminal.validateShellCommand('Get-Content "D:\\work\\project\\a.txt"', ws), null);
-for (const blocked of ['git push', 'git pull', 'git reset --hard', 'Remove-Item -Recurse .', 'Get-Content ..\\a.txt']) {
-  assert.ok(terminal.validateShellCommand(blocked, ws, blocked), 'approval must not bypass hard safety blocks');
+for (const blocked of ['git push', 'git pull', 'git reset --hard', 'Remove-Item -Recurse .', 'Get-Content ..\\a.txt', 'format C:', 'rm -rf /', 'Remove-Item -Recurse -Force D:\\work\\project']) {
+  assert.ok(terminal.validateShellCommand(blocked, ws, blocked), `approval must not bypass hard safety blocks: ${blocked}`);
 }
+// Severe tier: recursive folder delete / DB destruction runs only with approval of this exact command.
+for (const severe of ['Remove-Item -Recurse -Force src', 'rm -rf docs', 'Remove-Item src -r', 'rd /s /q data', 'sqlite3 a.db "DROP TABLE users;"', 'Remove-Item data/app.sqlite']) {
+  assert.equal(terminal.classifyTerminalCommand(severe, ws).tier, 'severe', severe);
+  assert.match(terminal.validateShellCommand(severe, ws), /requires user approval/, severe);
+  assert.equal(terminal.validateShellCommand(severe, ws, severe), null, `approved severe command runs: ${severe}`);
+  const req = approval.needsHumanApproval('run_terminal', { command: severe }, {}, { workspaceRoot: ws });
+  assert.equal(req.needed, true);
+  assert.equal(req.fixedSeverity, 'severe');
+}
+// Rebuildable output and read-only git are routine.
+for (const normal of ['rm -rf node_modules', 'Remove-Item -Recurse -Force dist', 'git show HEAD', 'git blame a.ts', 'git branch -a', 'git log --pretty=format:%h']) {
+  assert.equal(terminal.validateShellCommand(normal, ws), null, normal);
+  assert.equal(approval.needsHumanApproval('run_terminal', { command: normal }, {}, { workspaceRoot: ws }).fixedSeverity, undefined, normal);
+}
+assert.equal(terminal.classifyTerminalCommand('git branch -D feat', ws).tier, 'git_tool');
+assert.equal(approval.needsHumanApproval('run_terminal', { command: 'git push' }, {}, { workspaceRoot: ws }).needed, false, 'never-run commands skip the card');
 const request = approval.needsHumanApproval('run_terminal', { command, confirm: true }, {}, { workspaceRoot: ws });
 assert.equal(request.needed, true);
 assert.equal(request.access, 'operation');

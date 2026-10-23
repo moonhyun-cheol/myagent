@@ -23,8 +23,16 @@ export interface ApprovalReviewResult {
 }
 
 export const APPROVAL_REVIEW_PROVIDER_ID = 'custom';
-/** General chat reviewer. Fallback when the decision model is unavailable. */
-export const APPROVAL_REVIEW_MODEL_ID = 'openai/gpt-5.6-luna';
+/**
+ * General chat reviewer. Last-resort fallback when both decision models are unavailable.
+ * OpenRouter's `~` alias follows the newest Luna release (live probe: same accuracy as
+ * gpt-5.6-luna on the approval cases at half the price).
+ */
+export const APPROVAL_REVIEW_MODEL_ID = '~openai/gpt-luna-latest';
+/** Pre-alias Luna pick. A stored preference with it follows the Luna latest alias. */
+const LEGACY_LUNA_REVIEWER = `provider:custom@${encodeURIComponent('openai/gpt-5.6-luna')}`;
+/** Output cap incl. reasoning tokens; 220 left reasoning models close to truncation. */
+export const APPROVAL_REVIEW_MAX_OUTPUT_TOKENS = 500;
 /**
  * Product default: newest microsoft-decision release on OpenRouter (`/api/alpha/decisions`).
  * OpenRouter has no `~` alias for this family (live check: `~microsoft/microsoft-decision-latest`
@@ -83,8 +91,8 @@ export const APPROVAL_REVIEWER_CANDIDATES: ReadonlyArray<{ value: string; label:
   },
   {
     value: `provider:custom@${encodeURIComponent(APPROVAL_REVIEW_MODEL_ID)}`,
-    label: 'GPT-5.6 Luna (범용)',
-    note: '범용 소형 모델 · 같은 기준을 지시문으로 판단',
+    label: 'Luna 최신 (범용 · 자동 업데이트)',
+    note: '새 버전이 나오면 자동으로 최신 Luna 사용 · 범용 소형 모델 · 같은 기준을 지시문으로 판단',
   },
   {
     value: `provider:custom@${encodeURIComponent('openai/gpt-oss-safeguard-20b')}`,
@@ -99,6 +107,7 @@ export function parseApprovalReviewerPreference(
   const raw = String(preference ?? '').trim();
   if (!raw.startsWith('provider:')) return null;
   if (raw === LEGACY_REVIEWER_DEFAULT) return { providerId: APPROVAL_REVIEW_PROVIDER_ID, modelId: APPROVAL_DECISION_MODEL_ID };
+  if (raw === LEGACY_LUNA_REVIEWER) return { providerId: APPROVAL_REVIEW_PROVIDER_ID, modelId: APPROVAL_REVIEW_MODEL_ID };
   const rest = raw.slice('provider:'.length);
   const at = rest.indexOf('@');
   if (at <= 0) return null;
@@ -159,6 +168,8 @@ const TRIAGE_NORMAL_MIN = 0.85;
  * Replay of 2,207 past approvals: only 2 extra cards at 0.6.
  */
 const DELEGATE_NORMAL_MIN = 0.6;
+/** Fixed-severe commands (folder wipe / DB destruction) run only on a confident explicit command. */
+export const FIXED_SEVERE_EXPLICIT_MIN = 0.85;
 
 function topAnswer(raw: unknown): { label: string | null; p: number | null } {
   if (!raw || typeof raw !== 'object') return { label: null, p: null };
@@ -177,9 +188,18 @@ function topAnswer(raw: unknown): { label: string | null; p: number | null } {
 export function decideFromAnswers(
   answers: Record<string, unknown>,
   mode: ApprovalReviewMode,
+  fixedSeverity?: 'severe',
 ): Omit<ApprovalReviewResult, 'reviewer'> {
-  const sev = topAnswer(answers.severity);
   const exp = topAnswer(answers.explicit);
+  if (fixedSeverity === 'severe') {
+    const pct = exp.p === null ? '?' : `${Math.round(exp.p * 100)}%`;
+    const note = `심각도 severe (고정 목록) · 직접 지시 ${exp.label ?? '?'} ${pct}`;
+    if (mode === 'delegate' && exp.label === 'yes' && exp.p !== null && exp.p >= FIXED_SEVERE_EXPLICIT_MIN) {
+      return { decision: 'allow', confidence: exp.p, reason: `${note} · 사용자가 직접 지시` };
+    }
+    return { decision: 'ask_user', confidence: exp.p ?? 0, reason: `${note} · 폴더 통째 삭제/DB 삭제는 확실한 직접 지시만 자동 실행` };
+  }
+  const sev = topAnswer(answers.severity);
   if (sev.label !== 'normal' && sev.label !== 'severe') {
     return { decision: 'ask_user', confidence: 0, reason: 'Decision model returned no severity answer.' };
   }
@@ -344,6 +364,7 @@ export function buildDecisionState(userMessage: string, request: ToolApprovalReq
     action: typeof facts.command === 'string' ? facts.command : request.summary.slice(0, 400),
     arguments: facts,
     facts: {
+      ...(request.fixedSeverity ? { fixed_severity: request.fixedSeverity } : {}),
       approve_on_my_behalf: mode === 'delegate',
       access: request.access ?? 'operation',
       targets: (request.targets ?? []).map((target) => redactSecrets(target).slice(0, 400)),
@@ -437,6 +458,9 @@ export function buildApprovalReviewContext(userMessage: string, request: ToolApp
     // No per-tool `destructive` flag: every terminal call carried it, which made the
     // reviewer refuse routine work. Severity is judged from the operation itself.
     deterministic_policy: {
+      ...(request.fixedSeverity
+        ? { fixed_severity: 'severe: allow only if the user explicitly commanded this exact deletion/drop on this target' }
+        : {}),
       workspace_contained: request.delegable === true,
       access: request.access ?? 'operation',
       targets: (request.targets ?? []).map((target) => redactSecrets(target).slice(0, 400)),
@@ -478,8 +502,8 @@ function defaultComplete(): CompleteReview {
       signal: request.signal,
       reasoningEffort: 'low',
       extraBody: request.wireApi === 'chat_completions'
-        ? { max_tokens: 220, response_format: { type: 'json_schema', json_schema: { name: 'approval_review', strict: true, schema: REVIEW_SCHEMA } } }
-        : { max_output_tokens: 220, text: { format: schemaFormat } },
+        ? { max_tokens: APPROVAL_REVIEW_MAX_OUTPUT_TOKENS, response_format: { type: 'json_schema', json_schema: { name: 'approval_review', strict: true, schema: REVIEW_SCHEMA } } }
+        : { max_output_tokens: APPROVAL_REVIEW_MAX_OUTPUT_TOKENS, text: { format: schemaFormat } },
     });
   };
 }
@@ -514,6 +538,11 @@ export async function reviewToolApproval(input: {
   };
   if (input.request.delegable !== true) {
     return policyFail('The operation is outside the delegable safe boundary.');
+  }
+  const fixedSeverity = input.request.fixedSeverity;
+  // 「매번 승인」 triage never skips the card for a folder wipe / DB destruction.
+  if (fixedSeverity === 'severe' && mode === 'triage') {
+    return policyFail('폴더 통째 삭제/DB 삭제 수준은 승인 카드를 건너뛰지 않습니다.');
   }
 
   // Configured reviewer first, then the auto-updating Jev decision model, then the general
@@ -577,7 +606,7 @@ export async function reviewToolApproval(input: {
         const built = concrete !== route.modelId ? ` → ${concrete}` : '';
         const skippedOnlyForEscalation = escalation && routes.slice(0, index).every((r) => isTextOnlySmallDecisionModel(r.modelId));
         const result: ApprovalReviewResult = {
-          ...decideFromAnswers(response.answers, mode),
+          ...decideFromAnswers(response.answers, mode, fixedSeverity),
           reviewer: `${label}${built}`,
           ...(index > 0 && !skippedOnlyForEscalation ? { fallback: true } : {}),
           ...(escalation && index > 0 ? { escalated: escalation } : {}),
@@ -602,7 +631,10 @@ export async function reviewToolApproval(input: {
         wireApi: provider.wireApi,
         signal: input.signal,
       });
-      const parsed = parseApprovalReview(response.content);
+      let parsed = parseApprovalReview(response.content);
+      if (fixedSeverity === 'severe' && parsed.decision === 'allow' && parsed.confidence < FIXED_SEVERE_EXPLICIT_MIN) {
+        parsed = { ...parsed, decision: 'ask_user', reason: `${parsed.reason} · 고정 목록 심각 명령: 확신 ${Math.round(parsed.confidence * 100)}% < 85%` };
+      }
       const result: ApprovalReviewResult = { ...parsed, reviewer: label, ...(index > 0 ? { fallback: true } : {}) };
       auditReview(input.cqrRoot, { type: 'approval_review', sessionId: input.sessionId, tool: input.request.tool, ok: result.decision === 'allow', durationMs: Date.now() - started, detail: `${mode}:${label}:${result.decision}:${result.confidence}:${result.reason}` });
       return result;

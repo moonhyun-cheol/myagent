@@ -6,6 +6,7 @@ import path from 'node:path';
 import { isOfficeBinaryPath } from '../security/workspace-capabilities.js';
 import { isAbsoluteUserPath, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
+import { classifyTerminalCommand } from './terminal-risk-policy.js';
 
 export type ToolApprovalAccess =
   | 'operation'
@@ -26,6 +27,11 @@ export interface ToolApprovalRequest {
   targets?: string[];
   /** Approval lifetime. External reads are reused only inside the current agent run. */
   expires?: 'once' | 'run';
+  /**
+   * Fixed by the terminal risk list (recursive folder delete / DB destruction). The decision
+   * model cannot downgrade it; it may only approve when the user explicitly commanded it.
+   */
+  fixedSeverity?: 'severe';
 }
 
 /**
@@ -299,6 +305,7 @@ export function needsHumanApproval(
   targets?: string[];
   grantRoots?: string[];
   expires?: 'once' | 'run';
+  fixedSeverity?: 'severe';
 } {
   if (toolName === 'scheduler_upsert') {
     const name = typeof args.name === 'string' && args.name.trim() ? args.name.trim() : '새 자동화';
@@ -386,13 +393,20 @@ export function needsHumanApproval(
     if (!external.length && hitlSafeTerminalEnabled(env) && isSafeVerifyTerminalCommand(cmd)) {
       return { needed: false, danger: false, summary: '' };
     }
+    const risk = classifyTerminalCommand(cmd, context?.workspaceRoot ?? '');
+    // Always-blocked / git-tool commands never run, so an approval card would be pointless.
+    if (risk.tier === 'blocked' || risk.tier === 'git_tool') {
+      return { needed: false, danger: false, summary: '' };
+    }
+    const severe = risk.tier === 'severe';
     return {
       needed: true,
       danger: true,
       access: 'operation',
       targets: external.length ? external : undefined,
       expires: 'once',
-      summary: `터미널 실행: ${cmd}`,
+      ...(severe ? { fixedSeverity: 'severe' as const } : {}),
+      summary: severe ? `터미널 실행 (폴더 통째 삭제/DB 삭제 수준): ${cmd}` : `터미널 실행: ${cmd}`,
     };
   }
   if (toolName === 'write_file') {

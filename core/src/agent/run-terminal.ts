@@ -3,6 +3,7 @@ import path from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath, resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
+import { classifyTerminalCommand } from './terminal-risk-policy.js';
 import { commandFailureKind } from './agent-tool-result.js';
 
 export interface RunTerminalResult {
@@ -125,50 +126,8 @@ export function listActiveTerminalJobs(): ActiveTerminalJobInfo[] {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 100_000;
 
-const DESTRUCTIVE_PATTERNS: RegExp[] = [
-  /\bRemove-Item\b.*-Recurse/i,
-  /\brmdir\b.*\/s/i,
-  /\bdel\b.*\/[fs]/i,
-  /\brd\b.*\/s/i,
-  // Windows disk format only — do NOT match git `--pretty=format:` / `--format=`.
-  /(?:^|[;&|]\s*)format(?:\.com)?(?:\s+[A-Za-z]:|\s+\/|$)/i,
-  /\bgit\s+push\b/i,
-  /\bgit\s+pull\b/i,
-  /\bgit\s+fetch\b/i,
-  /\bgit\s+reset\b/i,
-  /\bgit\s+clean\b/i,
-  /\bgit\s+commit\b/i,
-  /\bgit\s+checkout\b/i,
-  /\bgit\s+switch\b/i,
-  /\bgit\s+stash\b/i,
-  /\bgit\s+restore\b/i,
-  /\bgit\s+branch\b/i,
-  /\bgit\s+show\b/i,
-  /\bgit\s+blame\b/i,
-  /\bgit\s+add\b/i,
-  /\bgit\s+rebase\b/i,
-  /\bgit\s+merge\b/i,
-  /\bgit\s+stash\s+(?:drop|clear|pop)\b/i,
-];
-
-/**
- * Public inspect clones under `.my_agent_remote/` may deepen history / read git metadata via shell.
- * Bound-workspace write/sync still uses dedicated git_* tools (bare `git fetch` stays blocked).
- */
-export function isAllowedCqrRemoteInspectGitShell(command: string): boolean {
-  const t = String(command || '').trim();
-  if (!t || !/\.my_agent_remote[/\\]/i.test(t)) return false;
-  // Prefer `git -C .my_agent_remote/<owner>__<repo> …`
-  const viaDashC =
-    /^git\s+-C\s+(?:["'][^"']*\.my_agent_remote[^"']*["']|\.my_agent_remote[/\\][^\s"';|&]+)\s+/i.test(t);
-  if (!viaDashC) return false;
-  // Read / deepen only — no push/reset/commit/clean.
-  return (
-    /\bfetch\s+--unshallow\b/i.test(t)
-    || /\bfetch\s+(?:--all\b|(?:--tags\b)|(?:--prune\b))/i.test(t)
-    || /\b(?:rev-parse|rev-list|log|shortlog|status|remote|tag|diff|show|blame|branch)\b/i.test(t)
-  );
-}
+// Fixed risk tiers live in terminal-risk-policy.ts (shared with the approval step).
+export { isAllowedCqrRemoteInspectGitShell, classifyTerminalCommand } from './terminal-risk-policy.js';
 
 function truncateOutput(text: string): { text: string; truncated: boolean } {
   const buf = Buffer.from(text, 'utf8');
@@ -270,20 +229,22 @@ export function validateShellCommand(command: string, workspaceRoot: string, app
   if (/\.\.[\\/]|[\\/]\.\./.test(trimmed)) {
     return 'command must not reference parent directories (..)';
   }
-  const allowRemoteInspect = isAllowedCqrRemoteInspectGitShell(trimmed);
-  for (const pattern of DESTRUCTIVE_PATTERNS) {
-    if (pattern.test(trimmed)) {
-      if (allowRemoteInspect) continue;
-      const cloneHint =
-        /git\s+clone/i.test(trimmed) && /Remove-Item|rm\s+-rf|rmdir/i.test(trimmed)
-          ? ' Hint: use only `git clone [--depth 1] <url> .my_agent_remote/<owner>__<repo>` (no Remove-Item/rm -rf). Full history: omit --depth 1 or `git -C <dest> fetch --unshallow`.'
-          : /\bgit\s+fetch\b/i.test(trimmed)
-            ? ' Hint: bound-repo sync → tool git_fetch; public `.my_agent_remote` deepen → `git -C .my_agent_remote/<owner>__<repo> fetch --unshallow --tags --prune`.'
-            : /format/i.test(pattern.source)
+  const risk = classifyTerminalCommand(trimmed, workspaceRoot);
+  if (risk.tier === 'blocked' || risk.tier === 'git_tool') {
+    const hint =
+      /git\s+clone/i.test(trimmed) && /Remove-Item|rm\s+-rf|rmdir/i.test(trimmed)
+        ? ' Hint: use only `git clone [--depth 1] <url> .my_agent_remote/<owner>__<repo>` (no Remove-Item/rm -rf). Full history: omit --depth 1 or `git -C <dest> fetch --unshallow`.'
+        : /\bgit\s+fetch\b/i.test(trimmed)
+          ? ' Hint: bound-repo sync → tool git_fetch; public `.my_agent_remote` deepen → `git -C .my_agent_remote/<owner>__<repo> fetch --unshallow --tags --prune`.'
+          : risk.tier === 'git_tool'
+            ? ' Hint: use git_status/git_diff/git_commit/git_push/git_pull/git_fetch/git_switch/git_branch/git_stash/git_restore/git_stage. Read-only git log/show/blame/diff are allowed in the shell.'
+            : risk.reason === 'disk format'
               ? ' Hint: disk `format` is blocked; git `--pretty=format:` is allowed.'
-              : '';
-      return `command blocked by safety policy: ${pattern.source}.${cloneHint}`;
-    }
+              : ' Name the specific subfolder to delete instead of the root.';
+    return `command blocked by safety policy: ${risk.reason}.${hint}`;
+  }
+  if (risk.tier === 'severe' && approvedCommand !== command) {
+    return `${risk.reason} requires user approval for this exact command`;
   }
   const external = externalTerminalPaths(trimmed, normalizeWorkspacePath(workspaceRoot));
   if (external.length && approvedCommand !== command) {
