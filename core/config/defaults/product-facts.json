@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-20T05:10:14.501Z",
+  "generated_at": "2026-10-23T01:24:11.866Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 117,
+    "route_count": 120,
     "routes": [
       {
         "method": "GET",
@@ -189,6 +189,21 @@
       {
         "method": "PUT",
         "path": "/config/approval-delegation",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/approval-reviewer",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/approval-reviewer",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/config/approval-reviewer/test",
         "match": "exact"
       },
       {

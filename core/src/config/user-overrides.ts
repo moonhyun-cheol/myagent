@@ -39,6 +39,13 @@ export interface UserOverrides {
   /** Delegate only non-destructive writes contained by the selected local workspace. */
   approval_delegation?: 'off' | 'safe_local' | 'auto_review';
   /**
+   * Decision model for tool approvals (`provider:{id}@{encoded model}`). Omitted = product
+   * default reviewer. A failing choice falls back to the default before asking the user.
+   */
+  approval_reviewer_model?: string;
+  /** In 「매번 승인」 mode, let the decision model skip cards for plainly requested, reversible work. */
+  approval_card_triage?: boolean;
+  /**
    * Absolute path to work-kit locker (profiles/{group}/{kit}/).
    * Host-agnostic — do not bake GitHub URLs here. Env CQR_PERSONAL_PACK wins when set.
    */

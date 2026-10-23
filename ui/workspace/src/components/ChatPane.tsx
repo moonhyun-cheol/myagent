@@ -1551,11 +1551,11 @@ export function ChatPane() {
                 value={activeExecutionPolicy.approval} disabled={busy || policySaving}
                 options={[
                   { value: 'autopilot', label: 'Autopilot', description: '안전 범위 완전 위임' },
-                  { value: 'delegate', label: '나 대신 승인', description: 'Luna가 위험 판단' },
+                  { value: 'delegate', label: '나 대신 승인', description: '선택한 판단 모델이 위험 판단' },
                   { value: 'ask', label: '작업 시 승인 요청', description: '승인이 필요한 작업은 직접 확인' },
                 ]} onSelect={(value) => void savePolicy({ approval: value as ApprovalLevel,
                   autopilot: value === 'autopilot' ? 'on' : value === 'delegate' ? 'auto' : 'off' })} />
-              <p className="mt-2 text-[11px] leading-5 text-muted">외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 Luna에 위임하지 않고 사용자에게 확인합니다.</p>
+              <p className="mt-2 text-[11px] leading-5 text-muted">외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경·NAS 수정은 판단 모델에 위임하지 않고 사용자에게 확인합니다.</p>
             </>)}
           </div>
         , document.body) : null}

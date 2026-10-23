@@ -1032,21 +1032,43 @@ export class ChatOrchestrator {
                 const approvalPolicy = requestedExecutionPolicy.approval;
                 if (approvalPolicy === 'autopilot' && approvalReq.delegable === true) {
                   sseEvent(res, { type: 'status', text: `Autopilot 승인 · 워크스페이스 안전 범위 — ${approvalReq.summary}` });
-                  return true;
+                  return { approved: true, by: 'policy' };
                 }
-                if (approvalPolicy === 'delegate' && approvalReq.delegable === true) {
-                  sseEvent(res, { type: 'status', text: `나 대신 승인 · 모델 검토 중 — ${approvalReq.summary}` });
+                // 「나 대신 승인」: read-only tools (external reads, NAS included) cannot
+                // damage anything, so they run without spending a decision-model call.
+                if (approvalPolicy === 'delegate' && approvalReq.delegable === true && approvalReq.access === 'external_read') {
+                  sseEvent(res, { type: 'status', text: `나 대신 승인 · 읽기 전용 — ${approvalReq.summary}` });
+                  return { approved: true, by: 'policy' };
+                }
+                const approvalOverrides = loadUserOverrides(this.configPath);
+                const reviewMode = approvalPolicy === 'delegate'
+                  ? 'delegate'
+                  : approvalPolicy === 'ask' && approvalOverrides.approval_card_triage === true ? 'triage' : null;
+                if (reviewMode && approvalReq.delegable === true) {
+                  const modeLabel = reviewMode === 'delegate' ? '나 대신 승인' : '승인 카드 선별';
+                  sseEvent(res, { type: 'status', text: `${modeLabel} · 판단 모델 검토 중 — ${approvalReq.summary}` });
                   const review = await reviewToolApproval({
                     providerStore: this.providerStore,
                     cqrRoot: this.cqrRoot,
                     sessionId,
+                    reviewerPreference: approvalOverrides.approval_reviewer_model,
+                    mode: reviewMode,
                     userMessage: message,
                     request: approvalReq,
+                    imageDataUrls: collectAttachmentImageDataUrls(
+                      req.attachments ?? [],
+                      this.attachments,
+                      sessionId,
+                      { cqrRoot: this.cqrRoot },
+                    ),
                     signal,
                   });
                   if (review.decision === 'allow') {
-                    sseEvent(res, { type: 'status', text: `나 대신 승인 · ${review.reviewer} · ${Math.round(review.confidence * 100)}%` });
-                    return true;
+                    const fallbackNote = review.escalated
+                      ? ` (${review.escalated === 'image' ? '이미지 첨부' : '긴 맥락'} → 최신 Jev)`
+                      : review.fallback ? ' (선택 모델 실패 → 대체 모델)' : '';
+                    sseEvent(res, { type: 'status', text: `${modeLabel} · ${review.reviewer}${fallbackNote} · ${Math.round(review.confidence * 100)}%` });
+                    return { approved: true, by: 'reviewer', reviewer: review.reviewer };
                   }
                   sseEvent(res, { type: 'status', text: `모델 판단 보류 · 사용자 승인 필요 — ${review.reason}` });
                 }

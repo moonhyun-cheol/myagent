@@ -3,6 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   agentAutopilotModeFromConfig,
   fetchAppConfig,
+  fetchApprovalReviewer,
+  saveApprovalReviewer,
+  testApprovalReviewer,
+  type ApprovalReviewerSettings,
   setAgentAutopilot,
   setAgentExecutionPreset,
   setAgentReasoning,
@@ -24,6 +28,56 @@ export function SettingsAgentPage({ readOnly, onManageWorkspaces }: SettingsAgen
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [reviewer, setReviewer] = useState<ApprovalReviewerSettings | null>(null);
+  const [reviewerTest, setReviewerTest] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void fetchApprovalReviewer()
+      .then((settings) => { if (active) setReviewer(settings); })
+      .catch(() => { /* older core: section stays hidden */ });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const saveReviewer = async (patch: { approval_reviewer_model?: string; approval_card_triage?: boolean }) => {
+    if (!reviewer) return;
+    setBusy(true);
+    setMessage('');
+    setReviewerTest('');
+    try {
+      await saveApprovalReviewer(patch);
+      setReviewer({
+        ...reviewer,
+        selected: patch.approval_reviewer_model !== undefined ? (patch.approval_reviewer_model || reviewer.default) : reviewer.selected,
+        card_triage: patch.approval_card_triage ?? reviewer.card_triage,
+      });
+      setMessage('판단 모델 설정을 저장했습니다.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '판단 모델 저장 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runReviewerTest = async () => {
+    if (!reviewer) return;
+    setBusy(true);
+    setReviewerTest('테스트 중…');
+    try {
+      const result = await testApprovalReviewer(reviewer.selected);
+      setReviewerTest(
+        result.reviewer === 'unavailable' || result.reviewer === 'policy'
+          ? `연결 실패 — ${result.reason}`
+          : `${result.decision === 'allow' ? '정상 (허용 판단)' : '응답은 왔지만 보류 판단'} · ${result.reviewer} · ${(result.duration_ms / 1000).toFixed(1)}초 — ${result.reason}`,
+      );
+    } catch (error) {
+      setReviewerTest(error instanceof Error ? error.message : '테스트 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -197,10 +251,67 @@ export function SettingsAgentPage({ readOnly, onManageWorkspaces }: SettingsAgen
             >
               <option value="off">매번 승인</option>
               <option value="safe_local">안전한 로컬 쓰기 자동 승인</option>
-              <option value="auto_review">나 대신 승인 — Luna 위험 검토</option>
+              <option value="auto_review">나 대신 승인 — 판단 모델 검토</option>
             </select>
-            <p className="mt-3 text-sm leading-6 text-muted">MY OpenRouter의 GPT-5.6 Luna가 작업 의도와 위험을 검토합니다. 작업에 필요한 외부 읽기와 안전한 터미널 실행은 대신 승인할 수 있으며, 외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경은 항상 사용자에게 묻습니다.</p>
+            <p className="mt-3 text-sm leading-6 text-muted">아래에서 고른 판단 모델이 작업 의도와 위험을 검토합니다. 작업에 필요한 외부 읽기와 안전한 터미널 실행은 대신 승인할 수 있으며, 외부 쓰기·삭제·롤백·플러그인 변경·Office 원본 변경·NAS 수정은 항상 사용자에게 묻습니다.</p>
           </div>
+
+          {reviewer ? (
+            <div className="rounded-2xl border border-line bg-panel p-5 shadow-sm" data-testid="settings-approval-reviewer">
+              <h4 className="font-semibold">판단 모델</h4>
+              <p className="mb-4 mt-1 text-xs text-muted">승인 여부를 판단할 모델입니다. 고른 모델이 응답하지 않으면 기본 모델이 대신 판단합니다.</p>
+              <div className="flex gap-2">
+                <select
+                  data-testid="settings-approval-reviewer-model"
+                  value={reviewer.selected}
+                  disabled={busy || readOnly}
+                  onChange={(event) => void saveReviewer({ approval_reviewer_model: event.target.value })}
+                  className="min-w-0 flex-1 rounded-xl border border-line bg-[#fafbf8] px-3 py-2.5 text-sm outline-none focus:border-accent"
+                >
+                  {reviewer.candidates.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label} — {c.note}</option>
+                  ))}
+                  {reviewer.candidates.some((c) => c.value === reviewer.selected) ? null : (
+                    <option value={reviewer.selected}>{reviewer.selected}</option>
+                  )}
+                </select>
+                <button
+                  type="button"
+                  data-testid="settings-approval-reviewer-test"
+                  disabled={busy}
+                  onClick={() => void runReviewerTest()}
+                  className="shrink-0 rounded-lg border border-line px-3 py-2 text-xs text-muted hover:border-accent/50 hover:text-text disabled:opacity-55"
+                >
+                  테스트
+                </button>
+                <button
+                  type="button"
+                  data-testid="settings-approval-reviewer-reset"
+                  disabled={busy || readOnly || reviewer.selected === reviewer.default}
+                  onClick={() => void saveReviewer({ approval_reviewer_model: '' })}
+                  className="shrink-0 rounded-lg border border-line px-3 py-2 text-xs text-muted hover:border-accent/50 hover:text-text disabled:opacity-55"
+                >
+                  기본값
+                </button>
+              </div>
+              {reviewerTest ? <p className="mt-2 text-xs leading-5 text-muted" data-testid="settings-approval-reviewer-test-result">{reviewerTest}</p> : null}
+              <label className="mt-4 flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  data-testid="settings-approval-card-triage"
+                  checked={reviewer.card_triage}
+                  disabled={busy || readOnly}
+                  onChange={(event) => void saveReviewer({ approval_card_triage: event.target.checked })}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium">매번 승인에서도 카드 선별</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-muted">나 대신 승인이 꺼져 있을 때, 요청한 작업이 분명하고 되돌릴 수 있는 작업이면 판단 모델이 승인 카드를 생략합니다. 애매하면 카드가 뜹니다.</span>
+                </span>
+              </label>
+              <p className="mt-3 text-xs leading-5 text-muted">판단 모델이 승인한 파일 수정은 실행 전에 되돌리기 지점을 저장합니다. 모델을 바꿔도 이전 되돌리기 지점은 그대로 남습니다.</p>
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">

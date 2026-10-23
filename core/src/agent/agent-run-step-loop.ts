@@ -72,6 +72,7 @@ import {
   createToolApprovalId,
   formatApprovalDenied,
   needsHumanApproval,
+  normalizeToolApprovalOutcome,
 } from './tool-approval.js';
 import {
   formatSyntaxBrokenRepairPrompt,
@@ -771,6 +772,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       // checkpoint creation. No outside-workspace path may be touched while the
       // user is still looking at an approval card.
       let approvedTerminalCommand: string | undefined;
+      let approvedByReviewer: string | null = null;
       const hitl = needsHumanApproval(execCall.function.name, args, process.env, {
         workspaceRoot: state.opts.workspaceRoot,
         allowedWriteRoots: state.opts.allowedWriteRoots,
@@ -785,7 +787,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             `승인 대기 · ${hitl.summary} — 화면의 승인/거절을 눌러 주세요`,
           );
           const approvalStarted = Date.now();
-          approved = await state.opts.onToolApproval({
+          const outcome = normalizeToolApprovalOutcome(await state.opts.onToolApproval({
             id,
             tool: execCall.function.name,
             summary: hitl.summary,
@@ -795,7 +797,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             access: hitl.access,
             targets: hitl.targets,
             expires: hitl.expires,
-          });
+          }));
+          approved = outcome.approved;
+          if (outcome.approved && outcome.by === 'reviewer') {
+            approvedByReviewer = outcome.reviewer ?? 'reviewer';
+          }
           const approvalDurationMs = Date.now() - approvalStarted;
           state.approvalWaitMs += approvalDurationMs;
           if (state.approvalTrace.length < 40) {
@@ -965,6 +971,42 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (read-before-write)`);
         pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
         continue;
+      }
+
+      // Decision-model approvals must stay reversible regardless of which model
+      // approved: snapshot every not-yet-covered target before the mutation runs.
+      if (approvedByReviewer && isMutatingAgentTool(execCall.function.name)) {
+        const covered = state.reviewerCheckpointedPaths ?? new Set<string>();
+        state.reviewerCheckpointedPaths = covered;
+        const fresh = collectAutoCheckpointPaths(execCall.function.name, args, new Set())
+          .filter((p) => !covered.has(p));
+        if (fresh.length) {
+          try {
+            const meta = createWorkspaceCheckpoint(state.opts.workspaceRoot, state.opts.cqrRoot, {
+              sessionKey: state.opts.sessionId ?? 'default',
+              label: `before-model-approval:${approvedByReviewer}`.slice(0, 120),
+              paths: fresh, guard: state.guard,
+            });
+            for (const p of fresh) covered.add(p);
+            state.autoCheckpointTaken = true;
+            state.lastAutoCheckpointId = meta.id;
+            clearOldCheckpoints(state.opts.cqrRoot, state.opts.sessionId ?? 'default', 20);
+            appendAgentAuditEvent(state.opts.cqrRoot, {
+              type: 'checkpoint',
+              sessionId: state.opts.sessionId,
+              tool: execCall.function.name,
+              detail: `${meta.id} model_approved_by=${approvedByReviewer} files=${fresh.slice(0, 10).join(',')}`,
+            });
+            state.reportStatus(`되돌리기 지점 ${meta.id} · 모델 승인(${approvedByReviewer}) 전 ${meta.fileCount}개 파일 보관`);
+          } catch (e: unknown) {
+            const note = e instanceof Error ? e.message : String(e);
+            const output = `ERROR: model_approval_checkpoint_failed\ntool: ${execCall.function.name}\nA decision-model approval requires a rollback snapshot first; snapshot failed (${note.slice(0, 160)}). Ask the user to approve manually.`;
+            loopGuard.noteResult(execCall, output);
+            state.reportStatus(`모델 승인 취소 · 되돌리기 지점 생성 실패 — ${note.slice(0, 80)}`);
+            pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
+            continue;
+          }
+        }
       }
 
       if (isMutatingAgentTool(execCall.function.name) && !state.autoCheckpointTaken) {

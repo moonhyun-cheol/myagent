@@ -28,12 +28,32 @@ export interface ToolApprovalRequest {
   expires?: 'once' | 'run';
 }
 
+/**
+ * Approval callback result. `true/false` stays valid for older callers; the object form
+ * records who approved so model-approved mutations can be snapshotted for rollback.
+ */
+export type ToolApprovalOutcome =
+  | boolean
+  | { approved: boolean; by: 'user' | 'reviewer' | 'policy'; reviewer?: string };
+
+export function normalizeToolApprovalOutcome(
+  outcome: ToolApprovalOutcome,
+): { approved: boolean; by: 'user' | 'reviewer' | 'policy'; reviewer?: string } {
+  return typeof outcome === 'boolean' ? { approved: outcome, by: 'user' } : outcome;
+}
+
+/** UNC / network share (NAS included). Writes there are never delegated to a model. */
+export function isNetworkSharePath(candidate: string): boolean {
+  return candidate.trim().replace(/\//g, '\\').startsWith('\\\\');
+}
+
 function pathInsideWorkspace(candidate: unknown, workspaceRoot: string): boolean {
   if (typeof candidate !== 'string' || !candidate.trim()) return false;
   const root = normalizeWorkspacePath(workspaceRoot);
   const resolved = isAbsoluteUserPath(candidate)
     ? normalizeWorkspacePath(candidate)
     : path.resolve(root, candidate);
+  if (isNetworkSharePath(resolved)) return false;
   const rel = path.relative(root, resolved);
   return rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
@@ -115,35 +135,47 @@ export function canDelegateToolApproval(
   args: Record<string, unknown>,
   workspaceRoot: string,
 ): boolean {
+  const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files';
+  // NAS / network-share workspaces: a model may never approve a mutation or a
+  // terminal command there (the shell would run with the share as cwd).
+  if (!readOnlyTool && isNetworkSharePath(workspaceRoot)) return false;
   if (toolName === 'run_terminal') {
-    return externalTerminalPaths(String(args.command ?? ''), workspaceRoot).length === 0;
+    const command = String(args.command ?? '');
+    if (/\\\\[^\\\s"']+\\/.test(command)) return false;
+    return externalTerminalPaths(command, workspaceRoot).length === 0;
   }
-  if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files') {
+  if (readOnlyTool) {
     const target = toolPathTargets(toolName, args).paths[0];
     return typeof target === 'string' && target.trim().length > 0;
   }
   if (toolName === 'write_file') {
     return pathInsideWorkspace(args.path, workspaceRoot) && !isOfficeBinaryPath(String(args.path ?? ''));
   }
+  // Workspace file deletes are snapshotted before a model-approved run, so they are
+  // reversible and the decision model judges their severity like any other mutation.
+  if (toolName === 'delete_file') {
+    return pathInsideWorkspace(args.path, workspaceRoot);
+  }
   if (toolName === 'apply_patch') {
-    if (typeof args.action === 'string' && !['add', 'update'].includes(args.action)) return false;
+    const patchActions = ['add', 'update', 'delete'];
+    if (typeof args.action === 'string' && !patchActions.includes(args.action)) return false;
     if (typeof args.new_path === 'string' && args.new_path.trim()) return false;
     if (Array.isArray(args.files) && args.files.some((row) => {
       if (!row || typeof row !== 'object') return true;
       const file = row as Record<string, unknown>;
-      return (typeof file.action === 'string' && !['add', 'update'].includes(file.action))
+      return (typeof file.action === 'string' && !patchActions.includes(file.action))
         || (typeof file.new_path === 'string' && file.new_path.trim().length > 0);
     })) return false;
     let paths = Array.isArray(args.files)
       ? args.files.map((row) => row && typeof row === 'object' ? (row as Record<string, unknown>).path : undefined)
       : typeof args.path === 'string' ? [args.path] : [];
     if (!paths.length && typeof args.patch === 'string') {
-      paths = [...args.patch.matchAll(/^\*\*\* (?:Add|Update) File:\s*(.+)$/gm)].map((match) => match[1].trim());
-      if (/^\*\*\* (?:Delete|Move) File:/m.test(args.patch)) return false;
+      paths = [...args.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/gm)].map((match) => match[1].trim());
+      if (/^\*\*\* (?:Move File:|Move to:)/m.test(args.patch)) return false;
     }
     return paths.length > 0 && paths.every((p) => pathInsideWorkspace(p, workspaceRoot) && !isOfficeBinaryPath(String(p ?? '')));
   }
-  // Delete/rollback/plugin changes, Office binaries, and every external write
+  // Rollback/plugin changes, moves, and every external write (NAS included)
   // deliberately stay outside delegated authority.
   return false;
 }

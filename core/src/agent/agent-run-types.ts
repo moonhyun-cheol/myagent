@@ -1,6 +1,6 @@
 import type { ProviderStore } from '../providers/provider-store.js';
 import type { SessionMessage } from '../sessions/types.js';
-import type { ToolApprovalRequest } from './tool-approval.js';
+import type { ToolApprovalOutcome, ToolApprovalRequest } from './tool-approval.js';
 import type { AgentRuntimeHooks } from './agent-hooks.js';
 import type { AgentToolPack } from './agent-tool-pack.js';
 import type { ProviderWireApi } from '../providers/types.js';
@@ -24,7 +24,7 @@ export interface CodeAgentCallbacks {
   /** Host/UI lifecycle signal based on an executed tool, not message keywords. */
   onToolComplete?: (event: { tool: string; ok: boolean; durationMs: number }) => void;
   /** Stream UI Accept/Reject. If omitted, confirm=true is required for destructive tools. */
-  onToolApproval?: (req: ToolApprovalRequest) => Promise<boolean>;
+  onToolApproval?: (req: ToolApprovalRequest) => Promise<ToolApprovalOutcome>;
 }
 
 export interface CodeAgentOptions extends CodeAgentCallbacks {

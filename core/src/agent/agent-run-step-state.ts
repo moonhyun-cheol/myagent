@@ -140,6 +140,8 @@ export interface AgentRunStepState {
   pluginInvokeForceCount: number;
   /** Last auto workspace_checkpoint id this run (for UI Reject). */
   lastAutoCheckpointId: string | null;
+  /** Paths already snapshotted before a decision-model-approved mutation (lazy). */
+  reviewerCheckpointedPaths?: Set<string>;
   ideEditRequest: boolean;
   /**
    * Legacy configuration probe timeout. Confirmed native runs do not use it.

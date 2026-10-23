@@ -1139,6 +1139,8 @@ export async function fetchAppConfig(): Promise<{
   agent_autopilot?: boolean | null;
   agent_reasoning?: ReasoningLevel;
   approval_delegation?: 'off' | 'safe_local' | 'auto_review';
+  approval_reviewer_model?: string;
+  approval_card_triage?: boolean;
 }> {
   const res = await fetch('/config');
   const data = await res.json().catch(() => ({}));
@@ -1202,6 +1204,51 @@ export async function setApprovalDelegation(mode: 'off' | 'safe_local' | 'auto_r
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `승인 위임 설정 실패 (${res.status})`);
+  return data;
+}
+
+export interface ApprovalReviewerSettings {
+  selected: string;
+  default: string;
+  card_triage: boolean;
+  candidates: Array<{ value: string; label: string; note: string }>;
+}
+
+export async function fetchApprovalReviewer(): Promise<ApprovalReviewerSettings> {
+  const res = await fetch('/config/approval-reviewer', { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `판단 모델 설정 로드 실패 (${res.status})`);
+  return data as ApprovalReviewerSettings;
+}
+
+export async function saveApprovalReviewer(patch: {
+  approval_reviewer_model?: string;
+  approval_card_triage?: boolean;
+}): Promise<unknown> {
+  const res = await fetch('/config/approval-reviewer', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `판단 모델 저장 실패 (${res.status})`);
+  return data;
+}
+
+export async function testApprovalReviewer(model: string): Promise<{
+  decision: 'allow' | 'ask_user';
+  confidence: number;
+  reason: string;
+  reviewer: string;
+  duration_ms: number;
+}> {
+  const res = await fetch('/config/approval-reviewer/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approval_reviewer_model: model }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `판단 모델 테스트 실패 (${res.status})`);
   return data;
 }
 

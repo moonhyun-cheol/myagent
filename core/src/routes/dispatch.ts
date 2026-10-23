@@ -124,6 +124,12 @@ import { softRpmLimit, softStepLatencyWarnMs } from '../providers/harness-policy
 import { sendJson, readBody, sessionFromReq } from '../http/json.js';
 import { publicAttachment } from '../http/attachment-dto.js';
 import { resolveToolApproval } from '../agent/tool-approval.js';
+import {
+  APPROVAL_REVIEWER_CANDIDATES,
+  APPROVAL_REVIEWER_DEFAULT,
+  parseApprovalReviewerPreference,
+  reviewToolApproval,
+} from '../agent/approval-auto-review.js';
 import { summarizeAgentAuditLedger, formatAuditSummaryBrief } from '../agent/agent-audit-ledger.js';
 import { availableVideoModels } from '../video/video-models.js';
 import { collectSessionMediaUrls } from '../sessions/session-media-urls.js';
@@ -672,6 +678,64 @@ export async function dispatchApiRequest(
         }
         const next = saveUserOverrides(userConfigPath, { approval_delegation: mode }, cqrRoot);
         return sendJson(res, 200, next);
+      }
+
+      if (method === 'GET' && url.pathname === '/config/approval-reviewer') {
+        const o = getOverrides();
+        return sendJson(res, 200, {
+          selected: o.approval_reviewer_model?.trim() || APPROVAL_REVIEWER_DEFAULT,
+          default: APPROVAL_REVIEWER_DEFAULT,
+          card_triage: o.approval_card_triage === true,
+          candidates: APPROVAL_REVIEWER_CANDIDATES,
+        });
+      }
+
+      if (method === 'PUT' && url.pathname === '/config/approval-reviewer') {
+        license.assertWritable();
+        license.assertFeature('manager');
+        const body = JSON.parse(await readBody(req)) as { approval_reviewer_model?: unknown; approval_card_triage?: unknown };
+        const patch: { approval_reviewer_model?: string; approval_card_triage?: boolean } = {};
+        if ('approval_reviewer_model' in body) {
+          const raw = typeof body.approval_reviewer_model === 'string' ? body.approval_reviewer_model.trim() : '';
+          if (raw && !parseApprovalReviewerPreference(raw)) {
+            return sendJson(res, 400, { error: 'INVALID_REVIEWER', message: '판단 모델은 provider:{id}@{model} 형식이어야 합니다.' });
+          }
+          // Empty or the default value = revert to the product default reviewer.
+          patch.approval_reviewer_model = raw && raw !== APPROVAL_REVIEWER_DEFAULT ? raw : undefined;
+        }
+        if ('approval_card_triage' in body) patch.approval_card_triage = body.approval_card_triage === true;
+        const next = saveUserOverrides(userConfigPath, patch, cqrRoot);
+        return sendJson(res, 200, next);
+      }
+
+      if (method === 'POST' && url.pathname === '/config/approval-reviewer/test') {
+        license.assertFeature('manager');
+        const body = JSON.parse(await readBody(req)) as { approval_reviewer_model?: unknown };
+        const preference = typeof body.approval_reviewer_model === 'string' && body.approval_reviewer_model.trim()
+          ? body.approval_reviewer_model.trim()
+          : getOverrides().approval_reviewer_model?.trim() || APPROVAL_REVIEWER_DEFAULT;
+        const route = parseApprovalReviewerPreference(preference);
+        if (!route) return sendJson(res, 400, { error: 'INVALID_REVIEWER', message: '판단 모델 형식이 올바르지 않습니다.' });
+        const started = Date.now();
+        const result = await reviewToolApproval({
+          providerStore,
+          cqrRoot,
+          sessionId: 'approval-reviewer-test',
+          providerId: route.providerId,
+          modelId: route.modelId,
+          noFallback: true,
+          mode: 'delegate',
+          userMessage: 'README.md 오탈자를 고쳐줘',
+          request: {
+            id: 'approval-reviewer-test',
+            tool: 'apply_patch',
+            summary: '대용량 apply_patch: README.md',
+            argsPreview: JSON.stringify({ path: 'README.md', edits: [{ old_text: 'teh', new_text: 'the' }] }),
+            danger: false,
+            delegable: true,
+          },
+        });
+        return sendJson(res, 200, { ...result, model: preference, duration_ms: Date.now() - started });
       }
 
       if (method === 'GET' && url.pathname === '/config/workspace-capabilities') {
