@@ -27,7 +27,7 @@ for (const blocked of ['git push', 'git pull', 'git reset --hard', 'Remove-Item 
   assert.ok(terminal.validateShellCommand(blocked, ws, blocked), `approval must not bypass hard safety blocks: ${blocked}`);
 }
 // Severe tier: recursive folder delete / DB destruction runs only with approval of this exact command.
-for (const severe of ['Remove-Item -Recurse -Force src', 'rm -rf docs', 'Remove-Item src -r', 'rd /s /q data', 'sqlite3 a.db "DROP TABLE users;"', 'Remove-Item data/app.sqlite']) {
+for (const severe of ['Remove-Item -Recurse -Force src', 'rm -rf docs', 'Remove-Item src -r', 'rd /s /q data', 'sqlite3 a.db "DROP TABLE users;"', 'sqlite3 a.db "UPDATE messages SET content=\'\';"', 'Remove-Item data/app.sqlite']) {
   assert.equal(terminal.classifyTerminalCommand(severe, ws).tier, 'severe', severe);
   assert.match(terminal.validateShellCommand(severe, ws), /requires user approval/, severe);
   assert.equal(terminal.validateShellCommand(severe, ws, severe), null, `approved severe command runs: ${severe}`);
@@ -40,6 +40,7 @@ for (const normal of ['rm -rf node_modules', 'Remove-Item -Recurse -Force dist',
   assert.equal(terminal.validateShellCommand(normal, ws), null, normal);
   assert.equal(approval.needsHumanApproval('run_terminal', { command: normal }, {}, { workspaceRoot: ws }).fixedSeverity, undefined, normal);
 }
+assert.equal(terminal.classifyTerminalCommand('sqlite3 a.db "UPDATE messages SET content=\'x\' WHERE id = 3;"', ws).tier, 'normal');
 assert.equal(terminal.classifyTerminalCommand('git branch -D feat', ws).tier, 'git_tool');
 assert.equal(approval.needsHumanApproval('run_terminal', { command: 'git push' }, {}, { workspaceRoot: ws }).needed, false, 'never-run commands skip the card');
 const request = approval.needsHumanApproval('run_terminal', { command, confirm: true }, {}, { workspaceRoot: ws });
