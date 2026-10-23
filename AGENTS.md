@@ -4,7 +4,7 @@ Short facts for coding agents. Prefer **build-generated JSON** over memory or RU
 
 **Self-edit:** read `core/config/defaults/skills/my-agent-self-edit.md` first. **Other tools (Cursor 등):** `docs/EXTERNAL_AGENT_KNOWLEDGE.md` → RULEBOOK `docs/knowledge-export/01-core.md`.
 
-**RULEBOOK 지식 기준 (2026-09-14 / 제품 캡처 1.1.5, update 53):** 외부
+**RULEBOOK 지식 기준 (2026-10-23 / 제품 캡처 1.1.20, update 68):** 외부
 `C:\MY_FULL_AI\RULEBOOK\MY_CUSTOM_CODEX\docs\knowledge-export\01-core.md`가 기본 portable 지식이다.
 업데이트·릴리즈 작업은 `02-updates-release.md`, 작업 키트 작업은
 `03-work-kit-launcher.md`를 추가로 참조한다. 라이브 코드와 빌드 생성 JSON이 export보다 우선하며,
