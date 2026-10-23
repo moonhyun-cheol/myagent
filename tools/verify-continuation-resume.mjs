@@ -74,8 +74,9 @@ assert.equal(
 
 // Static wiring: per-run budget no longer uses the cumulative count.
 const stepLoop = readFileSync(new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url), 'utf8');
-assert.match(stepLoop, /while \(state\.steps < MAX_AGENT_STEPS\)/, 'fresh per-run budget');
-assert.doesNotMatch(stepLoop, /while \(cumulativeSteps\(\) < MAX_AGENT_STEPS\)/);
+assert.match(stepLoop, /let stepLimit = MAX_AGENT_STEPS;/, 'fresh per-run budget');
+assert.match(stepLoop, /while \(state\.steps < stepLimit \|\| await extendStepBudget\(\)\)/, 'per-run budget, host may extend at the cap');
+assert.doesNotMatch(stepLoop, /while \(cumulativeSteps\(\) < /);
 const runLoop = readFileSync(new URL('../core/src/agent/agent-run-loop.ts', import.meta.url), 'utf8');
 assert.doesNotMatch(runLoop, /shouldOrInContinuityAutopilot/, '4) continuation must not OR-in Autopilot');
 assert.doesNotMatch(runLoop, /autopilot = true;/);

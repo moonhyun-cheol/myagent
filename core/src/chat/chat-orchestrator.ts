@@ -39,7 +39,14 @@ import {
 import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
 import { formatChatErrorMessage, isUpstreamConnectionDrop } from '../debug-session-log.js';
-import { waitForToolApproval } from '../agent/tool-approval.js';
+import { createToolApprovalId, waitForToolApproval } from '../agent/tool-approval.js';
+import {
+  STEP_BUDGET_EXTENSION,
+  STEP_BUDGET_MAX_AUTO_GRANTS,
+  decideStepBudgetGrant,
+  formatStepBudgetExtensionNote,
+  reviewStepBudget,
+} from '../agent/step-budget-review.js';
 import {
   addAgentUsage,
   agentUsageFromError,
@@ -1087,6 +1094,49 @@ export class ChatOrchestrator {
                   expires: approvalReq.expires,
                 });
                 return wait;
+              },
+              // A안: reviewer says continue/redirect → 「나 대신 승인」/Autopilot grant +50
+              // automatically (max 2 per run); otherwise, or after that, the user is asked.
+              onStepBudgetExhausted: async ({ facts, workingModelId, autoGrantsUsed }) => {
+                const approvalPolicy = requestedExecutionPolicy.approval;
+                sseEvent(res, { type: 'status', text: `실행 예산 ${facts.stepLimit} 스텝 도달 · 검토 모델이 진행 상황을 판단 중` });
+                const review = await reviewStepBudget({
+                  providerStore: this.providerStore,
+                  cqrRoot: this.cqrRoot,
+                  sessionId,
+                  workingModelId,
+                  facts,
+                  signal,
+                });
+                const verdictLabel = review.verdict === 'redirect' ? '방향 수정 후 계속' : review.verdict === 'continue' ? '계속' : '멈춤';
+                const grantMode = decideStepBudgetGrant({ review, approvalPolicy, autoGrantsUsed });
+                if (grantMode === 'stop') {
+                  sseEvent(res, { type: 'status', text: `검토 모델 판단: 멈춤 — ${review.reason}` });
+                  return { extend: 0, stopReason: `검토 모델(${review.reviewer}) 판단: 멈춤 — ${review.reason}` };
+                }
+                if (grantMode === 'auto') {
+                  sseEvent(res, { type: 'status', text: `추가 ${STEP_BUDGET_EXTENSION} 스텝 자동 승인 (${autoGrantsUsed + 1}/${STEP_BUDGET_MAX_AUTO_GRANTS}) · ${verdictLabel} — ${review.reason}` });
+                  return { extend: STEP_BUDGET_EXTENSION, auto: true, note: formatStepBudgetExtensionNote(review, STEP_BUDGET_EXTENSION, 'auto') };
+                }
+                const id = createToolApprovalId();
+                const wait = waitForToolApproval(id, { signal });
+                const why = review.reviewer === 'unavailable' ? '검토 모델을 쓸 수 없어 직접 확인이 필요합니다' : `검토 모델 판단: ${verdictLabel} — ${review.reason}`;
+                sseEvent(res, {
+                  type: 'tool_approval',
+                  id,
+                  tool: 'step_budget',
+                  summary: `실행 예산 ${facts.stepLimit} 스텝을 다 썼습니다. 추가 ${STEP_BUDGET_EXTENSION} 스텝을 줄까요? (${why})`,
+                  args_preview: JSON.stringify({ extend: STEP_BUDGET_EXTENSION, verdict: review.verdict, instruction: review.instruction || undefined }).slice(0, 1200),
+                  danger: false,
+                  access: 'operation',
+                  expires: 'once',
+                });
+                const approved = await wait;
+                if (!approved) return { extend: 0, stopReason: '추가 실행 예산을 승인하지 않아 멈췄습니다.' };
+                const granted = review.reviewer === 'unavailable'
+                  ? { ...review, verdict: 'continue' as const, reason: '사용자가 직접 승인했습니다.' }
+                  : review;
+                return { extend: STEP_BUDGET_EXTENSION, note: formatStepBudgetExtensionNote(granted, STEP_BUDGET_EXTENSION, 'user') };
               },
             },
             signal,

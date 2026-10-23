@@ -25,6 +25,12 @@ export interface CodeAgentCallbacks {
   onToolComplete?: (event: { tool: string; ok: boolean; durationMs: number }) => void;
   /** Stream UI Accept/Reject. If omitted, confirm=true is required for destructive tools. */
   onToolApproval?: (req: ToolApprovalRequest) => Promise<ToolApprovalOutcome>;
+  /**
+   * Per-run step cap reached. The host reviews the run and may grant extra steps
+   * (A안: auto under 「나 대신 승인」/Autopilot up to 2 times, otherwise ask the user).
+   * Omitted = stop at the cap as before.
+   */
+  onStepBudgetExhausted?: import('./step-budget-review.js').StepBudgetExhaustedHandler;
 }
 
 export interface CodeAgentOptions extends CodeAgentCallbacks {

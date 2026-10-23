@@ -74,6 +74,7 @@ import {
   needsHumanApproval,
   normalizeToolApprovalOutcome,
 } from './tool-approval.js';
+import type { StepBudgetAction } from './step-budget-review.js';
 import {
   formatSyntaxBrokenRepairPrompt,
   toolOutputHasSyntaxBroken,
@@ -175,6 +176,17 @@ function recordToolEvidence(
   });
 }
 
+/** Short path/command label for the step-budget reviewer (never file contents). */
+function stepBudgetActionTarget(args: Record<string, unknown>): string {
+  for (const key of ['command', 'path', 'query', 'pattern', 'url', 'message']) {
+    if (typeof args[key] === 'string' && String(args[key]).trim()) return String(args[key]).slice(0, 200);
+  }
+  if (Array.isArray(args.files)) {
+    return (args.files as Array<{ path?: unknown }>).map((f) => String(f?.path ?? '')).filter(Boolean).join(', ').slice(0, 200);
+  }
+  return '';
+}
+
 export async function runAgentStepLoop(state: AgentRunStepState): Promise<CodeAgentResult> {
   return withLlmUsageContext({
     cqrRoot: state.opts.cqrRoot,
@@ -201,6 +213,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // crosses the converge (70%) then finalize (90%) threshold. We surface the
   // phase, never the raw step number, to avoid early rush / anchoring.
   let lastBudgetBand: AgentBudgetBand | null = null;
+  // Per-run cap. The host may extend it once the cap is hit (step-budget review).
+  let stepLimit = MAX_AGENT_STEPS;
+  let autoBudgetGrants = 0;
+  let budgetExtensions = 0;
+  let budgetStopReason = '';
+  const recentActions: StepBudgetAction[] = [];
   // Display/persisted count across the continuation chain. The per-run budget below is
   // state.steps alone, so a resume after hitting the cap gets a fresh budget.
   const cumulativeSteps = (): number => state.priorSteps + state.steps;
@@ -313,7 +331,48 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     );
   }
 
-  while (state.steps < MAX_AGENT_STEPS) {
+  const extendStepBudget = async (): Promise<boolean> => {
+    const handler = state.opts.onStepBudgetExhausted;
+    if (!handler || state.opts.signal?.aborted) return false;
+    state.reportStatus(`실행 예산 ${stepLimit} 스텝 도달 · 추가 예산 검토 중`);
+    const ledger = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).todoLedger;
+    const todoSummary = (ledger?.todos ?? [])
+      .map((todo) => `[${todo.status}] ${todo.text}`)
+      .join('\n');
+    try {
+      const grant = await handler({
+        facts: {
+          userRequest: state.opts.userMessage,
+          stepsUsed: state.steps,
+          stepLimit,
+          extensionsGranted: budgetExtensions,
+          actions: recentActions.slice(-60),
+          mutatedPaths: [...state.mutatedPathsThisRun],
+          todoSummary,
+          lastModelOutput: (state.lastModelOutput || state.answerBuf).trim(),
+        },
+        workingModelId: state.modelId,
+        autoGrantsUsed: autoBudgetGrants,
+      });
+      if (!grant || !(grant.extend > 0)) {
+        budgetStopReason = grant?.stopReason ?? '';
+        return false;
+      }
+      stepLimit += Math.floor(grant.extend);
+      budgetExtensions += 1;
+      if (grant.auto) autoBudgetGrants += 1;
+      lastBudgetBand = null;
+      if (grant.note) state.messages.push({ role: 'user', content: grant.note });
+      persistContinuationSnapshot(`실행 예산 +${Math.floor(grant.extend)} 스텝 (${grant.auto ? '자동' : '사용자'} 승인)`);
+      return true;
+    } catch (error) {
+      throwIfAborted(state.opts.signal);
+      budgetStopReason = `추가 예산 검토 실패: ${error instanceof Error ? error.message : String(error)}`.slice(0, 300);
+      return false;
+    }
+  };
+
+  while (state.steps < stepLimit || await extendStepBudget()) {
     throwIfAborted(state.opts.signal);
     state.steps += 1;
     state.thoughtBuf = '';
@@ -333,7 +392,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       state.messages.push({ role: 'user', content: deferralNote });
       deferralNote = null;
     }
-    const budgetBand = resolveAgentBudgetBand(state.steps, MAX_AGENT_STEPS);
+    const budgetBand = resolveAgentBudgetBand(state.steps, stepLimit);
     if (budgetBand && budgetBand !== lastBudgetBand) {
       lastBudgetBand = budgetBand;
       state.messages.push({ role: 'user', content: agentBudgetBandNote(budgetBand) });
@@ -1111,6 +1170,14 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       const syntaxBroken = toolOutputHasSyntaxBroken(execCall.function.name, output);
       const toolOk = !syntaxBroken && agentToolOutputOk(output);
       const toolSummary = summarizeAgentToolResult(output);
+      recentActions.push({
+        step: state.steps,
+        tool: execCall.function.name,
+        ok: toolOk,
+        target: stepBudgetActionTarget(parseToolArgs(execCall.function.arguments)),
+        ...(toolOk ? {} : { failure: output.slice(0, 200) }),
+      });
+      if (recentActions.length > 80) recentActions.shift();
       if (state.toolTrace.length < 120) {
         state.toolTrace.push({
           step: state.steps,
@@ -1421,9 +1488,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     applicationNotice: {
       kind: 'continuation',
       title: '실행 제한으로 중간 종료',
-      message: persisted.saved
+      message: (persisted.saved
         ? `누적 ${persisted.snapshot.step} 오케스트레이션 스텝까지 진행했습니다. TODO와 Evidence 기반 재개 상태를 저장했습니다.`
-        : `누적 ${persisted.snapshot.step} 오케스트레이션 스텝까지 진행했습니다. ${CONTINUATION_UNSAVED_NOTICE}`,
+        : `누적 ${persisted.snapshot.step} 오케스트레이션 스텝까지 진행했습니다. ${CONTINUATION_UNSAVED_NOTICE}`)
+        + (budgetStopReason ? ` ${budgetStopReason}` : ''),
       model: persisted.snapshot.model ?? state.lastModel,
       elapsedMs: persisted.snapshot.elapsedMs,
       step: persisted.snapshot.step,

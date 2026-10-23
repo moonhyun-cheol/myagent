@@ -161,6 +161,7 @@ export async function runWorkspaceCodeAgent(opts: {
     onToolComplete?: (event: { tool: string; ok: boolean; durationMs: number }) => void;
     onAnswer?: (text: string) => void;
     onToolApproval?: (req: import('../../agent/tool-approval.js').ToolApprovalRequest) => Promise<import('../../agent/tool-approval.js').ToolApprovalOutcome>;
+    onStepBudgetExhausted?: import('../../agent/step-budget-review.js').StepBudgetExhaustedHandler;
     onExecutionPolicy?: (policy: {
       requested: ReturnType<typeof normalizeExecutionPolicy>;
       effective: { reasoning: string | null; autopilot: boolean; approval: 'ask' | 'delegate' | 'autopilot' };
@@ -358,6 +359,7 @@ export async function runWorkspaceCodeAgent(opts: {
     onToolComplete: callbacks?.onToolComplete,
     onAnswer: callbacks?.onAnswer,
     onToolApproval: callbacks?.onToolApproval,
+    onStepBudgetExhausted: callbacks?.onStepBudgetExhausted,
     signal,
   });
 
