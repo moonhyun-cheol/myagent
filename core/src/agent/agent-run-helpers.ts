@@ -38,6 +38,22 @@ import { formatTurnContextMessage } from './agent-context-assembler.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
+/**
+ * Reply language. Agent prompts, tool results and runtime nudges are mostly English,
+ * which made long runs drift into English/Japanese final answers for Korean users.
+ * Static system line (cache-safe) + a short per-turn reminder near the latest request.
+ */
+export const AGENT_REPLY_LANGUAGE_RULE = [
+  '## Reply language',
+  '- Write every user-facing sentence (final answers, progress/status text, questions, summaries) in Korean (한국어).',
+  '- This holds even when the system prompt, tool output, logs, code, or runtime notes are in English, and even if an earlier assistant turn was not in Korean.',
+  '- Never answer in Japanese or Chinese. Use English only when the user\'s latest message is written entirely in English or the user explicitly asks for another language.',
+  '- Keep code, identifiers, paths, commands and quoted source text as-is; explain them in Korean.',
+].join('\n');
+
+export const AGENT_REPLY_LANGUAGE_REMINDER =
+  '### Reply language\n사용자에게 보이는 답변은 한국어로 작성하세요(사용자가 영어로만 쓰거나 다른 언어를 요청한 경우만 예외). 코드·경로·명령은 원문 유지.';
+
 /** Live P88 dumped CURRENT_STATUS because secretary still got the coding GIT/plugin tax. */
 export const SECRETARY_OPS_SPINE = [
   'SECRETARY spine: ≤8 Korean lines. Answer the ops/HITL/status question only.',
@@ -176,6 +192,7 @@ export function buildAgentMessages(
         '',
         'You are one workspace agent. Decide from the conversation whether to explain, inspect, plan, mutate, or call tools.',
         'The local runtime does not classify the request or choose tools for you.',
+        AGENT_REPLY_LANGUAGE_RULE,
         '## General Work Principles',
         '- Keep responses concise and lead with the result. Omit unnecessary background, repetition, and examples unless requested.',
         '- For implementation requests, complete discovery, modification, and verification in the current run when practical. Do not modify files or run tests for explanation-only requests.',
@@ -237,6 +254,7 @@ export function buildAgentMessages(
     }
   }
   const turnContext = formatTurnContextMessage([
+    AGENT_REPLY_LANGUAGE_REMINDER,
     [
       '### Workspace files (discovery context only; read concrete files before file-content claims)',
       workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),
