@@ -2,6 +2,100 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "decision-model-auto-approval",
+      "status": "released",
+      "title": "「나 대신 승인」을 켜면 판단 모델이 승인 여부를 정함",
+      "detail": "「나 대신 승인」을 켜 두면 승인창 대신 판단 모델이 대화 내용을 보고 승인할지 정합니다. 확신이 낮거나 위험한 작업은 지금처럼 승인창으로 직접 묻습니다. 설정의 승인 처리 항목 이름도 「나 대신 승인 — 판단 모델 검토」로 바뀌었고, 바로 아래에서 판단 모델을 고르고 시험해 볼 수 있습니다.",
+      "area": "agent",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "core/src/agent/approval-auto-review.ts",
+        "ui/workspace/src/components/SettingsAgentPage.tsx"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
+      "id": "terminal-git-risk-tiers",
+      "status": "released",
+      "title": "터미널·Git 작업을 위험도에 따라 나눠 승인",
+      "detail": "터미널 명령과 Git 작업을 읽기, 보통, 심각으로 나눕니다. 상태 보기 같은 읽기 작업은 묻지 않고, 원격에 올리기·변경 버리기·조건 없는 데이터 수정 같은 심각한 작업은 대화에서 분명히 지시했을 때만 자동으로 넘어가며 그 밖에는 승인창으로 묻습니다.",
+      "area": "agent",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "core/src/agent/terminal-risk-policy.ts",
+        "core/src/agent/tool-approval.ts"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
+      "id": "step-budget-review",
+      "status": "released",
+      "title": "작업이 100단계에 닿으면 계속할지 검토",
+      "detail": "긴 작업이 100단계에 닿으면 검토 모델이 지금까지의 진행을 보고 계속할지 판단합니다. 「나 대신 승인」이나 자동 진행 중이면 50단계씩 최대 두 번 더 이어 가고, 그 밖에는 사용자에게 계속할지 묻습니다.",
+      "area": "agent",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "core/src/agent/step-budget-review.ts"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
+      "id": "approval-dialog-queue",
+      "status": "released",
+      "title": "승인창이 겹쳐도 앞의 창이 거절되지 않음",
+      "detail": "승인창이 연달아 떠도 앞의 창이 자동으로 거절되지 않고 차례로 기다립니다. 승인창마다 어느 대화의 요청인지와 기다리는 개수가 보이고, 5분이 지나 만료되면 창이 닫히며 만료되었다고 알려 줍니다.",
+      "area": "chat",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "ui/workspace/src/lib/confirmDialog.ts",
+        "ui/workspace/src/components/ConfirmModal.tsx"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
+      "id": "reopened-chat-shows-running-work",
+      "status": "released",
+      "title": "다시 연 대화에서 진행 중인 작업 표시",
+      "detail": "작업 중에 화면을 새로 고치거나 대화를 다시 열면 진행 중인 기록과 「중지 처리 중…」 상태가 바로 보입니다. 그동안 보낸 메시지는 대기열에 들어가고, 작업이 끝나면 대화를 다시 불러온 뒤 차례로 보냅니다.",
+      "area": "chat",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "core/src/sessions/session-store.ts",
+        "ui/workspace/src/store/workspaceStore.ts"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
+      "id": "korean-reply-in-agent-mode",
+      "status": "released",
+      "title": "작업 모드에서도 답변을 한국어로",
+      "detail": "긴 작업 중에 답변이 영어나 일본어로 바뀌던 문제를 줄였습니다. 영어로만 쓰거나 다른 언어를 요청하지 않으면 진행 상황과 요약까지 한국어로 답하고, 코드와 명령은 원문 그대로 둡니다.",
+      "area": "agent",
+      "created_at": "2026-10-23",
+      "source_paths": [
+        "core/src/agent/agent-run-helpers.ts"
+      ],
+      "release": {
+        "version": "1.1.20",
+        "update_sequence": 68
+      }
+    },
+    {
       "id": "queued-attachments-visible",
       "status": "released",
       "title": "대기 중인 명령에 첨부 파일 표시",
