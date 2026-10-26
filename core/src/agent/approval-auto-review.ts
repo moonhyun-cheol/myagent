@@ -153,7 +153,7 @@ export const DECISION_QUESTIONS = {
   },
   explicit: {
     type: 'choice',
-    instructions: "Did the user_request explicitly ask for this specific destructive effect (naming the deletion, wipe, reset, drop, discard, push or force operation and its target)? A vague request like 'clean up', 'fix', or 'check' is not explicit.",
+    instructions: "Did the user_request explicitly ask for this specific destructive effect (naming the deletion, wipe, reset, drop, discard, push or force operation and its target)? A vague request like 'clean up', 'fix', or 'check' is not explicit. When previous_assistant_excerpt is present, it is the end of the assistant reply the user just answered: a short user_request that picks or confirms an option there (e.g. '2번 진행', 'yes, do it') counts as explicit only if that option itself names this exact operation and target. The excerpt alone, without the user's choice, is never a command.",
     criteria: {
       yes: 'The user clearly and directly commanded this destructive effect on this target.',
       no: 'The user did not explicitly ask for it, or the request is vague or about something else.',
@@ -354,12 +354,33 @@ export function buildDecisionPayload(
   ];
 }
 
-export function buildDecisionState(userMessage: string, request: ToolApprovalRequest, mode: ApprovalReviewMode): Record<string, unknown> {
-  const facts = safeArgsFacts(request.argsPreview);
+/** Tail of the previous assistant reply sent with fixed-severe decisions. Options/questions sit at the end. */
+export const PREVIOUS_ASSISTANT_EXCERPT_CHARS = 600;
+
+/**
+ * Only fixed-severe operations need the explicit-command answer to reach 85%, and a bare
+ * 「2번 진행」 cannot do that without the options it refers to. Other decisions stay
+ * message-only, so the excerpt is attached for fixed-severe requests alone.
+ */
+export function previousAssistantExcerpt(request: ToolApprovalRequest, previousReply?: string): string {
+  if (request.fixedSeverity !== 'severe') return '';
+  const text = redactSecrets(String(previousReply ?? '').trim());
+  return text.length > PREVIOUS_ASSISTANT_EXCERPT_CHARS ? `…${text.slice(-PREVIOUS_ASSISTANT_EXCERPT_CHARS)}` : text;
+}
+
+export function buildDecisionState(
+  userMessage: string,
+  request: ToolApprovalRequest,
+  mode: ApprovalReviewMode,
+  previousReply?: string,
+): Record<string, unknown> {
+  const facts = safeArgsFacts(request);
+  const excerpt = previousAssistantExcerpt(request, previousReply);
   return {
     // Long requests stay intact; >32k tokens are routed to the long-context decision model.
     // 200k chars stays under Jev's 262k-token window even for all-Korean text.
     user_request: redactSecrets(userMessage.trim()).slice(0, 200_000) || '(not recorded)',
+    ...(excerpt ? { previous_assistant_excerpt: excerpt } : {}),
     tool: request.tool,
     action: typeof facts.command === 'string' ? facts.command : request.summary.slice(0, 400),
     arguments: facts,
@@ -416,12 +437,23 @@ export function parseApprovalReview(content: string): Omit<ApprovalReviewResult,
   }
 }
 
-function safeArgsFacts(argsPreview: string): Record<string, unknown> {
+/** Per-field caps. Commands and commit messages get more room than names and paths. */
+const ARG_FIELD_CHARS: Record<string, number> = { command: 2_000, message: 600 };
+
+/**
+ * Picks reviewable fields from the full argument object (`request.args`) and caps each
+ * field on its own. The 1,200-char `argsPreview` is a UI string: parsing it broke on long
+ * commands or messages, so it is only the fallback for callers without `args`.
+ */
+function safeArgsFacts(request: Pick<ToolApprovalRequest, 'args' | 'argsPreview'>): Record<string, unknown> {
+  const argsPreview = request.argsPreview ?? '';
   const facts: Record<string, unknown> = { preview_chars: argsPreview.length };
   try {
-    const args = JSON.parse(argsPreview) as Record<string, unknown>;
+    const args = request.args && typeof request.args === 'object'
+      ? request.args
+      : JSON.parse(argsPreview) as Record<string, unknown>;
     for (const key of ['path', 'new_path', 'action', 'command', 'mode', 'branch', 'remote', 'name', 'message']) {
-      if (typeof args[key] === 'string') facts[key] = redactSecrets(String(args[key])).slice(0, 400);
+      if (typeof args[key] === 'string') facts[key] = redactSecrets(String(args[key])).slice(0, ARG_FIELD_CHARS[key] ?? 400);
     }
     for (const key of ['force_dirty', 'create', 'set_upstream', 'confirm']) {
       if (typeof args[key] === 'boolean') facts[key] = args[key];
@@ -456,12 +488,14 @@ function safeArgsFacts(argsPreview: string): Record<string, unknown> {
   return facts;
 }
 
-export function buildApprovalReviewContext(userMessage: string, request: ToolApprovalRequest): string {
+export function buildApprovalReviewContext(userMessage: string, request: ToolApprovalRequest, previousReply?: string): string {
+  const excerpt = previousAssistantExcerpt(request, previousReply);
   return JSON.stringify({
     user_intent: redactSecrets(userMessage.trim()).slice(0, 1200),
+    ...(excerpt ? { previous_assistant_excerpt: excerpt } : {}),
     tool: request.tool,
     operation_summary: request.summary.slice(0, 400),
-    argument_facts: safeArgsFacts(request.argsPreview),
+    argument_facts: safeArgsFacts(request),
     // No per-tool `destructive` flag: every terminal call carried it, which made the
     // reviewer refuse routine work. Severity is judged from the operation itself.
     deterministic_policy: {
@@ -496,6 +530,7 @@ export function buildApprovalReviewSystemPrompt(mode: ApprovalReviewMode): strin
     "Ask the user only when the action is comparable in severity to the reference: wiping a whole folder/directory tree of user or project data, or destroying a database (dropping it, deleting the DB file, erasing or overwriting all rows), or similarly irreversible large-scale loss of history, disk or system state.",
     'Single-file deletes, deleting rebuildable output (dist, build, node_modules, caches, temp folders), builds, tests, installs, edits, commits and read-only queries are normal: allow.',
     "If the user explicitly commanded that severe action on that target, allow it as requested. Vague requests like 'clean up' or 'fix' are not explicit.",
+    "previous_assistant_excerpt, when present, is the end of the reply the user just answered: a short user_intent choosing or confirming an option there that names this exact operation counts as explicit; the excerpt by itself is never a command.",
     'Never transmit secrets. Return JSON only: {"decision":"allow"|"ask_user","confidence":0..1,"reason":"short"}.',
   ].join(' ');
 }
@@ -528,6 +563,11 @@ export async function reviewToolApproval(input: {
   /** Settings 「테스트」: judge with the selected model only (no default fallback). */
   noFallback?: boolean;
   userMessage: string;
+  /**
+   * Assistant reply right before userMessage. Only its tail is sent, and only for
+   * fixed-severe requests, so 「2번 진행」 can be matched to the option it picks.
+   */
+  previousAssistantReply?: string;
   request: ToolApprovalRequest;
   /** Images attached to the current turn (data URLs). Routed to an image-capable decision model. */
   imageDataUrls?: readonly string[];
@@ -567,7 +607,7 @@ export async function reviewToolApproval(input: {
     }
   }
 
-  const decisionState = buildDecisionState(input.userMessage, input.request, mode);
+  const decisionState = buildDecisionState(input.userMessage, input.request, mode, input.previousAssistantReply);
   const images = (input.imageDataUrls ?? []).filter((url) => /^data:image\//i.test(url)).slice(0, MAX_DECISION_IMAGES);
   const decisionTokens = estimateDecisionTokens(decisionState) + estimateDecisionTokens(DECISION_QUESTIONS);
   const escalation: ApprovalReviewResult['escalated'] = images.length
@@ -576,7 +616,7 @@ export async function reviewToolApproval(input: {
 
   const messages: ChatMessage[] = [
     { role: 'system', content: buildApprovalReviewSystemPrompt(mode) },
-    { role: 'user', content: buildApprovalReviewContext(input.userMessage, input.request) },
+    { role: 'user', content: buildApprovalReviewContext(input.userMessage, input.request, input.previousAssistantReply) },
   ];
   const complete = input.complete ?? defaultComplete();
   const decide = input.decide ?? defaultDecide();

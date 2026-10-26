@@ -977,6 +977,15 @@ export class ChatOrchestrator {
         sseEvent(res, { type: 'status', text: '코드 에이전트 · 도구 실행 중…' });
         runModel = failureModelLabel(resolved.display) || undefined;
         sseEvent(res, { type: 'meta', routing: agentRouting, model: resolved.display });
+        // Reply the user just answered (skip this turn's user message). The decision model
+        // sees only its tail, and only for fixed-severe approvals such as push.
+        const previousAssistantReply = (() => {
+          const recent = this.sessionStore.recentMessages(sessionId, 6);
+          for (let i = recent.length - 1; i >= 0; i -= 1) {
+            if (recent[i].role === 'assistant') return recent[i].content;
+          }
+          return '';
+        })();
 
         const runAgentOnce = async (attempt = 1) =>
           runWorkspaceCodeAgent({
@@ -1063,6 +1072,7 @@ export class ChatOrchestrator {
                     reviewerPreference: approvalOverrides.approval_reviewer_model,
                     mode: reviewMode,
                     userMessage: message,
+                    previousAssistantReply,
                     request: approvalReq,
                     imageDataUrls: collectAttachmentImageDataUrls(
                       req.attachments ?? [],
