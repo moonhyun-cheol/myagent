@@ -382,6 +382,46 @@ try {
     approvalExecutionIndex < checkpointExecutionIndex,
     'approval classification must happen before checkpoint touches target paths',
   );
+  // 1) Fixed-severe decisions carry the tail of the previous assistant reply; others do not.
+  const pushReq = { id: 'p', tool: 'git_push', summary: 'Git push', argsPreview: '{}', args: { remote: 'origin', branch: 'main', confirm: true }, danger: true, delegable: true, fixedSeverity: 'severe' };
+  const longReply = `${'x'.repeat(900)}\n1. 서명 게시\n2. git push origin main`;
+  const severeState = reviewer.buildDecisionState('2번 진행', pushReq, 'delegate', longReply);
+  assert.ok(severeState.previous_assistant_excerpt.endsWith('2. git push origin main'));
+  assert.ok(severeState.previous_assistant_excerpt.length <= reviewer.PREVIOUS_ASSISTANT_EXCERPT_CHARS + 1);
+  assert.match(reviewer.buildApprovalReviewContext('2번 진행', pushReq, longReply), /previous_assistant_excerpt/);
+  const normalReq = { id: 'n', tool: 'git_commit', summary: 'Git 커밋', argsPreview: '{}', args: { message: 'm', confirm: true }, danger: false, delegable: true };
+  assert.equal(reviewer.buildDecisionState('2번 진행', normalReq, 'delegate', longReply).previous_assistant_excerpt, undefined);
+  assert.equal(reviewer.buildDecisionState('push', pushReq, 'delegate', 'api_key=abc123secret').previous_assistant_excerpt.includes('abc123secret'), false);
+
+  // 3) Long arguments: fields come from the full args object, not the 1,200-char preview.
+  const longCommand = `npm run build -- ${'--flag '.repeat(300)}`.trim();
+  const longArgs = { command: longCommand };
+  const termState = reviewer.buildDecisionState('build', {
+    id: 't', tool: 'run_terminal', summary: 'terminal', argsPreview: JSON.stringify(longArgs).slice(0, 1200), args: longArgs, danger: true, delegable: true,
+  }, 'delegate');
+  assert.equal(termState.arguments.command, longCommand.slice(0, 2000));
+  assert.equal(termState.action, longCommand.slice(0, 2000));
+  const longMessage = `fix: ${'긴 커밋 메시지 '.repeat(200)}`;
+  const commitState = reviewer.buildDecisionState('커밋', {
+    id: 'c', tool: 'git_commit', summary: 'commit', argsPreview: JSON.stringify({ message: longMessage }).slice(0, 1200), args: { message: longMessage, confirm: true }, danger: false, delegable: true,
+  }, 'delegate');
+  assert.equal(commitState.arguments.message.length, 600);
+  assert.equal(commitState.arguments.confirm, true);
+
+  // 2) Registered extra roots (e.g. a local rulebook) are delegable like the workspace; UNC never.
+  const ws = path.join(os.tmpdir(), 'cqr-delegate-ws');
+  const rulebook = path.join(os.tmpdir(), 'cqr-delegate-rulebook');
+  const rbFile = path.join(rulebook, 'docs', 'a.md');
+  assert.equal(approval.canDelegateToolApproval('delete_file', { path: rbFile }, ws), false);
+  assert.equal(approval.canDelegateToolApproval('delete_file', { path: rbFile }, ws, [ws, rulebook]), true);
+  assert.equal(approval.canDelegateToolApproval('apply_patch', { files: [{ path: rbFile, edits: [] }] }, ws, [rulebook]), true);
+  assert.equal(approval.canDelegateToolApproval('run_terminal', { command: `Get-Content "${rbFile}"` }, ws, [rulebook]), true);
+  assert.equal(approval.canDelegateToolApproval('run_terminal', { command: `Get-Content "${rbFile}"` }, ws), false);
+  assert.equal(approval.canDelegateToolApproval('delete_file', { path: '\\\\nas\\share\\a.md' }, ws, ['\\\\nas\\share']), false);
+  assert.equal(approval.canDelegateToolApproval('delete_file', { path: path.join(os.tmpdir(), 'other', 'a.md') }, ws, [rulebook]), false);
+  const extHitl = approval.needsHumanApproval('run_terminal', { command: `node --check "${path.join(rulebook, 'x.js')}"` }, process.env, { workspaceRoot: ws, allowedWriteRoots: [rulebook] });
+  assert.equal(extHitl.needed, false, 'safe verify command inside a registered root skips the card');
+
   console.log('Responses approval auto-review contract: PASS');
 } finally {
   rmSync(temp, { recursive: true, force: true });

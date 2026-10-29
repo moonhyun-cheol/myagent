@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, normalizeBrowserUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
+import { loadPinnedInstructions } from '../lib/pinnedInstructions';
 import { showUserNotification } from '../lib/userNotifications';
 import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
 import {
@@ -339,6 +340,7 @@ function mapFsTree(nodes: WorkspaceFsTreeNode[]): FileNode[] {
         name: n.name,
         kind: 'folder' as const,
         children: mapFsTree(n.children ?? []),
+        ...(n.truncated ? { truncated: true } : {}),
       };
     }
     const lower = n.name.toLowerCase();
@@ -515,6 +517,8 @@ interface WorkspaceState {
   setMode: (mode: WorkspaceMode) => void;
   setBrowserInputUrl: (url: string) => void;
   navigateBrowser: (url: string) => void;
+  /** Clear the loaded/input URL so the web tab returns to its start page (history kept). */
+  resetBrowserPage: () => void;
   reloadBrowser: () => void;
   goBrowserBack: () => void;
   goBrowserForward: () => void;
@@ -543,6 +547,8 @@ interface WorkspaceState {
    */
   openMutatedWorkspaceFiles: (paths: string[]) => Promise<void>;
   refreshExplorer: () => Promise<void>;
+  /** Fetch one truncated folder's children and splice them into `files`. */
+  loadExplorerFolder: (folderId: string) => Promise<void>;
   setEditorContent: (value: string) => void;
   saveActiveFile: () => Promise<void>;
   renameWorkspaceFile: (path: string, name: string) => Promise<void>;
@@ -559,6 +565,8 @@ interface WorkspaceState {
   closeDocumentTabsToTheRight: (tabId: string) => Promise<void>;
   closeSavedDocumentTabs: () => Promise<void>;
   appendToDocument: (text: string) => void;
+  /** Show a status notice on one document tab; ttlMs > 0 clears it later unless replaced. */
+  setDocumentTabNotice: (tabId: string, message: string | null, ttlMs?: number) => void;
   openDocumentPath: (relPath: string, initialContent?: string) => Promise<void>;
   saveDocument: () => Promise<void>;
   newDocument: () => Promise<void>;
@@ -1147,6 +1155,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               paths: contextPaths.length ? contextPaths : undefined,
             }
           : undefined;
+      // Sent as a separate field so history, retries and regeneration never contain or duplicate it.
+      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions();
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';
@@ -1174,6 +1184,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         streamChat(
           {
             message: job.displayText,
+            pinned_instructions: pinnedInstructions,
             mode: chatMode === 'chat' ? undefined : chatMode,
             model: job.model,
             execution_policy: job.executionPolicy,
@@ -1656,6 +1667,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           browserHistoryIndex: trimmed.length - 1,
         };
       }),
+    resetBrowserPage: () => set({ browserLoadedUrl: '', browserInputUrl: '' }),
     reloadBrowser: () => set((state) => ({ browserReloadKey: state.browserReloadKey + 1 })),
     goBrowserBack: () =>
       set((state) => {
@@ -2304,10 +2316,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     openFile: async (id) => {
+      if (isAllowedDocumentPath(id)) {
+        await get().openDocumentPath(id);
+        return;
+      }
       const existing = get().openTabs.find((tab) => tab.id === `file:${id}`);
       if (existing) {
         get().setActiveTab(existing.id);
-        set({ mode: 'editor', filesMessage: null });
+        set({ mode: 'objects', filesMessage: null });
         return;
       }
       try {
@@ -2321,7 +2337,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({ filesMessage: null });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ filesMessage: message, activeFileId: id, mode: 'editor' });
+        set({ filesMessage: message, activeFileId: id, mode: 'objects' });
       }
     },
 
@@ -2364,7 +2380,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             const active = get().activeTabId === tabId;
             set({
               openTabs,
-              mode: 'editor',
+              mode: 'objects',
               filesMessage: null,
               ...(active ? { editorContent: content, editorSaveStatus: null } : {}),
             });
@@ -2372,7 +2388,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             lastOpened = rel;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            set({ filesMessage: message, mode: 'editor' });
+            set({ filesMessage: message, mode: 'objects' });
           }
           continue;
         }
@@ -2384,15 +2400,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             language: inferEditorLanguage(rel),
             content,
           });
-          set({ mode: 'editor', filesMessage: null });
+          set({ mode: 'objects', filesMessage: null });
           lastOpened = rel;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          set({ filesMessage: message, mode: 'editor' });
+          set({ filesMessage: message, mode: 'objects' });
         }
       }
       if (lastOpened) {
-        set({ activeFileId: lastOpened, mode: 'editor' });
+        set({ activeFileId: lastOpened, mode: 'objects' });
       }
     },
 
@@ -2423,6 +2439,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const message = err instanceof Error ? err.message : String(err);
         set({ files: [], filesRoot: null, filesMessage: message });
       }
+    },
+
+    loadExplorerFolder: async (folderId) => {
+      const root = get().filesRoot;
+      if (!root) return;
+      const data = await fetchWorkspaceFsTree(2, folderId);
+      if (get().filesRoot !== root) return;
+      const children = mapFsTree(data.tree);
+      const splice = (nodes: FileNode[]): FileNode[] => nodes.map((node) => {
+        if (node.kind !== 'folder') return node;
+        if (node.id === folderId) return { id: node.id, name: node.name, kind: 'folder', children };
+        return node.children?.length ? { ...node, children: splice(node.children) } : node;
+      });
+      set({ files: splice(get().files) });
     },
 
     setEditorContent: (editorContent) => {
@@ -2511,7 +2541,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const existing = get().openTabs.find((item) => item.id === tab.id);
       const activeTab = existing ?? tab;
       set({
-        mode: 'editor',
+        mode: 'objects',
         openTabs: existing ? get().openTabs : [...get().openTabs, tab],
         activeTabId: activeTab.id,
         activeFileId: fileIdFromTabId(activeTab.id),
@@ -2717,6 +2747,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     clearComposerPrefill: () => set({ composerPrefill: null }),
     requestHistoryFocus: () => set({ historyFocusNonce: get().historyFocusNonce + 1 }),
+    setDocumentTabNotice: (tabId, message, ttlMs = 0) => {
+      set({
+        documentTabs: get().documentTabs.map((tab) => (tab.id === tabId ? { ...tab, status: message } : tab)),
+      });
+      if (!message || ttlMs <= 0) return;
+      window.setTimeout(() => {
+        const current = get().documentTabs.find((tab) => tab.id === tabId);
+        if (current?.status === message) get().setDocumentTabNotice(tabId, null);
+      }, ttlMs);
+    },
     appendToDocument: (text) => {
       const chunk = String(text || '');
       if (!chunk.trim()) return;

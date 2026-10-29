@@ -823,7 +823,13 @@ export async function dispatchApiRequest(
           const allowNas = hasNasWriteConsent(overrides);
           assertDevWorkspaceRoot(root, { allowNas });
           const depth = Math.min(5, Math.max(1, Number(url.searchParams.get('depth') ?? 3) || 3));
-          const result = buildWorkspaceUiTree(root, '.', { maxDepth: depth, allowNas });
+          // Optional sub-folder for lazy expansion. The agent read guard accepts absolute paths, so
+          // this UI endpoint must itself stay relative to the workspace root.
+          const relPath = (url.searchParams.get('path') ?? '').trim().replace(/\\/g, '/') || '.';
+          if (/^(?:[A-Za-z]:|\/)/.test(relPath) || relPath.split('/').includes('..')) {
+            return sendJson(res, 400, { error: 'TREE_PATH_OUTSIDE_ROOT', message: '작업 폴더 안의 상대 경로만 열 수 있습니다.', root, tree: [] });
+          }
+          const result = buildWorkspaceUiTree(root, relPath, { maxDepth: depth, allowNas });
           return sendJson(res, 200, result);
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);

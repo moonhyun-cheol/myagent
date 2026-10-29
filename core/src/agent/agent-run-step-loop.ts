@@ -839,7 +839,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       });
       if (hitl.needed) {
         let approved = false;
-        const delegable = canDelegateToolApproval(execCall.function.name, args, state.opts.workspaceRoot);
+        const delegable = canDelegateToolApproval(
+          execCall.function.name,
+          args,
+          state.opts.workspaceRoot,
+          state.opts.allowedWriteRoots,
+        );
         if (state.opts.onToolApproval) {
           const id = createToolApprovalId();
           state.reportStatus(
@@ -851,6 +856,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             tool: execCall.function.name,
             summary: hitl.summary,
             argsPreview: JSON.stringify(args).slice(0, 1200),
+            args,
             danger: hitl.danger,
             delegable,
             access: hitl.access,

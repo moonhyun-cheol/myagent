@@ -133,11 +133,11 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 6px 12px;
   flex-shrink: 0;
   min-width: 0;
-  min-height: 48px;
-  padding: 7px 12px;
+  min-height: 46px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-panel);
 }

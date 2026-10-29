@@ -1363,15 +1363,18 @@ export interface WorkspaceFsTreeNode {
   path: string;
   is_dir: boolean;
   children?: WorkspaceFsTreeNode[];
+  truncated?: boolean;
 }
 
-export async function fetchWorkspaceFsTree(depth = 3): Promise<{
+/** `path` (workspace-relative folder) lazily loads one sub-tree for an expanded folder. */
+export async function fetchWorkspaceFsTree(depth = 3, path?: string): Promise<{
   root: string | null;
   tree: WorkspaceFsTreeNode[];
   message?: string;
 }> {
   const sessionId = getStoredSessionId();
-  const res = await fetch(`/fs/workspace-tree?depth=${depth}&_=${Date.now()}`, {
+  const pathParam = path ? `&path=${encodeURIComponent(path)}` : '';
+  const res = await fetch(`/fs/workspace-tree?depth=${depth}${pathParam}&_=${Date.now()}`, {
     cache: 'no-store',
     headers: sessionId ? { [SESSION_HEADER]: sessionId } : undefined,
   });
@@ -1902,6 +1905,8 @@ export async function streamChat(
     };
     /** Explicit session (queue jobs must not use the viewed session). */
     sessionId?: string;
+    /** User-pinned standing instructions; core adds them as context, not message text. */
+    pinned_instructions?: string[];
   },
   handlers: StreamHandlers,
 ): Promise<void> {
@@ -1915,6 +1920,7 @@ export async function streamChat(
   if (opts.execution_policy) body.execution_policy = opts.execution_policy;
   if (opts.mode && opts.mode !== 'chat') body.mode = opts.mode;
   if (opts.editor_context) body.editor_context = opts.editor_context;
+  if (opts.pinned_instructions?.length) body.pinned_instructions = opts.pinned_instructions;
 
   const res = await fetch('/chat/stream', {
     method: 'POST',

@@ -25,6 +25,7 @@ import {
   navigateInAppBrowser,
   openInAppBrowser,
   openInAppBrowserDevTools,
+  resetInAppBrowserTab,
   resumeInAppBrowser,
   returnFromObservedBrowserTab,
   takeOverInAppBrowserTab,
@@ -54,11 +55,19 @@ const VIEWPORT_PRESETS: ViewportPreset[] = [
 
 const EXCESSIVE_TAB_WARNING_AT = 9;
 
+function sanitizeReportedBrowserUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed || /^about:blank$/i.test(trimmed)) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : '';
+}
+
 function browserTabLabel(tab: InAppBrowserTab): string {
   const title = tab.title.trim();
-  if (title && title !== '현재 인앱 웹 페이지') return title;
-  if (!tab.url) return '새 탭';
-  try { return new URL(tab.url).hostname || tab.url; } catch { return tab.url; }
+  if (title && title !== '현재 인앱 웹 페이지' && !/^about:blank$/i.test(title)) return title;
+  const cleanUrl = sanitizeReportedBrowserUrl(tab.url);
+  if (!cleanUrl) return '새 탭';
+  try { return new URL(cleanUrl).hostname || cleanUrl; } catch { return cleanUrl; }
 }
 
 function browserTabFavicon(tab: InAppBrowserTab): string | null {
@@ -71,6 +80,7 @@ function browserTabFavicon(tab: InAppBrowserTab): string | null {
 export function BrowserPane() {
   const browserInputUrl = useWorkspaceStore((s) => s.browserInputUrl);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
+  const browserHistory = useWorkspaceStore((s) => s.browserHistory);
   const storeCanGoBack = useWorkspaceStore((s) => s.browserHistoryIndex > 0);
   const storeCanGoForward = useWorkspaceStore(
     (s) => s.browserHistoryIndex >= 0 && s.browserHistoryIndex < s.browserHistory.length - 1,
@@ -81,10 +91,12 @@ export function BrowserPane() {
   const reloadBrowser = useWorkspaceStore((s) => s.reloadBrowser);
   const goBrowserBack = useWorkspaceStore((s) => s.goBrowserBack);
   const goBrowserForward = useWorkspaceStore((s) => s.goBrowserForward);
+  const resetBrowserPage = useWorkspaceStore((s) => s.resetBrowserPage);
   const shellAvailable = isShellInAppBrowserAvailable();
   const [shellVisible, setShellVisible] = useState(false);
   const [shellLoading, setShellLoading] = useState(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [shellStatus, setShellStatus] = useState('');
   const [shellCanGoBack, setShellCanGoBack] = useState(false);
   const [shellCanGoForward, setShellCanGoForward] = useState(false);
@@ -100,16 +112,17 @@ export function BrowserPane() {
   const [customWidth, setCustomWidth] = useState('390');
   const [customHeight, setCustomHeight] = useState('844');
 
+  const normalizedLoadedUrl = sanitizeReportedBrowserUrl(browserLoadedUrl);
   const shellPageUrl = shellStateReceived
-    ? shellUrl
-    : browserLoadedUrl && !isLocalPreviewUrl(browserLoadedUrl) ? browserLoadedUrl : '';
+    ? sanitizeReportedBrowserUrl(shellUrl)
+    : normalizedLoadedUrl && !isLocalPreviewUrl(normalizedLoadedUrl) ? normalizedLoadedUrl : '';
   const useIframeSurface = Boolean(
-    browserLoadedUrl && (!shellAvailable || isLocalPreviewUrl(browserLoadedUrl)),
+    normalizedLoadedUrl && (!shellAvailable || isLocalPreviewUrl(normalizedLoadedUrl)),
   );
   const useShellSurface = Boolean(
     !useIframeSurface && shellAvailable && shellPageUrl && !isLocalPreviewUrl(shellPageUrl),
   );
-  const activeBrowserUrl = useShellSurface ? shellPageUrl : useIframeSurface ? browserLoadedUrl : '';
+  const activeBrowserUrl = useShellSurface ? shellPageUrl : useIframeSurface ? normalizedLoadedUrl : '';
   const canGoBack = useShellSurface ? shellCanGoBack : storeCanGoBack;
   const canGoForward = useShellSurface ? shellCanGoForward : storeCanGoForward;
 
@@ -118,28 +131,36 @@ export function BrowserPane() {
     return subscribeInAppBrowserState((state) => {
       const firstState = !hasShellState.current;
       hasShellState.current = true;
+      const cleanStateUrl = sanitizeReportedBrowserUrl(state.url);
+      const cleanTabs = state.tabs.map((tab) => ({
+        ...tab,
+        url: sanitizeReportedBrowserUrl(tab.url),
+      }));
       setShellVisible(state.visible);
       setShellLoading(state.loading);
       setShellStatus(state.status);
       setShellCanGoBack(state.canGoBack);
       setShellCanGoForward(state.canGoForward);
-      setShellUrl(state.url);
+      setShellUrl(cleanStateUrl);
       setShellStateReceived(true);
-      setShellTabs(state.tabs);
+      setShellTabs(cleanTabs);
       setReturnTabId(state.returnTabId);
       const store = useWorkspaceStore.getState();
-      const recoverUrl = firstState && !state.url && store.browserLoadedUrl
-        && !isLocalPreviewUrl(store.browserLoadedUrl) ? store.browserLoadedUrl : '';
+      const storedUrl = sanitizeReportedBrowserUrl(store.browserLoadedUrl);
+      const recoverUrl = firstState && !cleanStateUrl && storedUrl
+        && !isLocalPreviewUrl(storedUrl) ? storedUrl : '';
       if (recoverUrl) {
         resumeInAppBrowser(recoverUrl);
       }
       if (lastActiveTabId.current !== state.activeTabId) {
         lastActiveTabId.current = state.activeTabId;
-        if (!recoverUrl) store.setBrowserInputUrl(state.url);
+        if (!recoverUrl) store.setBrowserInputUrl(cleanStateUrl);
+      } else if (/^about:blank$/i.test(store.browserInputUrl.trim())) {
+        store.setBrowserInputUrl(cleanStateUrl);
       }
-      if (/^https?:\/\//i.test(state.url)) {
-        if (state.url !== store.browserLoadedUrl) {
-          store.navigateBrowser(state.url);
+      if (cleanStateUrl) {
+        if (cleanStateUrl !== store.browserLoadedUrl) {
+          store.navigateBrowser(cleanStateUrl);
         }
       }
     });
@@ -188,9 +209,8 @@ export function BrowserPane() {
     window.open(activeBrowserUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const url = normalizeBrowserUrl(browserInputUrl);
+  const navigateToUrl = (rawUrl: string) => {
+    const url = normalizeBrowserUrl(rawUrl);
     if (!url) {
       setMessage('웹 주소를 입력하세요. 예: example.com 또는 https://example.com');
       return;
@@ -205,6 +225,11 @@ export function BrowserPane() {
       // Sending a command is not evidence that the native browser is visible.
       setShellStatus('브라우저 열기를 요청했습니다.');
     }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    navigateToUrl(browserInputUrl);
   };
 
   const onBack = () => {
@@ -226,14 +251,33 @@ export function BrowserPane() {
   const createTab = () => {
     setMessage(null);
     createInAppBrowserTab();
+    setBrowserInputUrl('');
+    requestAnimationFrame(() => urlInputRef.current?.focus());
   };
 
   const closeTab = (tab: InAppBrowserTab) => {
-    if (tab.primary || tab.controlled) return;
+    if (tab.controlled) return;
+    if (tab.primary) {
+      // Target the primary tab explicitly: the shell suppresses its stale URL until the next open,
+      // so the state echo cannot navigate the store back to the previous page.
+      resetInAppBrowserTab(tab.id);
+      if (tab.active) {
+        setShellUrl('');
+        setShellVisible(false);
+        setShellStatus('');
+        setMessage(null);
+        resetBrowserPage();
+        requestAnimationFrame(() => urlInputRef.current?.focus());
+      }
+      return;
+    }
     closeInAppBrowserTab(tab.id);
   };
 
   const activeShellTab = shellTabs.find((tab) => tab.active) ?? null;
+  const recentUrls = Array.from(
+    new Set(browserHistory.map((u) => sanitizeReportedBrowserUrl(u)).filter(Boolean).reverse()),
+  ).slice(0, 4);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-ink" aria-label="Preview 웹 뷰어">
@@ -263,16 +307,18 @@ export function BrowserPane() {
                   ) : null}
                   {tab.loading ? <span className="shrink-0 text-accent" aria-label="로딩 중">•</span> : null}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => closeTab(tab)}
-                  disabled={tab.primary || tab.controlled}
-                  title={tab.primary ? '기본 탭은 유지됩니다' : tab.controlled ? '제어권을 가져온 뒤 닫을 수 있습니다' : `${label} 닫기`}
-                  aria-label={`${label} 닫기`}
-                  className="shrink-0 rounded p-1 text-muted opacity-70 hover:bg-panel-2 hover:text-text disabled:cursor-default disabled:opacity-25"
-                >
-                  <X size={12} weight="bold" />
-                </button>
+                {!tab.primary || tab.url ? (
+                  <button
+                    type="button"
+                    onClick={() => closeTab(tab)}
+                    disabled={tab.controlled}
+                    title={tab.controlled ? '제어권을 가져온 뒤 닫을 수 있습니다' : tab.primary ? '주소 지우기' : `${label} 닫기`}
+                    aria-label={tab.primary ? `${label} 초기화` : `${label} 닫기`}
+                    className="shrink-0 rounded p-1 text-muted opacity-70 hover:bg-panel-2 hover:text-text disabled:cursor-default disabled:opacity-25"
+                  >
+                    <X size={12} weight="bold" />
+                  </button>
+                ) : null}
               </div>
             );
           })}
@@ -343,6 +389,7 @@ export function BrowserPane() {
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-ink px-2.5 py-1.5 focus-within:border-accent/70">
           <GlobeSimple size={15} className="shrink-0 text-muted" />
           <input
+            ref={urlInputRef}
             value={browserInputUrl}
             onChange={(event) => setBrowserInputUrl(event.target.value)}
             type="text"
@@ -350,10 +397,18 @@ export function BrowserPane() {
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            placeholder="example.com 또는 https://…"
+            placeholder="example.com 또는 http://localhost:3000…"
             aria-label="웹 주소"
             className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-muted"
           />
+          {browserInputUrl.trim() ? (
+            <button
+              type="submit"
+              className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
+            >
+              이동
+            </button>
+          ) : null}
         </label>
         <button type="button" onClick={() => activeShellTab && openInAppBrowserDevTools(activeShellTab.id)}
           disabled={!useShellSurface || !activeShellTab || activeShellTab.controlled}
@@ -367,7 +422,7 @@ export function BrowserPane() {
           className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover disabled:opacity-35">
           <ArrowSquareOut size={16} />
         </button>
-        {!useShellSurface && <div className="relative shrink-0">
+        {(useIframeSurface || !shellAvailable) && <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setViewportOpen((open) => !open)}
@@ -485,7 +540,20 @@ export function BrowserPane() {
       ) : null}
       <div className={`relative min-h-0 flex-1 ${useShellSurface ? 'overflow-hidden' : 'overflow-auto bg-[#d7dcd9] p-4'}`}>
         {useShellSurface ? (
-          <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="h-full w-full bg-panel" aria-label="인앱 웹 페이지" />
+          <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="flex h-full w-full items-center justify-center bg-panel text-center" aria-label="인앱 웹 페이지">
+            {!shellVisible ? (
+              <div className="px-6 text-xs text-muted">
+                <p className="font-medium text-text">{shellLoading ? '인앱 웹 페이지를 불러오는 중…' : '웹 페이지가 표시되지 않았습니다'}</p>
+                <p className="mt-1 break-all text-[11px] text-muted">{shellPageUrl}</p>
+                {!shellLoading ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+                    <button type="button" onClick={() => resumeInAppBrowser(shellPageUrl)} className="ui-secondary">다시 열기</button>
+                    <button type="button" onClick={openExternal} className="ui-secondary">외부에서 열기</button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         ) : useIframeSurface ? (
           <div className="flex min-h-full min-w-full items-start justify-center">
             <div
@@ -505,15 +573,53 @@ export function BrowserPane() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 bg-ink px-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-4 bg-ink px-6 text-center">
             <GlobeSimple size={34} className="text-accent" weight="duotone" />
             <div>
               <p className="text-sm font-medium text-text">웹 미리보기</p>
               <p className="mt-1 text-xs text-muted">
                 {shellAvailable
-                  ? '주소를 입력한 뒤 Enter — 실제 사이트는 인앱 브라우저로 열립니다'
+                  ? '주소를 입력한 뒤 Enter — 외부 사이트는 인앱 브라우저로, 로컬 서버는 반응형 프레임으로 열립니다'
                   : '주소 입력 후 Enter (로컬 서버 미리보기에 적합)'}
               </p>
+            </div>
+            <div className="flex max-w-md flex-wrap items-center justify-center gap-1.5">
+              {recentUrls.length > 0 ? (
+                recentUrls.map((url) => (
+                  <button
+                    key={url}
+                    type="button"
+                    onClick={() => navigateToUrl(url)}
+                    title={url}
+                    className="max-w-[200px] truncate rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-text hover:border-accent/60"
+                  >
+                    {url.replace(/^https?:\/\//i, '')}
+                  </button>
+                ))
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrowserInputUrl('http://localhost:3000');
+                      urlInputRef.current?.focus();
+                    }}
+                    className="rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/60 hover:text-text"
+                  >
+                    localhost:3000
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrowserInputUrl('http://localhost:5173');
+                      urlInputRef.current?.focus();
+                    }}
+                    className="rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/60 hover:text-text"
+                  >
+                    localhost:5173
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

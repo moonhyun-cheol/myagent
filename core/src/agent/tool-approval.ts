@@ -18,7 +18,10 @@ export interface ToolApprovalRequest {
   id: string;
   tool: string;
   summary: string;
+  /** UI string, capped at 1,200 chars. Not parsed by the reviewer when `args` is present. */
   argsPreview: string;
+  /** Full parsed arguments. The reviewer picks and caps fields itself; never sent to the UI. */
+  args?: Record<string, unknown>;
   danger: boolean;
   delegable?: boolean;
   /** Structured capability boundary; UI must not infer this from Korean prose. */
@@ -70,6 +73,24 @@ function normalizeToolPath(candidate: unknown, workspaceRoot: string): string | 
   return isAbsoluteUserPath(candidate)
     ? normalizeWorkspacePath(candidate)
     : path.resolve(normalizeWorkspacePath(workspaceRoot), candidate);
+}
+
+/**
+ * Folders registered with the conversation/project (`allowedWriteRoots`) count as the
+ * workspace for delegation. Network shares never do, even when registered.
+ */
+export function delegableExtraRoots(extraRoots: readonly string[] | undefined): string[] {
+  return (extraRoots ?? [])
+    .filter((root) => typeof root === 'string' && root.trim() && !isNetworkSharePath(root))
+    .map((root) => normalizeWorkspacePath(root));
+}
+
+function pathInsideDelegableRoots(candidate: unknown, workspaceRoot: string, extraRoots: readonly string[]): boolean {
+  if (pathInsideWorkspace(candidate, workspaceRoot)) return true;
+  if (!extraRoots.length) return false;
+  const resolved = normalizeToolPath(candidate, workspaceRoot);
+  if (!resolved || isNetworkSharePath(resolved)) return false;
+  return extraRoots.some((root) => pathWithinGrant(resolved, root));
 }
 
 function extractPatchTextPaths(patch: unknown): string[] {
@@ -198,7 +219,11 @@ export function canDelegateToolApproval(
   toolName: string,
   args: Record<string, unknown>,
   workspaceRoot: string,
+  /** Registered conversation/project folders (e.g. a local rulebook folder). UNC roots are ignored. */
+  allowedWriteRoots?: readonly string[],
 ): boolean {
+  const extraRoots = delegableExtraRoots(allowedWriteRoots);
+  const inside = (candidate: unknown) => pathInsideDelegableRoots(candidate, workspaceRoot, extraRoots);
   const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files';
   // NAS / network-share workspaces: a model may never approve a mutation or a
   // terminal command there (the shell would run with the share as cwd).
@@ -206,7 +231,7 @@ export function canDelegateToolApproval(
   if (toolName === 'run_terminal') {
     const command = String(args.command ?? '');
     if (/\\\\[^\\\s"']+\\/.test(command)) return false;
-    return externalTerminalPaths(command, workspaceRoot).length === 0;
+    return externalTerminalPaths(command, workspaceRoot, extraRoots).length === 0;
   }
   // Git builtins act on the bound repo only (NAS repos were rejected above). Push is
   // delegable but fixed severe, so the decision model needs an explicit user command.
@@ -217,12 +242,12 @@ export function canDelegateToolApproval(
     return typeof target === 'string' && target.trim().length > 0;
   }
   if (toolName === 'write_file') {
-    return pathInsideWorkspace(args.path, workspaceRoot) && !isOfficeBinaryPath(String(args.path ?? ''));
+    return inside(args.path) && !isOfficeBinaryPath(String(args.path ?? ''));
   }
   // Workspace file deletes are snapshotted before a model-approved run, so they are
   // reversible and the decision model judges their severity like any other mutation.
   if (toolName === 'delete_file') {
-    return pathInsideWorkspace(args.path, workspaceRoot);
+    return inside(args.path);
   }
   if (toolName === 'apply_patch') {
     const patchActions = ['add', 'update', 'delete'];
@@ -241,7 +266,7 @@ export function canDelegateToolApproval(
       paths = [...args.patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File:\s*(.+)$/gm)].map((match) => match[1].trim());
       if (/^\*\*\* (?:Move File:|Move to:)/m.test(args.patch)) return false;
     }
-    return paths.length > 0 && paths.every((p) => pathInsideWorkspace(p, workspaceRoot) && !isOfficeBinaryPath(String(p ?? '')));
+    return paths.length > 0 && paths.every((p) => inside(p) && !isOfficeBinaryPath(String(p ?? '')));
   }
   // Rollback/plugin changes, moves, and every external write (NAS included)
   // deliberately stay outside delegated authority.
@@ -467,7 +492,7 @@ export function needsHumanApproval(
   if (toolName === 'run_terminal') {
     const cmd = typeof args.command === 'string' ? args.command : '?';
     const external = context?.workspaceRoot
-      ? externalTerminalPaths(cmd, context.workspaceRoot) : [];
+      ? externalTerminalPaths(cmd, context.workspaceRoot, delegableExtraRoots(context.allowedWriteRoots)) : [];
     if (!external.length && hitlSafeTerminalEnabled(env) && isSafeVerifyTerminalCommand(cmd)) {
       return { needed: false, danger: false, summary: '' };
     }

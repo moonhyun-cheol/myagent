@@ -31,6 +31,7 @@ import {
   resolveWorkspaceRootsForSession,
   buildWorkspaceContext,
   buildUserMemoryContext,
+  buildPinnedInstructionsContext,
 } from '../session-context.js';
 import { buildDevWorkspaceContext } from '../../agent/dev-workspace-fs.js';
 import { buildEditorContextSnippet } from '../editor-context.js';
@@ -254,6 +255,7 @@ export async function runWorkspaceCodeAgent(opts: {
   const editorSnippet = buildEditorContextSnippet(req?.editor_context);
   const workspaceContext = workspaceLock.narrowed
     ? [
+        buildPinnedInstructionsContext(req),
         editorSnippet,
         buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
         buildDevWorkspaceContext(workspaceRoot, {}, {

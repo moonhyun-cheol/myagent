@@ -11,9 +11,11 @@ export function terminalAbsolutePaths(command: string): string[] {
   return [...new Set(paths)];
 }
 
-export function externalTerminalPaths(command: string, workspaceRoot: string): string[] {
-  return terminalAbsolutePaths(command).filter((target) => {
-    const rel = path.win32.relative(workspaceRoot, target);
+/** Literal paths outside the workspace and every registered extra root. */
+export function externalTerminalPaths(command: string, workspaceRoot: string, extraRoots: readonly string[] = []): string[] {
+  const roots = [workspaceRoot, ...extraRoots].filter((root) => typeof root === 'string' && root.trim());
+  return terminalAbsolutePaths(command).filter((target) => roots.every((root) => {
+    const rel = path.win32.relative(root, target);
     return rel === '..' || rel.startsWith('..\\') || path.win32.isAbsolute(rel);
-  });
+  }));
 }
