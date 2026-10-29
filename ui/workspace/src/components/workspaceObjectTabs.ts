@@ -1,11 +1,12 @@
 import {
   CheckSquareOffset,
   ClockCounterClockwise,
+  FileCode,
   FolderOpen,
   type Icon,
 } from '@phosphor-icons/react';
 
-export type WorkspaceObjectTabId = 'recent' | 'files' | 'todo';
+export type WorkspaceObjectTabId = 'recent' | 'files' | 'open' | 'todo';
 
 export interface WorkspaceObjectTabDefinition {
   id: WorkspaceObjectTabId;
@@ -27,6 +28,12 @@ export const WORKSPACE_OBJECT_TABS: readonly WorkspaceObjectTabDefinition[] = [
     label: '파일',
     description: '연결된 작업 폴더의 파일 구조를 확인합니다.',
     icon: FolderOpen,
+  },
+  {
+    id: 'open',
+    label: '열린 파일',
+    description: '앱 안에서 연 코드·설정 파일을 보고 편집합니다.',
+    icon: FileCode,
   },
   {
     id: 'todo',

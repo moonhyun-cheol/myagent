@@ -24,6 +24,7 @@ export function isAvailableWorkspacePreviewMode(value: string | null): value is 
 }
 
 export function resolveAvailableWorkspacePreviewMode(mode: WorkspaceMode): WorkspacePreviewMode {
+  // Legacy persisted values only: code files now open in 작업 →「열린 파일」(store sets 'objects').
   if (mode === 'editor') return 'objects';
   if (mode === 'canvas') return 'document';
   const definition = WORKSPACE_PREVIEW_MODES.find((item) => item.id === mode);

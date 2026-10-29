@@ -2385,7 +2385,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             const active = get().activeTabId === tabId;
             set({
               openTabs,
-              mode: 'editor',
+              mode: 'objects',
               filesMessage: null,
               ...(active ? { editorContent: content, editorSaveStatus: null } : {}),
             });
@@ -2393,7 +2393,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             lastOpened = rel;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            set({ filesMessage: message, mode: 'editor' });
+            set({ filesMessage: message, mode: 'objects' });
           }
           continue;
         }
@@ -2405,15 +2405,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             language: inferEditorLanguage(rel),
             content,
           });
-          set({ mode: 'editor', filesMessage: null });
+          set({ mode: 'objects', filesMessage: null });
           lastOpened = rel;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          set({ filesMessage: message, mode: 'editor' });
+          set({ filesMessage: message, mode: 'objects' });
         }
       }
       if (lastOpened) {
-        set({ activeFileId: lastOpened, mode: 'editor' });
+        set({ activeFileId: lastOpened, mode: 'objects' });
       }
     },
 

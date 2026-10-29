@@ -1,27 +1,21 @@
-import Editor, { type OnMount } from '@monaco-editor/react';
 import {
   ArrowSquareOut,
-  CaretDown,
-  CaretUp,
   Check,
   Code,
   DownloadSimple,
   FileText,
-  FloppyDisk,
   Folder,
   Image as ImageIcon,
   LinkSimple,
-  X,
 } from '@phosphor-icons/react';
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
-import { openWorkspacePathInExplorer } from '../api/myAgentClient';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isAllowedDocumentPath } from '../lib/documentFile';
 import { navigateTabs } from '../lib/tabNavigation';
-import { useTheme } from '../lib/theme';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
 import type { WorkspaceAsset } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { AssetExplorer } from './AssetExplorer';
+import { InlineCodeViewer } from './InlineCodeViewer';
 import {
   WORKSPACE_OBJECT_TABS,
   type WorkspaceObjectTabId,
@@ -143,47 +137,37 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
 
 export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = [], todoError = null }: { showDownloadActions?: boolean; todoItems?: TodoProgressItem[]; todoError?: string | null }) {
   const tabId = useId();
-  const { resolved: theme } = useTheme();
-  const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>('recent');
-  const [viewerCollapsed, setViewerCollapsed] = useState(false);
   const [instructionDraft, setInstructionDraft] = useState('');
   const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
   const assets = useWorkspaceStore((state) => state.assets);
   const browserHistory = useWorkspaceStore((state) => state.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((state) => state.browserLoadedUrl);
   const filesRoot = useWorkspaceStore((state) => state.filesRoot);
-  const openTabs = useWorkspaceStore((state) => state.openTabs);
-  const activeTabId = useWorkspaceStore((state) => state.activeTabId);
-  const setActiveEditorTab = useWorkspaceStore((state) => state.setActiveTab);
-  const closeEditorTab = useWorkspaceStore((state) => state.closeEditorTab);
-  const setEditorContent = useWorkspaceStore((state) => state.setEditorContent);
-  const saveActiveFile = useWorkspaceStore((state) => state.saveActiveFile);
-  const editorSaving = useWorkspaceStore((state) => state.editorSaving);
-  const editorSaveStatus = useWorkspaceStore((state) => state.editorSaveStatus);
+  const openTabCount = useWorkspaceStore((state) => state.openTabs.length);
+  const activeEditorTabId = useWorkspaceStore((state) => state.activeTabId);
+  const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>(
+    () => (openTabCount > 0 && activeEditorTabId ? 'open' : 'recent'),
+  );
   const setMode = useWorkspaceStore((state) => state.setMode);
   const navigateBrowser = useWorkspaceStore((state) => state.navigateBrowser);
   const refreshExplorer = useWorkspaceStore((state) => state.refreshExplorer);
   const workAssets = useMemo(() => assets.filter((asset) => Boolean(asset.sourcePath || asset.imageUrl)), [assets]);
   const references = useMemo(() => browserHistory.slice().reverse().slice(0, 6), [browserHistory]);
-  const activeEditorTab = useMemo(
-    () => openTabs.find((tab) => tab.id === activeTabId) ?? null,
-    [openTabs, activeTabId],
+  const visibleTabs = useMemo(
+    () => WORKSPACE_OBJECT_TABS.filter((tab) => tab.id !== 'open' || openTabCount > 0),
+    [openTabCount],
   );
-  const activeEditorFilePath = activeEditorTab?.id.startsWith('file:')
-    ? activeEditorTab.id.slice('file:'.length)
-    : null;
+  const lastEditorTabId = useRef(activeEditorTabId);
 
   useEffect(() => { void refreshExplorer(); }, [refreshExplorer]);
+  // Opening a file (from any pane) shows it in 「열린 파일」 instead of pushing the other sub-tabs down.
   useEffect(() => {
-    if (activeEditorTab) setViewerCollapsed(false);
-  }, [activeEditorTab?.id]);
-  // Ctrl/Cmd+S belongs to the focused Monaco instance only; the chat composer and other
-  // panes must never save a code file. getState() avoids a stale closure across tab switches.
-  const onEditorMount: OnMount = (editor, monaco) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void useWorkspaceStore.getState().saveActiveFile();
-    });
-  };
+    if (activeEditorTabId && activeEditorTabId !== lastEditorTabId.current) setActiveTab('open');
+    lastEditorTabId.current = activeEditorTabId;
+  }, [activeEditorTabId]);
+  useEffect(() => {
+    if (openTabCount === 0) setActiveTab((current) => (current === 'open' ? 'files' : current));
+  }, [openTabCount]);
 
   const savePinnedInstructions = (next: string[]) => {
     setPinnedInstructions(next);
@@ -212,117 +196,16 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
       </header>
 
       <nav className="workspace-subnav" aria-label="작업 내역 보기" role="tablist" onKeyDown={navigateTabs}>
-        {WORKSPACE_OBJECT_TABS.map(({ id, label, icon: Icon }) => {
+        {visibleTabs.map(({ id, label, icon: Icon }) => {
           const selected = id === activeTab;
-          const count = id === 'recent' ? workAssets.length : id === 'todo' ? todoItems.length : undefined;
+          const count = id === 'recent' ? workAssets.length : id === 'todo' ? todoItems.length : id === 'open' ? openTabCount : undefined;
           return <button key={id} id={`${tabId}-${id}`} aria-controls={`${tabId}-body`} tabIndex={selected ? 0 : -1} type="button" aria-selected={selected} role="tab" onClick={() => setActiveTab(id)} className="ui-tab"><Icon size={14} weight={selected ? 'fill' : 'regular'} />{label}{count !== undefined && count > 0 ? <span>{count}</span> : null}</button>;
         })}
       </nav>
 
-      {activeEditorTab ? (
-        <div
-          className={`flex shrink-0 flex-col border-b border-line bg-ink ${
-            viewerCollapsed ? 'h-auto' : 'h-[48%] min-h-[200px]'
-          }`}
-          data-testid="inline-code-viewer"
-        >
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1">
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="열린 코드 파일">
-              {openTabs.map((tab) => {
-                const isActive = tab.id === activeEditorTab.id;
-                const label = tab.id.startsWith('file:') ? tab.id.slice('file:'.length).split(/[\\/]/).pop() || tab.title : tab.title;
-                return (
-                  <div
-                    key={tab.id}
-                    className={`flex shrink-0 items-center rounded border text-[11px] ${
-                      isActive ? 'border-accent/60 bg-selected text-text' : 'border-line/70 text-muted hover:text-text'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={() => {
-                        setActiveEditorTab(tab.id);
-                        setViewerCollapsed(false);
-                      }}
-                      className="max-w-36 truncate px-2 py-0.5 font-medium"
-                      title={tab.id.startsWith('file:') ? tab.id.slice('file:'.length) : tab.title}
-                    >
-                      {label}{tab.dirty ? ' ●' : ''}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => closeEditorTab(tab.id)}
-                      aria-label={`${label} 닫기`}
-                      className="px-1 py-0.5 text-muted hover:text-text"
-                    >
-                      <X size={11} weight="bold" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {editorSaveStatus ? (
-                <span className="text-[10px] text-muted">{editorSaveStatus}</span>
-              ) : null}
-              {activeEditorFilePath ? (
-                <>
-                  <button
-                    type="button"
-                    disabled={editorSaving || !activeEditorTab.dirty}
-                    onClick={() => void saveActiveFile()}
-                    title="파일 저장 (Ctrl+S)"
-                    className="inline-flex items-center gap-1 rounded border border-line px-2 py-0.5 text-[10px] text-text hover:border-accent/60 disabled:opacity-40"
-                  >
-                    <FloppyDisk size={12} />
-                    저장
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openWorkspacePathInExplorer(activeEditorFilePath)}
-                    title="탐색기에서 위치 열기"
-                    className="inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] text-muted hover:border-accent/60 hover:text-text"
-                  >
-                    <ArrowSquareOut size={12} />
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setViewerCollapsed((v) => !v)}
-                title={viewerCollapsed ? '코드 뷰어 펼치기' : '코드 뷰어 접기'}
-                aria-label={viewerCollapsed ? '코드 뷰어 펼치기' : '코드 뷰어 접기'}
-                className="inline-flex items-center rounded border border-line p-1 text-muted hover:border-accent/60 hover:text-text"
-              >
-                {viewerCollapsed ? <CaretDown size={12} /> : <CaretUp size={12} />}
-              </button>
-            </div>
-          </div>
-          {!viewerCollapsed ? (
-            <div className="min-h-0 flex-1">
-              <Editor
-                height="100%"
-                language={activeEditorTab.language || 'plaintext'}
-                theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-                value={activeEditorTab.content}
-                onChange={(val) => setEditorContent(val ?? '')}
-                onMount={onEditorMount}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 12,
-                  wordWrap: 'on',
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                }}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <div id={`${tabId}-body`} className={`min-h-0 flex-1 ${activeTab === 'open' ? 'overflow-hidden' : 'overflow-auto'}`} role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`}>
+        {activeTab === 'open' ? <InlineCodeViewer /> : null}
 
-      <div id={`${tabId}-body`} className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`}>
         {activeTab === 'recent' && references.length === 0 && !browserLoadedUrl && workAssets.length === 0 ? <EmptyState>참조 링크와 생성·변경 파일이 여기에 표시됩니다.</EmptyState> : activeTab === 'recent' ? <>
           {references.length > 0 || browserLoadedUrl ? (
             <section className="border-b border-line">
