@@ -1363,15 +1363,18 @@ export interface WorkspaceFsTreeNode {
   path: string;
   is_dir: boolean;
   children?: WorkspaceFsTreeNode[];
+  truncated?: boolean;
 }
 
-export async function fetchWorkspaceFsTree(depth = 3): Promise<{
+/** `path` (workspace-relative folder) lazily loads one sub-tree for an expanded folder. */
+export async function fetchWorkspaceFsTree(depth = 3, path?: string): Promise<{
   root: string | null;
   tree: WorkspaceFsTreeNode[];
   message?: string;
 }> {
   const sessionId = getStoredSessionId();
-  const res = await fetch(`/fs/workspace-tree?depth=${depth}&_=${Date.now()}`, {
+  const pathParam = path ? `&path=${encodeURIComponent(path)}` : '';
+  const res = await fetch(`/fs/workspace-tree?depth=${depth}${pathParam}&_=${Date.now()}`, {
     cache: 'no-store',
     headers: sessionId ? { [SESSION_HEADER]: sessionId } : undefined,
   });

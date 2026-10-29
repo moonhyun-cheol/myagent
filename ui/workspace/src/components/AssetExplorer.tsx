@@ -16,37 +16,90 @@ import type { FileNode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { ContextMenuPortal, useContextMenu, type ContextMenuItem } from './ContextMenu';
 
-function filterFileNodes(nodes: FileNode[], query: string): FileNode[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return nodes;
-  const out: FileNode[] = [];
-  for (const node of nodes) {
-    if (node.kind === 'folder') {
-      const folderMatches = node.name.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
-      const filteredChildren = filterFileNodes(node.children ?? [], q);
-      if (filteredChildren.length > 0) {
-        out.push({ ...node, children: filteredChildren });
-      } else if (folderMatches) {
-        out.push({ ...node, children: node.children ?? [] });
-      }
-    } else if (node.name.toLowerCase().includes(q) || node.id.toLowerCase().includes(q)) {
-      out.push(node);
-    }
-  }
-  return out;
+const SEARCH_RESULT_LIMIT = 200;
+
+interface FilteredTree {
+  nodes: FileNode[];
+  /** Ancestors of matches: these open automatically at any depth. */
+  expandIds: Set<string>;
+  limited: boolean;
 }
 
-function TreeItem({ node, depth = 0, forceExpand = false }: { node: FileNode; depth?: number; forceExpand?: boolean }) {
+/**
+ * Keep matching files/folders and the folders leading to them. A folder that matches by name keeps
+ * its original children but stays collapsed, so a broad query cannot expand the whole repository.
+ */
+function filterFileNodes(nodes: FileNode[], query: string): FilteredTree {
+  const q = query.trim().toLowerCase();
+  const expandIds = new Set<string>();
+  if (!q) return { nodes, expandIds, limited: false };
+  let matches = 0;
+  let limited = false;
+  const hit = (node: FileNode) => node.name.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
+  const visit = (list: FileNode[]): FileNode[] => {
+    const out: FileNode[] = [];
+    for (const node of list) {
+      if (matches >= SEARCH_RESULT_LIMIT) { limited = true; break; }
+      if (node.kind === 'folder') {
+        const children = visit(node.children ?? []);
+        if (children.length > 0) {
+          expandIds.add(node.id);
+          out.push({ ...node, children });
+        } else if (hit(node)) {
+          matches += 1;
+          out.push(node);
+        }
+      } else if (hit(node)) {
+        matches += 1;
+        out.push(node);
+      }
+    }
+    return out;
+  };
+  const filtered = visit(nodes);
+  return { nodes: filtered, expandIds, limited };
+}
+
+function hasTruncatedFolder(nodes: FileNode[]): boolean {
+  return nodes.some((node) => node.kind === 'folder' && (node.truncated || hasTruncatedFolder(node.children ?? [])));
+}
+
+function TreeItem({ node, depth = 0, expandIds }: { node: FileNode; depth?: number; expandIds: Set<string> }) {
   const openFile = useWorkspaceStore((s) => s.openFile);
   const activeFileId = useWorkspaceStore((s) => s.activeFileId);
   const addContextPath = useWorkspaceStore((s) => s.addContextPath);
   const appendToDocument = useWorkspaceStore((s) => s.appendToDocument);
   const openDocumentPath = useWorkspaceStore((s) => s.openDocumentPath);
+  const loadExplorerFolder = useWorkspaceStore((s) => s.loadExplorerFolder);
+  const setDocumentTabNotice = useWorkspaceStore((s) => s.setDocumentTabNotice);
+  const setMode = useWorkspaceStore((s) => s.setMode);
   const { menu, openAt, close } = useContextMenu();
   const [open, setOpen] = useState(false);
+  const [folderLoad, setFolderLoad] = useState<'idle' | 'loading' | 'failed'>('idle');
   const [openState, setOpenState] = useState<'idle' | 'opening' | 'failed'>('idle');
   const [openError, setOpenError] = useState('');
-  const isExpanded = (forceExpand && depth < 3) || open;
+  const searchExpanded = expandIds.has(node.id);
+  const isExpanded = open;
+
+  // Search results open their ancestor folders; the user can still collapse them afterwards.
+  useEffect(() => { if (searchExpanded) setOpen(true); }, [searchExpanded]);
+
+  const loadFolder = async () => {
+    setFolderLoad('loading');
+    try {
+      await loadExplorerFolder(node.id);
+      setFolderLoad('idle');
+    } catch (error) {
+      console.error('폴더 목록을 불러오지 못했습니다', error);
+      setFolderLoad('failed');
+    }
+  };
+
+  const toggleFolder = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && node.truncated && folderLoad !== 'loading') void loadFolder();
+  };
 
   const openInApp = () => {
     if (isAllowedDocumentPath(node.id)) {
@@ -108,14 +161,9 @@ function TreeItem({ node, depth = 0, forceExpand = false }: { node: FileNode; de
                 addContextPath(node.id);
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                const state = useWorkspaceStore.getState();
-                const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
-                useWorkspaceStore.setState({
-                  documentTabs: active
-                    ? state.documentTabs.map((tab) => tab.id === active.id ? { ...tab, status: message } : tab)
-                    : state.documentTabs,
-                  mode: 'document',
-                });
+                const activeDocumentTabId = useWorkspaceStore.getState().activeDocumentTabId;
+                if (activeDocumentTabId) setDocumentTabNotice(activeDocumentTabId, message, 6_000);
+                setMode('document');
               }
             })();
           },
@@ -142,7 +190,8 @@ function TreeItem({ node, depth = 0, forceExpand = false }: { node: FileNode; de
           type="button"
           className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] text-muted hover:bg-panel-2 hover:text-text"
           style={{ paddingLeft: 8 + depth * 12 }}
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleFolder}
+          aria-expanded={isExpanded}
           onContextMenu={openCtx}
         >
           <CaretRight
@@ -155,8 +204,20 @@ function TreeItem({ node, depth = 0, forceExpand = false }: { node: FileNode; de
         </button>
         {menu ? <ContextMenuPortal menu={menu} onClose={close} /> : null}
         {isExpanded
-          ? node.children?.map((child) => <TreeItem key={child.id} node={child} depth={depth + 1} forceExpand={forceExpand} />)
+          ? node.children?.map((child) => <TreeItem key={child.id} node={child} depth={depth + 1} expandIds={expandIds} />)
           : null}
+        {isExpanded && folderLoad === 'loading' ? (
+          <p className="py-1 text-[11px] text-muted" style={{ paddingLeft: 28 + depth * 12 }}>불러오는 중…</p>
+        ) : null}
+        {isExpanded && folderLoad === 'failed' ? (
+          <p className="flex items-center gap-2 py-1 text-[11px] text-red-300" style={{ paddingLeft: 28 + depth * 12 }}>
+            폴더를 불러오지 못했습니다.
+            <button type="button" className="text-accent hover:underline" onClick={() => void loadFolder()}>다시 시도</button>
+          </p>
+        ) : null}
+        {isExpanded && folderLoad === 'idle' && !node.truncated && !node.children?.length ? (
+          <p className="py-1 text-[11px] text-muted/70" style={{ paddingLeft: 28 + depth * 12 }}>빈 폴더</p>
+        ) : null}
       </div>
     );
   }
@@ -235,7 +296,9 @@ export function AssetExplorer() {
     void refreshExplorer();
   }, [refreshExplorer]);
 
-  const filteredFiles = useMemo(() => filterFileNodes(files, filterQuery), [files, filterQuery]);
+  const filtered = useMemo(() => filterFileNodes(files, filterQuery), [files, filterQuery]);
+  const searching = Boolean(filterQuery.trim());
+  const partialTree = useMemo(() => searching && hasTruncatedFolder(files), [files, searching]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-panel">
@@ -275,12 +338,18 @@ export function AssetExplorer() {
         {filesMessage ? (
           <p className="px-3 py-4 text-center text-[11px] text-muted">{filesMessage}</p>
         ) : null}
-        {!filesMessage && filteredFiles.length === 0 && filterQuery.trim() ? (
+        {!filesMessage && filtered.nodes.length === 0 && searching ? (
           <p className="px-3 py-6 text-center text-[11px] text-muted">일치하는 파일이 없습니다.</p>
         ) : null}
-        {filteredFiles.map((n) => (
-          <TreeItem key={n.id} node={n} forceExpand={Boolean(filterQuery.trim())} />
+        {filtered.nodes.map((n) => (
+          <TreeItem key={n.id} node={n} expandIds={filtered.expandIds} />
         ))}
+        {filtered.limited ? (
+          <p className="px-3 py-2 text-center text-[10px] text-muted">결과가 많아 처음 {SEARCH_RESULT_LIMIT}개만 표시합니다. 검색어를 더 구체적으로 입력하세요.</p>
+        ) : null}
+        {partialTree ? (
+          <p className="px-3 py-2 text-center text-[10px] text-muted/80">아직 열어 보지 않은 폴더 안의 파일은 검색되지 않습니다.</p>
+        ) : null}
       </div>
     </div>
   );

@@ -10,6 +10,8 @@ export interface FileNode {
   kind: 'file' | 'folder';
   children?: FileNode[];
   language?: string;
+  /** Folder whose children were not fully listed by the server; load on expand. */
+  truncated?: boolean;
 }
 
 export interface WorkspaceAsset {

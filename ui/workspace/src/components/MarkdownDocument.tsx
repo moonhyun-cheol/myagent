@@ -529,24 +529,8 @@ export function MarkdownDocument() {
       const notice = importedCount > 0
         ? `${importedCount}개 가져옴 · 지원하지 않는 파일 ${skippedCount}개 제외 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')})`
         : `지원하지 않는 파일 형식입니다 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')} 파일만 가능).`;
-      const state = useWorkspaceStore.getState();
-      const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
-      if (active) {
-        const targetId = active.id;
-        useWorkspaceStore.setState({
-          documentTabs: state.documentTabs.map((tab) =>
-            tab.id === targetId ? { ...tab, status: notice } : tab,
-          ),
-        });
-        window.setTimeout(() => {
-          const cur = useWorkspaceStore.getState();
-          useWorkspaceStore.setState({
-            documentTabs: cur.documentTabs.map((tab) =>
-              tab.id === targetId && tab.status === notice ? { ...tab, status: null } : tab,
-            ),
-          });
-        }, 4_000);
-      }
+      const { activeDocumentTabId, setDocumentTabNotice } = useWorkspaceStore.getState();
+      if (activeDocumentTabId) setDocumentTabNotice(activeDocumentTabId, notice, 6_000);
     }
   };
 
@@ -660,7 +644,7 @@ export function MarkdownDocument() {
         } : tab) });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        useWorkspaceStore.setState({ documentTabs: useWorkspaceStore.getState().documentTabs.map((tab) => tab.id === activeDocument.id ? { ...tab, status: message } : tab) });
+        useWorkspaceStore.getState().setDocumentTabNotice(activeDocument.id, message);
       }
       return;
     }

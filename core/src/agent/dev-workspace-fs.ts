@@ -238,6 +238,8 @@ export interface WorkspaceUiTreeNode {
   path: string;
   is_dir: boolean;
   children?: WorkspaceUiTreeNode[];
+  /** Folder whose children were not (fully) listed — the UI loads it on expand via `?path=`. */
+  truncated?: boolean;
 }
 
 export function buildWorkspaceUiTree(
@@ -249,20 +251,19 @@ export function buildWorkspaceUiTree(
   const maxEntries = opts.maxEntries ?? MAX_TREE_ENTRIES;
   let entryCount = 0;
 
-  const walk = (rel: string, depth: number): WorkspaceUiTreeNode[] => {
-    if (depth > maxDepth || entryCount >= maxEntries) return [];
+  /** `complete` is false when the entry budget, depth cap, or listing cap cut this folder short. */
+  const walk = (rel: string, depth: number): { nodes: WorkspaceUiTreeNode[]; complete: boolean } => {
+    if (depth > maxDepth || entryCount >= maxEntries) return { nodes: [], complete: false };
     let listed: ReturnType<typeof listWorkspaceDirectory>;
     try {
       listed = listWorkspaceDirectory(workspaceRoot, rel, opts);
     } catch {
-      return [];
+      return { nodes: [], complete: true };
     }
     const atRoot = rel === '.' || rel === '';
-    const filtered = listed.entries.filter((e) => {
-      if (e.is_dir && SKIP_DIRS.has(e.name)) return false;
-      if (e.is_dir && e.name.startsWith('.') && e.name !== '.github') return false;
-      return true;
-    });
+    // SKIP_DIRS (VCS, caches, trash, temp worktrees) never appear. Other dot folders are listed
+    // but not walked, so they cannot exhaust the entry budget before source folders.
+    const filtered = listed.entries.filter((e) => !(e.is_dir && SKIP_DIRS.has(e.name)));
     if (atRoot) {
       filtered.sort((a, b) => {
         if (a.is_dir !== b.is_dir) return Number(b.is_dir) - Number(a.is_dir);
@@ -282,18 +283,21 @@ export function buildWorkspaceUiTree(
         name: e.name,
         path: e.path,
         is_dir: e.is_dir,
-        children: e.is_dir ? [] : undefined,
+        ...(e.is_dir ? { children: [], truncated: true } : {}),
       });
     }
     for (const node of nodes) {
       if (!node.is_dir || entryCount >= maxEntries) continue;
-      const shallow = TREE_SHALLOW_DIRS.has(node.name) || depth >= maxDepth;
-      node.children = shallow ? [] : walk(node.path, depth + 1);
+      const shallow = TREE_SHALLOW_DIRS.has(node.name) || node.name.startsWith('.') || depth >= maxDepth;
+      if (shallow) continue;
+      const result = walk(node.path, depth + 1);
+      node.children = result.nodes;
+      if (result.complete) delete node.truncated;
     }
-    return nodes;
+    return { nodes, complete: listed.complete && nodes.length === filtered.length };
   };
 
-  return { root: toPosix(workspaceRoot), tree: walk(relPath, 0) };
+  return { root: toPosix(workspaceRoot), tree: walk(relPath, 0).nodes };
 }
 
 export function writeWorkspaceFile(

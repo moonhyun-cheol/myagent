@@ -339,6 +339,7 @@ function mapFsTree(nodes: WorkspaceFsTreeNode[]): FileNode[] {
         name: n.name,
         kind: 'folder' as const,
         children: mapFsTree(n.children ?? []),
+        ...(n.truncated ? { truncated: true } : {}),
       };
     }
     const lower = n.name.toLowerCase();
@@ -545,6 +546,8 @@ interface WorkspaceState {
    */
   openMutatedWorkspaceFiles: (paths: string[]) => Promise<void>;
   refreshExplorer: () => Promise<void>;
+  /** Fetch one truncated folder's children and splice them into `files`. */
+  loadExplorerFolder: (folderId: string) => Promise<void>;
   setEditorContent: (value: string) => void;
   saveActiveFile: () => Promise<void>;
   renameWorkspaceFile: (path: string, name: string) => Promise<void>;
@@ -561,6 +564,8 @@ interface WorkspaceState {
   closeDocumentTabsToTheRight: (tabId: string) => Promise<void>;
   closeSavedDocumentTabs: () => Promise<void>;
   appendToDocument: (text: string) => void;
+  /** Show a status notice on one document tab; ttlMs > 0 clears it later unless replaced. */
+  setDocumentTabNotice: (tabId: string, message: string | null, ttlMs?: number) => void;
   openDocumentPath: (relPath: string, initialContent?: string) => Promise<void>;
   saveDocument: () => Promise<void>;
   newDocument: () => Promise<void>;
@@ -2446,6 +2451,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
+    loadExplorerFolder: async (folderId) => {
+      const root = get().filesRoot;
+      if (!root) return;
+      const data = await fetchWorkspaceFsTree(2, folderId);
+      if (get().filesRoot !== root) return;
+      const children = mapFsTree(data.tree);
+      const splice = (nodes: FileNode[]): FileNode[] => nodes.map((node) => {
+        if (node.kind !== 'folder') return node;
+        if (node.id === folderId) return { id: node.id, name: node.name, kind: 'folder', children };
+        return node.children?.length ? { ...node, children: splice(node.children) } : node;
+      });
+      set({ files: splice(get().files) });
+    },
+
     setEditorContent: (editorContent) => {
       const activeTabId = get().activeTabId;
       if (!activeTabId) return;
@@ -2738,6 +2757,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     clearComposerPrefill: () => set({ composerPrefill: null }),
     requestHistoryFocus: () => set({ historyFocusNonce: get().historyFocusNonce + 1 }),
+    setDocumentTabNotice: (tabId, message, ttlMs = 0) => {
+      set({
+        documentTabs: get().documentTabs.map((tab) => (tab.id === tabId ? { ...tab, status: message } : tab)),
+      });
+      if (!message || ttlMs <= 0) return;
+      window.setTimeout(() => {
+        const current = get().documentTabs.find((tab) => tab.id === tabId);
+        if (current?.status === message) get().setDocumentTabNotice(tabId, null);
+      }, ttlMs);
+    },
     appendToDocument: (text) => {
       const chunk = String(text || '');
       if (!chunk.trim()) return;
