@@ -34,10 +34,11 @@ export async function copyImageToClipboard(url: string): Promise<'image' | 'url'
   return 'url';
 }
 
-export function downloadImageUrl(url: string, filename = 'my-agent-image.png'): void {
+export function downloadImageUrl(url: string, filename?: string): void {
+  const resolvedName = sanitizeMediaFilename(filename || guessImageFilename(undefined, url));
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename.replace(/[^\w.\-가-힣]+/g, '_').slice(0, 80) || 'my-agent-image.png';
+  a.download = resolvedName;
   a.rel = 'noopener';
   a.target = '_blank';
   document.body.appendChild(a);
@@ -45,8 +46,88 @@ export function downloadImageUrl(url: string, filename = 'my-agent-image.png'): 
   a.remove();
 }
 
-export function guessImageFilename(title?: string, url?: string): string {
-  const base = (title || 'my-agent-image').replace(/\s+/g, '-').slice(0, 48);
-  const fromUrl = url?.match(/\.(png|jpe?g|webp|gif|bmp)(?:\?|$)/i)?.[1];
-  return `${base}.${fromUrl || 'png'}`;
+const KNOWN_MEDIA_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|ico|svg|mp4|webm)$/i;
+
+function extractExtFromUrl(url?: string): string | null {
+  if (!url) return null;
+  if (url.startsWith('data:image/')) {
+    const m = url.match(/^data:image\/([a-z0-9+.-]+);/i);
+    if (m) {
+      const sub = m[1].toLowerCase();
+      if (sub === 'jpeg') return 'jpg';
+      if (sub === 'svg+xml') return 'svg';
+      if (sub === 'x-icon' || sub === 'vnd.microsoft.icon') return 'ico';
+      return sub;
+    }
+  }
+  if (url.startsWith('/fs/workspace-raw')) {
+    try {
+      const parsed = new URL(url, 'http://localhost');
+      const rel = parsed.searchParams.get('path') || '';
+      const extMatch = rel.match(KNOWN_MEDIA_EXT_RE);
+      if (extMatch) return extMatch[1].toLowerCase();
+    } catch {
+      /* ignore */
+    }
+  }
+  const direct = url.match(/\.(png|jpe?g|webp|gif|bmp|ico|svg|mp4|webm)(?:$|[?#])/i);
+  if (direct) return direct[1].toLowerCase();
+  if (url.startsWith('/outputs/videos/')) return 'mp4';
+  return null;
+}
+
+export function sanitizeMediaFilename(raw: string, fallback = 'my-agent-image.png'): string {
+  const cleaned = raw
+    .trim()
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+    .replace(/\s+/g, '-')
+    .replace(/_+/g, '_')
+    .slice(0, 96);
+  return cleaned || fallback;
+}
+
+export function guessImageFilename(title?: string, url?: string, sourcePath?: string): string {
+  const pathBase = sourcePath?.trim().split(/[\\/]/).pop() || '';
+  const trimmedTitle = (title || pathBase || '').trim();
+  const titleExtMatch = trimmedTitle.match(KNOWN_MEDIA_EXT_RE);
+  const pathExtMatch = pathBase.match(KNOWN_MEDIA_EXT_RE);
+  const urlExt = extractExtFromUrl(url);
+  const ext = (titleExtMatch?.[1] || pathExtMatch?.[1] || urlExt || 'png').toLowerCase();
+  const baseRaw = titleExtMatch
+    ? trimmedTitle.slice(0, trimmedTitle.length - titleExtMatch[0].length)
+    : trimmedTitle;
+  const base = sanitizeMediaFilename(baseRaw || 'my-agent-media', 'my-agent-media').slice(0, 64);
+  return `${base}.${ext}`;
+}
+
+export function guessVideoFilename(title?: string, url?: string, sourcePath?: string): string {
+  const pathBase = sourcePath?.trim().split(/[\\/]/).pop() || '';
+  const trimmedTitle = (title || pathBase || '').trim();
+  const titleExtMatch = trimmedTitle.match(/\.(mp4|webm)$/i);
+  const pathExtMatch = pathBase.match(/\.(mp4|webm)$/i);
+  const urlExt = extractExtFromUrl(url);
+  const ext = (titleExtMatch?.[1] || pathExtMatch?.[1] || (urlExt === 'webm' ? 'webm' : 'mp4')).toLowerCase();
+  const baseRaw = titleExtMatch
+    ? trimmedTitle.slice(0, trimmedTitle.length - titleExtMatch[0].length)
+    : trimmedTitle;
+  const base = sanitizeMediaFilename(baseRaw || 'my-agent-video', 'my-agent-video').slice(0, 64);
+  return `${base}.${ext}`;
+}
+
+export async function downloadMediaItem(opts: {
+  url?: string;
+  sourcePath?: string;
+  filename?: string;
+  sessionId?: string | null;
+}): Promise<boolean> {
+  let targetUrl = opts.url?.trim() || '';
+  if (!targetUrl && opts.sourcePath?.trim()) {
+    const clean = opts.sourcePath.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+    const params = new URLSearchParams({ path: clean });
+    if (opts.sessionId?.trim()) params.set('session_id', opts.sessionId.trim());
+    targetUrl = `/fs/workspace-raw?${params.toString()}`;
+  }
+  if (!targetUrl) return false;
+  downloadImageUrl(targetUrl, opts.filename || guessImageFilename(undefined, targetUrl, opts.sourcePath));
+  return true;
 }

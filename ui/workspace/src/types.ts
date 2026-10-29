@@ -4,6 +4,24 @@ export type AiWorkMode = 'text' | 'code' | 'image';
 
 export type AssetKind = 'image' | 'code' | 'document';
 
+export type MediaOrigin = 'generated' | 'screenshot' | 'attachment' | 'workspace_file' | 'video';
+
+export interface ImagePreviewPayload {
+  id?: string;
+  src: string;
+  title: string;
+  prompt: string;
+  mediaKind?: 'image' | 'video';
+  kind?: 'image' | 'video';
+  origin?: MediaOrigin;
+  sourcePath?: string;
+  turnId?: string;
+  createdAt?: string;
+  assetId?: string;
+  items?: ImagePreviewPayload[];
+  index?: number;
+}
+
 export interface FileNode {
   id: string;
   name: string;
@@ -27,6 +45,9 @@ export interface WorkspaceAsset {
   imageUrl?: string;
   content?: string;
   language?: string;
+  origin?: MediaOrigin;
+  mediaKind?: 'image' | 'video';
+  turnId?: string;
 }
 
 /** 캔버스는 시각 자료와 워크플로 문서만 받는다. 일반 코드는 에디터에서 연다. */

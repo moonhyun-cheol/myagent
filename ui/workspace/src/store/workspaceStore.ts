@@ -12,13 +12,16 @@ import type {
   AiWorkMode,
   ChatTurn,
   FileNode,
+  ImagePreviewPayload,
   PendingAttachment,
   WorkspaceAsset,
   WorkspaceMode,
 } from '../types';
 import { isCanvasAsset } from '../types';
 import { isDocumentMemoMessage } from '../lib/documentMemo';
-import { isVideoMediaUrl } from '../lib/mediaUrl';
+import { guessImageFilename, downloadImageUrl } from '../lib/mediaActions';
+import { inferMediaOrigin } from '../lib/mediaCatalog';
+import { buildWorkspaceRawUrl, isVideoMediaUrl } from '../lib/mediaUrl';
 import { pushResponseDelta, pushToolMarker, sanitizeWorkTimeline } from '../lib/workTimeline';
 import { normalizeWorkspaceMode } from '../components/workspacePreviewModes';
 import {
@@ -311,24 +314,32 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
 
 function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
   const out: WorkspaceAsset[] = [];
-  for (const m of messages) {
+  const seen = new Set<string>();
+  for (let i = 0; i < messages.length; i += 1) {
+    const m = messages[i];
     if (m.role !== 'assistant') continue;
+    const prevUser = i > 0 && messages[i - 1]?.role === 'user' ? messages[i - 1] : undefined;
+    const promptSource = (prevUser?.content || m.content || '').trim();
     const urls = Array.isArray(m.image_urls) ? m.image_urls : [];
     for (const url of urls) {
-      if (typeof url !== 'string' || !url) continue;
-      // Generated videos are rendered inline in chat, not as image assets.
+      if (typeof url !== 'string' || !url || seen.has(url)) continue;
+      // Generated videos are rendered inline in chat and collected by selectMediaItems.
       if (isVideoMediaUrl(url)) continue;
+      seen.add(url);
       out.push({
-        id: uid('img'),
+        id: `img:${url}`,
         kind: 'image',
-        title: '세션 이미지',
-        prompt: m.content?.slice(0, 80),
+        title: guessImageFilename(promptSource.slice(0, 32), url),
+        prompt: promptSource.slice(0, 120),
         createdAt: m.at || new Date().toISOString(),
         imageUrl: url,
+        origin: inferMediaOrigin({ url, role: 'assistant', prompt: promptSource }),
+        mediaKind: 'image',
+        turnId: `restored-${i}-${m.at}`,
       });
     }
-
   }
+  out.reverse();
   return out;
 }
 
@@ -449,6 +460,8 @@ interface WorkspaceState {
   composerFocusNonce: number;
   /** ChatPane watches this to move keyboard focus onto the conversation history after a session opens. */
   historyFocusNonce: number;
+  chatScrollTurnId: string | null;
+  chatScrollNonce: number;
   canvasNodes: Node[];
   canvasEdges: Edge[];
   /** Viewed session is currently running. */
@@ -483,7 +496,7 @@ interface WorkspaceState {
   terminalJobId: string | null;
   /** Attention pulse only after an actual terminal command finishes. */
   terminalAttention: boolean;
-  imagePreview: { src: string; title: string; prompt: string } | null;
+  imagePreview: ImagePreviewPayload | null;
   activeSessionId: string | null;
   activeProjectId: string | null;
   /** Workspace root derived from activeProjectId's ancestors, never stored on the session. */
@@ -537,8 +550,11 @@ interface WorkspaceState {
   clearTerminalLog: () => void;
   runTerminalCommand: (command: string) => Promise<void>;
   cancelTerminalCommand: () => Promise<void>;
-  openImagePreview: (payload: { src: string; title: string; prompt: string }) => void;
+  openImagePreview: (payload: ImagePreviewPayload) => void;
   closeImagePreview: () => void;
+  stepImagePreview: (delta: number) => void;
+  scrollToChatTurn: (turnId: string) => void;
+  attachMediaUrlToComposer: (url: string, title?: string, sourcePath?: string) => Promise<void>;
   openFile: (id: string) => Promise<void>;
   openFileOnCanvas: (id: string) => Promise<void>;
   /**
@@ -685,7 +701,18 @@ const WORK_OBJECTS_KEY = 'my-agent-work-objects-v1';
 function loadSessionAssets(sessionId: string): WorkspaceAsset[] {
   try {
     const all = JSON.parse(localStorage.getItem(WORK_OBJECTS_KEY) ?? '{}') as Record<string, WorkspaceAsset[]>;
-    return Array.isArray(all[sessionId]) ? all[sessionId] : [];
+    const raw = Array.isArray(all[sessionId]) ? all[sessionId] : [];
+    return raw.map((asset) => {
+      if (asset.kind === 'image' && asset.sourcePath && !asset.imageUrl) {
+        return {
+          ...asset,
+          imageUrl: buildWorkspaceRawUrl(asset.sourcePath, sessionId),
+          origin: asset.origin || inferMediaOrigin({ sourcePath: asset.sourcePath, prompt: asset.prompt }),
+          mediaKind: 'image',
+        };
+      }
+      return asset;
+    });
   } catch {
     return [];
   }
@@ -1339,28 +1366,33 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             },
             onImage: (url) => {
               if (isVideoMediaUrl(url)) {
-                // Generated video: inline player only, not an image asset/canvas node.
+                // Generated video: inline player + unified media catalog.
                 const prevUrls =
                   job.chat.find((t) => t.id === job.assistantId)?.imageUrls ?? [];
-                patchAssistant({ imageUrls: [...prevUrls, url] });
+                patchAssistant({ imageUrls: prevUrls.includes(url) ? prevUrls : [...prevUrls, url] });
                 return;
               }
+              const assetId = `img:${url}`;
               const asset: WorkspaceAsset = {
-                id: uid('img'),
+                id: assetId,
                 kind: 'image',
-                title: 'From chat',
+                title: guessImageFilename(job.displayText?.slice(0, 32), url),
                 prompt: job.displayText,
                 createdAt: new Date().toISOString(),
                 imageUrl: url,
+                origin: inferMediaOrigin({ url, role: 'assistant', prompt: job.displayText }),
+                mediaKind: 'image',
+                turnId: job.assistantId,
               };
               const prev =
                 job.chat.find((t) => t.id === job.assistantId)?.imageUrls ?? [];
               patchAssistant({
                 assetId: asset.id,
-                imageUrls: [...prev, url],
+                imageUrls: prev.includes(url) ? prev : [...prev, url],
               });
+              const filteredAssets = get().assets.filter((a) => a.id !== assetId && a.imageUrl !== url);
               set({
-                assets: [asset, ...get().assets],
+                assets: [asset, ...filteredAssets],
                 canvasNodes: [
                   ...get().canvasNodes,
                   assetToCanvasNode(asset, { x: 180, y: 160 }),
@@ -1485,6 +1517,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           const existingIndex = nextAssets.findIndex(
             (asset) => asset.sourcePath?.toLocaleLowerCase() === canonicalPath.toLocaleLowerCase(),
           );
+          const isImageFile = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(canonicalPath);
+          const rawImageUrl = isImageFile ? buildWorkspaceRawUrl(canonicalPath, sid) : undefined;
+          const fileOrigin = isImageFile
+            ? inferMediaOrigin({ sourcePath: canonicalPath, prompt: job.displayText })
+            : undefined;
           if (existingIndex >= 0) {
             const existing = nextAssets[existingIndex];
             nextAssets.splice(existingIndex, 1);
@@ -1492,19 +1529,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               ...existing,
               title: canonicalPath.split('/').pop() || canonicalPath,
               sourcePath: canonicalPath,
+              ...(rawImageUrl ? { imageUrl: rawImageUrl, origin: fileOrigin, mediaKind: 'image' as const } : {}),
               updatedAt: now,
               modificationCount: (existing.modificationCount ?? 1) + 1,
             });
           } else {
             nextAssets.unshift({
               id: `file:${canonicalPath}`,
-              kind: /\.(png|jpe?g|gif|webp|svg)$/i.test(canonicalPath) ? 'image' : 'document',
+              kind: isImageFile ? 'image' : 'document',
               title: canonicalPath.split('/').pop() || canonicalPath,
               prompt: job.displayText,
               createdAt: now,
               updatedAt: now,
               modificationCount: 1,
               sourcePath: canonicalPath,
+              ...(rawImageUrl ? { imageUrl: rawImageUrl, origin: fileOrigin, mediaKind: 'image' as const } : {}),
+              turnId: job.assistantId,
             });
           }
         }
@@ -1568,6 +1608,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     composerSessionPromotionId: null,
     composerFocusNonce: 0,
     historyFocusNonce: 0,
+    chatScrollTurnId: null,
+    chatScrollNonce: 0,
     canvasNodes: [],
     canvasEdges: [],
     busy: false,
@@ -1897,6 +1939,59 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     openImagePreview: (imagePreview) => set({ imagePreview }),
     closeImagePreview: () => set({ imagePreview: null }),
+    stepImagePreview: (delta) => {
+      const current = get().imagePreview;
+      if (!current?.items || current.items.length <= 1) return;
+      const items = current.items;
+      const currentIdx =
+        typeof current.index === 'number' && current.index >= 0
+          ? current.index
+          : items.findIndex((it) => (it.id && it.id === current.id) || it.src === current.src);
+      const baseIdx = currentIdx >= 0 ? currentIdx : 0;
+      const nextIdx = (baseIdx + delta + items.length) % items.length;
+      const next = items[nextIdx];
+      if (!next) return;
+      set({
+        imagePreview: {
+          ...next,
+          items,
+          index: nextIdx,
+        },
+      });
+    },
+    scrollToChatTurn: (turnId) => {
+      const trimmed = turnId.trim();
+      if (!trimmed) return;
+      set({
+        chatScrollTurnId: trimmed,
+        chatScrollNonce: get().chatScrollNonce + 1,
+      });
+    },
+    attachMediaUrlToComposer: async (url, title, sourcePath) => {
+      const trimmedUrl = url.trim();
+      try {
+        if (trimmedUrl) {
+          const res = await fetch(trimmedUrl);
+          if (res.ok) {
+            const blob = await res.blob();
+            const mime = blob.type || 'image/png';
+            const filename = guessImageFilename(title, trimmedUrl);
+            const file = new File([blob], filename, { type: mime });
+            await get().uploadFiles([file]);
+            return;
+          }
+        }
+        if (sourcePath) {
+          get().addContextPath(sourcePath);
+        }
+      } catch (e) {
+        if (sourcePath) {
+          get().addContextPath(sourcePath);
+          return;
+        }
+        set({ statusText: `미디어 첨부 실패: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    },
     setSkillMode: (skillMode, skillLabel = null) =>
       set({ skillMode, skillLabel: skillMode ? skillLabel : null }),
 
@@ -3206,12 +3301,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     downloadAsset: (assetId) => {
       const asset = get().assets.find((a) => a.id === assetId);
       if (!asset) return;
-      if (asset.kind === 'image' && asset.imageUrl) {
-        const a = document.createElement('a');
-        a.href = asset.imageUrl;
-        a.download = asset.title;
-        a.click();
-        return;
+      if (asset.kind === 'image') {
+        const rawUrl =
+          asset.imageUrl ||
+          (asset.sourcePath ? buildWorkspaceRawUrl(asset.sourcePath, get().activeSessionId) : '');
+        if (rawUrl) {
+          downloadImageUrl(rawUrl, guessImageFilename(asset.title, rawUrl));
+          return;
+        }
       }
       void (async () => {
         const content = asset.sourcePath

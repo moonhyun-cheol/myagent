@@ -681,6 +681,19 @@ export function ChatPane() {
   const historyCursorRef = useRef<HistoryCursor | null>(null);
   useEffect(() => { historyCursorRef.current = null; }, [activeSessionId]);
   const historyFocusNonce = useWorkspaceStore((s) => s.historyFocusNonce);
+  const chatScrollTurnId = useWorkspaceStore((s) => s.chatScrollTurnId);
+  const chatScrollNonce = useWorkspaceStore((s) => s.chatScrollNonce);
+  useEffect(() => {
+    if (!chatScrollNonce || !chatScrollTurnId) return;
+    const target = turnAnchorRefs.current.get(chatScrollTurnId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('ring-2', 'ring-accent/60', 'rounded-xl');
+    const timer = window.setTimeout(() => {
+      target.classList.remove('ring-2', 'ring-accent/60', 'rounded-xl');
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [chatScrollNonce, chatScrollTurnId]);
   // After a session loads (including re-selecting the same one), move keyboard focus onto
   // the conversation history on the next frame so arrow/Page keys work and Tab reaches the composer.
   useEffect(() => {
@@ -1665,6 +1678,7 @@ export function ChatPane() {
             return (
             <div
               key={turn.id}
+              data-chat-turn-id={turn.id}
               ref={(el) => {
                 if (el) turnAnchorRefs.current.set(turn.id, el);
                 else turnAnchorRefs.current.delete(turn.id);

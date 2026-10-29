@@ -232,6 +232,45 @@ export function readWorkspaceFile(workspaceRoot: string, relPath: string, _guard
   return readFileSync(abs, 'utf8');
 }
 
+const MAX_RAW_MEDIA_BYTES = 50 * 1024 * 1024;
+
+const RAW_MEDIA_MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+export function readWorkspaceRawMedia(
+  workspaceRoot: string,
+  relPath: string,
+  _guard: WorkspaceGuardOptions = {},
+): { buffer: Buffer; mimeType: string; ext: string; fileName: string } {
+  const abs = resolveDevWorkspaceReadPath(workspaceRoot, relPath);
+  const ext = path.extname(abs).toLowerCase();
+  const mimeType = RAW_MEDIA_MIME_BY_EXT[ext];
+  if (!mimeType) {
+    throw new Error(`Unsupported media extension: ${ext || '(none)'}`);
+  }
+  const st = statSync(abs);
+  if (!st.isFile()) throw new Error(`Not a file: ${relPath}`);
+  if (st.size > MAX_RAW_MEDIA_BYTES) {
+    throw new Error(`Media file too large (${st.size} bytes)`);
+  }
+  return {
+    buffer: readFileSync(abs),
+    mimeType,
+    ext,
+    fileName: path.basename(abs),
+  };
+}
+
 /** Nested file tree for the workspace UI explorer (not agent tools). */
 export interface WorkspaceUiTreeNode {
   name: string;

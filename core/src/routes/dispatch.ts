@@ -9,7 +9,7 @@ import { SecurityError } from '../security/errors.js';
 import { assertDevWorkspaceRoot } from '../security/dev-workspace-guard.js';
 import { probeWorkspaceCapabilities } from '../security/workspace-capabilities.js';
 import { hasNasWriteConsent, buildNasWriteConsent } from '../security/nas-write-consent.js';
-import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
+import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, readWorkspaceRawMedia, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
 import {
   cancelTerminalJob,
   cancelTerminalJobsForSession,
@@ -932,6 +932,44 @@ export async function dispatchApiRequest(
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
           return sendJson(res, 400, { error: 'READ_FAILED', message: msg });
+        }
+      }
+
+      if (method === 'GET' && url.pathname === '/fs/workspace-raw') {
+        license.assertFeature('chat');
+        const rel = (url.searchParams.get('path') ?? '').trim();
+        if (!rel) return sendJson(res, 400, { error: 'PATH_REQUIRED' });
+        const overrides = loadUserOverrides(userConfigPath);
+        const querySessionId = url.searchParams.get('session')?.trim() || '';
+        const root =
+          workspaceRootForRequest()
+          || (querySessionId
+            ? resolveWorkspaceRootForSession(sessionStore, projectStore, querySessionId)
+            : null)
+          || overrides.dev_workspace_root?.trim()
+          || null;
+        if (!root) {
+          return sendJson(res, 400, { error: 'NO_DEV_WORKSPACE', message: '작업 폴더를 먼저 연결하세요.' });
+        }
+        try {
+          const allowNas = hasNasWriteConsent(overrides);
+          assertDevWorkspaceRoot(root, { allowNas });
+          const media = readWorkspaceRawMedia(root, rel, { allowNas });
+          const headers: Record<string, string | number> = {
+            'Content-Type': media.mimeType,
+            'Content-Length': media.buffer.length,
+            'Cache-Control': 'private, max-age=60',
+            'X-Content-Type-Options': 'nosniff',
+          };
+          if (media.ext === '.svg') {
+            headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+          }
+          res.writeHead(200, headers);
+          res.end(media.buffer);
+          return;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return sendJson(res, 400, { error: 'READ_RAW_FAILED', message: msg });
         }
       }
 
