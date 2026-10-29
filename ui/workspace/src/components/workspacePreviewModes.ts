@@ -24,7 +24,7 @@ export function isAvailableWorkspacePreviewMode(value: string | null): value is 
 }
 
 export function resolveAvailableWorkspacePreviewMode(mode: WorkspaceMode): WorkspacePreviewMode {
-  if (mode === 'editor') return 'browser';
+  if (mode === 'editor') return 'objects';
   if (mode === 'canvas') return 'document';
   const definition = WORKSPACE_PREVIEW_MODES.find((item) => item.id === mode);
   return definition?.disabled ? 'objects' : (mode as WorkspacePreviewMode);

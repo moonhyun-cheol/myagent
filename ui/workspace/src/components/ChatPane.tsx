@@ -1574,16 +1574,18 @@ export function ChatPane() {
         >
           <ArrowClockwise size={14} className={pickerBusy ? 'animate-spin' : undefined} />
         </button>
-        <button
-          type="button"
-          aria-pressed={previewPaneOpen}
-          aria-label={previewPaneOpen ? '오른쪽 패널 접기' : '오른쪽 패널 펼치기'}
-          title={previewPaneOpen ? '오른쪽 패널 접기' : '오른쪽 패널 펼치기'}
-          onClick={() => setPreviewPaneOpen(!previewPaneOpen)}
-          className="chat-setting-control chat-icon-control"
-        >
-          <Browser size={16} weight={previewPaneOpen ? 'bold' : 'regular'} />
-        </button>
+        {!previewPaneOpen ? (
+          <button
+            type="button"
+            aria-pressed={false}
+            aria-label="오른쪽 패널 펼치기"
+            title="오른쪽 패널 펼치기"
+            onClick={() => setPreviewPaneOpen(true)}
+            className="chat-setting-control chat-icon-control"
+          >
+            <Browser size={16} weight="regular" />
+          </button>
+        ) : null}
         </div>
       </div>
       {apiError ? (

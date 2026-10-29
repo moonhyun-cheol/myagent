@@ -1147,6 +1147,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               paths: contextPaths.length ? contextPaths : undefined,
             }
           : undefined;
+      let pinnedPrefix = '';
+      if (job.uiSurface !== 'document-memo') {
+        try {
+          const rawPinned = JSON.parse(localStorage.getItem('my-agent-pinned-instructions-v1') ?? '[]');
+          const pinnedList = Array.isArray(rawPinned)
+            ? rawPinned.map((item) => String(item ?? '').trim()).filter(Boolean)
+            : [];
+          if (pinnedList.length > 0) {
+            pinnedPrefix = `[사용자 고정 지침]\n${pinnedList.map((item) => `- ${item}`).join('\n')}\n\n`;
+          }
+        } catch {
+          /* ignore localStorage parse error */
+        }
+      }
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';
@@ -1173,7 +1187,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const runStream = (chatMode: string) =>
         streamChat(
           {
-            message: job.displayText,
+            message: pinnedPrefix ? `${pinnedPrefix}${job.displayText}` : job.displayText,
             mode: chatMode === 'chat' ? undefined : chatMode,
             model: job.model,
             execution_policy: job.executionPolicy,
@@ -2304,10 +2318,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     openFile: async (id) => {
+      if (isAllowedDocumentPath(id)) {
+        await get().openDocumentPath(id);
+        return;
+      }
       const existing = get().openTabs.find((tab) => tab.id === `file:${id}`);
       if (existing) {
         get().setActiveTab(existing.id);
-        set({ mode: 'editor', filesMessage: null });
+        set({ mode: 'objects', filesMessage: null });
         return;
       }
       try {
@@ -2321,7 +2339,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({ filesMessage: null });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        set({ filesMessage: message, activeFileId: id, mode: 'editor' });
+        set({ filesMessage: message, activeFileId: id, mode: 'objects' });
       }
     },
 
@@ -2511,7 +2529,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const existing = get().openTabs.find((item) => item.id === tab.id);
       const activeTab = existing ?? tab;
       set({
-        mode: 'editor',
+        mode: 'objects',
         openTabs: existing ? get().openTabs : [...get().openTabs, tab],
         activeTabId: activeTab.id,
         activeFileId: fileIdFromTabId(activeTab.id),

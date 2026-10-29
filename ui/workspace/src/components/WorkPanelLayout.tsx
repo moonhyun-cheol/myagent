@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useWorkspaceStore } from '../store/workspaceStore';
 
 const WIDTH_KEY = 'my-agent.work-panel-width.v1';
 const MIN_PANEL = 360;
@@ -24,6 +25,15 @@ export function WorkPanelLayout({ open, onClose, chat, panel }: {
   });
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const composerFocusNonce = useWorkspaceStore((s) => s.composerFocusNonce);
+  const lastComposerNonce = useRef(composerFocusNonce);
+  useEffect(() => {
+    if (composerFocusNonce !== lastComposerNonce.current) {
+      lastComposerNonce.current = composerFocusNonce;
+      setExpanded(false);
+      setNarrowView('chat');
+    }
+  }, [composerFocusNonce]);
   const narrow = available < MIN_CHAT + MIN_PANEL + HANDLE;
   const max = Math.max(MIN_PANEL, available - MIN_CHAT - HANDLE);
   const width = Math.min(max, Math.max(MIN_PANEL, preferred ?? available * .45));

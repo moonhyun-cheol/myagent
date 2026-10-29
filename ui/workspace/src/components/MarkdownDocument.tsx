@@ -513,11 +513,30 @@ export function MarkdownDocument() {
 
   const onPickFiles = async (list: FileList | null) => {
     if (!list?.length) return;
+    let importedCount = 0;
+    let skippedCount = 0;
     for (const file of Array.from(list)) {
       const name = file.name.toLowerCase();
-      if (!DOCUMENT_SCRATCH.allowedExtensions.some((ext) => name.endsWith(ext))) continue;
+      if (!DOCUMENT_SCRATCH.allowedExtensions.some((ext) => name.endsWith(ext))) {
+        skippedCount += 1;
+        continue;
+      }
       const text = await file.text();
       await openDocumentPath(normalizeRelPath(file.name), text);
+      importedCount += 1;
+    }
+    if (importedCount === 0 && skippedCount > 0) {
+      const state = useWorkspaceStore.getState();
+      const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
+      if (active) {
+        useWorkspaceStore.setState({
+          documentTabs: state.documentTabs.map((tab) =>
+            tab.id === active.id
+              ? { ...tab, status: `지원하지 않는 파일 형식입니다 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')} 파일만 가능).` }
+              : tab,
+          ),
+        });
+      }
     }
   };
 
@@ -600,7 +619,17 @@ export function MarkdownDocument() {
     ? documentDirty ? '프로젝트 파일 · 저장되지 않은 변경' : '프로젝트 파일 · 변경 없음'
     : collaborationFile
       ? documentDirty ? '협업 저장소 · 저장되지 않은 변경' : `협업 저장소 · v${activeDocument?.revision ?? '?'}`
-      : '프로젝트에 저장 전';
+      : documentDirty
+        ? '임시 초안 · 작성 중'
+        : '임시 초안';
+  const isUntouchedEmptyDraft =
+    !projectFile && !collaborationFile && !documentDirty && !documentContent.trim();
+  const visibleDocumentStatus =
+    documentStatus &&
+    documentStatus !== '임시 초안' &&
+    documentStatus !== `프로젝트 파일 · ${documentRelPath ?? ''}`
+      ? documentStatus
+      : null;
 
   async function saveActiveDocument() {
     if (!activeDocument || readOnly) return;
@@ -864,231 +893,202 @@ export function MarkdownDocument() {
         </div>
       ) : null}
 
-      <div
-        className="document-tabs flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5"
-        data-testid="document-tabs"
-        role="tablist" aria-label="열린 문서" onKeyDown={navigateTabs}
-      >
-        <button
-          type="button"
-          className="order-last flex h-8 w-8 shrink-0 items-center justify-center rounded border border-line text-sm text-muted hover:bg-panel-2 hover:text-text"
-          aria-label="새 문서"
-          data-testid="new-document-tab"
-          onClick={() => void newDocument()}
+      <div className="document-header-row flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1.5">
+        <div
+          className="document-tabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          data-testid="document-tabs"
+          role="tablist" aria-label="열린 문서" onKeyDown={navigateTabs}
         >
-          +
-        </button>
-        {documentTabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`flex shrink-0 items-center rounded border ${
-              tab.id === activeDocumentTabId ? 'border-accent bg-accent/10' : 'border-line'
-            }`}
-            onContextMenu={(e) => tabMenu.openAt(e, tabContextItems(tab.id))}
-          >
-            <button
-              type="button"
-              className="max-w-40 truncate px-2 py-1 text-[10px] text-text hover:bg-panel-2"
-              title={tab.path ?? tab.title}
-              role="tab" aria-selected={tab.id === activeDocumentTabId}
-              aria-controls="document-content" tabIndex={tab.id === activeDocumentTabId ? 0 : -1}
-              onClick={() => setActiveDocumentTab(tab.id)}
-            >
-              {tab.title}{tab.dirty ? ' ●' : ''}
-            </button>
-            <button
-              type="button"
-              className="px-1.5 py-1 text-[11px] text-muted hover:text-text"
-              aria-label={`${tab.title} 닫기`}
-              onClick={() => void handleCloseTab(tab.id)}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <div className="document-actions flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
-        <span className={`document-save-state mr-auto text-xs ${documentDirty ? 'text-warning' : 'text-muted'}`}
-          title={`${sourceLabel} · ${pathLabelTitle}`} data-testid="document-save-state">{saveLabel}</span>
-        <button
-          type="button"
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-          onClick={() => void openDocQuickOpen()}
-          data-testid="document-open"
-        >
-          프로젝트 문서 열기
-        </button>
-        <button
-          type="button"
-          className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          외부 파일 가져오기
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={DOCUMENT_SCRATCH.allowedExtensions.join(',')}
-          className="hidden"
-          onChange={(e) => {
-            void onPickFiles(e.target.files);
-            e.target.value = '';
-          }}
-        />
-        <button
-          type="button"
-          className="ui-primary"
-          disabled={readOnly}
-          onClick={() => void saveActiveDocument()}
-          data-testid="document-primary-save"
-        >
-          {projectFile || collaborationFile ? '저장' : '프로젝트에 저장…'}
-        </button>
-        <div className="relative">
-          <button
-            ref={moreButtonRef}
-            type="button"
-            className="rounded border border-line px-2 py-0.5 text-[10px] text-muted hover:text-text"
-            onClick={toggleMoreMenu}
-            aria-expanded={moreOpen}
-            aria-controls="document-more-actions"
-            aria-haspopup="menu"
-          >
-            더보기
-          </button>
-          {moreOpen
-            ? createPortal(
-                <div
-                  ref={moreMenuRef}
-                  id="document-more-actions"
-                  role="menu"
-                  style={{ visibility: 'hidden' }}
-                  className="fixed z-[420] w-52 max-w-[min(13rem,calc(100vw-16px))] rounded-lg border border-line bg-panel py-1 shadow-lg"
+          {documentTabs.map((tab) => {
+            const isSingleEmptyDraft =
+              documentTabs.length === 1 &&
+              tab.source === 'draft' &&
+              !tab.dirty &&
+              !tab.content.trim();
+            const active = tab.id === activeDocumentTabId;
+            return (
+              <div
+                key={tab.id}
+                className={`flex shrink-0 items-center rounded-md border transition-colors ${
+                  active ? 'border-accent/60 bg-selected text-text' : 'border-line/70 bg-panel text-muted hover:text-text'
+                }`}
+                onContextMenu={(e) => tabMenu.openAt(e, tabContextItems(tab.id))}
+              >
+                <button
+                  type="button"
+                  className="max-w-40 truncate px-2.5 py-1 text-[11px] font-medium"
+                  title={tab.path ?? tab.title}
+                  role="tab" aria-selected={active}
+                  aria-controls="document-content" tabIndex={active ? 0 : -1}
+                  onClick={() => setActiveDocumentTab(tab.id)}
                 >
-                  <p className="break-all px-3 py-2 text-xs text-muted">{sourceLabel} · {pathLabelTitle}</p>
-                  <button type="button" role="menuitem" disabled={!hasDump || reviewDraft != null} className="block w-full px-3 py-2 text-left text-xs disabled:opacity-40"
-                    onClick={() => { closeMoreMenu(); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
+                  {tab.title}{tab.dirty ? ' ●' : ''}
+                </button>
+                {!isSingleEmptyDraft ? (
                   <button
                     type="button"
-                    role="menuitem"
-                    disabled={readOnly}
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                    onClick={() => { closeMoreMenu(); requestDocumentEdit(null); }}
+                    className="px-1.5 py-1 text-[11px] text-muted hover:text-text"
+                    aria-label={`${tab.title} 닫기`}
+                    title={documentTabs.length === 1 ? '초안 비우기' : `${tab.title} 닫기`}
+                    onClick={() => void handleCloseTab(tab.id)}
                   >
-                    문서 전체 AI 수정 요청…
+                    ×
                   </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={!documentEditRequest || !boundProposal || readOnly}
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                    onClick={beginBoundReview}
-                  >
-                    이 요청의 변경안 보기
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
-                    onClick={() => { closeMoreMenu(); setSupportOpen((open) => !open); }}
-                  >
-                    {supportOpen ? '문서 공유·가져오기 닫기' : '문서 공유·가져오기…'}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
-                    onClick={() => {
-                      closeMoreMenu();
-                      void openSaveModal('saveAs');
-                    }}
-                  >
-                    다른 이름으로 저장…
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
-                    onClick={() => { closeMoreMenu(); void handleSaveScratch(); }}
-                  >
-                    세션 임시본으로 저장
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                    disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
-                    onClick={() => {
-                      closeMoreMenu();
-                      void openSaveModal('rename');
-                    }}
-                  >
-                    이름 변경…
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
-                    disabled={!activeDocument?.path}
-                    onClick={() => {
-                      closeMoreMenu();
-                      if (activeDocument?.path) void navigator.clipboard.writeText(activeDocument.path);
-                    }}
-                  >
-                    경로 복사
-                  </button>
-                </div>,
-                document.body,
-              )
-            : null}
+                ) : null}
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line/70 text-xs text-muted hover:bg-panel-2 hover:text-text"
+            aria-label="새 문서"
+            title="새 문서 탭 추가"
+            data-testid="new-document-tab"
+            onClick={() => void newDocument()}
+          >
+            +
+          </button>
         </div>
 
-        {diskConflict && activeDocument ? (
-          <>
-            <button
-              type="button"
-              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
-              onClick={() => keepDocumentLocalEdits(activeDocument.id)}
-            >
-              내 편집 유지
-            </button>
-            <button
-              type="button"
-              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
-              onClick={() => void reloadDocumentFromDisk(activeDocument.id)}
-            >
-              디스크 버전 보기
-            </button>
-            <button
-              type="button"
-              className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
-              onClick={() => setDocumentView('diff')}
-            >
-              변경 비교
-            </button>
-          </>
-        ) : null}
-        {closedMemoCount > 0 ? (
+        <div className="document-actions flex shrink-0 flex-wrap items-center gap-1.5">
           <button
             type="button"
-            className="rounded border border-rose-400/50 bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-700 hover:bg-rose-500/20"
-            title="접힌 AI 메모를 다시 엽니다"
-            onClick={() => {
-              const closed = memosRef.current.filter((m) => !m.open);
-              const first = closed[0];
-              if (!first) return;
-              reopenMemo(first.id, {
-                x: Math.max(8, window.innerWidth - NOTE_W - 24),
-                y: 96,
-              });
-            }}
+            className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+            onClick={() => void openDocQuickOpen()}
+            title="프로젝트 문서 열기 (Ctrl+O)"
+            data-testid="document-open"
           >
-            접힌 메모 {closedMemoCount}
+            문서 열기
           </button>
-        ) : null}
+          <button
+            type="button"
+            className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+            onClick={() => fileInputRef.current?.click()}
+            title="PC의 마크다운·텍스트 파일 가져오기"
+          >
+            파일 가져오기
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={DOCUMENT_SCRATCH.allowedExtensions.join(',')}
+            className="hidden"
+            onChange={(e) => {
+              void onPickFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            className={isUntouchedEmptyDraft ? 'ui-secondary !min-h-[28px] !px-2.5 !py-1 !text-[11px]' : 'ui-primary !min-h-[28px] !px-2.5 !py-1 !text-[11px]'}
+            disabled={readOnly}
+            onClick={() => void saveActiveDocument()}
+            data-testid="document-primary-save"
+          >
+            {projectFile || collaborationFile ? '저장' : '프로젝트에 저장…'}
+          </button>
+          <div className="relative">
+            <button
+              ref={moreButtonRef}
+              type="button"
+              className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+              onClick={toggleMoreMenu}
+              aria-expanded={moreOpen}
+              aria-controls="document-more-actions"
+              aria-haspopup="menu"
+            >
+              더보기
+            </button>
+            {moreOpen
+              ? createPortal(
+                  <div
+                    ref={moreMenuRef}
+                    id="document-more-actions"
+                    role="menu"
+                    style={{ visibility: 'hidden' }}
+                    className="fixed z-[420] w-52 max-w-[min(13rem,calc(100vw-16px))] rounded-lg border border-line bg-panel py-1 shadow-lg"
+                  >
+                    <p className="break-all border-b border-line/60 px-3 py-1.5 text-[11px] text-muted">{sourceLabel} · {pathLabelTitle}</p>
+                    <button type="button" role="menuitem" disabled={!hasDump || reviewDraft != null} className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                      onClick={() => { closeMoreMenu(); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={readOnly}
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                      onClick={() => { closeMoreMenu(); requestDocumentEdit(null); }}
+                    >
+                      문서 전체 AI 수정 요청…
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!documentEditRequest || !boundProposal || readOnly}
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                      onClick={beginBoundReview}
+                    >
+                      이 요청의 변경안 보기
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                      onClick={() => { closeMoreMenu(); setSupportOpen((open) => !open); }}
+                    >
+                      {supportOpen ? '문서 공유·가져오기 닫기' : '문서 공유·가져오기…'}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                      onClick={() => {
+                        closeMoreMenu();
+                        void openSaveModal('saveAs');
+                      }}
+                    >
+                      다른 이름으로 저장…
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                      onClick={() => { closeMoreMenu(); void handleSaveScratch(); }}
+                    >
+                      세션 임시본으로 저장
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                      disabled={activeDocument?.source !== 'workspace' || !activeDocument.path}
+                      onClick={() => {
+                        closeMoreMenu();
+                        void openSaveModal('rename');
+                      }}
+                    >
+                      이름 변경…
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
+                      disabled={!activeDocument?.path}
+                      onClick={() => {
+                        closeMoreMenu();
+                        if (activeDocument?.path) void navigator.clipboard.writeText(activeDocument.path);
+                      }}
+                    >
+                      경로 복사
+                    </button>
+                  </div>,
+                  document.body,
+                )
+              : null}
+          </div>
+        </div>
       </div>
+
       <DocumentCollaborationPanel
         active={activeDocument}
         dirty={documentDirty}
@@ -1096,13 +1096,15 @@ export function MarkdownDocument() {
         onNotesChange={setCollaborationNotes}
         visible={supportOpen}
       />
-      <div className="document-views flex shrink-0 items-center gap-1 border-b border-line px-3 py-1" role="tablist" aria-label="문서 보기" onKeyDown={navigateTabs}>
+
+      <div className="document-subbar flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line px-2.5 py-1">
+        <div className="document-views flex items-center gap-1" role="tablist" aria-label="문서 보기" onKeyDown={navigateTabs}>
           {(['preview', 'rendered', 'source', 'diff'] as const).map((id) => (
             <button
               key={id}
               type="button"
-              disabled={id === 'diff' && !lastDumpPath && lastDumpContent == null}
-              className="ui-tab" role="tab" aria-selected={view === id}
+              disabled={id === 'diff' && !lastDumpPath && lastDumpContent == null && reviewDraft == null}
+              className="ui-tab !min-h-[28px] !px-2.5 !py-1 !text-[11px]" role="tab" aria-selected={view === id}
               tabIndex={view === id ? 0 : -1} aria-controls="document-content"
               onClick={() => setDocumentView(id)}
               title={id === 'diff' ? '덤프 ↔ 현재' : undefined}
@@ -1110,6 +1112,60 @@ export function MarkdownDocument() {
               {id === 'source' ? '원문 편집' : id === 'rendered' ? '렌더링 편집' : id === 'preview' ? '읽기' : '변경 비교'}
             </button>
           ))}
+        </div>
+
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <span
+            className={`document-save-state rounded px-1.5 py-0.5 text-[11px] ${documentDirty ? 'bg-amber-500/10 text-warning font-medium' : 'text-muted'}`}
+            title={`${sourceLabel} · ${pathLabelTitle}`}
+            data-testid="document-save-state"
+          >
+            {saveLabel}
+          </span>
+          {diskConflict && activeDocument ? (
+            <>
+              <button
+                type="button"
+                className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+                onClick={() => keepDocumentLocalEdits(activeDocument.id)}
+              >
+                내 편집 유지
+              </button>
+              <button
+                type="button"
+                className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+                onClick={() => void reloadDocumentFromDisk(activeDocument.id)}
+              >
+                디스크 버전 보기
+              </button>
+              <button
+                type="button"
+                className="rounded border border-amber-500/40 px-2 py-0.5 text-[10px] text-amber-100 hover:bg-amber-500/10"
+                onClick={() => setDocumentView('diff')}
+              >
+                변경 비교
+              </button>
+            </>
+          ) : null}
+          {closedMemoCount > 0 ? (
+            <button
+              type="button"
+              className="rounded border border-rose-400/50 bg-rose-500/10 px-2 py-0.5 text-[10px] text-rose-700 hover:bg-rose-500/20"
+              title="접힌 AI 메모를 다시 엽니다"
+              onClick={() => {
+                const closed = memosRef.current.filter((m) => !m.open);
+                const first = closed[0];
+                if (!first) return;
+                reopenMemo(first.id, {
+                  x: Math.max(8, window.innerWidth - NOTE_W - 24),
+                  y: 96,
+                });
+              }}
+            >
+              접힌 메모 {closedMemoCount}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {documentEditRequest && activeDocument?.id === documentEditRequest.tabId ? (
@@ -1141,8 +1197,8 @@ export function MarkdownDocument() {
           에이전트 덮어쓰기 덤프가 있습니다. 「변경 비교」에서 확인하세요.
         </p>
       ) : null}
-      {documentStatus ? (
-        <p role="status" className="shrink-0 border-b border-line px-3 py-1 text-xs text-muted">{documentStatus}</p>
+      {visibleDocumentStatus ? (
+        <p role="status" className="shrink-0 border-b border-line bg-panel-2/40 px-3 py-1 text-[11px] text-muted">{visibleDocumentStatus}</p>
       ) : null}
 
       <div id="document-content" role="tabpanel" aria-label={view === 'source' ? '문서 원문 편집' : view === 'rendered' ? '렌더링 문서 편집' : view === 'preview' ? '문서 읽기' : '문서 변경 비교'}
@@ -1191,8 +1247,18 @@ export function MarkdownDocument() {
             {documentContent.trim() ? <MessageMarkdown text={documentContent}
               onOpenUrl={url => window.open(url, '_blank', 'noopener,noreferrer')}
               copyText={async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }} />
-              : <div className="ui-empty"><h2>새 문서를 작성해 보세요</h2><p>편집을 시작하거나 프로젝트 문서·외부 파일을 열 수 있습니다.</p>
-                <button type="button" className="ui-primary" onClick={() => setDocumentView('source')}>편집 시작</button></div>}
+              : (
+                <div className="ui-empty">
+                  <h2>새 문서를 작성해 보세요</h2>
+                  <p>직접 마크다운을 작성하거나 프로젝트 문서·외부 파일을 불러와 편집할 수 있습니다.</p>
+                  <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                    <button type="button" className="ui-primary" onClick={() => setDocumentView('source')}>편집 시작</button>
+                    <button type="button" className="ui-secondary" onClick={() => setDocumentView('rendered')}>렌더링 편집</button>
+                    <button type="button" className="ui-secondary" onClick={() => void openDocQuickOpen()}>프로젝트 문서 열기</button>
+                    <button type="button" className="ui-secondary" onClick={() => fileInputRef.current?.click()}>외부 파일 가져오기</button>
+                  </div>
+                </div>
+              )}
           </div>
         ) : null}
         {view === 'diff' ? (

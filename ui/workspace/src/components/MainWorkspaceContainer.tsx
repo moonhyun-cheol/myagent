@@ -22,7 +22,7 @@ import { useSessionTodos } from '../lib/useSessionTodos';
 import { navigateTabs } from '../lib/tabNavigation';
 
 const EDITING_ONLY_CTRL_KEYS = new Set(['a', 'v', 'x', 'y', 'z']);
-const BLOCKED_BROWSER_CTRL_KEYS = new Set(['d', 'h', 'j', 'l', 'n', 'o', 'r', 't', 'u', 'w', '+', '-', '0']);
+const BLOCKED_BROWSER_CTRL_KEYS = new Set(['d', 'h', 'j', 'l', 'n', 'r', 't', 'u', 'w', '+', '-', '0']);
 function isTextEditingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]') !== null;
@@ -53,6 +53,13 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
       const editing = isTextEditingTarget(e.target);
       if ((e.ctrlKey || e.metaKey) && EDITING_ONLY_CTRL_KEYS.has(key) && !editing) {
         e.preventDefault(); e.stopImmediatePropagation(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && key === 'o') {
+        e.preventDefault();
+        if (useWorkspaceStore.getState().mode !== 'document') {
+          e.stopImmediatePropagation();
+        }
+        return;
       }
       if (((e.ctrlKey || e.metaKey) && BLOCKED_BROWSER_CTRL_KEYS.has(key))
         || (!editing && (e.key === 'BrowserBack' || e.key === 'BrowserForward' || e.key === 'Backspace'))
@@ -109,7 +116,16 @@ function PreviewPane({ controls }: { controls?: WorkPanelControls }) {
           {!controls.narrow && <button type="button" onClick={controls.toggleExpanded} aria-label={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} title={controls.expanded ? '분할 보기로 복원' : '작업 패널 확대'} className="work-panel-tool-button">
             {controls.expanded ? <ArrowsInSimple size={16} /> : <ArrowsOutSimple size={16} />}
           </button>}
-          <button type="button" onClick={controls.close} aria-label="오른쪽 패널 접기" title="오른쪽 패널 접기 · 내용은 유지됩니다" className="work-panel-tool-button"><CaretRight size={16} /></button>
+          <button
+            type="button"
+            data-testid="close-work-panel"
+            onClick={controls.close}
+            aria-label={controls.narrow ? '채팅으로 돌아가기' : '오른쪽 패널 접기'}
+            title={controls.narrow ? '채팅으로 돌아가기' : '오른쪽 패널 접기 · 내용은 유지됩니다'}
+            className="work-panel-tool-button"
+          >
+            <CaretRight size={16} />
+          </button>
         </>}
       </div>
       {explorerMessage ? <span className="sr-only" role="status" aria-live="polite">{explorerMessage}</span> : null}

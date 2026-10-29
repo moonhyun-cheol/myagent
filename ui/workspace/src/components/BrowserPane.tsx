@@ -71,6 +71,7 @@ function browserTabFavicon(tab: InAppBrowserTab): string | null {
 export function BrowserPane() {
   const browserInputUrl = useWorkspaceStore((s) => s.browserInputUrl);
   const browserLoadedUrl = useWorkspaceStore((s) => s.browserLoadedUrl);
+  const browserHistory = useWorkspaceStore((s) => s.browserHistory);
   const storeCanGoBack = useWorkspaceStore((s) => s.browserHistoryIndex > 0);
   const storeCanGoForward = useWorkspaceStore(
     (s) => s.browserHistoryIndex >= 0 && s.browserHistoryIndex < s.browserHistory.length - 1,
@@ -85,6 +86,7 @@ export function BrowserPane() {
   const [shellVisible, setShellVisible] = useState(false);
   const [shellLoading, setShellLoading] = useState(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
   const [shellStatus, setShellStatus] = useState('');
   const [shellCanGoBack, setShellCanGoBack] = useState(false);
   const [shellCanGoForward, setShellCanGoForward] = useState(false);
@@ -188,9 +190,8 @@ export function BrowserPane() {
     window.open(activeBrowserUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const url = normalizeBrowserUrl(browserInputUrl);
+  const navigateToUrl = (rawUrl: string) => {
+    const url = normalizeBrowserUrl(rawUrl);
     if (!url) {
       setMessage('웹 주소를 입력하세요. 예: example.com 또는 https://example.com');
       return;
@@ -205,6 +206,11 @@ export function BrowserPane() {
       // Sending a command is not evidence that the native browser is visible.
       setShellStatus('브라우저 열기를 요청했습니다.');
     }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    navigateToUrl(browserInputUrl);
   };
 
   const onBack = () => {
@@ -226,14 +232,22 @@ export function BrowserPane() {
   const createTab = () => {
     setMessage(null);
     createInAppBrowserTab();
+    setBrowserInputUrl('');
+    requestAnimationFrame(() => urlInputRef.current?.focus());
   };
 
   const closeTab = (tab: InAppBrowserTab) => {
-    if (tab.primary || tab.controlled) return;
+    if (tab.controlled) return;
+    if (tab.primary) {
+      setBrowserInputUrl('');
+      requestAnimationFrame(() => urlInputRef.current?.focus());
+      return;
+    }
     closeInAppBrowserTab(tab.id);
   };
 
   const activeShellTab = shellTabs.find((tab) => tab.active) ?? null;
+  const recentUrls = Array.from(new Set(browserHistory.slice().reverse())).slice(0, 4);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-ink" aria-label="Preview 웹 뷰어">
@@ -263,16 +277,18 @@ export function BrowserPane() {
                   ) : null}
                   {tab.loading ? <span className="shrink-0 text-accent" aria-label="로딩 중">•</span> : null}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => closeTab(tab)}
-                  disabled={tab.primary || tab.controlled}
-                  title={tab.primary ? '기본 탭은 유지됩니다' : tab.controlled ? '제어권을 가져온 뒤 닫을 수 있습니다' : `${label} 닫기`}
-                  aria-label={`${label} 닫기`}
-                  className="shrink-0 rounded p-1 text-muted opacity-70 hover:bg-panel-2 hover:text-text disabled:cursor-default disabled:opacity-25"
-                >
-                  <X size={12} weight="bold" />
-                </button>
+                {!tab.primary || tab.url ? (
+                  <button
+                    type="button"
+                    onClick={() => closeTab(tab)}
+                    disabled={tab.controlled}
+                    title={tab.controlled ? '제어권을 가져온 뒤 닫을 수 있습니다' : tab.primary ? '주소 지우기' : `${label} 닫기`}
+                    aria-label={tab.primary ? `${label} 초기화` : `${label} 닫기`}
+                    className="shrink-0 rounded p-1 text-muted opacity-70 hover:bg-panel-2 hover:text-text disabled:cursor-default disabled:opacity-25"
+                  >
+                    <X size={12} weight="bold" />
+                  </button>
+                ) : null}
               </div>
             );
           })}
@@ -343,6 +359,7 @@ export function BrowserPane() {
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-line bg-ink px-2.5 py-1.5 focus-within:border-accent/70">
           <GlobeSimple size={15} className="shrink-0 text-muted" />
           <input
+            ref={urlInputRef}
             value={browserInputUrl}
             onChange={(event) => setBrowserInputUrl(event.target.value)}
             type="text"
@@ -350,10 +367,18 @@ export function BrowserPane() {
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            placeholder="example.com 또는 https://…"
+            placeholder="example.com 또는 http://localhost:3000…"
             aria-label="웹 주소"
             className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-muted"
           />
+          {browserInputUrl.trim() ? (
+            <button
+              type="submit"
+              className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25"
+            >
+              이동
+            </button>
+          ) : null}
         </label>
         <button type="button" onClick={() => activeShellTab && openInAppBrowserDevTools(activeShellTab.id)}
           disabled={!useShellSurface || !activeShellTab || activeShellTab.controlled}
@@ -367,7 +392,7 @@ export function BrowserPane() {
           className="shrink-0 rounded-md p-1.5 text-muted hover:bg-hover disabled:opacity-35">
           <ArrowSquareOut size={16} />
         </button>
-        {!useShellSurface && <div className="relative shrink-0">
+        {(useIframeSurface || !shellAvailable) && <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => setViewportOpen((open) => !open)}
@@ -505,15 +530,53 @@ export function BrowserPane() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 bg-ink px-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-4 bg-ink px-6 text-center">
             <GlobeSimple size={34} className="text-accent" weight="duotone" />
             <div>
               <p className="text-sm font-medium text-text">웹 미리보기</p>
               <p className="mt-1 text-xs text-muted">
                 {shellAvailable
-                  ? '주소를 입력한 뒤 Enter — 실제 사이트는 인앱 브라우저로 열립니다'
+                  ? '주소를 입력한 뒤 Enter — 외부 사이트는 인앱 브라우저로, 로컬 서버는 반응형 프레임으로 열립니다'
                   : '주소 입력 후 Enter (로컬 서버 미리보기에 적합)'}
               </p>
+            </div>
+            <div className="flex max-w-md flex-wrap items-center justify-center gap-1.5">
+              {recentUrls.length > 0 ? (
+                recentUrls.map((url) => (
+                  <button
+                    key={url}
+                    type="button"
+                    onClick={() => navigateToUrl(url)}
+                    title={url}
+                    className="max-w-[200px] truncate rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-text hover:border-accent/60"
+                  >
+                    {url.replace(/^https?:\/\//i, '')}
+                  </button>
+                ))
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrowserInputUrl('http://localhost:3000');
+                      urlInputRef.current?.focus();
+                    }}
+                    className="rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/60 hover:text-text"
+                  >
+                    localhost:3000
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrowserInputUrl('http://localhost:5173');
+                      urlInputRef.current?.focus();
+                    }}
+                    className="rounded-md border border-line bg-panel px-2.5 py-1 text-[11px] text-muted hover:border-accent/60 hover:text-text"
+                  >
+                    localhost:5173
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
