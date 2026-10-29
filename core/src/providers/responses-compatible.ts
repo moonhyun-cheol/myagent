@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { fetchWithUsage } from './llm-usage-log.js';
+import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 import { logResponsesBoundary } from './llm-wire-log.js';
 import type {
   AgentToolCallPayload,
@@ -496,24 +497,7 @@ function safeIdentifier(value: unknown): string | undefined {
 }
 
 function safeErrorFields(doc: ResponsesDocument, response?: Response) {
-  let upstream: ResponsesDocument = {};
-  const raw = doc?.error?.metadata?.raw;
-  if (typeof raw === 'string' && raw.length <= 4096) {
-    try { upstream = JSON.parse(raw) as ResponsesDocument; } catch { /* omit unstructured upstream text */ }
-  }
-  const message = doc?.error?.message ?? '';
-  const category = /rate.?limit|too many requests/i.test(message) ? 'rate_limit'
-    : /context.{0,30}(length|window)|maximum.{0,30}tokens/i.test(message) ? 'context_length'
-    : /api.?key|unauthorized|authentication/i.test(message) ? 'authentication'
-    : 'provider_error';
-  return {
-    category,
-    code: safeIdentifier(doc?.error?.code),
-    type: safeIdentifier(doc?.error?.type),
-    upstream_code: safeIdentifier(upstream?.error?.code),
-    upstream_type: safeIdentifier(upstream?.error?.type),
-    request_id: safeIdentifier(response?.headers.get('x-request-id') ?? response?.headers.get('request-id')),
-  };
+  return providerErrorDiagnostics(doc, response);
 }
 
 function assertCompleted(doc: ResponsesDocument): void {

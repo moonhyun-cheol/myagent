@@ -28,7 +28,7 @@ try {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     received.push(JSON.parse(Buffer.concat(chunks).toString()));
-    res.writeHead(reply.status ?? 200, { 'content-type': reply.frames ? 'text/event-stream' : 'application/json' });
+    res.writeHead(reply.status ?? 200, { 'content-type': reply.frames ? 'text/event-stream' : 'application/json', ...reply.headers });
     const data = reply.frames ?? reply.raw ?? JSON.stringify(reply.doc ?? {});
     if (reply.cut) { res.write(data); setTimeout(() => res.destroy(), 20); }
     else if (reply.split) { for (const byte of Buffer.from(data)) res.write(Buffer.from([byte])); res.end(); }
@@ -103,6 +103,86 @@ try {
     const calls = finished().slice(before);
     assert.equal(calls.length, 3); assert.deepEqual(calls.map(row => row.attempt), [1, 2, 3]); assert.equal(new Set(calls.map(row => row.call_id)).size, 3);
   });
+  await test('402 retains request limits and safe nested reason; bytes and single finish preserved', async () => {
+    reply.status = 402;
+    reply.headers = { 'x-request-id': 'req_402' };
+    reply.doc = { error: { code: 402, message: 'Provider returned error PRIVATE_ERROR_SENTINEL', metadata: {
+      provider_name: 'Anthropic', raw: JSON.stringify({ error: { code: 'insufficient_credits', message: key + ' PRIVATE_PROMPT_SENTINEL' } }),
+    } } };
+    const request = { model: 'model', stream: true, max_output_tokens: 16000, max_tokens: -1, max_completion_tokens: 'bad' };
+    const before = finished().length;
+    const res = await fetchWithUsage(`${base}/responses?api_key=PRIVATE_URL_SENTINEL`, { method: 'POST', body: JSON.stringify(request) });
+    const finish = last();
+    assert.equal(finish.error_diagnostics.reason, 'payment_required_unspecified');
+    assert.equal(finish.error_diagnostics.request_id, 'req_402');
+    assert.equal(finish.max_output_tokens, 16000); assert.equal(finish.max_tokens, null); assert.equal(finish.max_completion_tokens, null);
+    assert.equal(finish.endpoint_host, new URL(base).host);
+    assert.equal(await res.text(), JSON.stringify(reply.doc));
+    assert.deepEqual(received.at(-1), request);
+    const detail = rows().filter(row => row.event === 'http_error_detail').at(-1);
+    assert.equal(detail.call_id, finish.call_id); assert.equal(detail.error_observation, 'parsed');
+    assert.equal(detail.error_diagnostics.reason, 'insufficient_credits');
+    assert.equal(detail.error_diagnostics.upstream_provider, 'Anthropic');
+    assert.equal(detail.error_diagnostics.upstream_code, 'insufficient_credits');
+    assert.equal(finished().length, before + 1);
+  });
+  await test('real Responses 402 exposes safe reason without automatic retry', async () => {
+    reply.status = 402;
+    reply.doc = { error: { code: 402, message: 'This request requires more credits or fewer max_tokens. You can only afford 100 tokens. PRIVATE_ERROR_SENTINEL ' + key } };
+    const before = received.length;
+    await assert.rejects(responses.responsesCompletion(base, key, 'model', input), error => {
+      assert.match(error.message, /RESPONSES_HTTP_402/);
+      assert.match(error.message, /request_cost_exceeds_balance/);
+      assert.ok(!error.message.includes(key)); assert.ok(!error.message.includes('PRIVATE_ERROR_SENTINEL'));
+      return true;
+    });
+    assert.equal(received.length, before + 1);
+    assert.equal(rows().filter(row => row.event === 'http_error_detail').at(-1).error_diagnostics.reason, 'request_cost_exceeds_balance');
+  });
+  await test('billing classifications do not guess missing facts; nested object and malformed data safe', async () => {
+    const { providerErrorDiagnostics: diagnose } = await load('provider-error-diagnostics');
+    const http = { status: 402, headers: new Headers() };
+    for (const [message, expected] of [
+      ['Insufficient credits', 'insufficient_credits'], ['Key spending limit exceeded', 'spending_limit'],
+      ['Monthly budget limit reached', 'spending_limit'], ['Payment required', 'payment_required'],
+      ['Provider returned error', 'payment_required_unspecified'],
+    ]) assert.equal(diagnose({ error: { message } }, http).reason, expected);
+    assert.equal(diagnose({ error: { metadata: { raw: { error: { code: 'credit_limit_reached' } } } } }, http).reason, 'spending_limit');
+    assert.equal(diagnose({ error: { metadata: { raw: 'Insufficient credits PRIVATE_ERROR_SENTINEL' } } }, http).reason, 'insufficient_credits');
+    assert.equal(diagnose({ error: 'Insufficient credits' }, http).reason, 'insufficient_credits');
+    for (const raw of [null, [], 'not-json', 'x'.repeat(32769)])
+      assert.equal(diagnose({ error: { metadata: { raw } } }, http).reason, 'payment_required_unspecified');
+    assert.equal(diagnose(null, http).reason, 'payment_required_unspecified');
+    assert.equal(diagnose({ error: { code: 402 } }).reason, 'payment_required_unspecified');
+    assert.equal(diagnose({ error: { message: 'maximum context length exceeded' } }).reason, 'context_length');
+    assert.equal(diagnose({ error: { code: key, metadata: { provider_name: 'Bearer secret' } } }, http).code, undefined);
+    assert.equal(diagnose({ error: { metadata: { provider_name: 'Bearer secret' } } }, http).upstream_provider, undefined);
+  });
+  await test('bounded non-JSON and oversized HTTP error detail never changes body delivery', async () => {
+    reply.status = 402; reply.raw = '<html>PRIVATE_HTML_SENTINEL</html>';
+    const res = await fetchWithUsage(`${base}/responses`, { method: 'POST', body: '{}' });
+    assert.equal(await res.text(), reply.raw);
+    assert.equal(rows().at(-1).error_observation, 'invalid_json');
+    reply.raw = 'x'.repeat(32769);
+    const large = await fetchWithUsage(`${base}/responses`, { method: 'POST', body: '{}' });
+    assert.equal(await large.text(), reply.raw);
+    assert.equal(rows().at(-1).error_observation, 'truncated'); assert.equal(rows().at(-1).observation_truncated, true);
+  });
+  await test('unconsumed HTTP error still settles; cancellation produces bounded detail', async () => {
+    reply.status = 402; reply.doc = { error: { message: 'insufficient credits' } };
+    const res = await fetchWithUsage(`${base}/responses`, { method: 'POST', body: '{}' });
+    const callId = last().call_id;
+    assert.equal(rows().filter(row => row.call_id === callId && row.event === 'http_error_detail').length, 0);
+    await res.body.cancel();
+    assert.equal(rows().at(-1).error_observation, 'cancelled');
+    assert.equal(finished().filter(row => row.call_id === callId).length, 1);
+  });
+  await test('HTTP 200 SSE nested provider failure retains billing reason', async () => {
+    reply.frames = frame({ type: 'response.failed', response: { error: { code: 402, message: 'Insufficient credits PRIVATE_ERROR_SENTINEL' } } });
+    await assert.rejects(responses.responsesCompletionStream(base, key, 'model', input, () => {}));
+    assert.equal(last().outcome, 'provider_error');
+    assert.equal(last().error_diagnostics.reason, 'insufficient_credits');
+  });
   await test('SSE provider failure preserves reported partial usage', async () => {
     reply.frames = frame({ type: 'response.incomplete', response: { status: 'incomplete', usage: { input_tokens: 40, output_tokens: 5 } } });
     await assert.rejects(responses.responsesCompletionStream(base, key, 'model', input, () => {}));
@@ -168,7 +248,7 @@ try {
     assert.equal(starts.length, ends.length);
     for (const row of starts) assert.equal(ends.filter(end => end.call_id === row.call_id).length, 1);
     const text = JSON.stringify(all);
-    for (const sentinel of ['PRIVATE_KEY_SENTINEL', 'PRIVATE_PROMPT_SENTINEL', 'PRIVATE_REPLY_SENTINEL', 'PRIVATE_ERROR_SENTINEL', 'PRIVATE_HTML_SENTINEL', base]) assert.ok(!text.includes(sentinel), sentinel);
+    for (const sentinel of ['PRIVATE_KEY_SENTINEL', 'PRIVATE_PROMPT_SENTINEL', 'PRIVATE_REPLY_SENTINEL', 'PRIVATE_ERROR_SENTINEL', 'PRIVATE_HTML_SENTINEL', 'PRIVATE_URL_SENTINEL', base]) assert.ok(!text.includes(sentinel), sentinel);
   });
   await test('logging I/O failure never changes completion', async () => {
     const blocker = path.join(temp, 'file-not-directory'); writeFileSync(blocker, 'x'); process.env.MY_AGENT_LLM_USAGE_LOG_DIR = blocker;

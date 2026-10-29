@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 
 export interface LlmUsageContext {
   cqrRoot?: string;
@@ -58,6 +59,11 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     wire_api: wire, model: id(body.model), stream, attempt,
     endpoint_hash: createHash('sha256').update(new URL(url).origin + new URL(url).pathname).digest('hex').slice(0, 24),
     request_bytes: typeof init.body === 'string' ? Buffer.byteLength(init.body) : undefined,
+    // Only the host: never URL credentials, paths, query parameters or request headers.
+    endpoint_host: new URL(url).host,
+    max_output_tokens: token(body.max_output_tokens) ?? null,
+    max_completion_tokens: token(body.max_completion_tokens) ?? null,
+    max_tokens: token(body.max_tokens) ?? null,
     input_items: items.length, tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
     instructions_chars: typeof body.instructions === 'string' ? body.instructions.length : 0,
     previous_response: typeof body.previous_response_id === 'string',
@@ -77,6 +83,8 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let finished = false;
   let status: number | undefined;
   let responseModel: string | undefined;
+  let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
+  let responseHeaders: Headers | undefined;
   let removeAbort = () => {};
   const finish = (outcome: string) => {
     if (finished) return;
@@ -96,6 +104,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
       reasoning_tokens: usage.reasoning_tokens ?? null, total_input_tokens: totalInput,
       input_semantics: wire === 'messages' ? 'excludes_cache' : 'includes_cache',
       usage_source: 'provider', observation_truncated: truncated,
+      error_diagnostics: errorDiagnostics,
     });
   };
   const observe = (doc: Record<string, unknown>) => {
@@ -105,7 +114,10 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     // Providers send cumulative snapshots, not increments. Never add snapshots.
     usage = { ...usage, ...normalize(raw) };
     responseModel = id(doc.model ?? response.model ?? message.model) ?? responseModel;
-    if (doc.error || ['error', 'response.failed', 'response.incomplete'].includes(String(doc.type)) || ['failed', 'incomplete'].includes(String(doc.status))) providerFailed = true;
+    if (doc.error || response.error || ['error', 'response.failed', 'response.incomplete'].includes(String(doc.type)) || ['failed', 'incomplete'].includes(String(doc.status))) {
+      providerFailed = true;
+      errorDiagnostics = providerErrorDiagnostics(doc, { status: status ?? 200, headers: responseHeaders ?? new Headers() });
+    }
     if (doc.type === 'response.completed' || doc.type === 'message_stop') terminal = true;
   };
   let response: Response;
@@ -115,18 +127,30 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     throw error;
   }
   status = response.status;
+  responseHeaders = response.headers;
   // Retryable HTTP errors may never be consumed. Record them now, with unknown usage.
-  if (!response.ok) { finish('http_error'); return response; }
+  if (!response.ok) {
+    errorDiagnostics = providerErrorDiagnostics(undefined, response);
+    finish('http_error');
+  }
   if (!response.body) { finish('no_body'); return response; }
   const abort = () => finish('aborted');
-  init.signal?.addEventListener('abort', abort, { once: true });
+  if (!finished) init.signal?.addEventListener('abort', abort, { once: true });
   removeAbort = () => init.signal?.removeEventListener('abort', abort);
   if (init.signal?.aborted) abort();
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   let skipLine = false;
-  const maxBuffer = stream ? 1_048_576 : 8_388_608;
+  const observingStream = response.ok && stream;
+  const maxBuffer = !response.ok ? 32_768 : observingStream ? 1_048_576 : 8_388_608;
+  let errorDetailWritten = false;
+  const writeErrorDetail = (observation: string) => {
+    if (response.ok || errorDetailWritten) return;
+    errorDetailWritten = true;
+    write({ event: 'http_error_detail', http_status: status, error_observation: observation,
+      error_diagnostics: errorDiagnostics, observation_truncated: truncated });
+  };
   let frameData = '';
   let skipFrame = false;
   const parse = (text: string) => {
@@ -141,12 +165,18 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     skipFrame = false;
   };
   const feed = (text: string, eof = false) => {
-    if (!stream) {
+    if (!observingStream) {
       if (!truncated) {
         if (buffer.length + text.length > maxBuffer) { truncated = true; buffer = ''; }
         else buffer += text;
       }
-      if (eof && !truncated) parse(buffer);
+      if (eof && !truncated) {
+        if (response.ok) parse(buffer);
+        else {
+          try { errorDiagnostics = providerErrorDiagnostics(JSON.parse(buffer), response); } catch { invalid = true; }
+        }
+      }
+      if (eof) writeErrorDetail(truncated ? 'truncated' : invalid ? 'invalid_json' : 'parsed');
       return;
     }
     buffer += text;
@@ -182,12 +212,14 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
           controller.enqueue(value);
         }
       } catch (error) {
+        writeErrorDetail('read_error');
         finish(init.signal?.aborted ? 'aborted' : 'read_error');
         try { reader.releaseLock(); } catch { /* keep original read error */ }
         controller.error(error);
       }
     },
     async cancel(reason) {
+      writeErrorDetail('cancelled');
       finish(providerFailed ? 'provider_error' : terminal ? 'completed' : 'cancelled');
       try { await reader.cancel(reason); } finally { reader.releaseLock(); }
     },

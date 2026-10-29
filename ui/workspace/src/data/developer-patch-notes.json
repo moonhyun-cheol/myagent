@@ -2,6 +2,22 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "provider-payment-error-diagnostics",
+      "status": "development",
+      "title": "AI 요청의 결제·한도 오류 원인 추적 보강",
+      "detail": "AI 요청이 결제·한도 문제로 중단되면 연결 대상과 요청 크기, 최대 출력량, 공급자가 알려 준 오류 사유를 로컬 기록에서 비교할 수 있도록 보강했습니다. 잔액 부족·지출 한도·요청 비용 초과를 구분하고, 상세 사유가 없으면 불명으로 남깁니다. 질문 본문과 원문 오류 문구는 기록하지 않습니다.",
+      "area": "agent",
+      "created_at": "2026-10-29",
+      "source_paths": [
+        "core/src/providers/llm-usage-log.ts",
+        "core/src/providers/provider-error-diagnostics.ts"
+      ],
+      "release": {
+        "version": null,
+        "update_sequence": null
+      }
+    },
+    {
       "id": "decision-model-auto-approval",
       "status": "released",
       "title": "「나 대신 승인」을 켜면 판단 모델이 승인 여부를 정함",
