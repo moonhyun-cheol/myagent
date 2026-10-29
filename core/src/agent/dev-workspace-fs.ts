@@ -40,6 +40,11 @@ const SKIP_DIRS = new Set([
   '.next',
   'coverage',
   '.cache',
+  '.cqr-pa',
+  '.build',
+  '.tmp',
+  '.playwright',
+  '.my_agent_remote',
 ]);
 
 /**
@@ -252,22 +257,38 @@ export function buildWorkspaceUiTree(
     } catch {
       return [];
     }
+    const atRoot = rel === '.' || rel === '';
+    const filtered = listed.entries.filter((e) => {
+      if (e.is_dir && SKIP_DIRS.has(e.name)) return false;
+      if (e.is_dir && e.name.startsWith('.') && e.name !== '.github') return false;
+      return true;
+    });
+    if (atRoot) {
+      filtered.sort((a, b) => {
+        if (a.is_dir !== b.is_dir) return Number(b.is_dir) - Number(a.is_dir);
+        const ap = TREE_ROOT_PRIORITY.indexOf(a.name);
+        const bp = TREE_ROOT_PRIORITY.indexOf(b.name);
+        const aPri = ap === -1 ? TREE_ROOT_PRIORITY.length : ap;
+        const bPri = bp === -1 ? TREE_ROOT_PRIORITY.length : bp;
+        if (aPri !== bPri) return aPri - bPri;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      });
+    }
     const nodes: WorkspaceUiTreeNode[] = [];
-    for (const e of listed.entries) {
+    for (const e of filtered) {
       if (entryCount >= maxEntries) break;
-      if (e.is_dir && SKIP_DIRS.has(e.name)) continue;
       entryCount += 1;
-      if (e.is_dir) {
-        const shallow = TREE_SHALLOW_DIRS.has(e.name) || depth >= maxDepth;
-        nodes.push({
-          name: e.name,
-          path: e.path,
-          is_dir: true,
-          children: shallow ? [] : walk(e.path, depth + 1),
-        });
-      } else {
-        nodes.push({ name: e.name, path: e.path, is_dir: false });
-      }
+      nodes.push({
+        name: e.name,
+        path: e.path,
+        is_dir: e.is_dir,
+        children: e.is_dir ? [] : undefined,
+      });
+    }
+    for (const node of nodes) {
+      if (!node.is_dir || entryCount >= maxEntries) continue;
+      const shallow = TREE_SHALLOW_DIRS.has(node.name) || depth >= maxDepth;
+      node.children = shallow ? [] : walk(node.path, depth + 1);
     }
     return nodes;
   };

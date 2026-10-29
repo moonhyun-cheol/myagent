@@ -15,6 +15,7 @@ import {
 import { isLocalPreviewUrl, normalizeBrowserUrl } from '../lib/browserUrl';
 import {
   activateInAppBrowserTab,
+  closeInAppBrowser,
   closeInAppBrowserTab,
   createInAppBrowserTab,
   inAppBrowserBack,
@@ -54,11 +55,19 @@ const VIEWPORT_PRESETS: ViewportPreset[] = [
 
 const EXCESSIVE_TAB_WARNING_AT = 9;
 
+function sanitizeReportedBrowserUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed || /^about:blank$/i.test(trimmed)) return '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : '';
+}
+
 function browserTabLabel(tab: InAppBrowserTab): string {
   const title = tab.title.trim();
-  if (title && title !== '현재 인앱 웹 페이지') return title;
-  if (!tab.url) return '새 탭';
-  try { return new URL(tab.url).hostname || tab.url; } catch { return tab.url; }
+  if (title && title !== '현재 인앱 웹 페이지' && !/^about:blank$/i.test(title)) return title;
+  const cleanUrl = sanitizeReportedBrowserUrl(tab.url);
+  if (!cleanUrl) return '새 탭';
+  try { return new URL(cleanUrl).hostname || cleanUrl; } catch { return cleanUrl; }
 }
 
 function browserTabFavicon(tab: InAppBrowserTab): string | null {
@@ -102,16 +111,17 @@ export function BrowserPane() {
   const [customWidth, setCustomWidth] = useState('390');
   const [customHeight, setCustomHeight] = useState('844');
 
+  const normalizedLoadedUrl = sanitizeReportedBrowserUrl(browserLoadedUrl);
   const shellPageUrl = shellStateReceived
-    ? shellUrl
-    : browserLoadedUrl && !isLocalPreviewUrl(browserLoadedUrl) ? browserLoadedUrl : '';
+    ? sanitizeReportedBrowserUrl(shellUrl)
+    : normalizedLoadedUrl && !isLocalPreviewUrl(normalizedLoadedUrl) ? normalizedLoadedUrl : '';
   const useIframeSurface = Boolean(
-    browserLoadedUrl && (!shellAvailable || isLocalPreviewUrl(browserLoadedUrl)),
+    normalizedLoadedUrl && (!shellAvailable || isLocalPreviewUrl(normalizedLoadedUrl)),
   );
   const useShellSurface = Boolean(
     !useIframeSurface && shellAvailable && shellPageUrl && !isLocalPreviewUrl(shellPageUrl),
   );
-  const activeBrowserUrl = useShellSurface ? shellPageUrl : useIframeSurface ? browserLoadedUrl : '';
+  const activeBrowserUrl = useShellSurface ? shellPageUrl : useIframeSurface ? normalizedLoadedUrl : '';
   const canGoBack = useShellSurface ? shellCanGoBack : storeCanGoBack;
   const canGoForward = useShellSurface ? shellCanGoForward : storeCanGoForward;
 
@@ -120,28 +130,36 @@ export function BrowserPane() {
     return subscribeInAppBrowserState((state) => {
       const firstState = !hasShellState.current;
       hasShellState.current = true;
+      const cleanStateUrl = sanitizeReportedBrowserUrl(state.url);
+      const cleanTabs = state.tabs.map((tab) => ({
+        ...tab,
+        url: sanitizeReportedBrowserUrl(tab.url),
+      }));
       setShellVisible(state.visible);
       setShellLoading(state.loading);
       setShellStatus(state.status);
       setShellCanGoBack(state.canGoBack);
       setShellCanGoForward(state.canGoForward);
-      setShellUrl(state.url);
+      setShellUrl(cleanStateUrl);
       setShellStateReceived(true);
-      setShellTabs(state.tabs);
+      setShellTabs(cleanTabs);
       setReturnTabId(state.returnTabId);
       const store = useWorkspaceStore.getState();
-      const recoverUrl = firstState && !state.url && store.browserLoadedUrl
-        && !isLocalPreviewUrl(store.browserLoadedUrl) ? store.browserLoadedUrl : '';
+      const storedUrl = sanitizeReportedBrowserUrl(store.browserLoadedUrl);
+      const recoverUrl = firstState && !cleanStateUrl && storedUrl
+        && !isLocalPreviewUrl(storedUrl) ? storedUrl : '';
       if (recoverUrl) {
         resumeInAppBrowser(recoverUrl);
       }
       if (lastActiveTabId.current !== state.activeTabId) {
         lastActiveTabId.current = state.activeTabId;
-        if (!recoverUrl) store.setBrowserInputUrl(state.url);
+        if (!recoverUrl) store.setBrowserInputUrl(cleanStateUrl);
+      } else if (/^about:blank$/i.test(store.browserInputUrl.trim())) {
+        store.setBrowserInputUrl(cleanStateUrl);
       }
-      if (/^https?:\/\//i.test(state.url)) {
-        if (state.url !== store.browserLoadedUrl) {
-          store.navigateBrowser(state.url);
+      if (cleanStateUrl) {
+        if (cleanStateUrl !== store.browserLoadedUrl) {
+          store.navigateBrowser(cleanStateUrl);
         }
       }
     });
@@ -239,7 +257,12 @@ export function BrowserPane() {
   const closeTab = (tab: InAppBrowserTab) => {
     if (tab.controlled) return;
     if (tab.primary) {
+      closeInAppBrowser();
+      setShellUrl('');
+      setShellVisible(false);
+      setShellStatus('');
       setBrowserInputUrl('');
+      useWorkspaceStore.setState({ browserLoadedUrl: '', browserInputUrl: '' });
       requestAnimationFrame(() => urlInputRef.current?.focus());
       return;
     }
@@ -247,7 +270,9 @@ export function BrowserPane() {
   };
 
   const activeShellTab = shellTabs.find((tab) => tab.active) ?? null;
-  const recentUrls = Array.from(new Set(browserHistory.slice().reverse())).slice(0, 4);
+  const recentUrls = Array.from(
+    new Set(browserHistory.map((u) => sanitizeReportedBrowserUrl(u)).filter(Boolean).reverse()),
+  ).slice(0, 4);
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-ink" aria-label="Preview 웹 뷰어">
@@ -510,7 +535,14 @@ export function BrowserPane() {
       ) : null}
       <div className={`relative min-h-0 flex-1 ${useShellSurface ? 'overflow-hidden' : 'overflow-auto bg-[#d7dcd9] p-4'}`}>
         {useShellSurface ? (
-          <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="h-full w-full bg-panel" aria-label="인앱 웹 페이지" />
+          <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="flex h-full w-full items-center justify-center bg-panel text-center" aria-label="인앱 웹 페이지">
+            {!shellVisible ? (
+              <div className="px-6 text-xs text-muted">
+                <p className="font-medium text-text">{shellLoading ? '인앱 웹 페이지를 불러오는 중…' : '인앱 브라우저 영역 준비됨'}</p>
+                <p className="mt-1 break-all text-[11px] text-muted">{shellPageUrl}</p>
+              </div>
+            ) : null}
+          </div>
         ) : useIframeSurface ? (
           <div className="flex min-h-full min-w-full items-start justify-center">
             <div

@@ -219,6 +219,13 @@ public partial class MainWindow
             UpdateBrowserState();
     }
 
+    private static string NormalizeReportedBrowserUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+        var trimmed = url.Trim();
+        return string.Equals(trimmed, "about:blank", StringComparison.OrdinalIgnoreCase) ? string.Empty : trimmed;
+    }
+
     private object[] BrowserTabSummaries()
     {
         var summaries = new List<object>(_browserTabs.Count);
@@ -227,7 +234,7 @@ public partial class MainWindow
             summaries.Add(new
             {
                 id = tab.Id,
-                url = tab.Core?.Source ?? tab.Url,
+                url = NormalizeReportedBrowserUrl(tab.Core?.Source ?? tab.Url),
                 title = tab.Title,
                 active = tab.Id == _activeBrowserTabId,
                 loading = tab.Loading,
@@ -554,7 +561,7 @@ public partial class MainWindow
             type = "inAppBrowser.state",
             visible = tab?.Core is not null && tab.Panel.IsVisible
                 && tab.View.IsVisible && tab.View.ActualWidth > 0 && tab.View.ActualHeight > 0,
-            url = tab is null ? string.Empty : (tab.Loading ? tab.Url : tab.Core?.Source ?? tab.Url),
+            url = tab is null ? string.Empty : NormalizeReportedBrowserUrl(tab.Loading ? tab.Url : tab.Core?.Source ?? tab.Url),
             canGoBack = tab?.Core?.CanGoBack ?? false,
             canGoForward = tab?.Core?.CanGoForward ?? false,
             loading = tab?.Loading ?? false,

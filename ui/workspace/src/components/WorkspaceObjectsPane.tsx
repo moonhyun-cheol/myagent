@@ -1,6 +1,8 @@
 import Editor from '@monaco-editor/react';
 import {
   ArrowSquareOut,
+  CaretDown,
+  CaretUp,
   Check,
   Code,
   DownloadSimple,
@@ -115,15 +117,25 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
         </button>
       ) : null}
       {asset.sourcePath && (
-        <button
-          type="button"
-          aria-label={`${asset.title} 외부 앱으로 열기`}
-          title="설정된 외부 앱으로 열기"
-          className="ui-secondary !min-h-[28px] !px-2 !py-1"
-          onClick={() => void openWorkspaceFileWithConfiguredApp(asset.sourcePath!, asset.title)}
-        >
-          <ArrowSquareOut size={14} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={openAsset}
+            title={docAvailable ? '문서 탭에서 열기' : '앱 내 코드 뷰어에서 열기'}
+            className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] text-text hover:border-accent/60"
+          >
+            {docAvailable ? '문서' : '뷰어'}
+          </button>
+          <button
+            type="button"
+            aria-label={`${asset.title} 외부 앱으로 열기`}
+            title="Windows 연결 프로그램으로 열기"
+            className="ui-secondary !min-h-[26px] !px-1.5 !py-1"
+            onClick={() => void openWorkspaceFileWithConfiguredApp(asset.sourcePath!, asset.title)}
+          >
+            <ArrowSquareOut size={13} />
+          </button>
+        </div>
       )}
     </article>
   );
@@ -133,6 +145,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   const tabId = useId();
   const { resolved: theme } = useTheme();
   const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>('recent');
+  const [viewerCollapsed, setViewerCollapsed] = useState(false);
   const [instructionDraft, setInstructionDraft] = useState('');
   const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
   const assets = useWorkspaceStore((state) => state.assets);
@@ -161,6 +174,20 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
     : null;
 
   useEffect(() => { void refreshExplorer(); }, [refreshExplorer]);
+  useEffect(() => {
+    if (activeEditorTab) setViewerCollapsed(false);
+  }, [activeEditorTab?.id]);
+  useEffect(() => {
+    if (!activeEditorTab) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void saveActiveFile();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeEditorTab, saveActiveFile]);
 
   const savePinnedInstructions = (next: string[]) => {
     setPinnedInstructions(next);
@@ -197,7 +224,12 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
       </nav>
 
       {activeEditorTab ? (
-        <div className="flex h-[52%] min-h-[220px] shrink-0 flex-col border-b border-line bg-ink" data-testid="inline-code-viewer">
+        <div
+          className={`flex shrink-0 flex-col border-b border-line bg-ink ${
+            viewerCollapsed ? 'h-auto' : 'h-[48%] min-h-[200px]'
+          }`}
+          data-testid="inline-code-viewer"
+        >
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1">
             <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist" aria-label="열린 코드 파일">
               {openTabs.map((tab) => {
@@ -214,7 +246,10 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
                       type="button"
                       role="tab"
                       aria-selected={isActive}
-                      onClick={() => setActiveEditorTab(tab.id)}
+                      onClick={() => {
+                        setActiveEditorTab(tab.id);
+                        setViewerCollapsed(false);
+                      }}
                       className="max-w-36 truncate px-2 py-0.5 font-medium"
                       title={tab.id.startsWith('file:') ? tab.id.slice('file:'.length) : tab.title}
                     >
@@ -258,34 +293,52 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
                   </button>
                 </>
               ) : null}
+              <button
+                type="button"
+                onClick={() => setViewerCollapsed((v) => !v)}
+                title={viewerCollapsed ? '코드 뷰어 펼치기' : '코드 뷰어 접기'}
+                aria-label={viewerCollapsed ? '코드 뷰어 펼치기' : '코드 뷰어 접기'}
+                className="inline-flex items-center rounded border border-line p-1 text-muted hover:border-accent/60 hover:text-text"
+              >
+                {viewerCollapsed ? <CaretDown size={12} /> : <CaretUp size={12} />}
+              </button>
             </div>
           </div>
-          <div className="min-h-0 flex-1">
-            <Editor
-              height="100%"
-              language={activeEditorTab.language || 'plaintext'}
-              theme={theme === 'dark' ? 'vs-dark' : 'vs'}
-              value={activeEditorTab.content}
-              onChange={(val) => setEditorContent(val ?? '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 12,
-                wordWrap: 'on',
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-              }}
-            />
-          </div>
+          {!viewerCollapsed ? (
+            <div className="min-h-0 flex-1">
+              <Editor
+                height="100%"
+                language={activeEditorTab.language || 'plaintext'}
+                theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+                value={activeEditorTab.content}
+                onChange={(val) => setEditorContent(val ?? '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       <div id={`${tabId}-body`} className="min-h-0 flex-1 overflow-auto" role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`}>
         {activeTab === 'recent' && references.length === 0 && !browserLoadedUrl && workAssets.length === 0 ? <EmptyState>참조 링크와 생성·변경 파일이 여기에 표시됩니다.</EmptyState> : activeTab === 'recent' ? <>
-          <section className="border-b border-line">
-            <div className="flex items-center justify-between px-3 py-2"><div className="flex items-center gap-1.5"><LinkSimple size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">참조 링크</h3></div><span className="text-[10px] text-muted">{browserHistory.length}</span></div>
-            {references.length === 0 ? <EmptyState>이 세션에서 참조한 링크가 없습니다.</EmptyState> : references.map((url) => <button key={url} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-ink" onClick={() => openBrowserReference(url)} title={url}><LinkSimple size={14} className="shrink-0 text-muted" /><span className="min-w-0 flex-1 truncate text-[11px] text-muted">{displayUrl(url)}</span><ArrowSquareOut size={13} className="shrink-0 text-muted" /></button>)}
-            {browserLoadedUrl && !references.includes(browserLoadedUrl) ? <button type="button" className="flex w-full items-center gap-2 border-t border-line/70 px-3 py-2 text-left text-[11px] text-accent hover:bg-ink" onClick={() => openBrowserReference(browserLoadedUrl)} title={browserLoadedUrl}><LinkSimple size={14} className="shrink-0" /><span className="min-w-0 flex-1 truncate">현재 웹 페이지 · {displayUrl(browserLoadedUrl)}</span><ArrowSquareOut size={13} className="shrink-0" /></button> : null}
-          </section>
+          {references.length > 0 || browserLoadedUrl ? (
+            <section className="border-b border-line">
+              <div className="flex items-center justify-between px-3 py-2"><div className="flex items-center gap-1.5"><LinkSimple size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">참조 링크</h3></div><span className="text-[10px] text-muted">{browserHistory.length}</span></div>
+              {references.map((url) => <button key={url} type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-ink" onClick={() => openBrowserReference(url)} title={url}><LinkSimple size={14} className="shrink-0 text-muted" /><span className="min-w-0 flex-1 truncate text-[11px] text-muted">{displayUrl(url)}</span><ArrowSquareOut size={13} className="shrink-0 text-muted" /></button>)}
+              {browserLoadedUrl && !references.includes(browserLoadedUrl) ? <button type="button" className="flex w-full items-center gap-2 border-t border-line/70 px-3 py-2 text-left text-[11px] text-accent hover:bg-ink" onClick={() => openBrowserReference(browserLoadedUrl)} title={browserLoadedUrl}><LinkSimple size={14} className="shrink-0" /><span className="min-w-0 flex-1 truncate">현재 웹 페이지 · {displayUrl(browserLoadedUrl)}</span><ArrowSquareOut size={13} className="shrink-0" /></button> : null}
+            </section>
+          ) : (
+            <div className="flex items-center justify-between border-b border-line px-3 py-1.5 text-[11px] text-muted">
+              <span className="inline-flex items-center gap-1.5"><LinkSimple size={13} className="text-muted" />참조 링크 없음</span>
+              <span className="text-[10px]">0</span>
+            </div>
+          )}
           <section><div className="flex items-center justify-between px-3 py-2"><div className="flex items-center gap-1.5"><ImageIcon size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">변경·생성 파일</h3></div><span className="text-[10px] text-muted">{workAssets.length}</span></div>{workAssets.length === 0 ? <EmptyState>아직 이 세션의 결과물이 없습니다.</EmptyState> : workAssets.map((asset) => <RecentAsset key={asset.id} asset={asset} showDownloadAction={showDownloadActions} />)}</section>
         </> : null}
 

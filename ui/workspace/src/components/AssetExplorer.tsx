@@ -22,9 +22,12 @@ function filterFileNodes(nodes: FileNode[], query: string): FileNode[] {
   const out: FileNode[] = [];
   for (const node of nodes) {
     if (node.kind === 'folder') {
-      const children = filterFileNodes(node.children ?? [], q);
-      if (children.length > 0 || node.name.toLowerCase().includes(q)) {
-        out.push({ ...node, children });
+      const folderMatches = node.name.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
+      const filteredChildren = filterFileNodes(node.children ?? [], q);
+      if (filteredChildren.length > 0) {
+        out.push({ ...node, children: filteredChildren });
+      } else if (folderMatches) {
+        out.push({ ...node, children: node.children ?? [] });
       }
     } else if (node.name.toLowerCase().includes(q) || node.id.toLowerCase().includes(q)) {
       out.push(node);
@@ -40,10 +43,10 @@ function TreeItem({ node, depth = 0, forceExpand = false }: { node: FileNode; de
   const appendToDocument = useWorkspaceStore((s) => s.appendToDocument);
   const openDocumentPath = useWorkspaceStore((s) => s.openDocumentPath);
   const { menu, openAt, close } = useContextMenu();
-  const [open, setOpen] = useState(depth < 2);
+  const [open, setOpen] = useState(false);
   const [openState, setOpenState] = useState<'idle' | 'opening' | 'failed'>('idle');
   const [openError, setOpenError] = useState('');
-  const isExpanded = forceExpand || open;
+  const isExpanded = (forceExpand && depth < 3) || open;
 
   const openInApp = () => {
     if (isAllowedDocumentPath(node.id)) {

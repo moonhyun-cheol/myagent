@@ -525,17 +525,27 @@ export function MarkdownDocument() {
       await openDocumentPath(normalizeRelPath(file.name), text);
       importedCount += 1;
     }
-    if (importedCount === 0 && skippedCount > 0) {
+    if (skippedCount > 0) {
+      const notice = importedCount > 0
+        ? `${importedCount}개 가져옴 · 지원하지 않는 파일 ${skippedCount}개 제외 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')})`
+        : `지원하지 않는 파일 형식입니다 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')} 파일만 가능).`;
       const state = useWorkspaceStore.getState();
       const active = state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId);
       if (active) {
+        const targetId = active.id;
         useWorkspaceStore.setState({
           documentTabs: state.documentTabs.map((tab) =>
-            tab.id === active.id
-              ? { ...tab, status: `지원하지 않는 파일 형식입니다 (${DOCUMENT_SCRATCH.allowedExtensions.join(', ')} 파일만 가능).` }
-              : tab,
+            tab.id === targetId ? { ...tab, status: notice } : tab,
           ),
         });
+        window.setTimeout(() => {
+          const cur = useWorkspaceStore.getState();
+          useWorkspaceStore.setState({
+            documentTabs: cur.documentTabs.map((tab) =>
+              tab.id === targetId && tab.status === notice ? { ...tab, status: null } : tab,
+            ),
+          });
+        }, 4_000);
       }
     }
   };
