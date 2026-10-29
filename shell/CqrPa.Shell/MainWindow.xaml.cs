@@ -158,6 +158,9 @@ public partial class MainWindow : Window
                 case "inAppBrowser.tab.close":
                     CloseTab(WorkspaceTabId(root));
                     break;
+                case "inAppBrowser.tab.reset":
+                    ResetBrowserTab(WorkspaceTabId(root));
+                    break;
                 case "inAppBrowser.tab.activate":
                     ActivateTab(WorkspaceTabId(root), userInitiated: true);
                     break;

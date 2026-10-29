@@ -41,6 +41,8 @@ public partial class MainWindow
         public bool Loading;
         public bool Requested;
         public bool NeedsReload;
+        /// <summary>User reset the tab to its start page; report an empty URL until the next open.</summary>
+        public bool Cleared;
         public string Url = string.Empty;
         public string Status = string.Empty;
         public string Title = "현재 인앱 웹 페이지";
@@ -219,6 +221,35 @@ public partial class MainWindow
             UpdateBrowserState();
     }
 
+    /// <summary>
+    /// Reset a tab to the workspace start page without disposing it. The WebView2 keeps its
+    /// last document, so the reported URL is suppressed until the next explicit open/navigation.
+    /// </summary>
+    private void ResetBrowserTab(string? tabId)
+    {
+        var tab = ResolveTab(tabId);
+        if (tab.AutomationOwner is not null)
+        {
+            UpdateTabState(tab, "제어권을 가져온 뒤 초기화할 수 있습니다.");
+            return;
+        }
+        ++tab.OpenVersion;
+        tab.Requested = false;
+        tab.NeedsReload = false;
+        tab.Loading = false;
+        tab.Core?.Stop();
+        tab.Url = string.Empty;
+        tab.Title = "새 탭";
+        tab.Status = string.Empty;
+        tab.Cleared = true;
+        ApplyBrowserSurface();
+        if (tab.Id == _activeBrowserTabId) UpdateTabState(tab);
+        else UpdateBrowserState();
+    }
+
+    private static string ReportedTabUrl(BrowserTab tab) =>
+        tab.Cleared ? string.Empty : NormalizeReportedBrowserUrl(tab.Loading ? tab.Url : tab.Core?.Source ?? tab.Url);
+
     private static string NormalizeReportedBrowserUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return string.Empty;
@@ -234,7 +265,7 @@ public partial class MainWindow
             summaries.Add(new
             {
                 id = tab.Id,
-                url = NormalizeReportedBrowserUrl(tab.Core?.Source ?? tab.Url),
+                url = tab.Cleared ? string.Empty : NormalizeReportedBrowserUrl(tab.Core?.Source ?? tab.Url),
                 title = tab.Title,
                 active = tab.Id == _activeBrowserTabId,
                 loading = tab.Loading,
@@ -372,6 +403,7 @@ public partial class MainWindow
         var openVersion = ++tab.OpenVersion;
         tab.Requested = true;
         tab.NeedsReload = false;
+        tab.Cleared = false;
         tab.Url = uri.AbsoluteUri;
         if (activate)
         {
@@ -487,6 +519,7 @@ public partial class MainWindow
                     JsonSerializer.Serialize(new { type = "inAppBrowser.activate", url = e.Uri }));
                 ApplyBrowserSurface();
             }
+            tab.Cleared = false;
             tab.NavigationId = e.NavigationId;
             tab.Loading = true;
             tab.Url = e.Uri;
@@ -561,9 +594,9 @@ public partial class MainWindow
             type = "inAppBrowser.state",
             visible = tab?.Core is not null && tab.Panel.IsVisible
                 && tab.View.IsVisible && tab.View.ActualWidth > 0 && tab.View.ActualHeight > 0,
-            url = tab is null ? string.Empty : NormalizeReportedBrowserUrl(tab.Loading ? tab.Url : tab.Core?.Source ?? tab.Url),
-            canGoBack = tab?.Core?.CanGoBack ?? false,
-            canGoForward = tab?.Core?.CanGoForward ?? false,
+            url = tab is null ? string.Empty : ReportedTabUrl(tab),
+            canGoBack = tab is not null && !tab.Cleared && (tab.Core?.CanGoBack ?? false),
+            canGoForward = tab is not null && !tab.Cleared && (tab.Core?.CanGoForward ?? false),
             loading = tab?.Loading ?? false,
             status,
             activeTabId = _activeBrowserTabId,

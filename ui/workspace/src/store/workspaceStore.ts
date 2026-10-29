@@ -515,6 +515,8 @@ interface WorkspaceState {
   setMode: (mode: WorkspaceMode) => void;
   setBrowserInputUrl: (url: string) => void;
   navigateBrowser: (url: string) => void;
+  /** Clear the loaded/input URL so the web tab returns to its start page (history kept). */
+  resetBrowserPage: () => void;
   reloadBrowser: () => void;
   goBrowserBack: () => void;
   goBrowserForward: () => void;
@@ -1670,6 +1672,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           browserHistoryIndex: trimmed.length - 1,
         };
       }),
+    resetBrowserPage: () => set({ browserLoadedUrl: '', browserInputUrl: '' }),
     reloadBrowser: () => set((state) => ({ browserReloadKey: state.browserReloadKey + 1 })),
     goBrowserBack: () =>
       set((state) => {

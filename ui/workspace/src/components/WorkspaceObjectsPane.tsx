@@ -1,4 +1,4 @@
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import {
   ArrowSquareOut,
   CaretDown,
@@ -177,17 +177,13 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   useEffect(() => {
     if (activeEditorTab) setViewerCollapsed(false);
   }, [activeEditorTab?.id]);
-  useEffect(() => {
-    if (!activeEditorTab) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        void saveActiveFile();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeEditorTab, saveActiveFile]);
+  // Ctrl/Cmd+S belongs to the focused Monaco instance only; the chat composer and other
+  // panes must never save a code file. getState() avoids a stale closure across tab switches.
+  const onEditorMount: OnMount = (editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void useWorkspaceStore.getState().saveActiveFile();
+    });
+  };
 
   const savePinnedInstructions = (next: string[]) => {
     setPinnedInstructions(next);
@@ -312,6 +308,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
                 theme={theme === 'dark' ? 'vs-dark' : 'vs'}
                 value={activeEditorTab.content}
                 onChange={(val) => setEditorContent(val ?? '')}
+                onMount={onEditorMount}
                 options={{
                   minimap: { enabled: false },
                   fontSize: 12,

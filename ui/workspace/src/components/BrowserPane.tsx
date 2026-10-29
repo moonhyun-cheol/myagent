@@ -15,7 +15,6 @@ import {
 import { isLocalPreviewUrl, normalizeBrowserUrl } from '../lib/browserUrl';
 import {
   activateInAppBrowserTab,
-  closeInAppBrowser,
   closeInAppBrowserTab,
   createInAppBrowserTab,
   inAppBrowserBack,
@@ -26,6 +25,7 @@ import {
   navigateInAppBrowser,
   openInAppBrowser,
   openInAppBrowserDevTools,
+  resetInAppBrowserTab,
   resumeInAppBrowser,
   returnFromObservedBrowserTab,
   takeOverInAppBrowserTab,
@@ -91,6 +91,7 @@ export function BrowserPane() {
   const reloadBrowser = useWorkspaceStore((s) => s.reloadBrowser);
   const goBrowserBack = useWorkspaceStore((s) => s.goBrowserBack);
   const goBrowserForward = useWorkspaceStore((s) => s.goBrowserForward);
+  const resetBrowserPage = useWorkspaceStore((s) => s.resetBrowserPage);
   const shellAvailable = isShellInAppBrowserAvailable();
   const [shellVisible, setShellVisible] = useState(false);
   const [shellLoading, setShellLoading] = useState(false);
@@ -257,13 +258,17 @@ export function BrowserPane() {
   const closeTab = (tab: InAppBrowserTab) => {
     if (tab.controlled) return;
     if (tab.primary) {
-      closeInAppBrowser();
-      setShellUrl('');
-      setShellVisible(false);
-      setShellStatus('');
-      setBrowserInputUrl('');
-      useWorkspaceStore.setState({ browserLoadedUrl: '', browserInputUrl: '' });
-      requestAnimationFrame(() => urlInputRef.current?.focus());
+      // Target the primary tab explicitly: the shell suppresses its stale URL until the next open,
+      // so the state echo cannot navigate the store back to the previous page.
+      resetInAppBrowserTab(tab.id);
+      if (tab.active) {
+        setShellUrl('');
+        setShellVisible(false);
+        setShellStatus('');
+        setMessage(null);
+        resetBrowserPage();
+        requestAnimationFrame(() => urlInputRef.current?.focus());
+      }
       return;
     }
     closeInAppBrowserTab(tab.id);
@@ -538,8 +543,14 @@ export function BrowserPane() {
           <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="flex h-full w-full items-center justify-center bg-panel text-center" aria-label="인앱 웹 페이지">
             {!shellVisible ? (
               <div className="px-6 text-xs text-muted">
-                <p className="font-medium text-text">{shellLoading ? '인앱 웹 페이지를 불러오는 중…' : '인앱 브라우저 영역 준비됨'}</p>
+                <p className="font-medium text-text">{shellLoading ? '인앱 웹 페이지를 불러오는 중…' : '웹 페이지가 표시되지 않았습니다'}</p>
                 <p className="mt-1 break-all text-[11px] text-muted">{shellPageUrl}</p>
+                {!shellLoading ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+                    <button type="button" onClick={() => resumeInAppBrowser(shellPageUrl)} className="ui-secondary">다시 열기</button>
+                    <button type="button" onClick={openExternal} className="ui-secondary">외부에서 열기</button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

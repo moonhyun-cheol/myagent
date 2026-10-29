@@ -56,6 +56,14 @@ export function closeInAppBrowserTab(tabId: string): boolean {
   return true;
 }
 
+/** Reset a tab (typically the undeletable primary tab) back to the start page. */
+export function resetInAppBrowserTab(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.reset', tabId });
+  return true;
+}
+
 export function activateInAppBrowserTab(tabId: string): boolean {
   const webview = shellWebView();
   if (!webview) return false;
