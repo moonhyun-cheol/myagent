@@ -1916,7 +1916,7 @@ export async function dispatchApiRequest(
         return;
       }
 
-      const automationOutMatch = url.pathname.match(/^\/outputs\/automations\/([^/]+)\/(result\.md)$/);
+      const automationOutMatch = url.pathname.match(/^\/outputs\/automations\/([^/]+)\/(result\.md|trace\.jsonl)$/);
       if (method === 'GET' && automationOutMatch) {
         const [, runId, file] = automationOutMatch;
         if (!/^[0-9a-f-]{36}$/i.test(runId)) return sendJson(res, 404, { error: 'NOT_FOUND' });
@@ -1924,9 +1924,10 @@ export async function dispatchApiRequest(
         const fp = path.join(automationOut, runId, file);
         if (!existsSync(fp)) return sendJson(res, 404, { error: 'NOT_FOUND' });
         assertPathUnder(automationOut, fp);
+        const isTrace = file === 'trace.jsonl';
         res.writeHead(200, {
-          'Content-Type': 'text/markdown; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="automation-result.md"',
+          'Content-Type': isTrace ? 'application/x-ndjson; charset=utf-8' : 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${isTrace ? 'automation-trace.jsonl' : 'automation-result.md'}"`,
           'Content-Length': statSync(fp).size,
         });
         res.end(readFileSync(fp));

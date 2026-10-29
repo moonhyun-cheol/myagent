@@ -356,6 +356,9 @@ export interface AutomationFeedItem {
   id: string;
   kind: 'result' | 'error' | 'status';
   outcome?: 'success' | 'warning' | 'failed' | 'blocked';
+  /** 상태 알림 세부 사유(건너뜀/만료/중단). */
+  status_reason?: 'skipped_offline' | 'expired_offline' | 'interrupted';
+  scheduled_at?: string;
   title: string;
   message: string;
   attachments: AutomationFeedAttachment[];

@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { PersonalSchedulerStore } from './personal-scheduler-store.js';
+import type { SchedulerTraceEntry } from './run-trace.js';
 import type {
   PersonalSchedulerTask,
   SchedulerContentOutcome,
@@ -14,6 +15,12 @@ import type {
   SchedulerWeeklyQueue,
   SchedulerWeeklyQueueItem,
 } from './types.js';
+
+/** 실행·피드·산출물 보존 기간과 개수 상한. */
+export const SCHEDULER_HISTORY_RETENTION_DAYS = 90;
+export const SCHEDULER_MAX_RUNS = 1_000;
+export const SCHEDULER_MAX_FEED_ITEMS = 500;
+const RUN_ID_RE = /^[0-9a-f-]{36}$/i;
 
 const CONTENT_OUTCOME_PATTERNS: Array<{ outcome: Exclude<SchedulerContentOutcome, 'success'>; pattern: RegExp }> = [
   { outcome: 'blocked', pattern: /(?:^|\b)(?:blocked|blocker|permission denied|access denied|approval required|login required|captcha)(?:\b|$)|(?:차단|권한(?:이|을)?\s*(?:없|필요)|승인(?:이|을)?\s*필요|로그인(?:이|을)?\s*필요)/iu },
@@ -235,18 +242,50 @@ export class PersonalSchedulerService {
 
   countUnreadFeed(): number { return this.store.countUnreadFeed(); }
 
-  completeRun(runId: string, task: PersonalSchedulerTask, content: string, attachments: SchedulerFeedAttachment[] = []): void {
-    const outcome = classifySchedulerContentOutcome(content);
-    const runArtifactDirectory = path.join(this.artifactRoot, runId);
-    mkdirSync(runArtifactDirectory, { recursive: true });
-    const resultFile = path.join(runArtifactDirectory, 'result.md');
-    writeFileSync(resultFile, content, 'utf8');
-    const resultAttachment: SchedulerFeedAttachment = {
+  private runArtifactDirectory(runId: string): string {
+    if (!RUN_ID_RE.test(runId)) throw new Error(`Invalid scheduler run id: ${runId}`);
+    return path.join(this.artifactRoot, runId);
+  }
+
+  /** 임시 대화가 삭제되기 전에 중간 과정을 trace.jsonl로 남긴다. 실패해도 실행 결과에는 영향이 없다. */
+  writeRunTrace(runId: string, entries: SchedulerTraceEntry[]): boolean {
+    try {
+      const directory = this.runArtifactDirectory(runId);
+      mkdirSync(directory, { recursive: true });
+      const body = entries.map((entry) => JSON.stringify(entry)).join('\n');
+      writeFileSync(path.join(directory, 'trace.jsonl'), body ? `${body}\n` : '', 'utf8');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private traceAttachment(runId: string): SchedulerFeedAttachment[] {
+    const tracePath = path.join(this.runArtifactDirectory(runId), 'trace.jsonl');
+    if (!existsSync(tracePath)) return [];
+    return [{
+      name: 'automation-trace.jsonl',
+      path: `/outputs/automations/${encodeURIComponent(runId)}/trace.jsonl`,
+      mime: 'application/x-ndjson',
+      size: statSync(tracePath).size,
+    }];
+  }
+
+  private writeResultFile(runId: string, content: string): SchedulerFeedAttachment {
+    const directory = this.runArtifactDirectory(runId);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, 'result.md'), content, 'utf8');
+    return {
       name: 'automation-result.md',
       path: `/outputs/automations/${encodeURIComponent(runId)}/result.md`,
       mime: 'text/markdown',
       size: Buffer.byteLength(content, 'utf8'),
     };
+  }
+
+  completeRun(runId: string, task: PersonalSchedulerTask, content: string, attachments: SchedulerFeedAttachment[] = []): void {
+    const outcome = classifySchedulerContentOutcome(content);
+    const resultAttachment = this.writeResultFile(runId, content);
     this.store.completeRun(runId, content, outcome);
     this.store.addFeedItem({
       run_id: runId,
@@ -255,19 +294,107 @@ export class PersonalSchedulerService {
       outcome,
       title: task.name,
       message: content,
-      attachments: [...attachments, resultAttachment],
+      attachments: [...attachments, resultAttachment, ...this.traceAttachment(runId)],
     });
   }
 
   failRun(runId: string, task: PersonalSchedulerTask, error: string): void {
     this.store.failRun(runId, error);
+    let attachments: SchedulerFeedAttachment[] = [];
+    try {
+      const report = [
+        `# ${task.name} 실행 오류`,
+        '',
+        `- run_id: ${runId}`,
+        `- task_id: ${task.id}`,
+        `- 기록 시각: ${new Date().toISOString()}`,
+        '',
+        '## 오류',
+        '',
+        '```text',
+        error,
+        '```',
+        '',
+      ].join('\n');
+      attachments = [this.writeResultFile(runId, report), ...this.traceAttachment(runId)];
+    } catch {
+      /* 산출물 기록 실패가 오류 피드 기록을 막지 않는다 */
+    }
     this.store.addFeedItem({
       run_id: runId,
       task_id: task.id,
       kind: 'error',
       title: `${task.name} 실행 오류`,
       message: error,
+      attachments,
+    });
+  }
+
+  /**
+   * 앱 시작 직후 misfire_policy=skip으로 건너뛴 실행을 상태 알림으로 남긴다. 실행 기록(runs)은
+   * 실제 실행만 담도록 만들지 않는다. 남은 예정 실행이 없으면(한 번 실행 작업) 만료로 표시한다.
+   */
+  recordMissedRun(task: PersonalSchedulerTask, scheduledAt: string | null, expired: boolean): SchedulerFeedItem {
+    const when = scheduledAt ? ` (예정 시각 ${scheduledAt})` : '';
+    return this.store.addFeedItem({
+      run_id: null,
+      task_id: task.id,
+      kind: 'status',
+      outcome: 'warning',
+      status_reason: expired ? 'expired_offline' : 'skipped_offline',
+      ...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
+      title: expired ? `${task.name} 실행 만료` : `${task.name} 실행 건너뜀`,
+      message: expired
+        ? `앱이 꺼져 있는 동안 예정 시각이 지나 실행하지 못했고, 이후 예정된 실행이 없습니다${when}. 필요하면 지금 실행하거나 시각을 다시 지정하세요.`
+        : `앱이 꺼져 있는 동안 예정 시각이 지나 이번 실행을 건너뛰었습니다${when}. 밀린 실행을 앱 시작 시 한 번 실행하려면 놓친 실행 정책을 run_once로 바꾸세요.`,
       attachments: [],
     });
+  }
+
+  /** 이전 프로세스에서 끝나지 못한 실행을 닫고, running이던 실행은 오류 피드로 알린다. */
+  recoverInterruptedRuns(): { interrupted: number; cancelled: number } {
+    const reason = '앱이 종료되어 실행이 완료되지 못했습니다.';
+    const { interrupted, cancelled } = this.store.closeInterruptedRuns(reason);
+    for (const run of interrupted) {
+      const task = this.store.getTask(run.task_id);
+      const name = task?.name ?? '삭제된 자동화';
+      this.store.addFeedItem({
+        run_id: run.id,
+        task_id: run.task_id,
+        kind: 'error',
+        status_reason: 'interrupted',
+        title: `${name} 실행 중단`,
+        message: `${reason} 시작 시각: ${run.started_at ?? '알 수 없음'}`,
+        attachments: this.traceAttachment(run.id),
+      });
+    }
+    return { interrupted: interrupted.length, cancelled };
+  }
+
+  /** 보존 기간이 지난 실행·피드 기록과, 더 이상 참조되지 않는 오래된 산출물 폴더를 정리한다. */
+  pruneHistory(now = new Date()): { runs: number; feed: number; artifacts: number } {
+    const cutoffMs = now.getTime() - SCHEDULER_HISTORY_RETENTION_DAYS * 86_400_000;
+    const removed = this.store.pruneHistory({
+      cutoffIso: new Date(cutoffMs).toISOString(),
+      maxRuns: SCHEDULER_MAX_RUNS,
+      maxFeedItems: SCHEDULER_MAX_FEED_ITEMS,
+    });
+    let artifacts = 0;
+    if (existsSync(this.artifactRoot)) {
+      const referenced = this.store.referencedRunIds();
+      for (const name of readdirSync(this.artifactRoot)) {
+        if (!RUN_ID_RE.test(name) || referenced.has(name)) continue;
+        const directory = path.join(this.artifactRoot, name);
+        try {
+          const stat = statSync(directory);
+          if (!stat.isDirectory() || stat.mtimeMs >= cutoffMs) continue;
+          rmSync(directory, { recursive: true, force: true });
+          artifacts += 1;
+        } catch {
+          /* 정리 실패는 다음 시작 때 다시 시도한다 */
+        }
+      }
+    }
+    return { ...removed, artifacts };
   }
 }

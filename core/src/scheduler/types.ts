@@ -60,6 +60,14 @@ export interface SchedulerFeedItem {
   task_id: string;
   kind: 'result' | 'error' | 'status';
   outcome?: SchedulerContentOutcome;
+  /**
+   * kind=status 세부 사유. skipped_offline=앱이 꺼져 있던 동안 예정 시각이 지나 misfire_policy=skip으로
+   * 건너뜀, expired_offline=건너뛴 뒤 남은 예정 실행이 없음(한 번 실행 작업 소멸),
+   * interrupted=앱 종료 등으로 실행이 끝나지 못함.
+   */
+  status_reason?: 'skipped_offline' | 'expired_offline' | 'interrupted';
+  /** 건너뛴 실행의 원래 예정 시각. */
+  scheduled_at?: string;
   title: string;
   message: string;
   attachments: SchedulerFeedAttachment[];

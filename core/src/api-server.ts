@@ -24,6 +24,7 @@ import { handleApiError } from './http/api-error-handler.js';
 import { dispatchApiRequest } from './routes/dispatch.js';
 import { PersonalSchedulerService } from './scheduler/personal-scheduler-service.js';
 import { PersonalSchedulerRuntime } from './scheduler/personal-scheduler-runtime.js';
+import { buildSchedulerTraceEntries, type SchedulerTraceEntry } from './scheduler/run-trace.js';
 import {
   registerPersonalSchedulerRuntime,
   unregisterPersonalSchedulerRuntime,
@@ -110,6 +111,8 @@ export async function createApiServer(port: number) {
     personalScheduler,
     async (task, run) => {
       const sessionId = `automation-${run.id}`;
+      const startedAt = Date.now();
+      let runError: string | undefined;
       try {
         const response = await orchestrator.handle({
           message: task.instruction,
@@ -132,7 +135,29 @@ export async function createApiServer(port: number) {
           }] : []),
         ];
         return { content: response.content, attachments: feedAttachments };
+      } catch (error) {
+        runError = error instanceof Error ? error.message : String(error);
+        throw error;
       } finally {
+        // 임시 대화를 지우기 전에 중간 과정(메시지·도구 호출)을 trace.jsonl로 보존한다.
+        try {
+          const finishedAt = Date.now();
+          const entries: SchedulerTraceEntry[] = [
+            { type: 'run', event: 'start', at: new Date(startedAt).toISOString() },
+            ...buildSchedulerTraceEntries(sessionStore.load(sessionId)?.messages),
+            {
+              type: 'run',
+              event: 'end',
+              at: new Date(finishedAt).toISOString(),
+              ok: runError === undefined,
+              ...(runError !== undefined ? { error: runError } : {}),
+              duration_ms: finishedAt - startedAt,
+            },
+          ];
+          personalScheduler.writeRunTrace(run.id, entries);
+        } catch {
+          /* trace 기록 실패가 실행 결과 기록을 막지 않는다 */
+        }
         sessionStore.delete(sessionId);
       }
     },
