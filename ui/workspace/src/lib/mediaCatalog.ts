@@ -25,23 +25,6 @@ export interface MediaItem {
 
 export type MediaCatalogItem = MediaItem;
 
-export const MEDIA_FILTER_LABELS: Record<MediaFilter, string> = {
-  all: '전체',
-  generated: '생성됨',
-  screenshot: '스크린샷',
-  attachment: '첨부',
-  workspace_file: '작업 파일',
-  video: '영상',
-};
-
-export const MEDIA_ORIGIN_BADGES: Record<MediaOrigin, string> = {
-  generated: '생성됨',
-  screenshot: '스크린샷',
-  attachment: '첨부',
-  workspace_file: '파일',
-  video: '영상',
-};
-
 export function inferMediaOrigin(opts: {
   url?: string;
   sourcePath?: string;
@@ -211,8 +194,10 @@ export function selectMediaItems(
         role: turn.role,
         prompt: prevUserPrompt || turn.text,
       });
+      // attachmentNames covers every attachment (incl. non-image), so index only lines up
+      // with imageUrls when the counts match.
       const attachmentName =
-        turn.role === 'user' && turn.attachmentNames?.[uIdx]
+        turn.role === 'user' && turn.attachmentNames?.length === urls.length
           ? turn.attachmentNames[uIdx]
           : undefined;
       const promptText =
@@ -222,7 +207,8 @@ export function selectMediaItems(
       const key = `url:${url}`;
       upsert(key, {
         id: mediaKind === 'video' ? `vid:${url}` : `img:${url}`,
-        assetId: turn.assetId,
+        // turn.assetId points at the turn's last image only; bind it solely to its own URL.
+        assetId: turn.assetId === `img:${url}` ? turn.assetId : undefined,
         title: cleanDisplayTitle(attachmentName, url, undefined, promptText),
         src: url,
         previewUrl: url,

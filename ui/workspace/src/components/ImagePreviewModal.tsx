@@ -31,6 +31,7 @@ export function ImagePreviewModal() {
   const closeImagePreview = useWorkspaceStore((s) => s.closeImagePreview);
   const stepImagePreview = useWorkspaceStore((s) => s.stepImagePreview);
   const attachAssetToComposer = useWorkspaceStore((s) => s.attachAssetToComposer);
+  const attachMediaUrlToComposer = useWorkspaceStore((s) => s.attachMediaUrlToComposer);
   const scrollToChatTurn = useWorkspaceStore((s) => s.scrollToChatTurn);
   const { menu, openAt, close } = useContextMenu();
   const [hint, setHint] = useState<string | null>(null);
@@ -84,7 +85,6 @@ export function ImagePreviewModal() {
   const items = preview.items ?? [];
   const currentIndex = typeof preview.index === 'number' ? preview.index : -1;
   const hasMultiple = items.length > 1 && currentIndex >= 0;
-  const currentItem = hasMultiple ? items[currentIndex] : undefined;
 
   const handleDownload = async () => {
     const filename = isVideo
@@ -119,10 +119,15 @@ export function ImagePreviewModal() {
     }
   };
 
+  // Single-item previews have no `items`, so read the payload itself (not items[index]).
   const handleAttachToChat = async () => {
-    if (!currentItem?.assetId) return;
-    await attachAssetToComposer(currentItem.assetId);
-    flash('채팅 입력창에 첨부했습니다.');
+    let ok = true;
+    if (preview.assetId) {
+      await attachAssetToComposer(preview.assetId);
+    } else {
+      ok = await attachMediaUrlToComposer(preview.src, preview.title, preview.sourcePath);
+    }
+    flash(ok ? '채팅 입력창에 첨부했습니다.' : '첨부하지 못했습니다. 원본을 불러올 수 없습니다.');
   };
 
   const handleGoToTurn = () => {
@@ -250,7 +255,7 @@ export function ImagePreviewModal() {
               <DownloadSimple size={14} />
               <span className="hidden sm:inline">저장</span>
             </button>
-            {currentItem?.assetId && !isVideo ? (
+            {!isVideo && !loadError ? (
               <button
                 type="button"
                 onClick={() => void handleAttachToChat()}

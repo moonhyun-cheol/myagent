@@ -247,11 +247,12 @@ const RAW_MEDIA_MIME_BY_EXT: Record<string, string> = {
   '.webm': 'video/webm',
 };
 
-export function readWorkspaceRawMedia(
+/** Resolve + validate a workspace media file for streaming (no buffering of large videos). */
+export function statWorkspaceRawMedia(
   workspaceRoot: string,
   relPath: string,
   _guard: WorkspaceGuardOptions = {},
-): { buffer: Buffer; mimeType: string; ext: string; fileName: string } {
+): { absPath: string; size: number; mimeType: string; ext: string; fileName: string } {
   const abs = resolveDevWorkspaceReadPath(workspaceRoot, relPath);
   const ext = path.extname(abs).toLowerCase();
   const mimeType = RAW_MEDIA_MIME_BY_EXT[ext];
@@ -264,7 +265,8 @@ export function readWorkspaceRawMedia(
     throw new Error(`Media file too large (${st.size} bytes)`);
   }
   return {
-    buffer: readFileSync(abs),
+    absPath: abs,
+    size: st.size,
     mimeType,
     ext,
     fileName: path.basename(abs),

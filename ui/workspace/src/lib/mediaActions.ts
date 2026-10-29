@@ -1,4 +1,5 @@
 /** Clipboard / download helpers for chat + canvas media. */
+import { buildWorkspaceRawUrl } from './mediaUrl';
 
 export async function copyText(text: string): Promise<void> {
   const t = text.trim();
@@ -123,9 +124,8 @@ export async function downloadMediaItem(opts: {
   let targetUrl = opts.url?.trim() || '';
   if (!targetUrl && opts.sourcePath?.trim()) {
     const clean = opts.sourcePath.replace(/\\/g, '/').replace(/^\.\//, '').trim();
-    const params = new URLSearchParams({ path: clean });
-    if (opts.sessionId?.trim()) params.set('session_id', opts.sessionId.trim());
-    targetUrl = `/fs/workspace-raw?${params.toString()}`;
+    // Same query contract as the core route (`path`, `session`).
+    targetUrl = buildWorkspaceRawUrl(clean, opts.sessionId);
   }
   if (!targetUrl) return false;
   downloadImageUrl(targetUrl, opts.filename || guessImageFilename(undefined, targetUrl, opts.sourcePath));

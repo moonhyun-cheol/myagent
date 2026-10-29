@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -9,7 +9,7 @@ import { SecurityError } from '../security/errors.js';
 import { assertDevWorkspaceRoot } from '../security/dev-workspace-guard.js';
 import { probeWorkspaceCapabilities } from '../security/workspace-capabilities.js';
 import { hasNasWriteConsent, buildNasWriteConsent } from '../security/nas-write-consent.js';
-import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, readWorkspaceRawMedia, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
+import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, statWorkspaceRawMedia, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
 import {
   cancelTerminalJob,
   cancelTerminalJobsForSession,
@@ -954,22 +954,52 @@ export async function dispatchApiRequest(
         try {
           const allowNas = hasNasWriteConsent(overrides);
           assertDevWorkspaceRoot(root, { allowNas });
-          const media = readWorkspaceRawMedia(root, rel, { allowNas });
+          const media = statWorkspaceRawMedia(root, rel, { allowNas });
+          const total = media.size;
           const headers: Record<string, string | number> = {
             'Content-Type': media.mimeType,
-            'Content-Length': media.buffer.length,
+            'Accept-Ranges': 'bytes',
             'Cache-Control': 'private, max-age=60',
             'X-Content-Type-Options': 'nosniff',
           };
           if (media.ext === '.svg') {
             headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
           }
-          res.writeHead(200, headers);
-          res.end(media.buffer);
+          // <video> seeking needs byte ranges; stream instead of buffering the whole file.
+          const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range.trim() : '';
+          const rangeMatch = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+          let start = 0;
+          let end = total - 1;
+          let partial = false;
+          if (rangeMatch && (rangeMatch[1] || rangeMatch[2])) {
+            if (rangeMatch[1]) {
+              start = Number(rangeMatch[1]);
+              end = rangeMatch[2] ? Math.min(Number(rangeMatch[2]), total - 1) : total - 1;
+            } else {
+              start = Math.max(0, total - Number(rangeMatch[2]));
+            }
+            if (start > end || start >= total) {
+              res.writeHead(416, { 'Content-Range': `bytes */${total}` });
+              res.end();
+              return;
+            }
+            partial = true;
+            headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+          }
+          headers['Content-Length'] = total === 0 ? 0 : end - start + 1;
+          res.writeHead(partial ? 206 : 200, headers);
+          if (total === 0) {
+            res.end();
+            return;
+          }
+          const stream = createReadStream(media.absPath, { start, end });
+          stream.on('error', () => res.destroy());
+          stream.pipe(res);
           return;
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : String(e);
-          return sendJson(res, 400, { error: 'READ_RAW_FAILED', message: msg });
+          const notFound = (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+          return sendJson(res, notFound ? 404 : 400, { error: notFound ? 'NOT_FOUND' : 'READ_RAW_FAILED', message: msg });
         }
       }
 

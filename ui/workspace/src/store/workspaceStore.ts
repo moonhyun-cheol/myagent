@@ -554,7 +554,8 @@ interface WorkspaceState {
   closeImagePreview: () => void;
   stepImagePreview: (delta: number) => void;
   scrollToChatTurn: (turnId: string) => void;
-  attachMediaUrlToComposer: (url: string, title?: string, sourcePath?: string) => Promise<void>;
+  /** Returns true when the media was uploaded or referenced as context. */
+  attachMediaUrlToComposer: (url: string, title?: string, sourcePath?: string) => Promise<boolean>;
   openFile: (id: string) => Promise<void>;
   openFileOnCanvas: (id: string) => Promise<void>;
   /**
@@ -1978,18 +1979,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             const filename = guessImageFilename(title, trimmedUrl);
             const file = new File([blob], filename, { type: mime });
             await get().uploadFiles([file]);
-            return;
+            return true;
           }
         }
         if (sourcePath) {
           get().addContextPath(sourcePath);
+          return true;
         }
+        set({ statusText: '미디어 첨부 실패: 원본을 불러오지 못했습니다.' });
+        return false;
       } catch (e) {
         if (sourcePath) {
           get().addContextPath(sourcePath);
-          return;
+          return true;
         }
         set({ statusText: `미디어 첨부 실패: ${e instanceof Error ? e.message : String(e)}` });
+        return false;
       }
     },
     setSkillMode: (skillMode, skillLabel = null) =>

@@ -192,16 +192,20 @@ export function MediaPane() {
           title: candidate.title,
           prompt: candidate.prompt || '',
           kind: candidate.kind,
+          origin: candidate.origin,
           sourcePath: candidate.sourcePath,
           assetId: candidate.assetId,
           turnId: candidate.turnId,
         }));
         openImagePreview({
+          id: item.id,
           src: item.previewUrl,
           title: item.title,
           prompt: item.prompt || '',
           kind: item.kind,
+          origin: item.origin,
           sourcePath: item.sourcePath,
+          assetId: item.assetId,
           turnId: item.turnId,
           items: galleryItems,
           index: idx >= 0 ? idx : 0,
@@ -266,12 +270,13 @@ export function MediaPane() {
           id: 'attach-chat',
           label: '채팅 입력창에 첨부',
           onSelect: async () => {
+            let ok = true;
             if (item.assetId) {
               await attachAssetToComposer(item.assetId);
             } else {
-              await attachMediaUrlToComposer(item.previewUrl, item.title, item.sourcePath);
+              ok = await attachMediaUrlToComposer(item.previewUrl, item.title, item.sourcePath);
             }
-            flash('채팅 입력창에 첨부했습니다.');
+            flash(ok ? '채팅 입력창에 첨부했습니다.' : '첨부하지 못했습니다. 원본을 불러올 수 없습니다.');
           },
         });
       }
