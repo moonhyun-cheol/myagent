@@ -149,6 +149,19 @@ export function MarkdownDocument() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const headerRowRef = useRef<HTMLDivElement>(null);
+  /** Narrow split panes fold secondary header actions into 더보기 instead of wrapping to a 2nd row. */
+  const [compactHeader, setCompactHeader] = useState(false);
+  useEffect(() => {
+    const node = headerRowRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? node.clientWidth;
+      setCompactHeader(width < 520);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const memosRef = useRef<DocumentMemo[]>([]);
@@ -887,7 +900,11 @@ export function MarkdownDocument() {
         </div>
       ) : null}
 
-      <div className="document-header-row flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1.5">
+      <div
+        ref={headerRowRef}
+        className="document-header-row flex shrink-0 flex-nowrap items-center justify-between gap-2 border-b border-line bg-panel px-2.5 py-1.5"
+        data-compact={compactHeader ? 'true' : undefined}
+      >
         <div
           className="document-tabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
           data-testid="document-tabs"
@@ -944,24 +961,28 @@ export function MarkdownDocument() {
           </button>
         </div>
 
-        <div className="document-actions flex shrink-0 flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
-            onClick={() => void openDocQuickOpen()}
-            title="프로젝트 문서 열기 (Ctrl+O)"
-            data-testid="document-open"
-          >
-            문서 열기
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
-            onClick={() => fileInputRef.current?.click()}
-            title="PC의 마크다운·텍스트 파일 가져오기"
-          >
-            파일 가져오기
-          </button>
+        <div className="document-actions flex shrink-0 flex-nowrap items-center gap-1.5">
+          {!compactHeader ? (
+            <>
+              <button
+                type="button"
+                className="whitespace-nowrap rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+                onClick={() => void openDocQuickOpen()}
+                title="프로젝트 문서 열기 (Ctrl+O)"
+                data-testid="document-open"
+              >
+                문서 열기
+              </button>
+              <button
+                type="button"
+                className="whitespace-nowrap rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+                onClick={() => fileInputRef.current?.click()}
+                title="PC의 마크다운·텍스트 파일 가져오기"
+              >
+                파일 가져오기
+              </button>
+            </>
+          ) : null}
           <input
             ref={fileInputRef}
             type="file"
@@ -975,18 +996,19 @@ export function MarkdownDocument() {
           />
           <button
             type="button"
-            className={isUntouchedEmptyDraft ? 'ui-secondary !min-h-[28px] !px-2.5 !py-1 !text-[11px]' : 'ui-primary !min-h-[28px] !px-2.5 !py-1 !text-[11px]'}
+            className={`${isUntouchedEmptyDraft ? 'ui-secondary' : 'ui-primary'} !min-h-[28px] whitespace-nowrap !px-2.5 !py-1 !text-[11px]`}
             disabled={readOnly}
             onClick={() => void saveActiveDocument()}
             data-testid="document-primary-save"
+            title={projectFile || collaborationFile ? '저장' : '프로젝트에 저장…'}
           >
-            {projectFile || collaborationFile ? '저장' : '프로젝트에 저장…'}
+            {projectFile || collaborationFile || compactHeader ? '저장' : '프로젝트에 저장…'}
           </button>
           <div className="relative">
             <button
               ref={moreButtonRef}
               type="button"
-              className="rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
+              className="whitespace-nowrap rounded-md border border-line px-2 py-1 text-[11px] text-muted hover:bg-panel-2 hover:text-text"
               onClick={toggleMoreMenu}
               aria-expanded={moreOpen}
               aria-controls="document-more-actions"
@@ -1004,6 +1026,16 @@ export function MarkdownDocument() {
                     className="fixed z-[420] w-52 max-w-[min(13rem,calc(100vw-16px))] rounded-lg border border-line bg-panel py-1 shadow-lg"
                   >
                     <p className="break-all border-b border-line/60 px-3 py-1.5 text-[11px] text-muted">{sourceLabel} · {pathLabelTitle}</p>
+                    {compactHeader ? (
+                      <>
+                        <button type="button" role="menuitem" data-testid="document-open"
+                          className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                          onClick={() => { closeMoreMenu(); void openDocQuickOpen(); }}>문서 열기 (Ctrl+O)</button>
+                        <button type="button" role="menuitem"
+                          className="block w-full border-b border-line/60 px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink"
+                          onClick={() => { closeMoreMenu(); fileInputRef.current?.click(); }}>파일 가져오기…</button>
+                      </>
+                    ) : null}
                     <button type="button" role="menuitem" disabled={!hasDump || reviewDraft != null} className="block w-full px-3 py-1.5 text-left text-[11px] text-text hover:bg-ink disabled:opacity-40"
                       onClick={() => { closeMoreMenu(); void handleOpenLastDump(); }}>최근 덤프로 바꾸기…</button>
                     <button
@@ -1091,14 +1123,14 @@ export function MarkdownDocument() {
         visible={supportOpen}
       />
 
-      <div className="document-subbar flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line px-2.5 py-1">
-        <div className="document-views flex items-center gap-1" role="tablist" aria-label="문서 보기" onKeyDown={navigateTabs}>
+      <div className="document-subbar flex shrink-0 flex-nowrap items-center justify-between gap-2 border-b border-line px-2.5 py-1">
+        <div className="document-views flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto" role="tablist" aria-label="문서 보기" onKeyDown={navigateTabs}>
           {(['preview', 'rendered', 'source', 'diff'] as const).map((id) => (
             <button
               key={id}
               type="button"
               disabled={id === 'diff' && !lastDumpPath && lastDumpContent == null && reviewDraft == null}
-              className="ui-tab !min-h-[28px] !px-2.5 !py-1 !text-[11px]" role="tab" aria-selected={view === id}
+              className="ui-tab !min-h-[28px] whitespace-nowrap !px-2.5 !py-1 !text-[11px]" role="tab" aria-selected={view === id}
               tabIndex={view === id ? 0 : -1} aria-controls="document-content"
               onClick={() => setDocumentView(id)}
               title={id === 'diff' ? '덤프 ↔ 현재' : undefined}
@@ -1108,9 +1140,9 @@ export function MarkdownDocument() {
           ))}
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto">
           <span
-            className={`document-save-state rounded px-1.5 py-0.5 text-[11px] ${documentDirty ? 'bg-amber-500/10 text-warning font-medium' : 'text-muted'}`}
+            className={`document-save-state min-w-0 truncate whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] ${documentDirty ? 'bg-amber-500/10 text-warning font-medium' : 'text-muted'}`}
             title={`${sourceLabel} · ${pathLabelTitle}`}
             data-testid="document-save-state"
           >
