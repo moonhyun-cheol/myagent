@@ -60,6 +60,11 @@ export interface ChatRequest {
   /** @deprecated web search removed — kept for API compat */
   web_search?: boolean;
   editor_context?: EditorContext;
+  /**
+   * User-pinned standing instructions (작업 → 할 일 → 고정 지침). Request-scoped context only:
+   * injected into the system/workspace context each turn, never stored as user message text.
+   */
+  pinned_instructions?: string[];
 }
 
 export interface ChatResponse {

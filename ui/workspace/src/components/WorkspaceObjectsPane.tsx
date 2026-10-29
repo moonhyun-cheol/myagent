@@ -12,6 +12,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { isAllowedDocumentPath } from '../lib/documentFile';
 import { navigateTabs } from '../lib/tabNavigation';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
+import { loadPinnedInstructions, savePinnedInstructions as persistPinnedInstructions } from '../lib/pinnedInstructions';
 import type { WorkspaceAsset } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { AssetExplorer } from './AssetExplorer';
@@ -28,16 +29,6 @@ export interface TodoProgressItem {
   authoredBy?: 'model';
 }
 
-const PINNED_INSTRUCTIONS_KEY = 'my-agent-pinned-instructions-v1';
-
-function loadPinnedInstructions(): string[] {
-  try {
-    const value = JSON.parse(localStorage.getItem(PINNED_INSTRUCTIONS_KEY) ?? '[]');
-    return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
 
 function AssetIcon({ asset }: { asset: WorkspaceAsset }) {
   if (asset.kind === 'image') return <ImageIcon size={16} weight="duotone" className="text-accent" />;
@@ -171,7 +162,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
 
   const savePinnedInstructions = (next: string[]) => {
     setPinnedInstructions(next);
-    localStorage.setItem(PINNED_INSTRUCTIONS_KEY, JSON.stringify(next));
+    persistPinnedInstructions(next);
   };
   const openBrowserReference = (url: string) => { navigateBrowser(url); setMode('browser'); };
 

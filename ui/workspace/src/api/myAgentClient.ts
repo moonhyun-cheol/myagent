@@ -1905,6 +1905,8 @@ export async function streamChat(
     };
     /** Explicit session (queue jobs must not use the viewed session). */
     sessionId?: string;
+    /** User-pinned standing instructions; core adds them as context, not message text. */
+    pinned_instructions?: string[];
   },
   handlers: StreamHandlers,
 ): Promise<void> {
@@ -1918,6 +1920,7 @@ export async function streamChat(
   if (opts.execution_policy) body.execution_policy = opts.execution_policy;
   if (opts.mode && opts.mode !== 'chat') body.mode = opts.mode;
   if (opts.editor_context) body.editor_context = opts.editor_context;
+  if (opts.pinned_instructions?.length) body.pinned_instructions = opts.pinned_instructions;
 
   const res = await fetch('/chat/stream', {
     method: 'POST',

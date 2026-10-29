@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, normalizeBrowserUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
+import { loadPinnedInstructions } from '../lib/pinnedInstructions';
 import { showUserNotification } from '../lib/userNotifications';
 import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
 import {
@@ -1154,20 +1155,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               paths: contextPaths.length ? contextPaths : undefined,
             }
           : undefined;
-      let pinnedPrefix = '';
-      if (job.uiSurface !== 'document-memo') {
-        try {
-          const rawPinned = JSON.parse(localStorage.getItem('my-agent-pinned-instructions-v1') ?? '[]');
-          const pinnedList = Array.isArray(rawPinned)
-            ? rawPinned.map((item) => String(item ?? '').trim()).filter(Boolean)
-            : [];
-          if (pinnedList.length > 0) {
-            pinnedPrefix = `[사용자 고정 지침]\n${pinnedList.map((item) => `- ${item}`).join('\n')}\n\n`;
-          }
-        } catch {
-          /* ignore localStorage parse error */
-        }
-      }
+      // Sent as a separate field so history, retries and regeneration never contain or duplicate it.
+      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions();
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';
@@ -1194,7 +1183,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const runStream = (chatMode: string) =>
         streamChat(
           {
-            message: pinnedPrefix ? `${pinnedPrefix}${job.displayText}` : job.displayText,
+            message: job.displayText,
+            pinned_instructions: pinnedInstructions,
             mode: chatMode === 'chat' ? undefined : chatMode,
             model: job.model,
             execution_policy: job.executionPolicy,

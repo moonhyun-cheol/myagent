@@ -271,6 +271,17 @@ function buildWorkspaceTreeContext(
   return parts.filter((p) => p.trim()).join('\n\n');
 }
 
+/** Request-scoped standing instructions pinned by the user in the 작업 panel. */
+export function buildPinnedInstructionsContext(req: ChatRequest | undefined): string {
+  const items = req?.pinned_instructions ?? [];
+  if (!items.length) return '';
+  return [
+    '## 사용자 고정 지침',
+    '사용자가 이 작업 동안 계속 지키도록 고정한 지침이다. 최신 요청과 충돌하면 최신 요청을 따른다.',
+    ...items.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
 export function buildWorkspaceContext(
   configPath: string,
   sessionStore: SessionStore,
@@ -281,6 +292,8 @@ export function buildWorkspaceContext(
 ): string {
   const editor = buildEditorContextSnippet(req?.editor_context);
   const parts: string[] = [];
+  const pinned = buildPinnedInstructionsContext(req);
+  if (pinned) parts.push(pinned);
   if (editor) parts.push(editor);
   const focusMessage = typeof req?.message === 'string' ? req.message : undefined;
 

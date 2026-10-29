@@ -12,7 +12,23 @@ export function parseChatRequest(raw: string): ChatRequest {
   const legacyMode = doc.mode as string | undefined;
   if (legacyMode === 'code_agent' || legacyMode === 'web_landing') doc.mode = 'web_dev';
   else if (legacyMode === 'prompt_master') doc.mode = 'chat';
+  doc.pinned_instructions = normalizePinnedInstructions(doc.pinned_instructions);
   return doc;
+}
+
+const MAX_PINNED_INSTRUCTIONS = 12;
+const MAX_PINNED_INSTRUCTION_CHARS = 500;
+
+/** Untrusted client input: strings only, trimmed, de-duplicated, count/length capped. */
+export function normalizePinnedInstructions(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = [...new Set(
+    value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim().slice(0, MAX_PINNED_INSTRUCTION_CHARS))
+      .filter(Boolean),
+  )].slice(0, MAX_PINNED_INSTRUCTIONS);
+  return items.length ? items : undefined;
 }
 
 const ALL_MODES: ChatMode[] = [
