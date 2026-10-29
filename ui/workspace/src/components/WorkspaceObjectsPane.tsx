@@ -105,14 +105,6 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={openAsset}
-            title={docAvailable ? '문서 탭에서 열기' : '앱 내 코드 뷰어에서 열기'}
-            className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-[10px] text-text hover:border-accent/60"
-          >
-            {docAvailable ? '문서' : '뷰어'}
-          </button>
-          <button
-            type="button"
             aria-label={`${asset.title} 외부 앱으로 열기`}
             title="Windows 연결 프로그램으로 열기"
             className="ui-secondary !min-h-[26px] !px-1.5 !py-1"

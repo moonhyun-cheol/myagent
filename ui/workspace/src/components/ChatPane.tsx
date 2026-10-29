@@ -1577,7 +1577,6 @@ export function ChatPane() {
         {!previewPaneOpen ? (
           <button
             type="button"
-            aria-pressed={false}
             aria-label="오른쪽 패널 펼치기"
             title="오른쪽 패널 펼치기"
             onClick={() => setPreviewPaneOpen(true)}

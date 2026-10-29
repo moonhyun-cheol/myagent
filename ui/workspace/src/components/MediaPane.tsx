@@ -116,7 +116,7 @@ export function MediaPane() {
                     </div>
                   )}
                   {asset.imageUrl ? (
-                    <span className=" absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-panel/85 px-1.5 py-0.5 text-[10px] text-text opacity-0 shadow backdrop-blur-sm transition-opacity group-hover:opacity-100">
+                    <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-panel/85 px-1.5 py-0.5 text-[10px] text-text opacity-0 shadow backdrop-blur-sm transition-opacity group-hover:opacity-100">
                       <ArrowsOutSimple size={11} />
                       확대
                     </span>
