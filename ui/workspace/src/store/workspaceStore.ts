@@ -224,6 +224,17 @@ function newDraftDocumentTab(existing: DocumentTab[]): DocumentTab {
   };
 }
 
+/** 문서를 열 때 건드리지 않은 활성 빈 초안(시작 화면용 「제목 없음」)은 탭에 남기지 않고 교체한다. */
+function withoutActiveBlankDraft(state: Pick<WorkspaceState, 'documentTabs' | 'activeDocumentTabId'>): DocumentTab[] {
+  return state.documentTabs.filter((tab) => !(
+    tab.id === state.activeDocumentTabId &&
+    tab.source === 'draft' &&
+    !tab.dirty &&
+    !tab.content.trim() &&
+    tab.memos.length === 0
+  ));
+}
+
 function activeDocumentTab(state: Pick<WorkspaceState, 'documentTabs' | 'activeDocumentTabId'>): DocumentTab | null {
   return state.documentTabs.find((tab) => tab.id === state.activeDocumentTabId) ?? null;
 }
@@ -2903,7 +2914,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           recoveryPath: null,
         };
         set({
-          documentTabs: [...get().documentTabs, tab],
+          documentTabs: [...withoutActiveBlankDraft(get()), tab],
           activeDocumentTabId: tab.id,
           mode: 'document',
         });
@@ -2939,7 +2950,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           recoveryPath: null,
         };
         set({
-          documentTabs: [...get().documentTabs, tab],
+          documentTabs: [...withoutActiveBlankDraft(get()), tab],
           activeDocumentTabId: tab.id,
           mode: 'document',
         });
@@ -2971,7 +2982,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
     newDocument: async () => {
-      const tab = newDraftDocumentTab(get().documentTabs);
+      // + 탭은 바로 쓰기 화면(렌더링 편집)으로 연다. 빈 「읽기」 화면을 거치지 않게.
+      const tab: DocumentTab = { ...newDraftDocumentTab(get().documentTabs), view: 'rendered' };
       set({
         documentTabs: [...get().documentTabs, tab],
         activeDocumentTabId: tab.id,
