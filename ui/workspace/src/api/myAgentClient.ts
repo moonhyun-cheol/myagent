@@ -632,6 +632,16 @@ export async function ensureSession(): Promise<string> {
 
 /** `projectId` is the sidebar location (workspace root, folder, or project); null = 개인 작업. */
 export async function createSession(projectId: string | null = null): Promise<string> {
+  return (await createSessionRecord(projectId)).rec.id;
+}
+
+/**
+ * POST /sessions returns the same public record as GET /sessions/:id plus the containing
+ * workspace root id, so starting a chat needs one round trip instead of three.
+ */
+export async function createSessionRecord(
+  projectId: string | null = null,
+): Promise<{ rec: SessionRecord; workspaceRootProjectId: string | null }> {
   const res = await fetch('/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -642,7 +652,10 @@ export async function createSession(projectId: string | null = null): Promise<st
     throw new Error(data.message || data.error || '세션 실패 · API 확인');
   }
   localStorage.setItem(SESSION_KEY, data.id);
-  return data.id as string;
+  const { workspace_root_project_id: rootId, ...rec } = data as SessionRecord & { workspace_root_project_id?: string | null };
+  // Older cores omit the field: fall back to the tree lookup.
+  const workspaceRootProjectId = rootId === undefined ? await resolveWorkspaceRootProjectId(projectId) : rootId;
+  return { rec: rec as SessionRecord, workspaceRootProjectId };
 }
 
 export async function importSession(session: unknown, projectId: string | null = null): Promise<SessionSummary> {

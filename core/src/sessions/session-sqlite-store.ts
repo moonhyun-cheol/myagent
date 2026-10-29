@@ -248,14 +248,22 @@ export class SessionSqliteStore {
 
   list(): SessionSummary[] {
     return this.withDbReadOnly((db) => {
-      const rows = db.prepare(`SELECT s.body, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS count
-        FROM sessions s`).all() as unknown as { body: string; count: number }[];
+      // Extract only the summary fields in SQLite: bodies can carry large Responses replay
+      // state (responses_state*), and materializing it in JS for every row made the
+      // workspace tree (and therefore "new chat") slow on long-lived installs.
+      const rows = db.prepare(`SELECT json_extract(s.body, '$.id', '$.title', '$.updated_at', '$.project_id',
+          '$.workspace_project_id', '$.preferred_model', '$.allowed_paths', '$.archived') AS fields,
+        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS count
+        FROM sessions s`).all() as unknown as { fields: string; count: number }[];
       return rows.map((row) => {
-        const rec = JSON.parse(row.body) as SessionRecord;
-        return { id: rec.id, title: rec.title, updated_at: rec.updated_at, message_count: row.count,
-          project_id: rec.project_id ?? null, workspace_project_id: rec.workspace_project_id ?? null,
-          preferred_model: rec.preferred_model, allowed_paths: rec.allowed_paths ?? [],
-          archived: rec.archived === true };
+        const [id, title, updatedAt, projectId, workspaceProjectId, preferredModel, allowedPaths, archived] =
+          JSON.parse(row.fields) as [string, string, string, string | null, string | null, string | null, unknown, unknown];
+        return { id, title, updated_at: updatedAt, message_count: row.count,
+          project_id: projectId ?? null, workspace_project_id: workspaceProjectId ?? null,
+          preferred_model: preferredModel ?? undefined,
+          allowed_paths: Array.isArray(allowedPaths) ? allowedPaths as string[] : [],
+          // json_extract maps JSON true to integer 1 inside the returned array text: accept both.
+          archived: archived === true || archived === 1 };
       }).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     });
   }

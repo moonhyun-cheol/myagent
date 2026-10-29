@@ -39,6 +39,7 @@ import type { Edge, Node } from '@xyflow/react';
 import {
   clearStoredSessionId,
   createSession,
+  createSessionRecord,
   deleteAttachment,
   fetchModelPicker,
   fetchSession,
@@ -2217,11 +2218,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const revision = ++navigationRevision;
       cacheActiveSessionView();
       const membershipProjectId = projectId;
-      const id = await createSession(membershipProjectId);
-      const [rec, workspaceRootProjectId] = await Promise.all([
-        fetchSession(id),
-        resolveWorkspaceRootProjectId(membershipProjectId),
-      ]);
+      const { rec, workspaceRootProjectId } = await createSessionRecord(membershipProjectId);
+      const id = rec.id;
       if (revision !== navigationRevision) {
         const current = get().activeSessionId;
         if (current) setStoredSessionId(current);

@@ -1989,9 +1989,10 @@ export async function dispatchApiRequest(
 
       if (method === 'GET' && url.pathname === '/workspace') {
         license.assertFeature('chat');
-        // Roll oldest overflow into 보관함 before building the visible tree.
-        sessionStore.autoArchive();
-        const sessions = sessionStore.listActive();
+        // Roll oldest overflow into 보관함 before building the visible tree; one session
+        // list read serves every section below.
+        const snapshot = sessionStore.workspaceSnapshot();
+        const sessions = snapshot.active;
         const overrides = loadUserOverrides(userConfigPath);
         const devRoot = overrides.dev_workspace_root?.trim() || null;
         if (devRoot) {
@@ -2018,7 +2019,7 @@ export async function dispatchApiRequest(
           null;
         const projects = projectStore.listGeneral(sessions).map((p) => ({
           ...p,
-          sessions: sessionStore.listByProject(p.id),
+          sessions: snapshot.byProject(p.id),
         }));
         return sendJson(res, 200, {
           dev_workspace_root: devRoot,
@@ -2028,8 +2029,8 @@ export async function dispatchApiRequest(
           workspace_trees,
           move_targets: projectStore.listMoveTargets(),
           projects,
-          standalone_sessions: sessionStore.listStandalone(),
-          archived_sessions: sessionStore.listArchived(),
+          standalone_sessions: snapshot.standalone,
+          archived_sessions: snapshot.archived,
         });
       }
 
@@ -3101,7 +3102,12 @@ export async function dispatchApiRequest(
         };
         const rec = sessionStore.ensure(id, ensureOpts);
         if (membershipProjectId) projectStore.touch(membershipProjectId);
-        return sendJson(res, 201, sessionStore.publicRecord(rec));
+        // New-chat fast path: the client no longer re-fetches GET /sessions/:id and the
+        // whole /workspace tree just to learn the containing workspace root.
+        return sendJson(res, 201, {
+          ...sessionStore.publicRecord(rec),
+          workspace_root_project_id: projectStore.resolveWorkspaceRootId(membershipProjectId),
+        });
       }
 
       if (method === 'POST' && url.pathname === '/sessions/import') {

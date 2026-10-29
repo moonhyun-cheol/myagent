@@ -85,10 +85,10 @@ export class SessionStore {
    * visible sessions exceed previewLimit + hiddenMax, the oldest overflow is archived
    * so the tree never grows unbounded. Idempotent: no writes once each group fits.
    */
-  autoArchive(previewLimit = 5, hiddenMax = 10): number {
+  autoArchive(previewLimit = 5, hiddenMax = 10, active: SessionSummary[] = this.listActive()): number {
     const keep = previewLimit + hiddenMax;
     const groups = new Map<string, SessionSummary[]>();
-    for (const summary of this.listActive()) {
+    for (const summary of active) {
       const key = summary.project_id ?? '';
       (groups.get(key) ?? groups.set(key, []).get(key)!).push(summary);
     }
@@ -170,6 +170,36 @@ export class SessionStore {
 
   listStandalone(): SessionSummary[] {
     return this.listActive().filter((s) => !s.project_id);
+  }
+
+  /**
+   * One list() snapshot partitioned for GET /workspace (auto-archive applied first).
+   * The tree used to call list()/listActive() once per helper and once per project,
+   * re-reading every session row each time.
+   */
+  workspaceSnapshot(): {
+    active: SessionSummary[];
+    archived: SessionSummary[];
+    standalone: SessionSummary[];
+    byProject: (projectId: string) => SessionSummary[];
+  } {
+    let all = this.list();
+    if (this.autoArchive(5, 10, all.filter((s) => !s.archived)) > 0) all = this.list();
+    const active = all.filter((s) => !s.archived);
+    const grouped = new Map<string, SessionSummary[]>();
+    for (const summary of active) {
+      if (!summary.project_id) continue;
+      (grouped.get(summary.project_id) ?? grouped.set(summary.project_id, []).get(summary.project_id)!).push(summary);
+    }
+    return {
+      active,
+      archived: all.filter((s) => s.archived),
+      standalone: active.filter((s) => !s.project_id),
+      byProject: (projectId) => {
+        const safe = sanitizeId(projectId);
+        return safe ? [...(grouped.get(safe) ?? [])] : [];
+      },
+    };
   }
 
   listByProject(projectId: string): SessionSummary[] {

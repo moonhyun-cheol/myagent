@@ -32,6 +32,7 @@ import {
 import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
 import { writeInstallRootPointer } from './setup/install-root-pointer.js';
 import { warmModelPricingIfMissing } from './models/model-picker.js';
+import { trackSlowRequest } from './routes/slow-request-log.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -241,6 +242,7 @@ export async function createApiServer(port: number) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
     const method = req.method ?? 'GET';
+    trackSlowRequest(paths.logsDir, req, res, url.pathname);
 
     try {
       await dispatchApiRequest(ctx, req, res, url, method);
