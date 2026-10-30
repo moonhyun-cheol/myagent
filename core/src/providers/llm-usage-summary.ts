@@ -21,6 +21,22 @@ export interface LlmUsageTotals {
   /** Requests with tokens but neither billed cost nor a price table entry. */
   unpriced_requests: number;
   cache_savings_usd: number;
+  /** Requests whose cache savings were computed (list price − actual input cost) rather than reported. */
+  cache_savings_estimated_requests: number;
+  cache_write_tokens: number;
+}
+
+/** One request that read or wrote the prompt cache (newest first in the summary). */
+export interface LlmUsageCacheRequest {
+  started_at: string;
+  model: string;
+  purpose: string;
+  input_tokens: number;
+  cached_tokens: number;
+  cache_write_tokens: number;
+  /** + = discount, − = cache-write premium exceeded the discount. */
+  savings_usd: number;
+  estimated: boolean;
 }
 
 export interface LlmUsageGroupRow extends LlmUsageTotals {
@@ -46,8 +62,12 @@ export interface LlmUsageSummary {
   /** chat | approval | image | video | embedding (rows written before the field existed = chat). */
   purposes: LlmUsageGroupRow[];
   daily: Array<{ date: string } & DayGroups>;
+  /** Cache-using requests in the window, newest first, capped at MAX_CACHE_REQUESTS. */
+  cache_requests: LlmUsageCacheRequest[];
+  cache_requests_total: number;
 }
 
+const MAX_CACHE_REQUESTS = 500;
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
 
@@ -59,6 +79,7 @@ function emptyTotals(): LlmUsageTotals {
   return {
     requests: 0, failed_requests: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0, reasoning_tokens: 0,
     total_tokens: 0, cost_usd: 0, billed_cost_usd: 0, estimated_cost_usd: 0, unpriced_requests: 0, cache_savings_usd: 0,
+    cache_savings_estimated_requests: 0, cache_write_tokens: 0,
   };
 }
 
@@ -148,11 +169,13 @@ interface RowMetrics {
   input: number;
   output: number;
   cached: number;
+  write: number;
   reasoning: number;
   billed?: number;
   estimated?: number;
   unpriced: boolean;
   savings: number;
+  savingsEstimated: boolean;
 }
 
 function rowMetrics(row: Record<string, unknown>, env: NodeJS.ProcessEnv): RowMetrics {
@@ -165,11 +188,23 @@ function rowMetrics(row: Record<string, unknown>, env: NodeJS.ProcessEnv): RowMe
     input = num(row.input_tokens) + (row.input_semantics === 'excludes_cache' ? cached + write : 0);
   }
   const output = num(row.output_tokens);
-  const metrics: RowMetrics = { failed, input, output, cached, reasoning: num(row.reasoning_tokens), unpriced: false, savings: 0 };
+  const metrics: RowMetrics = { failed, input, output, cached, write, reasoning: num(row.reasoning_tokens), unpriced: false, savings: 0, savingsEstimated: false };
+  const modelId = str(row.response_model) ?? str(row.model) ?? 'default';
   const billed = finite(row.provider_cost_usd);
   if (billed !== undefined) {
     metrics.billed = Math.max(0, billed);
-    metrics.savings = finite(row.cache_discount_usd) ?? 0;
+    const discount = finite(row.cache_discount_usd);
+    const actualInput = finite(row.upstream_input_cost_usd);
+    if (discount !== undefined) metrics.savings = discount;
+    else if (actualInput !== undefined && cached + write > 0) {
+      // Savings = what the input would cost at the list rate − what it actually cost (reads discounted,
+      // writes at a premium, so it can be negative). Only the list rate comes from the price table.
+      const list = calculateLlmUsageCost({ prompt_tokens: input, completion_tokens: 0 }, modelId, env, str(row.provider_id));
+      if (list.pricing_status === 'priced' && list.input_cost_microusd !== undefined) {
+        metrics.savings = list.input_cost_microusd / 1_000_000 - actualInput;
+        metrics.savingsEstimated = true;
+      }
+    }
     return metrics;
   }
   if (input + output === 0) {
@@ -179,13 +214,14 @@ function rowMetrics(row: Record<string, unknown>, env: NodeJS.ProcessEnv): RowMe
   }
   const cost = calculateLlmUsageCost(
     { prompt_tokens: input, completion_tokens: output, cached_tokens: cached, cache_write_tokens: write },
-    str(row.response_model) ?? str(row.model) ?? 'default',
+    modelId,
     env,
     str(row.provider_id),
   );
   if (cost.pricing_status === 'priced' && cost.total_cost_microusd !== undefined) {
     metrics.estimated = cost.total_cost_microusd / 1_000_000;
     metrics.savings = (cost.cache_net_savings_microusd ?? 0) / 1_000_000;
+    metrics.savingsEstimated = cached + write > 0;
   } else {
     metrics.unpriced = true;
   }
@@ -205,6 +241,8 @@ function addTo(t: LlmUsageTotals, m: RowMetrics): void {
   t.cost_usd += (m.billed ?? 0) + (m.estimated ?? 0);
   if (m.unpriced) t.unpriced_requests += 1;
   t.cache_savings_usd += m.savings;
+  if (m.savingsEstimated) t.cache_savings_estimated_requests += 1;
+  t.cache_write_tokens += m.write;
 }
 
 function addPoint(map: Record<string, LlmUsageDayPoint>, key: string, m: RowMetrics): void {
@@ -260,6 +298,7 @@ export function summarizeLlmUsage(options: {
   const models = new Map<string, LlmUsageGroupRow>();
   const providers = new Map<string, LlmUsageGroupRow>();
   const purposes = new Map<string, LlmUsageGroupRow>();
+  const cacheRequests: LlmUsageCacheRequest[] = [];
 
   // Files are split by UTC start date; read one extra day on each side of the local-time window.
   // Never tracked → empty summary; rows outside the on-intervals are never mixed in.
@@ -294,8 +333,15 @@ export function summarizeLlmUsage(options: {
       addPoint(bucket.models, modelKey, m);
       addPoint(bucket.providers, providerKey, m);
       addPoint(bucket.purposes, purposeKey, m);
+      if (m.cached + m.write > 0) {
+        cacheRequests.push({
+          started_at: new Date(started).toISOString(), model: modelKey, purpose: purposeKey, input_tokens: m.input,
+          cached_tokens: m.cached, cache_write_tokens: m.write, savings_usd: m.savings, estimated: m.savingsEstimated,
+        });
+      }
     }
   }
+  cacheRequests.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
 
   const sortRows = (rows: LlmUsageGroupRow[]) => rows.sort((a, b) => b.cost_usd - a.cost_usd || b.total_tokens - a.total_tokens);
   return {
@@ -307,5 +353,7 @@ export function summarizeLlmUsage(options: {
     providers: sortRows([...providers.values()]),
     purposes: sortRows([...purposes.values()]),
     daily: dateKeys.map((date) => daily.get(date)!),
+    cache_requests: cacheRequests.slice(0, MAX_CACHE_REQUESTS),
+    cache_requests_total: cacheRequests.length,
   };
 }

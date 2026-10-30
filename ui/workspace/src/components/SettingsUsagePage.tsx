@@ -1,6 +1,6 @@
 import { ChartLine } from '@phosphor-icons/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchLlmUsageSummary, setLlmUsageTracking, type LlmUsageRangeQuery, type LlmUsageSummary, type LlmUsageTracking } from '../api/myAgentClient';
+import { fetchLlmUsageSummary, setLlmUsageTracking, type LlmUsageCacheRequest, type LlmUsageRangeQuery, type LlmUsageSummary, type LlmUsageTracking } from '../api/myAgentClient';
 
 type Metric = 'tokens' | 'cost';
 type GroupBy = 'models' | 'providers' | 'purposes';
@@ -65,6 +65,55 @@ function trackingMessage(t: LlmUsageTracking | undefined): { title: string; body
     title: '꺼짐',
     body: '스위치를 켠 시점부터 토큰과 비용을 집계합니다. 이전 기록은 포함하지 않습니다.',
   };
+}
+
+const CACHE_PAGE = 20;
+
+function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; total: number }) {
+  const [shown, setShown] = useState(CACHE_PAGE);
+  if (!items.length) return null;
+  const visible = items.slice(0, shown);
+  return (
+    <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      <h3 className="mb-3 text-sm font-semibold text-text">캐시 할인 내역 <span className="font-normal text-muted">{total.toLocaleString()}건</span></h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="text-muted">
+            <tr className="border-b border-line">
+              <th className="py-2 pr-3 font-medium">시각</th>
+              <th className="py-2 pr-3 font-medium">모델</th>
+              <th className="py-2 pr-3 text-right font-medium">캐시 읽기</th>
+              <th className="py-2 pr-3 text-right font-medium">캐시 저장</th>
+              <th className="py-2 text-right font-medium">할인</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((r, i) => (
+              <tr key={`${r.started_at}-${i}`} className="border-b border-line/60 last:border-0">
+                <td className="whitespace-nowrap py-2 pr-3">{formatSince(r.started_at)}</td>
+                <td className="max-w-64 truncate py-2 pr-3 text-text" title={r.model}>{r.model}</td>
+                <td className="py-2 pr-3 text-right">{r.cached_tokens ? formatTokens(r.cached_tokens) : '-'}</td>
+                <td className="py-2 pr-3 text-right">{r.cache_write_tokens ? formatTokens(r.cache_write_tokens) : '-'}</td>
+                <td className={`whitespace-nowrap py-2 text-right ${r.savings_usd < 0 ? 'text-amber-500' : 'text-text'}`}>
+                  {r.savings_usd < 0 ? `+${formatUsd(-r.savings_usd)} 저장 비용` : r.savings_usd > 0 ? `−${formatUsd(r.savings_usd)}` : '-'}
+                  {r.estimated && r.savings_usd !== 0 ? <span className="ml-1 text-muted">추정</span> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {items.length > shown ? (
+        <button type="button" onClick={() => setShown((n) => n + CACHE_PAGE * 5)} className="mt-3 rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
+          더 보기
+        </button>
+      ) : null}
+      <p className="mt-3 text-[11px] leading-4 text-muted">
+        캐시를 읽거나 저장한 요청만 보여 줍니다. 캐시에 처음 저장할 때는 정가보다 비싸 「저장 비용」으로, 다시 읽을 때는 할인으로 표시됩니다.
+        {total > items.length ? ` 최근 ${items.length.toLocaleString()}건까지 표시합니다.` : ''}
+      </p>
+    </section>
+  );
 }
 
 type ChartMode = 'line' | 'stacked' | 'cumulative';
@@ -406,9 +455,9 @@ export function SettingsUsagePage() {
           <StatCard label="총 비용" value={formatUsd(totals.cost_usd)} hint={costHint || undefined} />
           <StatCard label="요청 수" value={totals.requests.toLocaleString()} hint={totals.failed_requests ? `실패·중단 ${totals.failed_requests}건 포함` : undefined} />
           <StatCard
-            label="캐시로 아낀 금액"
-            value={formatUsd(totals.cache_savings_usd)}
-            hint={`캐시 읽기 ${formatTokens(totals.cached_tokens)} 토큰`}
+            label={`${totals.cache_savings_usd < 0 ? '캐시 저장 추가 비용' : '캐시로 아낀 금액'}${totals.cache_savings_estimated_requests ? ' (추정)' : ''}`}
+            value={formatUsd(Math.abs(totals.cache_savings_usd))}
+            hint={data?.cache_requests_total ? `캐시 사용 요청 ${data.cache_requests_total.toLocaleString()}건 · 아래 내역 참고` : undefined}
           />
         </div>
       ) : null}
@@ -488,6 +537,9 @@ export function SettingsUsagePage() {
             날짜는 이 PC의 시간대 기준이며, 재시도한 요청도 각각 1건으로 셉니다.
           </p>
         </section>
+      ) : null}
+      {data?.cache_requests?.length ? (
+        <CacheRequestsTable key={`${data.range.from}-${data.range.to}`} items={data.cache_requests} total={data.cache_requests_total ?? data.cache_requests.length} />
       ) : null}
       </>) : null}
     </div>
