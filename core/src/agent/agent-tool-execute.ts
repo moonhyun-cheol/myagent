@@ -180,6 +180,32 @@ async function ensureVisibleLock(
   }
 }
 
+const VISIBLE_BROWSER_TAKEN_OVER = 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER';
+
+/**
+ * The user pressed 「제어 가져오기」. The shell refuses every agent action and re-acquire
+ * until the user hands the tab back, so drop our core lease and tell the model to stop.
+ */
+function visibleBrowserTakenOverOutput(
+  args: Record<string, unknown>,
+  ctx?: AgentToolContext,
+): string {
+  const tabId = visibleTabId(args);
+  try {
+    getVisibleBrowserBridge()?.unlockFor(ctx?.sessionId ?? 'default', tabId);
+  } catch {
+    // Another session owns the core lease; leave it untouched.
+  }
+  return JSON.stringify({
+    ok: false,
+    error: VISIBLE_BROWSER_TAKEN_OVER,
+    tab_id: tabId ?? 'main',
+    user_control: true,
+    guidance: '사용자가 이 브라우저의 제어권을 가져갔습니다. 사용자가 웹 탭에서 「에이전트에 다시 맡기기」를 누르기 전에는 '
+      + 'visible 브라우저를 조작하지 마세요. 재시도하거나 다른 탭·browser_lock으로 우회하지 말고, 지금까지의 결과를 정리해 사용자에게 알리세요.',
+  }, null, 2);
+}
+
 /** Merge an optional tab_id into a shell request payload without adding empty keys. */
 function withVisibleTab(
   args: Record<string, unknown>,
@@ -1415,6 +1441,9 @@ async function executeAgentToolInner(
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (name.startsWith('browser_') && msg.startsWith(VISIBLE_BROWSER_TAKEN_OVER)) {
+      return { label: name, output: visibleBrowserTakenOverOutput(args, ctx) };
+    }
     const permission = normalizeWindowsPermissionError(e);
     const available = availableToolNames(ctx?.cqrRoot);
     return {

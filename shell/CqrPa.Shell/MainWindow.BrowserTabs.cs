@@ -185,10 +185,18 @@ public partial class MainWindow
 
     private void AcquireAutomationControl(string? tabId, string? owner)
     {
+        // A user takeover is sticky: only the user's explicit hand-back (inAppBrowser.tab.handBack)
+        // may clear it. The agent must not regain control by re-acquiring, nor sidestep the
+        // takeover by reserving a brand-new tab while any tab is still held by the user.
+        var key = (tabId ?? string.Empty).Trim();
+        var exists = key.Length == 0 || key == DefaultBrowserTab || _browserTabs.ContainsKey(key);
+        if (exists && ResolveTab(tabId).ControlTakenOver)
+            throw new InvalidOperationException("VISIBLE_BROWSER_CONTROL_TAKEN_OVER");
+        if (!exists && _browserTabs.Values.Any(t => t.ControlTakenOver))
+            throw new InvalidOperationException("VISIBLE_BROWSER_CONTROL_TAKEN_OVER");
         // A lock may reserve a dedicated agent tab before its first navigation.
         var tab = ResolveTab(tabId, createIfMissing: true);
         tab.AutomationOwner = string.IsNullOrWhiteSpace(owner) ? "agent" : owner;
-        tab.ControlTakenOver = false;
         UpdateBrowserState();
     }
 
@@ -209,6 +217,15 @@ public partial class MainWindow
         tab.Core?.Stop();
         tab.Loading = false;
         UpdateTabState(tab, "제어권을 가져왔습니다. 에이전트 자동화가 중단되었습니다.");
+    }
+
+    /// <summary>User explicitly returns a taken-over tab so the agent may lock it again.</summary>
+    private void HandBackBrowserTab(string? tabId)
+    {
+        var tab = ResolveTab(tabId);
+        if (!tab.ControlTakenOver) return;
+        tab.ControlTakenOver = false;
+        UpdateTabState(tab, "에이전트가 이 탭을 다시 사용할 수 있습니다.");
     }
 
     private void ReturnFromObservedBrowserTab()
@@ -271,6 +288,7 @@ public partial class MainWindow
                 loading = tab.Loading,
                 primary = tab.IsPrimary,
                 controlled = tab.AutomationOwner is not null,
+                takenOver = tab.ControlTakenOver,
                 observing = tab.Id == _activeBrowserTabId && tab.AutomationOwner is not null
                     && !string.IsNullOrWhiteSpace(_browserReturnTabId),
             });

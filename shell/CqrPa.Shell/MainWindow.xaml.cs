@@ -167,6 +167,9 @@ public partial class MainWindow : Window
                 case "inAppBrowser.tab.takeOver":
                     TakeOverBrowserTab(WorkspaceTabId(root));
                     break;
+                case "inAppBrowser.tab.handBack":
+                    HandBackBrowserTab(WorkspaceTabId(root));
+                    break;
                 case "inAppBrowser.devtools":
                     OpenBrowserDevTools(WorkspaceTabId(root));
                     break;
