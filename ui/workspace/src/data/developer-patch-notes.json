@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "usage-provider-rows-by-endpoint",
+      "status": "development",
+      "title": "사용량 「프로바이더별」 표에서 같은 OpenRouter가 두 줄로 나뉘던 문제 수정",
+      "detail": "에이전트 작업 요청은 연결 ID(custom)로, 연결 테스트 같은 그 밖의 요청은 주소(openrouter.ai)로 묶여 같은 OpenRouter가 두 줄로 보였습니다. 이제 요청을 보낸 주소를 기준으로 「OpenRouter」·「OpenAI」처럼 읽기 쉬운 이름으로 묶고, 주소가 없는 예전 기록만 연결 ID로 표시합니다.",
+      "area": "core",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/providers/llm-usage-summary.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "agent-run-wall-time-and-stream-stall",
       "status": "released",
       "title": "오래 안 멈추는 작업 방지: 30분마다 진행 점검, 1시간 후 자동 연장 중단, 멈춘 응답 끊기",

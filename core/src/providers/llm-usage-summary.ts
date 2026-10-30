@@ -84,6 +84,24 @@ export function usageModelGroupKey(modelKey: string, purposeKey: string): string
   return `${modelKey} (${PURPOSE_MODEL_SUFFIX[purposeKey] ?? purposeKey})`;
 }
 
+const PROVIDER_HOST_LABELS: Record<string, string> = {
+  'openrouter.ai': 'OpenRouter',
+  'api.openai.com': 'OpenAI',
+  'api.anthropic.com': 'Anthropic',
+  'generativelanguage.googleapis.com': 'Google',
+};
+
+/**
+ * Provider column groups by where the request actually went (endpoint host), not by the
+ * settings connection id — the same OpenRouter key is logged as `custom` inside agent runs and
+ * only as its host elsewhere (connection test, model list). Older rows without a host keep the id.
+ */
+export function usageProviderGroupKey(endpointHost: string | undefined, providerId: string | undefined): string {
+  const host = endpointHost?.toLowerCase();
+  if (host) return PROVIDER_HOST_LABELS[host] ?? host;
+  return providerId ?? '(알 수 없음)';
+}
+
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 160) : undefined);
 const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
@@ -335,7 +353,7 @@ export function summarizeLlmUsage(options: {
       if (!bucket) continue;
       const m = rowMetrics(row, env);
       const modelKey = str(row.response_model) ?? str(row.model) ?? '(알 수 없음)';
-      const providerKey = str(row.provider_id) ?? str(row.endpoint_host) ?? '(알 수 없음)';
+      const providerKey = usageProviderGroupKey(str(row.endpoint_host), str(row.provider_id));
       const purposeKey = str(row.purpose) ?? 'chat';
       const modelGroupKey = usageModelGroupKey(modelKey, purposeKey);
       addTo(totals, m);

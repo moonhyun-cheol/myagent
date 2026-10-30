@@ -200,6 +200,19 @@ try {
   assert.ok(shared.daily.some((d) => d.models['shared-model (승인 판단)']), 'daily series uses the split key');
   pass('model rows split chat vs approval for the same model id');
 
+  // Provider column groups by endpoint host: `custom`+openrouter.ai and host-only rows merge.
+  const provAt = new Date();
+  writeFileSync(fileFor(provAt), readFileSafe(fileFor(provAt))
+    + JSON.stringify({ event: 'finish', started_at: provAt.toISOString(), outcome: 'completed', provider_id: 'custom', endpoint_host: 'openrouter.ai', model: 'prov-model', input_tokens: 10, output_tokens: 1 }) + '\n'
+    + JSON.stringify({ event: 'finish', started_at: provAt.toISOString(), outcome: 'completed', endpoint_host: 'openrouter.ai', model: 'prov-model', input_tokens: 20, output_tokens: 2 }) + '\n'
+    + JSON.stringify({ event: 'finish', started_at: provAt.toISOString(), outcome: 'completed', provider_id: 'legacy-id', model: 'prov-model', input_tokens: 5, output_tokens: 1 }) + '\n');
+  const prov = summarizeLlmUsage({ cqrRoot: temp, days: 7 });
+  assert.ok(!prov.providers.some((p) => p.key === 'openrouter.ai'), 'raw host is labeled');
+  assert.ok(!prov.providers.some((p) => p.key === 'custom' ), 'custom+host row is not split by id');
+  assert.ok(prov.providers.find((p) => p.key === 'OpenRouter')?.requests >= 2, 'custom + host-only merge under OpenRouter');
+  assert.equal(prov.providers.find((p) => p.key === 'legacy-id')?.requests, 1, 'host-less rows keep provider id');
+  pass('provider rows group by endpoint host');
+
   // Route takes only a boolean switch (no past points).
   const dispatchSrc = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   assert.match(dispatchSrc, /typeof body\.enabled !== 'boolean'/);
