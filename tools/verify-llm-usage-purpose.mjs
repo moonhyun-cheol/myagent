@@ -37,7 +37,7 @@ try {
   const base = `http://127.0.0.1:${server.address().port}/api`;
   const post = (url, body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-  await (await fetchWithUsage(`${base}/alpha/decisions`, post({ model: 'typesafe/jev-1', state: {}, questions: {} }))).text();
+  await (await fetchWithUsage(`${base}/alpha/decisions`, post(null, { model: '~typesafe/jev-latest', state: {}, questions: {} }))).text();
   await createEmbeddings(`${base}/v1`, 'sk-test', 'emb', ['hello']);
   await withLlmUsageContext({ purpose: 'image' }, async () => (await fetchWithUsage(`${base}/v1/chat/completions`, post({ model: 'img-model', messages: [] }))).text());
   await (await fetchWithUsage(`${base}/v1/chat/completions`, post({ model: 'chat-model', messages: [] }))).text();
@@ -64,6 +64,8 @@ try {
   assert.equal(byPurpose('approval').length, 1);
   assert.equal(byPurpose('approval')[0].provider_cost_usd, 0.001);
   pass('decisions endpoint logged as approval with billed cost');
+  assert.equal(byPurpose('approval')[0].model, '~typesafe/jev-latest', 'OpenRouter ~ alias kept as model name');
+  pass('~ latest alias recorded as model (no 「(알 수 없음)」)');
   assert.equal(byPurpose('embedding').length, 1);
   assert.equal(byPurpose('embedding')[0].input_tokens, 5);
   pass('embeddings logged as embedding');
@@ -151,8 +153,8 @@ try {
     + JSON.stringify({ event: 'finish', started_at: probeAt.toISOString(), purpose: 'approval', probe: true, http_status: 200, outcome: 'completed', model: 'microsoft/microsoft-decision-1.1', provider_cost_usd: 0.002 }) + '\n');
   const probed = summarizeLlmUsage({ cqrRoot: temp, days: 7 });
   assert.equal(probed.totals.requests, 8, 'only the billed probe is counted');
-  assert.ok(!probed.models.some((m) => m.key === 'microsoft/microsoft-decision-2'));
-  assert.ok(probed.models.some((m) => m.key === 'microsoft/microsoft-decision-1.1'));
+  assert.ok(!probed.models.some((m) => m.key.startsWith('microsoft/microsoft-decision-2')));
+  assert.ok(probed.models.some((m) => m.key === 'microsoft/microsoft-decision-1.1 (승인 판단)'));
   const probeSrc = readFileSync(path.join(root, 'core/src/agent/approval-auto-review.ts'), 'utf8');
   assert.match(probeSrc, /withLlmUsageContext\(\{ probe: true \}/);
   await withLlmUsageContext({ probe: true }, async () => (await fetchWithUsage(`${base}/alpha/decisions`, post({ model: 'm', state: {}, questions: {} }))).text());
@@ -184,6 +186,19 @@ try {
   pass('per-request cache list');
   delete process.env.MY_AGENT_LLM_PRICING_JSON;
   pass('cache savings estimated from list price − actual input cost');
+
+  // Same model id used for chat and approval → separate 「모델별」 rows; purposes unchanged.
+  const shareAt = new Date();
+  writeFileSync(fileFor(shareAt), readFileSafe(fileFor(shareAt))
+    + JSON.stringify({ event: 'finish', started_at: shareAt.toISOString(), outcome: 'completed', model: 'shared-model', input_tokens: 100, output_tokens: 10, provider_cost_usd: 0.01 }) + '\n'
+    + JSON.stringify({ event: 'finish', started_at: shareAt.toISOString(), outcome: 'completed', purpose: 'approval', model: 'shared-model', input_tokens: 50, output_tokens: 5, provider_cost_usd: 0.002 }) + '\n');
+  const shared = summarizeLlmUsage({ cqrRoot: temp, days: 7 });
+  const chatRow = shared.models.find((m) => m.key === 'shared-model');
+  const approvalRow = shared.models.find((m) => m.key === 'shared-model (승인 판단)');
+  assert.equal(chatRow?.requests, 1);
+  assert.equal(approvalRow?.requests, 1);
+  assert.ok(shared.daily.some((d) => d.models['shared-model (승인 판단)']), 'daily series uses the split key');
+  pass('model rows split chat vs approval for the same model id');
 
   // Route takes only a boolean switch (no past points).
   const dispatchSrc = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');

@@ -117,7 +117,7 @@ const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-pa-auto-review-'));
 const responsesProvider = {
   resolveProvider: (providerId, modelId) => {
     assert.equal(providerId, 'custom');
-    assert.ok(['~openai/gpt-luna-latest', '~microsoft/microsoft-decision-latest', '~typesafe/jev-latest'].includes(modelId));
+    assert.ok(['~openai/gpt-sol-latest', '~microsoft/microsoft-decision-latest', '~typesafe/jev-latest'].includes(modelId));
     return {
       def: { name: 'Fixture Responses' },
       secret: { api_key: 'fixture-key' },
@@ -224,6 +224,27 @@ try {
   assert.deepEqual(jevSeen, ['~typesafe/jev-latest']);
   assert.equal(viaImage.escalated, 'image');
   assert.equal(viaImage.fallback, undefined);
+  // Jev 400s on images outside 280–1568 px: a pasted 210x126 PNG is upscaled before the call.
+  const fit = await import(pathToFileURL(path.join(root, 'core/dist/agent/decision-image-fit.js')).href);
+  const tinyPng = `data:image/png;base64,${fit.encodePng({ width: 210, height: 126, data: new Uint8Array(210 * 126 * 4).fill(200) }).toString('base64')}`;
+  let sentSize;
+  await reviewer.reviewToolApproval({
+    providerStore: openRouter, cqrRoot: temp, userMessage: '이 화면처럼 고쳐줘', request, imageDataUrls: [tinyPng],
+    decide: async ({ state }) => {
+      sentSize = fit.readImageSize(Buffer.from(state[1].image_url.url.split(',')[1], 'base64'));
+      return { answers: ans('normal', 0.97, 'no', 0.9) };
+    },
+  });
+  assert.ok(fit.fitsDecisionImage(sentSize), `sent ${JSON.stringify(sentSize)}`);
+  // An out-of-range image that cannot be rescaled is dropped: the text-only default answers.
+  jevSeen.length = 0;
+  const tinyJpeg = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x7e, 0x00, 0xd2, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).toString('base64')}`;
+  const viaDropped = await reviewer.reviewToolApproval({
+    providerStore: openRouter, cqrRoot: temp, userMessage: '이 화면처럼 고쳐줘', request, imageDataUrls: [tinyJpeg],
+    decide: async ({ model, state }) => { jevSeen.push(model); assert.ok(!Array.isArray(state)); return { answers: ans('normal', 0.97, 'no', 0.9) }; },
+  });
+  assert.deepEqual(jevSeen, ['microsoft/microsoft-decision-1']);
+  assert.equal(viaDropped.escalated, undefined);
   // >32k tokens -> skip microsoft, Jev answers.
   jevSeen.length = 0;
   const viaLarge = await reviewer.reviewToolApproval({
@@ -234,17 +255,21 @@ try {
   assert.equal(viaLarge.escalated, 'large_context');
   assert.ok(reviewer.estimateDecisionTokens('로그 확인 '.repeat(8000)) > reviewer.PRIMARY_DECISION_MAX_TOKENS);
   assert.ok(reviewer.estimateDecisionTokens('npm test') < 10);
-  // Both decision models down -> general chat reviewer (Luna) answers.
+  // Both decision models down -> general chat reviewer (Sol) answers.
   const chatSeen = [];
   const decisionDown = await reviewer.reviewToolApproval({
     providerStore: openRouter, cqrRoot: temp, userMessage: 'npm test', request,
     decide: async () => { throw new Error('decisions HTTP 503'); },
     complete: async ({ model }) => { chatSeen.push(model); return { content: '{"decision":"allow","confidence":0.9,"reason":"ok"}' }; },
   });
-  assert.deepEqual(chatSeen, ['~openai/gpt-luna-latest']);
+  assert.deepEqual(chatSeen, ['~openai/gpt-sol-latest']);
   assert.deepEqual(
     reviewer.parseApprovalReviewerPreference('provider:custom@' + encodeURIComponent('openai/gpt-5.6-luna')),
-    { providerId: 'custom', modelId: '~openai/gpt-luna-latest' },
+    { providerId: 'custom', modelId: '~openai/gpt-sol-latest' },
+  );
+  assert.deepEqual(
+    reviewer.parseApprovalReviewerPreference('provider:custom@' + encodeURIComponent('~openai/gpt-luna-latest')),
+    { providerId: 'custom', modelId: '~openai/gpt-sol-latest' },
   );
   assert.equal(decisionDown.decision, 'allow');
   assert.equal(decisionDown.fallback, true);
@@ -300,7 +325,7 @@ try {
       return { content: '{"decision":"allow","confidence":0.8,"reason":"ok"}' };
     },
   });
-  assert.deepEqual(seen, ['openai/gpt-oss-safeguard-20b', '~openai/gpt-luna-latest']);
+  assert.deepEqual(seen, ['openai/gpt-oss-safeguard-20b', '~openai/gpt-sol-latest']);
   assert.equal(viaFallback.decision, 'allow');
   assert.equal(viaFallback.fallback, true);
   seen.length = 0;
@@ -322,6 +347,11 @@ try {
   assert.match(triageSystem, /did NOT delegate/);
   assert.match(triageSystem, /NAS or network-share writes/);
   assert.match(reviewer.buildApprovalReviewSystemPrompt('delegate'), /user-delegated authority/);
+  // Reasons appear on the Korean approval card: both prompts pin the language.
+  assert.match(triageSystem, /reason in Korean/);
+  assert.match(reviewer.buildApprovalReviewSystemPrompt('delegate'), /reason in Korean/);
+  assert.equal(reviewer.parseApprovalReview('not json').reason, '판단 모델의 응답 형식이 올바르지 않습니다.');
+  assert.equal(reviewer.parseApprovalReview('{"decision":"allow","confidence":0.9,"reason":"  "}').reason, '판단 모델이 사유를 주지 않았습니다.');
 
   // NAS / network share: never delegable for writes or terminal; reads stay delegable.
   const nasRoot = '\\\\nas3\\share\\project';
