@@ -27,7 +27,6 @@ public partial class MainWindow : Window
     private string _activeBrowserTabId = DefaultBrowserTab;
     private int _browserTabSequence;
     private CoreWebView2Environment? _browserEnv;
-    private int? _browserCdpPort;
     private bool _browserSurfaceAvailable;
     private Rect _browserSurface;
     private Forms.NotifyIcon? _trayIcon;
@@ -461,7 +460,7 @@ public partial class MainWindow : Window
             }
             StartupStatusText.Text = "작업 화면을 불러오는 중…";
             // Prepare the right-side browser while its panel is still collapsed.
-            // Agent Playwright sessions attach to this same WebView2 over loopback CDP.
+            // The agent drives it only through the automation pipe (no CDP endpoint).
             await EnsureBrowserAsync(EnsurePrimaryTab());
             var workspaceCore = WebView.CoreWebView2
                 ?? throw new InvalidOperationException("WebView2 코어가 준비되지 않았습니다.");

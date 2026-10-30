@@ -301,32 +301,19 @@ public partial class MainWindow
         if (_browserEnv is not null) return _browserEnv;
         var userData = System.IO.Path.Combine(_cqrRoot, "data", "in-app-browser-webview-user-data");
         System.IO.Directory.CreateDirectory(userData);
-        _browserCdpPort ??= ReserveLoopbackPort();
+        // No remote debugging (CDP) endpoint: the core reaches this browser only through the
+        // automation pipe, which enforces lock / take-over / password-field guards.
+        // Remove an endpoint file left by older builds that exposed CDP.
+        DeleteBrowserCdpPortFile();
         // A single environment is shared by every tab so they may reuse one user-data folder.
         _browserEnv = await CoreWebView2Environment.CreateAsync(
             browserExecutableFolder: null,
             userDataFolder: userData,
-            options: new CoreWebView2EnvironmentOptions(
-                $"--remote-debugging-port={_browserCdpPort} --remote-allow-origins=http://127.0.0.1:{_browserCdpPort}"));
+            options: null);
         return _browserEnv;
     }
 
-    private static int ReserveLoopbackPort()
-    {
-        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
     private string BrowserCdpPortPath => System.IO.Path.Combine(_cqrRoot, "data", "in-app-browser-cdp-port.txt");
-
-    private void PublishBrowserCdpPort()
-    {
-        if (_browserCdpPort is null) return;
-        var temp = $"{BrowserCdpPortPath}.tmp";
-        System.IO.File.WriteAllText(temp, _browserCdpPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        System.IO.File.Move(temp, BrowserCdpPortPath, true);
-    }
 
     private void DeleteBrowserCdpPortFile()
     {
@@ -354,7 +341,6 @@ public partial class MainWindow
         await tab.View.EnsureCoreWebView2Async(env);
         var core = tab.View.CoreWebView2 ?? throw new InvalidOperationException("VISIBLE_BROWSER_CORE_FAILED");
         tab.Core = core;
-        PublishBrowserCdpPort();
         core.Settings.AreDevToolsEnabled = true;
         core.Settings.AreBrowserAcceleratorKeysEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
@@ -521,8 +507,8 @@ public partial class MainWindow
         if (tab is null) return;
         if (IsAllowedExternalUri(e.Uri))
         {
-            // A direct CDP navigation has no prior workspace open request. Treat it as
-            // an Agent request and reveal the same WebView2 tab; a close racing an
+            // A navigation without a prior workspace open request (e.g. a pipe-driven
+            // agent navigate) reveals the same WebView2 tab; a close racing an
             // already queued navigation still wins through NeedsReload.
             if (!tab.Requested)
             {

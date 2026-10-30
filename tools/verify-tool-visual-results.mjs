@@ -186,7 +186,7 @@ try {
     // Reuse installed dev runtime read-only; keep screenshots/session state in temp.
     symlinkSync(path.join(root, 'node_modules'), path.join(app, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     symlinkSync(path.join(root, 'runtime'), path.join(app, 'runtime'), process.platform === 'win32' ? 'junction' : 'dir');
-    browser = new PlaywrightSession(app, { headless: true, urlGuard: { allowLocalhost: true }, preferSharedWebView: false });
+    browser = new PlaywrightSession(app, { headless: true, urlGuard: { allowLocalhost: true } });
     await browser.navigate(base);
     const result = await executeAgentTool(workspace, call('browser_screenshot', { target: 'isolated' }), {}, { ...ctx, browserSession: browser });
     assert.equal(JSON.parse(result.output).image_attached, true, result.output);

@@ -154,9 +154,8 @@ async function isolatedBrowserSession(
   args: Record<string, unknown>,
   ctx?: AgentToolContext,
 ) {
-  if (args.target === 'isolated' && ctx?.getIsolatedBrowserSession) {
-    return ctx.getIsolatedBrowserSession();
-  }
+  // Every non-visible action uses a separate Chromium (never the user's WebView2 over CDP).
+  if (ctx?.getIsolatedBrowserSession) return ctx.getIsolatedBrowserSession();
   return ctx?.browserSession ?? null;
 }
 
@@ -1217,6 +1216,7 @@ async function executeAgentToolInner(
         }
         const isolated = {
           id: 'isolated-browser', kind: 'isolated', connected: Boolean(ctx?.browserSession),
+          available: Boolean(ctx?.browserSession || ctx?.getIsolatedBrowserSession),
         };
         return { label: 'browser targets', output: JSON.stringify({ targets: [visible, isolated] }, null, 2) };
       }

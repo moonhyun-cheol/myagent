@@ -2,6 +2,26 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "in-app-browser-single-control-path",
+      "status": "development",
+      "title": "인앱 브라우저 조작 경로를 하나로 정리",
+      "detail": "AI가 화면에 보이는 인앱 브라우저를 조작할 때는 앱 내부 연결 하나만 사용합니다. 잠금, 사용자 제어권, 비밀번호 칸 보호가 모든 조작에 똑같이 적용됩니다. 인앱 브라우저는 더 이상 외부 디버깅 포트를 열지 않으며, 화면에 보이는 브라우저를 쓸 수 없을 때는 보이지 않는 별도 브라우저에서 작업합니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/browser/playwright-session.ts", "core/src/agent/agent-tool-execute.ts", "shell/CqrPa.Shell/MainWindow.BrowserTabs.cs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "in-app-browser-user-takeover",
+      "status": "development",
+      "title": "「제어 가져오기」 후에는 AI가 브라우저를 다시 조작하지 않음",
+      "detail": "인앱 브라우저에서 「제어 가져오기」를 누르면 「에이전트에 다시 맡기기」를 누를 때까지 AI가 그 탭을 조작하거나 새 탭으로 피해 가지 않습니다. AI는 사용자가 제어 중이라고 알리고 기다립니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["shell/CqrPa.Shell/MainWindow.BrowserTabs.cs", "ui/workspace/src/components/BrowserPane.tsx", "core/src/agent/agent-tool-execute.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "tool-visual-results",
       "status": "development",
       "title": "브라우저 캡처와 도구 이미지 결과를 AI가 확인",

@@ -360,7 +360,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let browserSession: PlaywrightSession | null = null;
   let isolatedBrowserSession: PlaywrightSession | null = null;
   const getIsolatedBrowserSession = async (): Promise<PlaywrightSession | null> => {
-    if (browserSession && !browserSession.usesSharedWebView()) return browserSession;
+    if (browserSession) return browserSession;
     if (isolatedBrowserSession) return isolatedBrowserSession;
     try {
       isolatedBrowserSession = await PlaywrightSession.open({
@@ -368,7 +368,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         headless: opts.playwrightHeadless !== false,
         urlGuard: { allowLocalhost: opts.playwrightAllowLocalhost === true },
         signal: opts.signal,
-        preferSharedWebView: false,
       });
       return isolatedBrowserSession;
     } catch {
@@ -698,14 +697,16 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const readBodiesFetchedThisRun = new Set<string>();
   let readBeforeWriteAutoHeals = 0;
   let steps = 0;
-  if (packIncludesBrowser(toolPack)) {
+  // Background runs own a dedicated Chromium up front (handoff state at finish). Interactive
+  // runs reach the user's WebView2 only through the shell pipe; their isolated Chromium is
+  // launched lazily by getIsolatedBrowserSession on first use.
+  if (packIncludesBrowser(toolPack) && opts.browserRouting === 'background') {
     try {
       browserSession = await PlaywrightSession.open({
         cqrRoot: opts.cqrRoot,
         headless: opts.playwrightHeadless !== false,
         urlGuard: { allowLocalhost: opts.playwrightAllowLocalhost === true },
         signal: opts.signal,
-        preferSharedWebView: opts.browserRouting !== 'background',
       });
     } catch {
       browserSession = null;
