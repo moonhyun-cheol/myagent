@@ -9,6 +9,8 @@ import {
 } from '../providers/openai-compatible.js';
 import { withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { throwIfAborted } from '../chat/abort.js';
+import { buildToolImageMessage } from './agent-multimodal.js';
+import { wrapUntrustedToolOutput } from './untrusted-content.js';
 import {
   executeAgentTool,
   normalizeToolCall,
@@ -74,7 +76,8 @@ import {
   needsHumanApproval,
   normalizeToolApprovalOutcome,
 } from './tool-approval.js';
-import type { StepBudgetAction } from './step-budget-review.js';
+import { buildStepBudgetResources, type StepBudgetAction } from './step-budget-review.js';
+import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import {
   formatSyntaxBrokenRepairPrompt,
   toolOutputHasSyntaxBroken,
@@ -97,6 +100,7 @@ import {
   createWorkspaceCheckpoint,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
+import { isAuditedWebTool, recordWebActionAudit } from './web-action-audit.js';
 import {
   MAX_AGENT_STEPS,
   type CodeAgentResult,
@@ -339,6 +343,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     const todoSummary = (ledger?.todos ?? [])
       .map((todo) => `[${todo.status}] ${todo.text}`)
       .join('\n');
+    // Spend of this run (per-run budget = state.steps), priced from data/model-pricing.json.
+    const resources = buildStepBudgetResources(
+      calculateLlmUsageCost(state.llmUsage, state.modelId, process.env, state.opts.providerId),
+      state.steps,
+    );
     try {
       const grant = await handler({
         facts: {
@@ -350,6 +359,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           mutatedPaths: [...state.mutatedPathsThisRun],
           todoSummary,
           lastModelOutput: (state.lastModelOutput || state.answerBuf).trim(),
+          resources,
         },
         workingModelId: state.modelId,
         autoGrantsUsed: autoBudgetGrants,
@@ -739,6 +749,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           workspaceRoot: state.opts.workspaceRoot,
           allowedWriteRoots: state.opts.allowedWriteRoots,
           approvedExternalReadRoots: state.approvedExternalReadRoots,
+          userMessage: state.opts.userMessage,
+          approvedNetworkGrants: state.approvedNetworkGrants,
         }).needed;
       });
 
@@ -778,6 +790,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
     }
 
+    const imageMessages: NonNullable<ReturnType<typeof buildToolImageMessage>>[] = [];
     for (const call of toolCalls) {
       const preflight = parallelPreflight.get(call.id);
       const compat = preflight?.compat ?? applyToolSchemaCompat(call, state.agentTools);
@@ -836,6 +849,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         workspaceRoot: state.opts.workspaceRoot,
         allowedWriteRoots: state.opts.allowedWriteRoots,
         approvedExternalReadRoots: state.approvedExternalReadRoots,
+        userMessage: state.opts.userMessage,
+        approvedNetworkGrants: state.approvedNetworkGrants,
       });
       if (hitl.needed) {
         let approved = false;
@@ -880,10 +895,21 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
               access: hitl.access,
             });
           }
-        } else if (args.confirm === true) {
+        } else if (state.opts.allowHeadlessConfirm === true && args.confirm === true) {
           approved = true;
         } else {
-          const output = formatApprovalDenied(execCall.function.name, 'confirm_required');
+          // No approval channel: a model-authored confirm=true is not consent (prompt
+          // injection could add it). Deny and say why instead of inviting a retry.
+          const output = formatApprovalDenied(
+            execCall.function.name,
+            args.confirm === true ? 'no_approval_channel' : 'confirm_required',
+          );
+          if (isAuditedWebTool(execCall.function.name)) {
+            recordWebActionAudit({
+              cqrRoot: state.opts.cqrRoot, sessionId: state.opts.sessionId,
+              tool: execCall.function.name, args, outcome: 'no_approval_channel',
+            });
+          }
           loopGuard.noteResult(execCall, output);
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (승인 필요)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
@@ -891,6 +917,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
         if (!approved) {
           const output = formatApprovalDenied(execCall.function.name, 'user_rejected');
+          if (isAuditedWebTool(execCall.function.name)) {
+            recordWebActionAudit({
+              cqrRoot: state.opts.cqrRoot, sessionId: state.opts.sessionId,
+              tool: execCall.function.name, args, outcome: 'approval_denied',
+            });
+          }
           loopGuard.noteResult(execCall, output);
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (거절됨)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
@@ -901,6 +933,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
         if (hitl.access === 'external_read') {
           for (const root of hitl.grantRoots ?? []) state.approvedExternalReadRoots.add(root);
+        }
+        if (hitl.access === 'network') {
+          for (const key of hitl.grantRoots ?? []) state.approvedNetworkGrants.add(key);
         }
         state.reportStatus(`승인됨 · ${hitl.summary} 실행 중…`);
       }
@@ -1128,6 +1163,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       let output: string;
       let durationMs: number;
       let followUpImage: string | undefined;
+      let followUpImages: string[] | undefined;
       if (preflight?.runnable && parallelResults) {
         const resultMap = await parallelResults;
         const parallelResult = resultMap.get(execCall.id);
@@ -1144,6 +1180,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         });
         output = execResult.output;
         followUpImage = execResult.followUpImage;
+        followUpImages = execResult.followUpImages;
         durationMs = Date.now() - toolStarted;
       }
       const rawEvidenceOutput = output;
@@ -1272,7 +1309,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         pushToolResultMessage(
           state.messages,
           execCall.id,
-          projectEvidenceForModel(evidenceRecord, output),
+          wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output)),
           execCall.function.name,
         );
         return finishKeptRun(`Agent stopped after tool: ${afterTool.reason}`, 'hook으로 작업 중단');
@@ -1410,21 +1447,18 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       state.messages.push({
         role: 'tool',
         tool_call_id: execCall.id,
-        content: projectEvidenceForModel(evidenceRecord, output),
+        // Web/MCP results are data inside an explicit envelope, never instructions.
+        content: wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output)),
       });
-      // conversation_image_get returns one original as a multimodal image for the
-      // next model step: the tool role cannot carry image parts, so attach it via
-      // an immediate user turn. Model chose this by id; no local heuristic here.
-      if (toolOk && followUpImage) {
-        state.messages.push({
-          role: 'user',
-          content: [
-            { type: 'text', text: 'conversation_image_get delivered the requested image below.' },
-            { type: 'image_url', image_url: { url: followUpImage, detail: 'auto' } },
-          ],
-        });
+      if (toolOk) {
+        const imageMessage = buildToolImageMessage(execCall.function.name,
+          [...(followUpImage ? [followUpImage] : []), ...(followUpImages ?? [])]);
+        if (imageMessage) imageMessages.push(imageMessage);
       }
     }
+
+    // Complete all assistant/tool pairs before adding user-role image messages.
+    state.messages.push(...imageMessages);
 
     if (!loopHardStop && consecutiveToolFailures >= maxConsecutiveFailures) {
       loopHardStop = formatConsecutiveFailureStop(consecutiveToolFailures, maxConsecutiveFailures);

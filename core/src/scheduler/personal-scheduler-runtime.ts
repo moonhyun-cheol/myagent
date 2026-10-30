@@ -16,6 +16,7 @@ export class PersonalSchedulerRuntime {
   private running = false;
   private queue: Promise<void> = Promise.resolve();
   private executing = 0;
+  private recovered = false;
 
   constructor(
     readonly service: PersonalSchedulerService,
@@ -26,6 +27,12 @@ export class PersonalSchedulerRuntime {
   start(): void {
     if (this.timer) return;
     this.running = true;
+    if (!this.recovered) {
+      // 이 프로세스의 첫 시작에서만: 이전 프로세스가 남긴 미완료 실행을 닫고 오래된 기록을 정리한다.
+      this.recovered = true;
+      try { this.service.recoverInterruptedRuns(); } catch { /* 시작을 막지 않는다 */ }
+      try { this.service.pruneHistory(); } catch { /* 시작을 막지 않는다 */ }
+    }
     void this.tick(new Date(), true);
     this.timer = setInterval(() => void this.tick(), this.tickMs);
     this.timer.unref?.();
@@ -61,8 +68,14 @@ export class PersonalSchedulerRuntime {
       weeklyItem = this.service.claimReadyWeeklyItem(now);
     }
     for (const task of this.service.dueTasks(now).filter((candidate) => !this.service.isWeeklyTask(candidate))) {
+      const scheduledAt = task.next_run_at;
       this.service.advanceTask(task, now);
-      if (startup && task.misfire_policy === 'skip') continue;
+      if (startup && task.misfire_policy === 'skip') {
+        // 앱이 꺼져 있던 동안 지난 실행은 건너뛰되, 흔적을 상태 알림으로 남긴다.
+        const expired = this.service.getTask(task.id)?.next_run_at == null;
+        try { this.service.recordMissedRun(task, scheduledAt, expired); } catch { /* 기록 실패가 스케줄을 막지 않는다 */ }
+        continue;
+      }
       this.enqueue(task, 'scheduled');
     }
     await this.queue;

@@ -17,6 +17,7 @@ import {
   activateInAppBrowserTab,
   closeInAppBrowserTab,
   createInAppBrowserTab,
+  handBackInAppBrowserTab,
   inAppBrowserBack,
   inAppBrowserForward,
   inAppBrowserOpenExternal,
@@ -347,6 +348,14 @@ export function BrowserPane() {
               원래 탭으로
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {activeShellTab?.takenOver && !activeShellTab.controlled ? (
+        <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-panel-2 px-3 py-1.5 text-[11px] text-text">
+          <span>사용자가 이 탭을 제어 중입니다. 에이전트는 다시 맡길 때까지 이 탭과 새 탭을 조작할 수 없습니다.</span>
+          <button type="button" onClick={() => handBackInAppBrowserTab(activeShellTab.id)} className="rounded border border-line px-2 py-1 font-medium text-text hover:bg-hover">
+            에이전트에 다시 맡기기
+          </button>
         </div>
       ) : null}
       {shellTabs.length >= EXCESSIVE_TAB_WARNING_AT ? (

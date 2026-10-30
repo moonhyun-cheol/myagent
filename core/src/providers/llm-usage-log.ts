@@ -16,12 +16,28 @@ const context = new AsyncLocalStorage<LlmUsageContext>();
 export function withLlmUsageContext<T>(value: LlmUsageContext, work: () => T): T {
   return context.run({ ...context.getStore(), ...value }, work);
 }
+/** Current chat session id (agent runs), used only for OpenRouter sticky-routing pins. */
+export function currentLlmUsageSessionId(): string | undefined {
+  return context.getStore()?.sessionId;
+}
 
 type Wire = 'chat' | 'responses' | 'messages';
 type Usage = Partial<Record<'input_tokens' | 'output_tokens' | 'cached_tokens' | 'cache_write_tokens' | 'reasoning_tokens', number>>;
 const token = (v: unknown): number | undefined => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const id = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9_./:-]{1,160}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v : undefined;
+/** Upstream provider display names may contain spaces ("Google Vertex"). */
+const providerName = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9 _.()-]{1,80}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v.trim() : undefined;
+const money = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+/** OpenRouter usage accounting: billed USD and cache discount (positive = saved, negative = write premium). */
+function costFields(raw: unknown): { cost?: number; cache_discount?: number } {
+  const u = record(raw);
+  const input = record(u.input_tokens_details);
+  const prompt = record(u.prompt_tokens_details);
+  const cost = money(u.cost);
+  const discount = money(u.cache_discount ?? input.cache_discount ?? prompt.cache_discount);
+  return { ...(cost === undefined ? {} : { cost }), ...(discount === undefined ? {} : { cache_discount: discount }) };
+}
 function normalize(raw: unknown): Usage {
   const u = record(raw);
   const input = record(u.input_tokens_details);
@@ -67,6 +83,8 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     input_items: items.length, tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
     instructions_chars: typeof body.instructions === 'string' ? body.instructions.length : 0,
     previous_response: typeof body.previous_response_id === 'string',
+    // Presence only — the pin value itself is never logged.
+    session_pinned: new Headers(init.headers).has('x-session-id') || typeof body.session_id === 'string',
   };
   const write = (row: Record<string, unknown>) => {
     try {
@@ -83,6 +101,8 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let finished = false;
   let status: number | undefined;
   let responseModel: string | undefined;
+  let upstreamProvider: string | undefined;
+  let costs: { cost?: number; cache_discount?: number } = {};
   let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
   let responseHeaders: Headers | undefined;
   let removeAbort = () => {};
@@ -103,6 +123,9 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
       cached_tokens: usage.cached_tokens ?? null, cache_write_tokens: usage.cache_write_tokens ?? null,
       reasoning_tokens: usage.reasoning_tokens ?? null, total_input_tokens: totalInput,
       input_semantics: wire === 'messages' ? 'excludes_cache' : 'includes_cache',
+      upstream_provider: upstreamProvider ?? null,
+      provider_cost_usd: costs.cost ?? null,
+      cache_discount_usd: costs.cache_discount ?? null,
       usage_source: 'provider', observation_truncated: truncated,
       error_diagnostics: errorDiagnostics,
     });
@@ -113,7 +136,9 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     const raw = doc.usage ?? response.usage ?? message.usage;
     // Providers send cumulative snapshots, not increments. Never add snapshots.
     usage = { ...usage, ...normalize(raw) };
+    costs = { ...costs, ...costFields(raw) };
     responseModel = id(doc.model ?? response.model ?? message.model) ?? responseModel;
+    upstreamProvider = providerName(doc.provider ?? response.provider ?? message.provider) ?? upstreamProvider;
     if (doc.error || response.error || ['error', 'response.failed', 'response.incomplete'].includes(String(doc.type)) || ['failed', 'incomplete'].includes(String(doc.status))) {
       providerFailed = true;
       errorDiagnostics = providerErrorDiagnostics(doc, { status: status ?? 200, headers: responseHeaders ?? new Headers() });

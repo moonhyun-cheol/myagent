@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import net from 'node:net';
 import { VisibleBrowserBridge } from '../core/dist/browser/visible-browser-bridge.js';
+import { startVisibleBrowserBridge, getVisibleBrowserBridge } from '../core/dist/browser/visible-browser-bridge.js';
+import { executeAgentTool } from '../core/dist/agent/agent-tool-execute.js';
 
 const root = new URL('../', import.meta.url);
 const read = async (relative) => readFile(new URL(relative, root), 'utf8');
@@ -30,6 +32,15 @@ assert.match(shellAutomation, /PASSWORD_FIELD_BLOCKED/, 'password filling must b
 assert.match(shellAutomation, /Input\.dispatchMouseEvent/, 'visible drag must dispatch trusted CDP mouse input');
 assert.match(shellAutomation, /"drag" => await AutomateBrowserDragAsync/, 'shell must route visible drag commands');
 assert.match(shellAutomation, /VISIBLE_BROWSER_CONTROL_TAKEN_OVER/, 'automation must stop after user takeover');
+// User takeover is sticky: re-acquire must be refused, and only the user's hand-back clears it.
+assert.doesNotMatch(shellTabs, /ControlTakenOver = false;\s*\n\s*UpdateBrowserState\(\);\s*\n\s*}\s*\n\s*private void ReleaseAutomationControl/,
+  'agent acquire must not clear a user takeover');
+assert.match(shellTabs, /private void AcquireAutomationControl[\s\S]{0,900}throw new InvalidOperationException\("VISIBLE_BROWSER_CONTROL_TAKEN_OVER"\)/,
+  'shell acquire must refuse a taken-over tab');
+assert.match(shellTabs, /private void HandBackBrowserTab[\s\S]{0,300}ControlTakenOver = false/, 'only hand-back clears takeover');
+assert.match(shellTabs, /takenOver = tab\.ControlTakenOver/, 'tab summaries must report takeover to the UI');
+assert.match(workspaceBridge, /inAppBrowser\.tab\.handBack/, 'workspace bridge must expose hand-back');
+assert.match(browserPane, /에이전트에 다시 맡기기/, 'browser pane must expose the hand-back action');
 assert.match(shellTabs, /VISIBLE_BROWSER_TAB_CONTROLLED/, 'controlled tabs must be protected from closing');
 assert.match(shellTabs, /returnTabId = _browserReturnTabId/, 'shell state must retain the observation return tab');
 assert.match(workspaceBridge, /inAppBrowser\.tab\.takeOver/, 'workspace bridge must expose user takeover');
@@ -130,4 +141,74 @@ assert.equal(bridge.status().degraded, false, 'a later shell response must clear
 
 socket.destroy();
 bridge.stop();
+
+// --- Agent tool behaviour after a user takeover (singleton bridge + fake shell) ---
+const takeoverPort = port + 1;
+const shared = startVisibleBrowserBridge(takeoverPort);
+const takeoverPipe = process.platform === 'win32'
+  ? `\\\\.\\pipe\\my-agent-visible-browser-${takeoverPort}`
+  : `/tmp/my-agent-visible-browser-${takeoverPort}.sock`;
+const shellSeen = [];
+const fakeShell = await (async () => {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const s = net.createConnection(takeoverPipe, () => resolve(s));
+        s.once('error', reject);
+      });
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error('fake shell could not connect to the shared bridge');
+})();
+let shellBuffer = '';
+fakeShell.setEncoding('utf8');
+fakeShell.on('data', (chunk) => {
+  shellBuffer += chunk;
+  while (shellBuffer.includes('\n')) {
+    const index = shellBuffer.indexOf('\n');
+    const line = shellBuffer.slice(0, index).trim();
+    shellBuffer = shellBuffer.slice(index + 1);
+    if (!line) continue;
+    const command = JSON.parse(line);
+    if (command.type !== 'command') continue;
+    shellSeen.push(command.action);
+    // The shell refuses every acquire/action on a taken-over tab.
+    fakeShell.write(`${JSON.stringify({ type: 'result', id: command.id, ok: false, error: 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER' })}\n`);
+  }
+});
+for (let attempt = 0; attempt < 30 && !shared.isConnected(); attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.equal(getVisibleBrowserBridge(), shared);
+assert.equal(shared.isConnected(), true);
+
+const call = (name, args) => ({ id: `c-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+const ctx = { sessionId: 'takeover-session', browserRouting: 'interactive' };
+const parse = (output) => JSON.parse(output);
+
+// Implicit target: the per-action re-acquire must be refused and surfaced as a stop instruction.
+const implicit = parse((await executeAgentTool(process.cwd(), call('browser_click', { snapshot_id: 's', ref: 'e1' }), {}, ctx)).output);
+assert.equal(implicit.error, 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER');
+assert.equal(implicit.user_control, true);
+assert.match(implicit.guidance, /에이전트에 다시 맡기기/);
+assert.equal(shellSeen.at(-1), 'tab.control.acquire');
+assert.ok(!shellSeen.includes('click'), 'the click must never reach the shell after a refused acquire');
+assert.throws(() => shared.assertLockedBy('takeover-session'), /VISIBLE_BROWSER_LOCK_REQUIRED/, 'refused acquire must not leave a core lease');
+
+// Explicit lock path: browser_lock is refused the same way.
+const lock = parse((await executeAgentTool(process.cwd(), call('browser_lock', { target: 'visible' }), {}, ctx)).output);
+assert.equal(lock.error, 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER');
+assert.throws(() => shared.assertLockedBy('takeover-session'), /VISIBLE_BROWSER_LOCK_REQUIRED/);
+
+// A lease taken before the takeover is dropped once the shell reports the takeover.
+shared.lockFor('takeover-session');
+const explicit = parse((await executeAgentTool(process.cwd(), call('browser_fill', { target: 'visible', snapshot_id: 's', ref: 'e1', value: 'x' }), {}, ctx)).output);
+assert.equal(explicit.error, 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER');
+assert.equal(shellSeen.at(-1), 'fill');
+assert.throws(() => shared.assertLockedBy('takeover-session'), /VISIBLE_BROWSER_LOCK_REQUIRED/, 'stale core lease must be released');
+
+fakeShell.destroy();
+shared.stop();
 console.log('verify-visible-browser-bridge: ok');

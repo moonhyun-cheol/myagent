@@ -87,6 +87,34 @@ function uidMemo(): string {
   return `memo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** 빈 시작 화면의 「최근 문서」 — 작업 폴더별 최근에 연 프로젝트 문서 경로(localStorage). */
+const RECENT_DOCS_KEY = 'myagent.document.recent.v1';
+const RECENT_DOCS_LIMIT = 5;
+type RecentDocEntry = { root: string; path: string; at: number };
+
+function rootKey(root: string): string {
+  return root.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function readRecentDocs(): RecentDocEntry[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_DOCS_KEY) || '[]');
+    return Array.isArray(raw)
+      ? raw.filter((e): e is RecentDocEntry => typeof e?.root === 'string' && typeof e?.path === 'string' && typeof e?.at === 'number')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentDoc(root: string, path: string): RecentDocEntry[] {
+  const key = rootKey(root);
+  const rest = readRecentDocs().filter((e) => !(e.root === key && e.path.toLowerCase() === path.toLowerCase()));
+  const next = [{ root: key, path, at: Date.now() }, ...rest].slice(0, 50);
+  try { localStorage.setItem(RECENT_DOCS_KEY, JSON.stringify(next)); } catch { /* storage full/blocked */ }
+  return next;
+}
+
 export function MarkdownDocument() {
   const { resolved: theme } = useTheme();
   const filesRoot = useWorkspaceStore((s) => s.filesRoot);
@@ -104,6 +132,15 @@ export function MarkdownDocument() {
   const documentSelection = activeDocument?.selection ?? '';
   const view = activeDocument?.view ?? 'source';
   const memos = activeDocument?.memos ?? EMPTY_MEMOS;
+  /** 아무 문서도 열지 않은 초기 상태: 건드리지 않은 단일 빈 초안을 「읽기」로 보고 있을 때. */
+  const isBlankStart =
+    documentTabs.length <= 1 &&
+    (!activeDocument ||
+      (activeDocument.source === 'draft' &&
+        !activeDocument.dirty &&
+        !activeDocument.content.trim() &&
+        activeDocument.view === 'preview' &&
+        activeDocument.memos.length === 0));
   const setDocumentContent = useWorkspaceStore((s) => s.setDocumentContent);
   const setDocumentSelection = useWorkspaceStore((s) => s.setDocumentSelection);
   const setDocumentView = useWorkspaceStore((s) => s.setDocumentView);
@@ -161,7 +198,7 @@ export function MarkdownDocument() {
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [isBlankStart]);
   const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const memosRef = useRef<DocumentMemo[]>([]);
@@ -186,6 +223,16 @@ export function MarkdownDocument() {
     setBrowseOpen(true);
     return false;
   }, [hasWorkspace]);
+  const [recentDocs, setRecentDocs] = useState<RecentDocEntry[]>(() => readRecentDocs());
+  useEffect(() => {
+    if (!filesRoot?.trim() || activeDocument?.source !== 'workspace' || !activeDocument.path) return;
+    setRecentDocs(rememberRecentDoc(filesRoot, activeDocument.path));
+  }, [filesRoot, activeDocument?.source, activeDocument?.path]);
+  const recentForRoot = useMemo(() => {
+    if (!filesRoot?.trim()) return [];
+    const key = rootKey(filesRoot);
+    return recentDocs.filter((e) => e.root === key).slice(0, RECENT_DOCS_LIMIT);
+  }, [recentDocs, filesRoot]);
   const openMemos = memos.filter((m) => m.open);
   const closedMemoCount = memos.filter((m) => !m.open).length;
   const diskConflict = /디스크에서 변경됨/.test(documentStatus || '');
@@ -885,6 +932,76 @@ export function MarkdownDocument() {
 
   return (
     <div className="document-workspace relative flex h-full min-h-0 flex-col bg-panel" data-testid="markdown-document">
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={DOCUMENT_SCRATCH.allowedExtensions.join(',')}
+        className="hidden"
+        onChange={(e) => {
+          void onPickFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      {isBlankStart ? (
+        <div className="min-h-0 flex-1 overflow-auto" data-testid="document-blank-start">
+          <div className="ui-empty mx-auto max-w-sm">
+            <h2>문서</h2>
+            <p>마크다운 문서를 새로 쓰거나 프로젝트 문서를 열어 편집합니다.</p>
+            <div className="mt-2 flex w-full flex-col items-stretch gap-2">
+              <button
+                type="button"
+                className="ui-primary"
+                data-testid="document-blank-new"
+                onClick={() => setDocumentView('rendered')}
+              >
+                새 문서
+              </button>
+              <button
+                type="button"
+                className="ui-secondary"
+                data-testid="document-open"
+                title={hasWorkspace ? '프로젝트 문서 열기 (Ctrl+O)' : '작업 폴더를 연결한 뒤 문서를 엽니다'}
+                onClick={() => void openDocQuickOpen()}
+              >
+                {hasWorkspace ? '프로젝트 문서 열기' : '폴더 연결 후 문서 열기'}
+              </button>
+              <button
+                type="button"
+                className="self-center text-[11px] text-muted underline-offset-2 hover:text-text hover:underline"
+                title="PC의 마크다운·텍스트 파일 가져오기"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                외부 파일 가져오기
+              </button>
+            </div>
+            {visibleDocumentStatus ? (
+              <p role="status" className="mt-2 text-[11px] text-warning">{visibleDocumentStatus}</p>
+            ) : null}
+            {recentForRoot.length > 0 ? (
+              <div className="mt-4 w-full text-left" data-testid="document-recent">
+                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted">최근 문서</p>
+                <ul className="flex flex-col">
+                  {recentForRoot.map((entry) => (
+                    <li key={entry.path}>
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 flex-col rounded-md px-2 py-1.5 text-left hover:bg-panel-2"
+                        title={entry.path}
+                        onClick={() => void openDocumentPath(entry.path)}
+                      >
+                        <span className="truncate text-[12px] text-text">{documentTitleFromPath(entry.path)}</span>
+                        <span className="truncate text-[10px] text-muted">{entry.path}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {!isBlankStart ? (<>
       {!hasWorkspace ? (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
           <p>
@@ -983,17 +1100,6 @@ export function MarkdownDocument() {
               </button>
             </>
           ) : null}
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={DOCUMENT_SCRATCH.allowedExtensions.join(',')}
-            className="hidden"
-            onChange={(e) => {
-              void onPickFiles(e.target.files);
-              e.target.value = '';
-            }}
-          />
           <button
             type="button"
             className={`${isUntouchedEmptyDraft ? 'ui-secondary' : 'ui-primary'} !min-h-[28px] whitespace-nowrap !px-2.5 !py-1 !text-[11px]`}
@@ -1275,14 +1381,8 @@ export function MarkdownDocument() {
               copyText={async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }} />
               : (
                 <div className="ui-empty">
-                  <h2>새 문서를 작성해 보세요</h2>
-                  <p>직접 마크다운을 작성하거나 프로젝트 문서·외부 파일을 불러와 편집할 수 있습니다.</p>
-                  <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" className="ui-primary" onClick={() => setDocumentView('source')}>편집 시작</button>
-                    <button type="button" className="ui-secondary" onClick={() => setDocumentView('rendered')}>렌더링 편집</button>
-                    <button type="button" className="ui-secondary" onClick={() => void openDocQuickOpen()}>프로젝트 문서 열기</button>
-                    <button type="button" className="ui-secondary" onClick={() => fileInputRef.current?.click()}>외부 파일 가져오기</button>
-                  </div>
+                  <p>내용이 없는 문서입니다.</p>
+                  <button type="button" className="ui-primary" onClick={() => setDocumentView('rendered')}>작성 시작</button>
                 </div>
               )}
           </div>
@@ -1316,6 +1416,7 @@ export function MarkdownDocument() {
           )
         ) : null}
       </div>
+      </>) : null}
 
       {menu ? <ContextMenuPortal menu={menu} onClose={close} /> : null}
       {tabMenu.menu ? <ContextMenuPortal menu={tabMenu.menu} onClose={tabMenu.close} /> : null}

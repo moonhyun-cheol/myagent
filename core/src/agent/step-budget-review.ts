@@ -2,6 +2,7 @@ import { chatCompletion, type ChatMessage } from '../providers/openai-compatible
 import type { ProviderStore } from '../providers/provider-store.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
 import { APPROVAL_REVIEW_PROVIDER_ID } from './approval-auto-review.js';
+import type { LlmUsageCost } from './llm-usage-cost.js';
 
 /**
  * Step-budget review at the per-run cap (MAX_AGENT_STEPS).
@@ -44,6 +45,20 @@ export interface StepBudgetAction {
   failure?: string;
 }
 
+/** Tokens/cost this run has spent so far (host-computed from provider usage + price table). */
+export interface StepBudgetResources {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  /** cached / input, 0..1. */
+  cacheHitRate: number;
+  /** USD so far; undefined when the model has no known price. */
+  costUsd?: number;
+  /** Estimated USD per step so far (costUsd / stepsUsed). */
+  costPerStepUsd?: number;
+}
+
 export interface StepBudgetFacts {
   userRequest: string;
   stepsUsed: number;
@@ -53,6 +68,8 @@ export interface StepBudgetFacts {
   mutatedPaths: readonly string[];
   todoSummary?: string;
   lastModelOutput?: string;
+  /** Spend of this run so far; lets the reviewer weigh progress against cost. */
+  resources?: StepBudgetResources;
 }
 
 /** Host decision passed back to the step loop. */
@@ -94,6 +111,8 @@ export function buildStepBudgetSystemPrompt(extension = STEP_BUDGET_EXTENSION): 
     'Calibration: large tasks often spend the first 100 steps reading and searching before editing; that alone is progress, not drift.',
     'Choose redirect only with concrete evidence: the same failure repeating, or the touched files/commands clearly unrelated to the request.',
     'Choose stop_ask_user only when the request itself cannot be understood or continuing is risky.',
+    'Resource usage (tokens, cache hit rate, USD so far) is context, not a verdict by itself: never stop only because a run is expensive.',
+    `Use it to judge waste: high spend with repeated failures or no new files/progress supports redirect or stop_ask_user; high spend with steady progress is fine. The next ${extension} steps will cost roughly cost_per_step × ${extension}.`,
   ].join('\n');
 }
 
@@ -105,6 +124,42 @@ function redact(value: string): string {
 }
 
 const oneLine = (value: string, max: number): string => redact(String(value ?? '')).replace(/\s+/g, ' ').trim().slice(0, max);
+
+/** Build reviewer resources from accumulated usage and the host cost estimate. */
+export function buildStepBudgetResources(
+  cost: Pick<LlmUsageCost, 'input_tokens' | 'output_tokens' | 'cached_input_tokens' | 'cache_write_input_tokens' | 'cache_hit_rate' | 'pricing_status' | 'total_cost_microusd'>,
+  stepsUsed: number,
+): StepBudgetResources {
+  const priced = cost.pricing_status === 'priced' && typeof cost.total_cost_microusd === 'number';
+  const costUsd = priced ? cost.total_cost_microusd! / 1_000_000 : undefined;
+  return {
+    inputTokens: cost.input_tokens,
+    outputTokens: cost.output_tokens,
+    cachedTokens: cost.cached_input_tokens,
+    cacheWriteTokens: cost.cache_write_input_tokens,
+    cacheHitRate: cost.cache_hit_rate,
+    ...(costUsd === undefined ? {} : {
+      costUsd,
+      ...(stepsUsed > 0 ? { costPerStepUsd: costUsd / stepsUsed } : {}),
+    }),
+  };
+}
+
+const usd = (v: number): string => `$${v < 0.1 ? v.toFixed(4) : v.toFixed(2)}`;
+const tokens = (v: number): string => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(2)}M` : v >= 1_000 ? `${Math.round(v / 1_000)}K` : String(v));
+
+/** Short Korean label for status lines / the approval card (e.g. 「입력 1.20M 토큰 (캐시 75%) · 약 $3.42 · 추가 50스텝 예상 약 $1.71」). */
+export function formatStepBudgetResourceLabel(resources: StepBudgetResources | undefined, extension = STEP_BUDGET_EXTENSION): string {
+  if (!resources || !(resources.inputTokens > 0 || resources.outputTokens > 0)) return '';
+  const parts = [`입력 ${tokens(resources.inputTokens)} 토큰 (캐시 ${Math.round(resources.cacheHitRate * 100)}%)`, `출력 ${tokens(resources.outputTokens)}`];
+  if (resources.costUsd !== undefined) {
+    parts.push(`지금까지 약 ${usd(resources.costUsd)}`);
+    if (resources.costPerStepUsd !== undefined) parts.push(`추가 ${extension}스텝 예상 약 ${usd(resources.costPerStepUsd * extension)}`);
+  } else {
+    parts.push('가격 정보 없음');
+  }
+  return parts.join(' · ');
+}
 
 export function buildStepBudgetFactsText(facts: StepBudgetFacts): string {
   const counts: Record<string, number> = {};
@@ -126,6 +181,18 @@ export function buildStepBudgetFactsText(facts: StepBudgetFacts): string {
     `tool_counts: ${JSON.stringify(counts)}`,
     `files_mutated: ${facts.mutatedPaths.slice(0, 20).map((p) => oneLine(p, 80)).join(', ') || '(none)'}`,
   ];
+  const r = facts.resources;
+  if (r) {
+    parts.push(
+      '',
+      '## Resource usage (this run, host-computed)',
+      `input_tokens: ${r.inputTokens} (cached ${r.cachedTokens}, cache_write ${r.cacheWriteTokens}, cache_hit_rate ${(r.cacheHitRate * 100).toFixed(1)}%)`,
+      `output_tokens: ${r.outputTokens}`,
+      r.costUsd !== undefined
+        ? `cost_usd_so_far: ${r.costUsd.toFixed(4)}; cost_per_step_usd: ${(r.costPerStepUsd ?? 0).toFixed(4)}`
+        : 'cost_usd_so_far: unknown (no price for this model)',
+    );
+  }
   if (facts.todoSummary?.trim()) parts.push('', '## Agent TODO ledger', redact(facts.todoSummary.trim()).slice(0, 1500));
   if (facts.lastModelOutput?.trim()) parts.push('', '## Agent last message (its own progress note)', redact(facts.lastModelOutput.trim()).slice(-1200));
   parts.push('', `## Last ${recent.length} steps`, ...recent);

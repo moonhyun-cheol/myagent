@@ -343,6 +343,68 @@ export class PersonalSchedulerStore {
     this.saveRuns();
   }
 
+  /**
+   * 앱 시작 시점에 남아 있는 미완료 실행을 정리한다. 실행 큐는 메모리에만 있으므로
+   * 이전 프로세스의 queued는 다시 시작될 수 없어 cancelled로, running은 끝나지 못한 것이므로
+   * failed로 닫는다. 정리된 running 실행 목록을 반환한다(피드 기록용).
+   */
+  closeInterruptedRuns(reason: string): { interrupted: SchedulerRun[]; cancelled: number } {
+    const now = timestamp();
+    const interrupted: SchedulerRun[] = [];
+    let cancelled = 0;
+    for (const run of this.runs.runs) {
+      if (run.status === 'running') {
+        run.status = 'failed';
+        run.outcome = 'failed';
+        run.error = reason;
+        run.finished_at = now;
+        interrupted.push(clone(run));
+      } else if (run.status === 'queued') {
+        run.status = 'cancelled';
+        run.error = reason;
+        run.finished_at = now;
+        cancelled += 1;
+      }
+    }
+    if (interrupted.length > 0 || cancelled > 0) this.saveRuns();
+    return { interrupted, cancelled };
+  }
+
+  /**
+   * 오래된 실행·피드 기록을 정리한다. 진행 중(queued/running) 실행과 읽지 않은 피드는
+   * 기간 조건으로 지우지 않는다. 개수 상한은 최신 순으로 남긴다.
+   */
+  pruneHistory(options: { cutoffIso: string; maxRuns: number; maxFeedItems: number }): { runs: number; feed: number } {
+    const runCount = this.runs.runs.length;
+    const active = this.runs.runs.filter((run) => run.status === 'queued' || run.status === 'running');
+    const finished = this.runs.runs
+      .filter((run) => run.status !== 'queued' && run.status !== 'running')
+      .filter((run) => (run.finished_at ?? run.created_at) >= options.cutoffIso)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, Math.max(0, options.maxRuns));
+    this.runs.runs = [...finished.reverse(), ...active]
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const removedRuns = runCount - this.runs.runs.length;
+    if (removedRuns > 0) this.saveRuns();
+
+    const feedCount = this.feed.items.length;
+    this.feed.items = this.feed.items
+      .filter((item) => item.read_at === null || item.created_at >= options.cutoffIso)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, Math.max(0, options.maxFeedItems))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const removedFeed = feedCount - this.feed.items.length;
+    if (removedFeed > 0) this.saveFeed();
+    return { runs: removedRuns, feed: removedFeed };
+  }
+
+  /** 산출물 폴더 정리 판단용: 실행 기록이나 피드가 아직 참조하는 runId. */
+  referencedRunIds(): Set<string> {
+    const ids = new Set(this.runs.runs.map((run) => run.id));
+    for (const item of this.feed.items) if (item.run_id) ids.add(item.run_id);
+    return ids;
+  }
+
   addFeedItem(input: Omit<SchedulerFeedItem, 'id' | 'created_at' | 'read_at'>): SchedulerFeedItem {
     const item: SchedulerFeedItem = { ...clone(input), id: randomUUID(), created_at: timestamp(), read_at: null };
     this.feed.items.push(item);
@@ -366,17 +428,19 @@ export class PersonalSchedulerStore {
     return removed;
   }
 
-  // 읽지 않은 결과·오류 피드를 읽음 처리하고 갱신 건수를 반환한다.
+  // 읽지 않은 피드를 읽음 처리하고, 배지 대상(결과·오류) 갱신 건수를 반환한다.
+  // 상태 알림(건너뜀 등)도 함께 읽음 처리해야 '읽은 항목 정리'로 지워진다.
   markFeedRead(): number {
     const now = timestamp();
     let count = 0;
+    let changed = false;
     for (const item of this.feed.items) {
-      if ((item.kind === 'result' || item.kind === 'error') && item.read_at === null) {
-        item.read_at = now;
-        count += 1;
-      }
+      if (item.read_at !== null) continue;
+      item.read_at = now;
+      changed = true;
+      if (item.kind === 'result' || item.kind === 'error') count += 1;
     }
-    if (count > 0) this.saveFeed();
+    if (changed) this.saveFeed();
     return count;
   }
 

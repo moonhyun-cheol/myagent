@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -9,7 +9,7 @@ import { SecurityError } from '../security/errors.js';
 import { assertDevWorkspaceRoot } from '../security/dev-workspace-guard.js';
 import { probeWorkspaceCapabilities } from '../security/workspace-capabilities.js';
 import { hasNasWriteConsent, buildNasWriteConsent } from '../security/nas-write-consent.js';
-import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
+import { browseDirectories, buildWorkspaceUiTree, readWorkspaceFile, statWorkspaceRawMedia, writeWorkspaceFile } from '../agent/dev-workspace-fs.js';
 import {
   cancelTerminalJob,
   cancelTerminalJobsForSession,
@@ -935,6 +935,74 @@ export async function dispatchApiRequest(
         }
       }
 
+      if (method === 'GET' && url.pathname === '/fs/workspace-raw') {
+        license.assertFeature('chat');
+        const rel = (url.searchParams.get('path') ?? '').trim();
+        if (!rel) return sendJson(res, 400, { error: 'PATH_REQUIRED' });
+        const overrides = loadUserOverrides(userConfigPath);
+        const querySessionId = url.searchParams.get('session')?.trim() || '';
+        const root =
+          workspaceRootForRequest()
+          || (querySessionId
+            ? resolveWorkspaceRootForSession(sessionStore, projectStore, querySessionId)
+            : null)
+          || overrides.dev_workspace_root?.trim()
+          || null;
+        if (!root) {
+          return sendJson(res, 400, { error: 'NO_DEV_WORKSPACE', message: '작업 폴더를 먼저 연결하세요.' });
+        }
+        try {
+          const allowNas = hasNasWriteConsent(overrides);
+          assertDevWorkspaceRoot(root, { allowNas });
+          const media = statWorkspaceRawMedia(root, rel, { allowNas });
+          const total = media.size;
+          const headers: Record<string, string | number> = {
+            'Content-Type': media.mimeType,
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, max-age=60',
+            'X-Content-Type-Options': 'nosniff',
+          };
+          if (media.ext === '.svg') {
+            headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+          }
+          // <video> seeking needs byte ranges; stream instead of buffering the whole file.
+          const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range.trim() : '';
+          const rangeMatch = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+          let start = 0;
+          let end = total - 1;
+          let partial = false;
+          if (rangeMatch && (rangeMatch[1] || rangeMatch[2])) {
+            if (rangeMatch[1]) {
+              start = Number(rangeMatch[1]);
+              end = rangeMatch[2] ? Math.min(Number(rangeMatch[2]), total - 1) : total - 1;
+            } else {
+              start = Math.max(0, total - Number(rangeMatch[2]));
+            }
+            if (start > end || start >= total) {
+              res.writeHead(416, { 'Content-Range': `bytes */${total}` });
+              res.end();
+              return;
+            }
+            partial = true;
+            headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+          }
+          headers['Content-Length'] = total === 0 ? 0 : end - start + 1;
+          res.writeHead(partial ? 206 : 200, headers);
+          if (total === 0) {
+            res.end();
+            return;
+          }
+          const stream = createReadStream(media.absPath, { start, end });
+          stream.on('error', () => res.destroy());
+          stream.pipe(res);
+          return;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const notFound = (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
+          return sendJson(res, notFound ? 404 : 400, { error: notFound ? 'NOT_FOUND' : 'READ_RAW_FAILED', message: msg });
+        }
+      }
+
       if (method === 'PUT' && url.pathname === '/fs/workspace-file') {
         license.assertWritable();
         license.assertFeature('chat');
@@ -1848,7 +1916,7 @@ export async function dispatchApiRequest(
         return;
       }
 
-      const automationOutMatch = url.pathname.match(/^\/outputs\/automations\/([^/]+)\/(result\.md)$/);
+      const automationOutMatch = url.pathname.match(/^\/outputs\/automations\/([^/]+)\/(result\.md|trace\.jsonl)$/);
       if (method === 'GET' && automationOutMatch) {
         const [, runId, file] = automationOutMatch;
         if (!/^[0-9a-f-]{36}$/i.test(runId)) return sendJson(res, 404, { error: 'NOT_FOUND' });
@@ -1856,9 +1924,10 @@ export async function dispatchApiRequest(
         const fp = path.join(automationOut, runId, file);
         if (!existsSync(fp)) return sendJson(res, 404, { error: 'NOT_FOUND' });
         assertPathUnder(automationOut, fp);
+        const isTrace = file === 'trace.jsonl';
         res.writeHead(200, {
-          'Content-Type': 'text/markdown; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="automation-result.md"',
+          'Content-Type': isTrace ? 'application/x-ndjson; charset=utf-8' : 'text/markdown; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${isTrace ? 'automation-trace.jsonl' : 'automation-result.md'}"`,
           'Content-Length': statSync(fp).size,
         });
         res.end(readFileSync(fp));
@@ -1920,9 +1989,10 @@ export async function dispatchApiRequest(
 
       if (method === 'GET' && url.pathname === '/workspace') {
         license.assertFeature('chat');
-        // Roll oldest overflow into 보관함 before building the visible tree.
-        sessionStore.autoArchive();
-        const sessions = sessionStore.listActive();
+        // Roll oldest overflow into 보관함 before building the visible tree; one session
+        // list read serves every section below.
+        const snapshot = sessionStore.workspaceSnapshot();
+        const sessions = snapshot.active;
         const overrides = loadUserOverrides(userConfigPath);
         const devRoot = overrides.dev_workspace_root?.trim() || null;
         if (devRoot) {
@@ -1949,7 +2019,7 @@ export async function dispatchApiRequest(
           null;
         const projects = projectStore.listGeneral(sessions).map((p) => ({
           ...p,
-          sessions: sessionStore.listByProject(p.id),
+          sessions: snapshot.byProject(p.id),
         }));
         return sendJson(res, 200, {
           dev_workspace_root: devRoot,
@@ -1959,8 +2029,8 @@ export async function dispatchApiRequest(
           workspace_trees,
           move_targets: projectStore.listMoveTargets(),
           projects,
-          standalone_sessions: sessionStore.listStandalone(),
-          archived_sessions: sessionStore.listArchived(),
+          standalone_sessions: snapshot.standalone,
+          archived_sessions: snapshot.archived,
         });
       }
 
@@ -2894,8 +2964,11 @@ export async function dispatchApiRequest(
         if (!transcript) return sendJson(res, 400, { error: 'EMPTY_SESSION' });
 
         const targetId = randomUUID();
+        // Summarize in an unbound session: a project-bound chat would start the tool-using
+        // workspace agent with no approval channel, fed by the whole (possibly web-derived)
+        // transcript. The project binding is attached only after the summary is written.
         sessionStore.ensure(targetId, {
-          project_id: body.create_session ? (source.project_id ?? null) : null,
+          project_id: null,
           execution_policy: source.execution_policy,
         });
         try {
@@ -2921,6 +2994,7 @@ export async function dispatchApiRequest(
               source.title,
               collectSessionMediaUrls(source.messages),
             );
+            if (source.project_id) sessionStore.setProject(targetId, source.project_id);
           } else {
             sessionStore.delete(targetId);
           }
@@ -3032,7 +3106,12 @@ export async function dispatchApiRequest(
         };
         const rec = sessionStore.ensure(id, ensureOpts);
         if (membershipProjectId) projectStore.touch(membershipProjectId);
-        return sendJson(res, 201, sessionStore.publicRecord(rec));
+        // New-chat fast path: the client no longer re-fetches GET /sessions/:id and the
+        // whole /workspace tree just to learn the containing workspace root.
+        return sendJson(res, 201, {
+          ...sessionStore.publicRecord(rec),
+          workspace_root_project_id: projectStore.resolveWorkspaceRootId(membershipProjectId),
+        });
       }
 
       if (method === 'POST' && url.pathname === '/sessions/import') {

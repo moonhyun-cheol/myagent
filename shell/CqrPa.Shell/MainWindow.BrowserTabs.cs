@@ -185,10 +185,18 @@ public partial class MainWindow
 
     private void AcquireAutomationControl(string? tabId, string? owner)
     {
+        // A user takeover is sticky: only the user's explicit hand-back (inAppBrowser.tab.handBack)
+        // may clear it. The agent must not regain control by re-acquiring, nor sidestep the
+        // takeover by reserving a brand-new tab while any tab is still held by the user.
+        var key = (tabId ?? string.Empty).Trim();
+        var exists = key.Length == 0 || key == DefaultBrowserTab || _browserTabs.ContainsKey(key);
+        if (exists && ResolveTab(tabId).ControlTakenOver)
+            throw new InvalidOperationException("VISIBLE_BROWSER_CONTROL_TAKEN_OVER");
+        if (!exists && _browserTabs.Values.Any(t => t.ControlTakenOver))
+            throw new InvalidOperationException("VISIBLE_BROWSER_CONTROL_TAKEN_OVER");
         // A lock may reserve a dedicated agent tab before its first navigation.
         var tab = ResolveTab(tabId, createIfMissing: true);
         tab.AutomationOwner = string.IsNullOrWhiteSpace(owner) ? "agent" : owner;
-        tab.ControlTakenOver = false;
         UpdateBrowserState();
     }
 
@@ -209,6 +217,15 @@ public partial class MainWindow
         tab.Core?.Stop();
         tab.Loading = false;
         UpdateTabState(tab, "제어권을 가져왔습니다. 에이전트 자동화가 중단되었습니다.");
+    }
+
+    /// <summary>User explicitly returns a taken-over tab so the agent may lock it again.</summary>
+    private void HandBackBrowserTab(string? tabId)
+    {
+        var tab = ResolveTab(tabId);
+        if (!tab.ControlTakenOver) return;
+        tab.ControlTakenOver = false;
+        UpdateTabState(tab, "에이전트가 이 탭을 다시 사용할 수 있습니다.");
     }
 
     private void ReturnFromObservedBrowserTab()
@@ -271,6 +288,7 @@ public partial class MainWindow
                 loading = tab.Loading,
                 primary = tab.IsPrimary,
                 controlled = tab.AutomationOwner is not null,
+                takenOver = tab.ControlTakenOver,
                 observing = tab.Id == _activeBrowserTabId && tab.AutomationOwner is not null
                     && !string.IsNullOrWhiteSpace(_browserReturnTabId),
             });
@@ -283,32 +301,19 @@ public partial class MainWindow
         if (_browserEnv is not null) return _browserEnv;
         var userData = System.IO.Path.Combine(_cqrRoot, "data", "in-app-browser-webview-user-data");
         System.IO.Directory.CreateDirectory(userData);
-        _browserCdpPort ??= ReserveLoopbackPort();
+        // No remote debugging (CDP) endpoint: the core reaches this browser only through the
+        // automation pipe, which enforces lock / take-over / password-field guards.
+        // Remove an endpoint file left by older builds that exposed CDP.
+        DeleteBrowserCdpPortFile();
         // A single environment is shared by every tab so they may reuse one user-data folder.
         _browserEnv = await CoreWebView2Environment.CreateAsync(
             browserExecutableFolder: null,
             userDataFolder: userData,
-            options: new CoreWebView2EnvironmentOptions(
-                $"--remote-debugging-port={_browserCdpPort} --remote-allow-origins=http://127.0.0.1:{_browserCdpPort}"));
+            options: null);
         return _browserEnv;
     }
 
-    private static int ReserveLoopbackPort()
-    {
-        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
     private string BrowserCdpPortPath => System.IO.Path.Combine(_cqrRoot, "data", "in-app-browser-cdp-port.txt");
-
-    private void PublishBrowserCdpPort()
-    {
-        if (_browserCdpPort is null) return;
-        var temp = $"{BrowserCdpPortPath}.tmp";
-        System.IO.File.WriteAllText(temp, _browserCdpPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        System.IO.File.Move(temp, BrowserCdpPortPath, true);
-    }
 
     private void DeleteBrowserCdpPortFile()
     {
@@ -336,7 +341,6 @@ public partial class MainWindow
         await tab.View.EnsureCoreWebView2Async(env);
         var core = tab.View.CoreWebView2 ?? throw new InvalidOperationException("VISIBLE_BROWSER_CORE_FAILED");
         tab.Core = core;
-        PublishBrowserCdpPort();
         core.Settings.AreDevToolsEnabled = true;
         core.Settings.AreBrowserAcceleratorKeysEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
@@ -503,8 +507,8 @@ public partial class MainWindow
         if (tab is null) return;
         if (IsAllowedExternalUri(e.Uri))
         {
-            // A direct CDP navigation has no prior workspace open request. Treat it as
-            // an Agent request and reveal the same WebView2 tab; a close racing an
+            // A navigation without a prior workspace open request (e.g. a pipe-driven
+            // agent navigate) reveals the same WebView2 tab; a close racing an
             // already queued navigation still wins through NeedsReload.
             if (!tab.Requested)
             {

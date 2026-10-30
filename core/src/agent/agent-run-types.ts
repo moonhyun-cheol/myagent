@@ -23,8 +23,17 @@ export interface CodeAgentCallbacks {
   onStatus?: (text: string) => void;
   /** Host/UI lifecycle signal based on an executed tool, not message keywords. */
   onToolComplete?: (event: { tool: string; ok: boolean; durationMs: number }) => void;
-  /** Stream UI Accept/Reject. If omitted, confirm=true is required for destructive tools. */
+  /**
+   * Stream UI Accept/Reject. If omitted, approval-gated tools are denied: the model's own
+   * `confirm=true` is an intent flag, never an approval (no human can see the call).
+   */
   onToolApproval?: (req: ToolApprovalRequest) => Promise<ToolApprovalOutcome>;
+  /**
+   * Trusted in-process harnesses only (fixtures/lab scripts that drive the loop without a
+   * UI): accept the model's `confirm=true` as approval when onToolApproval is omitted.
+   * Never set from an HTTP request path.
+   */
+  allowHeadlessConfirm?: boolean;
   /**
    * Per-run step cap reached. The host reviews the run and may grant extra steps
    * (A안: auto under 「나 대신 승인」/Autopilot up to 2 times, otherwise ask the user).

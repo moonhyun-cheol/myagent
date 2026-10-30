@@ -45,7 +45,9 @@ import {
   setAgentPluginEnabled,
 } from './agent-plugin-store.js';
 import { runAgentPlugin } from './agent-plugin-runner.js';
-import { callUserMcpTool } from './user-mcp.js';
+import { callUserMcpToolWithImages } from './user-mcp.js';
+import { readToolImage, toolImageFromBase64 } from './tool-image.js';
+import { resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
 import { runWorkspaceTestsAsync, runWorkspaceDiagnosticsAsync } from './run-verification-async.js';
 import {
   createWorkspaceCheckpoint,
@@ -66,7 +68,8 @@ import {
 import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOLS } from './agent-tool-definitions.js';
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
-import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
+import { assertAllowedBrowserUrl, visibleBlockedOutput } from '../browser/url-guard.js';
+import { isAuditedWebTool, recordWebActionAudit } from './web-action-audit.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { AttachmentService } from '../attachments/attachment-service.js';
 import {
@@ -152,9 +155,8 @@ async function isolatedBrowserSession(
   args: Record<string, unknown>,
   ctx?: AgentToolContext,
 ) {
-  if (args.target === 'isolated' && ctx?.getIsolatedBrowserSession) {
-    return ctx.getIsolatedBrowserSession();
-  }
+  // Every non-visible action uses a separate Chromium (never the user's WebView2 over CDP).
+  if (ctx?.getIsolatedBrowserSession) return ctx.getIsolatedBrowserSession();
   return ctx?.browserSession ?? null;
 }
 
@@ -178,6 +180,32 @@ async function ensureVisibleLock(
   }
 }
 
+const VISIBLE_BROWSER_TAKEN_OVER = 'VISIBLE_BROWSER_CONTROL_TAKEN_OVER';
+
+/**
+ * The user pressed 「제어 가져오기」. The shell refuses every agent action and re-acquire
+ * until the user hands the tab back, so drop our core lease and tell the model to stop.
+ */
+function visibleBrowserTakenOverOutput(
+  args: Record<string, unknown>,
+  ctx?: AgentToolContext,
+): string {
+  const tabId = visibleTabId(args);
+  try {
+    getVisibleBrowserBridge()?.unlockFor(ctx?.sessionId ?? 'default', tabId);
+  } catch {
+    // Another session owns the core lease; leave it untouched.
+  }
+  return JSON.stringify({
+    ok: false,
+    error: VISIBLE_BROWSER_TAKEN_OVER,
+    tab_id: tabId ?? 'main',
+    user_control: true,
+    guidance: '사용자가 이 브라우저의 제어권을 가져갔습니다. 사용자가 웹 탭에서 「에이전트에 다시 맡기기」를 누르기 전에는 '
+      + 'visible 브라우저를 조작하지 마세요. 재시도하거나 다른 탭·browser_lock으로 우회하지 말고, 지금까지의 결과를 정리해 사용자에게 알리세요.',
+  }, null, 2);
+}
+
 /** Merge an optional tab_id into a shell request payload without adding empty keys. */
 function withVisibleTab(
   args: Record<string, unknown>,
@@ -192,7 +220,7 @@ export async function executeAgentTool(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string; followUpImage?: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string; followUpImages?: string[] }> {
   assertChatRunWritable();
   throwIfAborted(ctx?.signal);
   const normalized = normalizeToolCall(call);
@@ -204,10 +232,28 @@ export async function executeAgentTool(
   const execution = cancellable ? registerToolExecution(id, ctx!.sessionId!, ctx?.signal, () => activity.requestCancel()) : undefined;
   const signal = execution?.signal ?? ctx?.signal;
   const untrack = trackChatRunTool(normalized.function.name);
+  const webAudit = ctx?.cqrRoot && isAuditedWebTool(normalized.function.name)
+    ? (() => {
+        const auditArgs = parseToolArgs(normalized.function.arguments);
+        return {
+          cqrRoot: ctx.cqrRoot!,
+          sessionId: ctx.sessionId,
+          tool: normalized.function.name,
+          args: auditArgs,
+          resolvedBrowserTarget: normalized.function.name.startsWith('browser_')
+            ? browserExecutionTarget(auditArgs, ctx)
+            : undefined,
+          startedAt: Date.now(),
+        };
+      })()
+    : null;
   try {
     const result = await executeAgentToolInner(workspaceRoot, normalized, guard, {
       ...ctx, signal, onOutput: (stream, chunk) => activity.output(stream, chunk),
     });
+    if (webAudit) {
+      recordWebActionAudit({ ...webAudit, output: result.output, durationMs: Date.now() - webAudit.startedAt });
+    }
     activity.finish(result.output, signal?.aborted);
     if (execution?.signal.aborted && !ctx?.signal?.aborted) {
       let raw: Record<string, unknown> = {};
@@ -219,6 +265,9 @@ export async function executeAgentTool(
     }
     return result;
   } catch (error) {
+    if (webAudit) {
+      recordWebActionAudit({ ...webAudit, outcome: 'error', durationMs: Date.now() - webAudit.startedAt });
+    }
     activity.finish('ERROR: execution failed', signal?.aborted);
     throw error;
   } finally {
@@ -232,7 +281,7 @@ async function executeAgentToolInner(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string; followUpImage?: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string; followUpImages?: string[] }> {
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
@@ -898,14 +947,16 @@ async function executeAgentToolInner(
             output: JSON.stringify({ ok: false, error: 'path required' }),
           };
         }
-        const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
+        const abs = resolveDevWorkspaceReadPath(workspaceRoot, rel);
         if (!existsSync(abs)) {
           return {
             label: 'markitdown_convert',
             output: JSON.stringify({ ok: false, error: 'FILE_NOT_FOUND', path: abs }),
           };
         }
-        const result = runMarkitdownSidecar({ filePath: abs });
+        const result = runMarkitdownSidecar({ filePath: abs, cqrRoot: ctx?.cqrRoot,
+          startChar: typeof args.start_char === 'number' ? args.start_char : undefined,
+          maxChars: typeof args.max_chars === 'number' ? args.max_chars : undefined });
         return { label: 'markitdown_convert', output: JSON.stringify(result, null, 2) };
       }
       case 'git_history_tree': {
@@ -1097,7 +1148,15 @@ async function executeAgentToolInner(
           filename: typeof args.filename === 'string' ? args.filename : undefined,
           allowLocalhost: ctx.allowLocalhost === true,
         });
-        return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify(result, null, 2) };
+        return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify({ ...result,
+          ...(result.ok ? { image_guidance: '이미지는 아직 시각 입력으로 전달되지 않았습니다. 이미지라면 image_get에 반환된 path를 넣어 조회하세요.' } : {}),
+        }, null, 2) };
+      }
+      case 'image_get': {
+        const input = String(args.path ?? '');
+        const image = readToolImage(workspaceRoot, input, ctx);
+        return { label: `image_get ${input}`, output: JSON.stringify({ ok: true, path: input,
+          note: '이미지를 다음 모델 요청의 시각 입력으로 전달합니다. 이미지 미지원 모델에서는 지원 모델로 변경하세요.' }), followUpImage: image };
       }
       case 'conversation_image_get': {
         const cqrRoot = ctx?.cqrRoot;
@@ -1179,6 +1238,7 @@ async function executeAgentToolInner(
         }
         const isolated = {
           id: 'isolated-browser', kind: 'isolated', connected: Boolean(ctx?.browserSession),
+          available: Boolean(ctx?.browserSession || ctx?.getIsolatedBrowserSession),
         };
         return { label: 'browser targets', output: JSON.stringify({ targets: [visible, isolated] }, null, 2) };
       }
@@ -1216,6 +1276,8 @@ async function executeAgentToolInner(
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const snapshot = await bridge.request('snapshot', withVisibleTab(args));
+          const blockedSnapshot = visibleBlockedOutput(snapshot, ctx?.allowLocalhost === true);
+          if (blockedSnapshot) return { label: 'browser snapshot visible blocked', output: blockedSnapshot };
           return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1240,6 +1302,8 @@ async function executeAgentToolInner(
           await ensureVisibleLock(args, ctx, bridge, tabId);
           const parsed = assertAllowedBrowserUrl(url, { allowLocalhost: ctx?.allowLocalhost === true });
           const result = await bridge.request('navigate', withVisibleTab(args, { url: parsed.toString() }));
+          const blockedNav = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedNav) return { label: `navigate visible blocked ${url}`, output: blockedNav };
           return { label: `navigate visible ${url}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1255,6 +1319,8 @@ async function executeAgentToolInner(
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
           const result = await bridge.request('screenshot', withVisibleTab(args));
+          const blockedShot = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedShot) return { label: 'screenshot visible blocked', output: blockedShot };
           const image = typeof result.image_base64 === 'string' ? result.image_base64 : '';
           if (!image) throw new Error('VISIBLE_BROWSER_SCREENSHOT_EMPTY');
           const sid = (ctx.sessionId?.trim() || 'session').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'session';
@@ -1266,13 +1332,27 @@ async function executeAgentToolInner(
           writeFileSync(absolute, Buffer.from(image, 'base64'));
           const relative = path.relative(ctx.cqrRoot, absolute).split(path.sep).join('/');
           const shot = { path: absolute, relative, url: `/${relative}`, page_url: result.url };
-          return { label: `screenshot ${relative}`, output: JSON.stringify(shot, null, 2) };
+          try {
+            return { label: `screenshot ${relative}`, output: JSON.stringify({ ...shot, image_attached: true }, null, 2),
+              followUpImage: toolImageFromBase64(image, 'image/png') };
+          } catch (error) {
+            return { label: `screenshot ${relative}`, output: JSON.stringify({ ...shot, image_attached: false,
+              image_error: error instanceof Error ? error.message : String(error),
+              guidance: '파일은 저장됐지만 시각 입력은 전달되지 않았습니다. 이미지를 축소한 뒤 image_get으로 조회하세요.' }, null, 2) };
+          }
         }
         const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const rel = typeof args.path === 'string' ? args.path : undefined;
         const shot = await session.screenshot(workspaceRoot, rel, ctx?.sessionId, guard);
-        return { label: `screenshot ${shot.relative}`, output: JSON.stringify(shot, null, 2) };
+        try {
+          return { label: `screenshot ${shot.relative}`, output: JSON.stringify({ ...shot, image_attached: true }, null, 2),
+            followUpImage: readToolImage(workspaceRoot, shot.path, ctx) };
+        } catch (error) {
+          return { label: `screenshot ${shot.relative}`, output: JSON.stringify({ ...shot, image_attached: false,
+            image_error: error instanceof Error ? error.message : String(error),
+            guidance: '파일은 저장됐지만 시각 입력은 전달되지 않았습니다. 이미지를 축소한 뒤 image_get으로 조회하세요.' }, null, 2) };
+        }
       }
       case 'browser_click': {
         const target = browserExecutionTarget(args, ctx);
@@ -1285,6 +1365,8 @@ async function executeAgentToolInner(
           const result = await bridge.request('click', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''),
           }));
+          const blockedClick = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedClick) return { label: `click visible blocked ${String(args.ref ?? '')}`, output: blockedClick };
           return { label: `click visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1310,6 +1392,8 @@ async function executeAgentToolInner(
             target_ref: String(args.target_ref ?? ''),
             target_position: targetPosition,
           }));
+          const blockedDrag = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedDrag) return { label: 'drag visible blocked', output: blockedDrag };
           return {
             label: `drag visible ${String(args.source_ref ?? '')} -> ${String(args.target_ref ?? '')}`,
             output: JSON.stringify(result, null, 2),
@@ -1337,6 +1421,8 @@ async function executeAgentToolInner(
           const result = await bridge.request('fill', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''), value,
           }));
+          const blockedFill = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedFill) return { label: `fill visible blocked ${String(args.ref ?? '')}`, output: blockedFill };
           return { label: `fill visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1355,12 +1441,12 @@ async function executeAgentToolInner(
       }
       default: {
         if (name.startsWith('mcp_') && ctx?.cqrRoot) {
-          const output = await callUserMcpTool(
+          const result = await callUserMcpToolWithImages(
             ctx.cqrRoot,
             name,
             args as Record<string, unknown>,
           );
-          return { label: name, output };
+          return { label: name, ...result };
         }
         if (name.startsWith('plugin_') && ctx?.cqrRoot) {
           const rec = getAgentPluginByToolName(ctx.cqrRoot, name);
@@ -1389,6 +1475,9 @@ async function executeAgentToolInner(
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (name.startsWith('browser_') && msg.startsWith(VISIBLE_BROWSER_TAKEN_OVER)) {
+      return { label: name, output: visibleBrowserTakenOverOutput(args, ctx) };
+    }
     const permission = normalizeWindowsPermissionError(e);
     const available = availableToolNames(ctx?.cqrRoot);
     return {

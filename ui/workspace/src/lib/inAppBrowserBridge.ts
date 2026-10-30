@@ -14,6 +14,8 @@ export type InAppBrowserTab = {
   loading: boolean;
   primary: boolean;
   controlled: boolean;
+  /** The user took control away from the agent; cleared only by handBackInAppBrowserTab. */
+  takenOver: boolean;
   observing: boolean;
 };
 
@@ -82,6 +84,14 @@ export function takeOverInAppBrowserTab(tabId: string): boolean {
   const webview = shellWebView();
   if (!webview) return false;
   webview.postMessage({ type: 'inAppBrowser.tab.takeOver', tabId });
+  return true;
+}
+
+/** Explicitly let the agent lock a tab again after the user took it over. */
+export function handBackInAppBrowserTab(tabId: string): boolean {
+  const webview = shellWebView();
+  if (!webview) return false;
+  webview.postMessage({ type: 'inAppBrowser.tab.handBack', tabId });
   return true;
 }
 
@@ -210,6 +220,7 @@ export function subscribeInAppBrowserState(
         loading: Boolean(tab.loading),
         primary: Boolean(tab.primary),
         controlled: Boolean(tab.controlled),
+        takenOver: Boolean(tab.takenOver),
         observing: Boolean(tab.observing),
       }];
     }) : [];

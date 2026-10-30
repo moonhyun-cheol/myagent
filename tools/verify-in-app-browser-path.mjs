@@ -15,6 +15,13 @@ function mustInclude(rel, needles) {
   }
 }
 
+function mustExclude(rel, needles) {
+  const text = readFileSync(path.join(root, rel), 'utf8');
+  for (const needle of needles) {
+    assert.ok(!text.includes(needle), `${rel} must not contain ${JSON.stringify(needle)}`);
+  }
+}
+
 mustInclude('ui/workspace/src/components/ChatPane.tsx', [
   'openInAppBrowser',
 ]);
@@ -33,10 +40,13 @@ mustInclude('shell/CqrPa.Shell/MainWindow.xaml.cs', [
   'await EnsureBrowserAsync(EnsurePrimaryTab());',
 ]);
 mustInclude('shell/CqrPa.Shell/MainWindow.BrowserTabs.cs', [
-  '--remote-debugging-port=',
-  'in-app-browser-cdp-port.txt',
-  'PublishBrowserCdpPort();',
+  'DeleteBrowserCdpPortFile();',
   'if (!tab.Requested)',
+]);
+// The user-facing WebView2 must not expose CDP: agent control goes through the shell pipe only.
+mustExclude('shell/CqrPa.Shell/MainWindow.BrowserTabs.cs', [
+  '--remote-debugging-port',
+  'PublishBrowserCdpPort',
 ]);
 mustInclude('shell/CqrPa.Shell/MainWindow.xaml', ['InAppBrowserPanel', 'Visibility="Collapsed"']);
 mustInclude('core/src/agent/agent-tool-registry.ts', [
@@ -48,11 +58,13 @@ mustInclude('core/src/agent/agent-tool-definitions.ts', [
   "name: 'browser_snapshot'",
   "name: 'browser_click'",
 ]);
-mustInclude('core/src/browser/playwright-session.ts', [
+mustInclude('core/src/browser/playwright-session.ts', ['pw.chromium.launch(']);
+mustExclude('core/src/browser/playwright-session.ts', [
   'connectOverCDP',
   'in-app-browser-cdp-port.txt',
-  'this.sharedWebView = this.page !== null',
+  'sharedWebView',
 ]);
+mustExclude('core/src/agent/agent-run-loop.ts', ['preferSharedWebView', 'usesSharedWebView']);
 
-console.log('verify-in-app-browser-path: PASS (tool schema + shared WebView2 CDP path)');
-console.log('manual: launch app → keep panel closed → Agent navigate/snapshot/click → confirm the same page in the opened panel');
+console.log('verify-in-app-browser-path: PASS (tool schema + pipe-only visible WebView2, no CDP)');
+console.log('manual: launch app → Agent navigate/snapshot/click (visible) → confirm the same page in the opened panel');

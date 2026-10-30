@@ -24,6 +24,7 @@ import { handleApiError } from './http/api-error-handler.js';
 import { dispatchApiRequest } from './routes/dispatch.js';
 import { PersonalSchedulerService } from './scheduler/personal-scheduler-service.js';
 import { PersonalSchedulerRuntime } from './scheduler/personal-scheduler-runtime.js';
+import { buildSchedulerTraceEntries, type SchedulerTraceEntry } from './scheduler/run-trace.js';
 import {
   registerPersonalSchedulerRuntime,
   unregisterPersonalSchedulerRuntime,
@@ -31,6 +32,9 @@ import {
 import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/visible-browser-bridge.js';
 import { writeInstallRootPointer } from './setup/install-root-pointer.js';
 import { warmModelPricingIfMissing } from './models/model-picker.js';
+import { trackSlowRequest } from './routes/slow-request-log.js';
+import { checkLocalApiRequest } from './security/local-api-guard.js';
+import { configureBrowserUrlBlocklistFile } from './browser/url-guard.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -55,6 +59,8 @@ export async function createApiServer(port: number) {
   const license = new FileLicenseGate(paths.vaultDir, cqrRoot);
   const userConfigPath = path.join(paths.dataDir, 'config', 'user-overrides.json');
   const getOverrides = () => loadUserOverrides(userConfigPath);
+  // `browser_blocked_urls` is re-read on change (mtime) by every browser URL check.
+  configureBrowserUrlBlocklistFile(userConfigPath);
   const initialOverrides = getOverrides();
   const attachments = new AttachmentService(
     paths.attachmentsDir,
@@ -110,6 +116,8 @@ export async function createApiServer(port: number) {
     personalScheduler,
     async (task, run) => {
       const sessionId = `automation-${run.id}`;
+      const startedAt = Date.now();
+      let runError: string | undefined;
       try {
         const response = await orchestrator.handle({
           message: task.instruction,
@@ -132,7 +140,29 @@ export async function createApiServer(port: number) {
           }] : []),
         ];
         return { content: response.content, attachments: feedAttachments };
+      } catch (error) {
+        runError = error instanceof Error ? error.message : String(error);
+        throw error;
       } finally {
+        // 임시 대화를 지우기 전에 중간 과정(메시지·도구 호출)을 trace.jsonl로 보존한다.
+        try {
+          const finishedAt = Date.now();
+          const entries: SchedulerTraceEntry[] = [
+            { type: 'run', event: 'start', at: new Date(startedAt).toISOString() },
+            ...buildSchedulerTraceEntries(sessionStore.load(sessionId)?.messages),
+            {
+              type: 'run',
+              event: 'end',
+              at: new Date(finishedAt).toISOString(),
+              ok: runError === undefined,
+              ...(runError !== undefined ? { error: runError } : {}),
+              duration_ms: finishedAt - startedAt,
+            },
+          ];
+          personalScheduler.writeRunTrace(run.id, entries);
+        } catch {
+          /* trace 기록 실패가 실행 결과 기록을 막지 않는다 */
+        }
         sessionStore.delete(sessionId);
       }
     },
@@ -216,6 +246,25 @@ export async function createApiServer(port: number) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
     const method = req.method ?? 'GET';
+    const guard = checkLocalApiRequest(req, port);
+    if (!guard.ok) {
+      // Browser-originated cross-site / DNS-rebinding request. Never dispatch it; log the
+      // reason only (no body, no query) so blocked probes are visible without leaking data.
+      try {
+        appendFileSync(
+          path.join(paths.logsDir, 'api-guard.log'),
+          `${new Date().toISOString()} blocked=${guard.reason} ${method} ${url.pathname} ${JSON.stringify(guard.detail)}\n`,
+          'utf8',
+        );
+      } catch {
+        /* logging must never block the response */
+      }
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'LOCAL_API_FORBIDDEN', reason: guard.reason }));
+      req.resume();
+      return;
+    }
+    trackSlowRequest(paths.logsDir, req, res, url.pathname);
 
     try {
       await dispatchApiRequest(ctx, req, res, url, method);

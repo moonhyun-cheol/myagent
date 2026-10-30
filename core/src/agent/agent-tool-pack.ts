@@ -15,8 +15,8 @@ export function getCodeAgentToolsForPack(
   }
 
   // Browser schemas describe the host capability, not a momentary shell or
-  // Chromium connection state. Execution attaches to shared WebView2 first
-  // and reports a runtime error only when no backend can be opened.
+  // Chromium connection state. Visible actions go through the shell pipe; others
+  // use a separate Chromium, and a runtime error is reported only when none opens.
   switch (pack) {
     case 'browser':
       return [...BROWSER_AGENT_TOOLS];

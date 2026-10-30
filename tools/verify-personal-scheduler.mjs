@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -206,6 +206,38 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(service.listRuns().length, beforeSkip);
   runtime.stop();
+  const skipNotice = service.listFeed(200).find((item) => item.task_id === skipped.id);
+  assert.equal(skipNotice?.kind, 'status');
+  assert.equal(skipNotice?.status_reason, 'skipped_offline');
+  assert.equal(skipNotice?.outcome, 'warning');
+  assert.ok(skipNotice?.scheduled_at);
+  service.deleteTask(skipped.id);
+
+  // 한 번 실행(at) 작업이 앱 꺼진 동안 지나가면 만료로 기록된다.
+  const missedAt = new Date(Date.now() - 60_000).toISOString();
+  const oneShot = service.store.saveTask({
+    name: 'Missed one-shot',
+    instruction: 'Should expire.',
+    triggers: [{ type: 'time', config: { at: missedAt } }],
+    enabled: true,
+    misfire_policy: 'skip',
+  }, missedAt);
+  runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  runtime.stop();
+  const expiredNotice = service.listFeed(200).find((item) => item.task_id === oneShot.id);
+  assert.equal(expiredNotice?.status_reason, 'expired_offline');
+  assert.equal(service.getTask(oneShot.id)?.next_run_at, null);
+  service.deleteTask(oneShot.id);
+
+  // 실패한 실행도 result.md와 trace.jsonl 첨부를 남긴다.
+  const failedRun = service.createRun(manual.id, 'manual');
+  assert.equal(service.writeRunTrace(failedRun.id, [{ type: 'run', event: 'start', at: new Date().toISOString() }]), true);
+  service.failRun(failedRun.id, manual, 'provider timeout');
+  const failedFeed = service.listFeed(200).find((item) => item.run_id === failedRun.id);
+  assert.deepEqual(failedFeed?.attachments.map((a) => a.name), ['automation-result.md', 'automation-trace.jsonl']);
+  const failedResult = readFileSync(path.join(root, 'data', 'outputs', 'automations', failedRun.id, 'result.md'), 'utf8');
+  assert.match(failedResult, /provider timeout/);
 
   const runOnce = service.saveTask({
     name: 'Recover missed run',
@@ -237,6 +269,52 @@ try {
   assert.equal(service.listFeed(200).length, unreadBeforeCleanup);
   assert.equal(service.listFeed(200).every((item) => item.read_at === null), true);
   assert.equal(existsSync(generatedResultPath), true);
+
+  // 앱 재시작 시 미완료 실행 정리 + 오래된 기록·산출물 정리.
+  const recoveryRoot = mkdtempSync(path.join(tmpdir(), 'cqr-personal-scheduler-recovery-'));
+  try {
+    const crashed = PersonalSchedulerService.forRoot(recoveryRoot);
+    const crashTask = crashed.saveTask({
+      name: 'Crash task', instruction: 'x', triggers: [{ type: 'manual', config: {} }],
+    });
+    const runningRun = crashed.createRun(crashTask.id, 'manual');
+    crashed.markRunning(runningRun.id);
+    const queuedRun = crashed.createRun(crashTask.id, 'manual');
+    const reborn = PersonalSchedulerService.forRoot(recoveryRoot);
+    const rebornRuntime = new PersonalSchedulerRuntime(reborn, async () => ({ content: 'ok' }), 60_000);
+    rebornRuntime.start();
+    rebornRuntime.stop();
+    assert.equal(reborn.listRuns().find((run) => run.id === runningRun.id)?.status, 'failed');
+    assert.equal(reborn.listRuns().find((run) => run.id === queuedRun.id)?.status, 'cancelled');
+    const interruptedFeed = reborn.listFeed(200).find((item) => item.run_id === runningRun.id);
+    assert.equal(interruptedFeed?.kind, 'error');
+    assert.equal(interruptedFeed?.status_reason, 'interrupted');
+
+    // 보존 기간이 지난 실행·읽은 피드·미참조 산출물 폴더 정리.
+    const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
+    const oldRun = reborn.createRun(crashTask.id, 'manual');
+    reborn.completeRun(oldRun.id, crashTask, 'done');
+    for (const run of reborn.store.runs.runs) { run.created_at = old; run.finished_at = old; }
+    for (const item of reborn.store.feed.items) { item.created_at = old; }
+    reborn.markFeedRead();
+    const orphanId = '11111111-1111-1111-1111-111111111111';
+    const orphanDir = path.join(recoveryRoot, 'data', 'outputs', 'automations', orphanId);
+    mkdirSync(orphanDir, { recursive: true });
+    const oldDate = new Date(Date.now() - 200 * 86_400_000);
+    utimesSync(orphanDir, oldDate, oldDate);
+    const oldRunDir = path.join(recoveryRoot, 'data', 'outputs', 'automations', oldRun.id);
+    utimesSync(oldRunDir, oldDate, oldDate);
+    const pruned = reborn.pruneHistory();
+    assert.ok(pruned.runs >= 3);
+    assert.ok(pruned.feed >= 1);
+    assert.equal(existsSync(orphanDir), false);
+    assert.equal(existsSync(oldRunDir), false);
+    assert.equal(reborn.listRuns().length, 0);
+    crashed.close();
+    reborn.close();
+  } finally {
+    rmSync(recoveryRoot, { recursive: true, force: true });
+  }
 
   assert.ok(executed.length >= 3);
   console.log(JSON.stringify({

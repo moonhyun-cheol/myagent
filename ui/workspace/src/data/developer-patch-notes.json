@@ -2,6 +2,66 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "web-action-audit-log",
+      "status": "development",
+      "title": "AI 브라우저·웹 작업 기록",
+      "detail": "AI가 브라우저를 조작하거나 웹 파일을 받거나 외부 MCP 도구를 쓸 때마다, 어느 브라우저(화면/별도)에서 어떤 동작을 어느 사이트에 했고 결과가 어땠는지(성공·실패·차단·사용자 제어·승인 거절)를 로컬 감사 기록에 남깁니다. 입력한 값, 실행한 스크립트, 주소의 경로·검색어, 페이지 내용은 기록하지 않습니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/web-action-audit.ts", "core/src/agent/agent-audit-ledger.ts", "core/src/agent/agent-tool-execute.ts", "core/src/agent/agent-run-step-loop.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "browser-url-guard-hardening",
+      "status": "development",
+      "title": "AI 브라우저 작업의 주소 차단 강화",
+      "detail": "AI가 쓰는 브라우저·크롤링·웹 파일 저장에서 처음 주소뿐 아니라 리다이렉트, 링크 클릭, 스크립트 이동, 페이지가 불러오는 리소스까지 같은 규칙으로 검사합니다. 내부망 주소 판정을 넓혔고, 설정의 차단 목록에 적은 주소(예: 사내 관리자 페이지)는 AI가 열거나 내용을 읽지 못합니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/browser/url-guard.ts", "core/src/browser/playwright-session.ts", "core/src/browser/web-crawl-service.ts", "core/src/sessions/save-web-asset.ts", "core/src/agent/agent-tool-execute.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "untrusted-web-mcp-content",
+      "status": "development",
+      "title": "웹 페이지·외부 MCP 내용 속 지시를 따르지 않도록 보호",
+      "detail": "브라우저로 읽은 페이지 내용과 사용자가 추가한 MCP 서버의 결과·도구 설명을 AI에게 「지시가 아닌 데이터」로 표시해 전달합니다. 요청에 없던 사이트로 이동하거나 MCP 서버를 이번 작업에서 처음 쓸 때는 한 번 승인을 받습니다. 요청에 적힌 사이트와 내 PC의 로컬 주소는 묻지 않으며, 「나 대신 승인」과 Autopilot에서는 판단 모델이 주소와 인자를 보고 정합니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/untrusted-content.ts", "core/src/agent/tool-approval.ts", "core/src/agent/agent-run-step-loop.ts", "core/src/agent/user-mcp.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "in-app-browser-single-control-path",
+      "status": "development",
+      "title": "인앱 브라우저 조작 경로를 하나로 정리",
+      "detail": "AI가 화면에 보이는 인앱 브라우저를 조작할 때는 앱 내부 연결 하나만 사용합니다. 잠금, 사용자 제어권, 비밀번호 칸 보호가 모든 조작에 똑같이 적용됩니다. 인앱 브라우저는 더 이상 외부 디버깅 포트를 열지 않으며, 화면에 보이는 브라우저를 쓸 수 없을 때는 보이지 않는 별도 브라우저에서 작업합니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/browser/playwright-session.ts", "core/src/agent/agent-tool-execute.ts", "shell/CqrPa.Shell/MainWindow.BrowserTabs.cs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "in-app-browser-user-takeover",
+      "status": "development",
+      "title": "「제어 가져오기」 후에는 AI가 브라우저를 다시 조작하지 않음",
+      "detail": "인앱 브라우저에서 「제어 가져오기」를 누르면 「에이전트에 다시 맡기기」를 누를 때까지 AI가 그 탭을 조작하거나 새 탭으로 피해 가지 않습니다. AI는 사용자가 제어 중이라고 알리고 기다립니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["shell/CqrPa.Shell/MainWindow.BrowserTabs.cs", "ui/workspace/src/components/BrowserPane.tsx", "core/src/agent/agent-tool-execute.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "tool-visual-results",
+      "status": "development",
+      "title": "브라우저 캡처와 도구 이미지 결과를 AI가 확인",
+      "detail": "브라우저 캡처와 외부 도구의 이미지 결과를 AI의 다음 요청에 이미지로 전달합니다. 내려받거나 작업 중 만든 이미지도 경로를 지정해 열어볼 수 있습니다. 지원하지 않는 형식이나 크기 제한으로 이미지를 전달하지 못하면 이를 알리고, 긴 문서 변환 결과는 누락 범위와 이어 읽을 위치를 표시합니다. 이미지 확인에는 이미지 입력을 지원하는 모델이 필요합니다.",
+      "area": "agent",
+      "created_at": "2026-10-29",
+      "source_paths": ["core/src/agent/agent-tool-execute.ts", "core/src/agent/tool-image.ts", "core/src/agent/user-mcp.ts", "core/src/sidecars/markitdown-sidecar.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "provider-payment-error-diagnostics",
       "status": "development",
       "title": "AI 요청의 결제·한도 오류 원인 추적 보강",

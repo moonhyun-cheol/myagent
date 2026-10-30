@@ -28,6 +28,12 @@ export interface UserOverrides {
   /** Allow localhost/private IPs in browser_navigate (local dev). Code agent defaults on when omitted. */
   playwright_allow_localhost?: boolean;
   /**
+   * Agent browser / crawl / web-asset blocklist. Entries: `host`, `*.host`, `host:port`,
+   * `host[:port]/path-prefix` (host entries also match subdomains). Enforced on every
+   * navigation, redirect and sub-request. Env MY_AGENT_BROWSER_BLOCKED_URLS (comma) adds more.
+   */
+  browser_blocked_urls?: string[];
+  /**
    * Agent Autopilot: continue investigate→mutate→verify in one run
    * without stopping on 「다음 조치」. Default off (Safe).
    */

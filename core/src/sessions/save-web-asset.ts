@@ -5,10 +5,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
-import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
+import { assertAllowedBrowserUrl, assertBrowserUrlResolvesAllowed } from '../browser/url-guard.js';
 
 export const WEB_ASSET_MAX_BYTES = 20 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
 export interface SaveWebAssetResult {
   ok: boolean;
@@ -63,19 +65,31 @@ export async function saveWebAsset(opts: {
   if (!sid) return { ok: false, error: 'sessionId required' };
 
   let parsed: URL;
+  const guard = { allowLocalhost: opts.allowLocalhost === true };
   try {
-    parsed = assertAllowedBrowserUrl(opts.sourceUrl, { allowLocalhost: opts.allowLocalhost === true });
+    parsed = assertAllowedBrowserUrl(opts.sourceUrl, guard);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 
   let res: Response;
   try {
-    res = await fetch(parsed.href, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: 'follow',
-      headers: { 'User-Agent': 'CQR-PA/session-temp' },
-    });
+    // Redirects followed manually so every hop passes the same URL guard + DNS check.
+    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+    for (let hop = 0; ; hop++) {
+      await assertBrowserUrlResolvesAllowed(parsed.href, guard);
+      res = await fetch(parsed.href, {
+        signal,
+        redirect: 'manual',
+        headers: { 'User-Agent': 'CQR-PA/session-temp' },
+      });
+      if (!REDIRECT_STATUS.has(res.status)) break;
+      const location = res.headers.get('location');
+      await res.body?.cancel().catch(() => undefined);
+      if (!location) return { ok: false, error: `HTTP ${res.status} redirect without location` };
+      if (hop >= MAX_REDIRECTS) return { ok: false, error: `TOO_MANY_REDIRECTS (>${MAX_REDIRECTS})` };
+      parsed = assertAllowedBrowserUrl(new URL(location, parsed).toString(), guard);
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

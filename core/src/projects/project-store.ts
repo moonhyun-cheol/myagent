@@ -321,17 +321,23 @@ export class ProjectStore {
     return targets;
   }
 
-  buildNodeTree(rootId: string, sessions: SessionSummary[], ancestors = new Set<string>()): WorkspaceNode | null {
-    const rec = this.get(rootId);
+  buildNodeTree(
+    rootId: string,
+    sessions: SessionSummary[],
+    ancestors = new Set<string>(),
+    // One index read per tree: recursion used to re-read index.json twice per node.
+    index: ProjectIndex = this.loadIndex(),
+  ): WorkspaceNode | null {
+    const safe = sanitizeId(rootId);
+    const rec = safe ? index.projects.find((p) => p.id === safe) ?? null : null;
     if (!rec) return null;
     if (ancestors.has(rootId)) return null;
     const nextAncestors = new Set(ancestors);
     nextAncestors.add(rootId);
-    const index = this.loadIndex();
     const children = index.projects
       .filter((p) => p.parent_id === rootId)
       .sort((a, b) => a.title.localeCompare(b.title))
-      .map((p) => this.buildNodeTree(p.id, sessions, nextAncestors))
+      .map((p) => this.buildNodeTree(p.id, sessions, nextAncestors, index))
       .filter((n): n is WorkspaceNode => n !== null);
     const nodeSessions = sessions
       .filter((s) => s.project_id === rootId)
@@ -370,6 +376,26 @@ export class ProjectStore {
     if (rec.kind) return rec.kind;
     if (rec.folder_path) return 'workspace_root';
     return 'project';
+  }
+
+  /**
+   * Workspace tree id that contains `projectId` (same rule as the UI's tree lookup:
+   * among workspace_root ancestors-or-self, the most recently updated one). Lets
+   * POST /sessions answer without the client fetching the whole /workspace tree.
+   */
+  resolveWorkspaceRootId(projectId: string | null): string | null {
+    const safe = projectId ? sanitizeId(projectId) : null;
+    if (!safe) return null;
+    const index = this.loadIndex();
+    const byId = new Map(index.projects.map((p) => [p.id, p]));
+    const roots: ProjectRecord[] = [];
+    const seen = new Set<string>();
+    for (let rec = byId.get(safe); rec && !seen.has(rec.id); rec = rec.parent_id ? byId.get(rec.parent_id) : undefined) {
+      seen.add(rec.id);
+      if (this.resolveKind(rec) === 'workspace_root') roots.push(rec);
+    }
+    roots.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return roots[0]?.id ?? null;
   }
 
   /** Resolve filesystem root for a session's project (walks up to workspace_root). */

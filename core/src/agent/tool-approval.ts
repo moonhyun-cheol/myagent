@@ -7,6 +7,7 @@ import { isOfficeBinaryPath } from '../security/workspace-capabilities.js';
 import { isAbsoluteUserPath, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
 import { classifyTerminalCommand } from './terminal-risk-policy.js';
+import { mcpServerIdFromTool, networkApprovalNeed } from './untrusted-content.js';
 
 export type ToolApprovalAccess =
   | 'operation'
@@ -168,7 +169,7 @@ export function toolPathTargets(
   args: Record<string, unknown>,
 ): { mode: 'read' | 'write' | null; paths: string[] } {
   const one = (value: unknown) => typeof value === 'string' && value.trim() ? [value.trim()] : [];
-  if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files') {
+  if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'image_get' || toolName === 'markitdown_convert') {
     return { mode: 'read', paths: one(args.path ?? '.') };
   }
   if (toolName === 'workspace_checkpoint') {
@@ -224,7 +225,7 @@ export function canDelegateToolApproval(
 ): boolean {
   const extraRoots = delegableExtraRoots(allowedWriteRoots);
   const inside = (candidate: unknown) => pathInsideDelegableRoots(candidate, workspaceRoot, extraRoots);
-  const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files';
+  const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'image_get' || toolName === 'markitdown_convert';
   // NAS / network-share workspaces: a model may never approve a mutation or a
   // terminal command there (the shell would run with the share as cwd).
   if (!readOnlyTool && isNetworkSharePath(workspaceRoot)) return false;
@@ -268,6 +269,9 @@ export function canDelegateToolApproval(
     }
     return paths.length > 0 && paths.every((p) => inside(p) && !isOfficeBinaryPath(String(p ?? '')));
   }
+  // Network destinations (unrequested site, first user-MCP call): the reviewer judges
+  // whether the destination matches the request and whether arguments carry data out.
+  if (toolName === 'browser_navigate' || mcpServerIdFromTool(toolName)) return true;
   // Rollback/plugin changes, moves, and every external write (NAS included)
   // deliberately stay outside delegated authority.
   return false;
@@ -385,6 +389,10 @@ export function needsHumanApproval(
     workspaceRoot?: string;
     allowedWriteRoots?: readonly string[];
     approvedExternalReadRoots?: ReadonlySet<string>;
+    /** Latest user request; hosts it names need no navigation card. */
+    userMessage?: string;
+    /** Run-scoped network grants (`host:` / `mcp:` keys). Never persisted. */
+    approvedNetworkGrants?: ReadonlySet<string>;
   },
 ): {
   needed: boolean;
@@ -453,6 +461,21 @@ export function needsHumanApproval(
         };
       }
     }
+  }
+  const network = networkApprovalNeed(toolName, args, {
+    userMessage: context?.userMessage,
+    grants: context?.approvedNetworkGrants,
+  }, env);
+  if (network) {
+    return {
+      needed: true,
+      danger: false,
+      access: 'network',
+      targets: network.targets,
+      grantRoots: network.grantKeys,
+      expires: 'run',
+      summary: network.summary,
+    };
   }
   if (toolName === 'browser_evaluate') {
     return {
@@ -548,7 +571,18 @@ export function needsHumanApproval(
   return { needed: false, danger: false, summary: '', access: 'operation' };
 }
 
-export function formatApprovalDenied(toolName: string, reason: 'user_rejected' | 'timeout' | 'confirm_required'): string {
+export function formatApprovalDenied(
+  toolName: string,
+  reason: 'user_rejected' | 'timeout' | 'confirm_required' | 'no_approval_channel',
+): string {
+  if (reason === 'no_approval_channel') {
+    return [
+      'ERROR: human_approval_required',
+      `tool: ${toolName}`,
+      'This run has no approval channel (no chat UI Accept/Reject). confirm=true cannot approve it.',
+      'Do not retry this tool in this run. Tell the user which action needs approval so they can run it from the chat UI.',
+    ].join('\n');
+  }
   if (reason === 'confirm_required') {
     return [
       'ERROR: human_approval_required',

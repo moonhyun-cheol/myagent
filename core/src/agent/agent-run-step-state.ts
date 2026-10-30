@@ -91,6 +91,8 @@ export interface AgentRunStepState {
   approvalTrace: NonNullable<import('./agent-perf-metrics.js').AgentPerfSnapshot['approval_trace']>;
   /** External read roots approved by the user for this run only. Never persisted. */
   approvedExternalReadRoots: Set<string>;
+  /** Network destinations (`host:` / `mcp:` keys) approved for this run only. Never persisted. */
+  approvedNetworkGrants: Set<string>;
   llmUsage: NonNullable<import('./agent-perf-metrics.js').AgentPerfSnapshot['usage']>;
   browserSession: PlaywrightSession | null;
   toolCtx: AgentToolContext;
