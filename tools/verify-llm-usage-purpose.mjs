@@ -141,6 +141,24 @@ try {
   assert.equal(summarizeLlmUsage({ cqrRoot: temp, from: 'bad', to: day(now), days: 7 }).range.days, 7, 'invalid custom falls back');
   pass('custom date range');
 
+  // Decision version probes: unknown-id 400 is dropped; a probe that hit a real model is counted.
+  const probeAt = new Date();
+  writeFileSync(fileFor(probeAt), readFileSafe(fileFor(probeAt))
+    + JSON.stringify({ event: 'finish', started_at: probeAt.toISOString(), purpose: 'approval', probe: true, http_status: 400, outcome: 'http_error', model: 'microsoft/microsoft-decision-2' }) + '\n'
+    + JSON.stringify({ event: 'finish', started_at: probeAt.toISOString(), purpose: 'approval', probe: true, http_status: 200, outcome: 'completed', model: 'microsoft/microsoft-decision-1.1', provider_cost_usd: 0.002 }) + '\n');
+  const probed = summarizeLlmUsage({ cqrRoot: temp, days: 7 });
+  assert.equal(probed.totals.requests, 8, 'only the billed probe is counted');
+  assert.ok(!probed.models.some((m) => m.key === 'microsoft/microsoft-decision-2'));
+  assert.ok(probed.models.some((m) => m.key === 'microsoft/microsoft-decision-1.1'));
+  const probeSrc = readFileSync(path.join(root, 'core/src/agent/approval-auto-review.ts'), 'utf8');
+  assert.match(probeSrc, /withLlmUsageContext\(\{ probe: true \}/);
+  await withLlmUsageContext({ probe: true }, async () => (await fetchWithUsage(`${base}/alpha/decisions`, post({ model: 'm', state: {}, questions: {} }))).text());
+  const probeRows = readdirSync(usageDir).filter((f) => f.endsWith('.jsonl')).flatMap((f) => readFileSync(path.join(usageDir, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)))
+    .filter((r) => r.event === 'finish' && r.probe === true && r.endpoint_host);
+  assert.equal(probeRows.length, 1, 'probe context marks the logged row');
+  assert.equal(probeRows[0].purpose, 'approval');
+  pass('decision version probes: free 400 excluded, billed probe kept');
+
   // Route takes only a boolean switch (no past points).
   const dispatchSrc = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   assert.match(dispatchSrc, /typeof body\.enabled !== 'boolean'/);
