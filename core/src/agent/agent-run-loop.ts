@@ -447,7 +447,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       approval_trace: live?.approvalTrace?.length ? live.approvalTrace : undefined,
       responses_state: summarizeResponsesPerfState(live?.opts.responsesState ?? opts.responsesState),
       usage: finalUsage,
-      cost: calculateLlmUsageCost(finalUsage, finalModelId),
+      cost: calculateLlmUsageCost(finalUsage, finalModelId, process.env, opts.providerId),
       env: collectPerfEnv({
         modelId: finalModelId,
         providerId: opts.providerId,

@@ -117,6 +117,8 @@ export interface ChatCompletionOptions {
   onResponsesState?: (state: ResponsesContinuationState) => void;
   /** Default automatic. `off` disables provider-side prompt cache hints. */
   promptCacheMode?: 'automatic' | 'off';
+  /** Chat session id used for OpenRouter sticky routing (`x-session-id`, hashed). */
+  promptCacheSessionId?: string;
   /** Produced locally after deterministic prefix compilation. */
   promptContext?: PromptContextMetadata;
 }

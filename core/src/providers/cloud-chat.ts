@@ -49,13 +49,15 @@ export class CloudChatService {
   ) {
     if (wireApi !== 'responses') return {};
     const reasoningSummary = resolveResponsesReasoningSummaryPolicy(providerId, modelId);
-    if (!sessionId || !this.sessions) return { reasoningSummary };
+    if (!sessionId) return { reasoningSummary };
+    if (!this.sessions) return { reasoningSummary, promptCacheSessionId: sessionId };
     // Direct OpenAI has a known provider-side response store. Gateways replay exact
     // encrypted reasoning/output items unless their stateful capability is configured later.
     const mode = providerId === 'openai' ? 'provider_state' as const : 'client_replay' as const;
     const responsesState = this.sessions.responsesState(sessionId, providerId, modelId, mode);
     return {
       reasoningSummary,
+      promptCacheSessionId: sessionId,
       responsesState,
       onResponsesState: (state: import('../sessions/types.js').ResponsesContinuationState) => {
         this.sessions?.saveResponsesState(sessionId, state);

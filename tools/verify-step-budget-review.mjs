@@ -49,6 +49,32 @@ assert.match(text, /failed_steps: 1/);
 assert.match(text, /run_terminal \[error\] npm run build -> TS2345/);
 assert.match(text, /빌드 오류 1건 남음/);
 assert.doesNotMatch(text, /abc123/);
+assert.doesNotMatch(text, /Resource usage/, 'no resources → no resource section');
+
+// Resources: host cost estimate reaches the reviewer and the approval-card label.
+const priced = m.buildStepBudgetResources({
+  input_tokens: 1_200_000, output_tokens: 40_000, cached_input_tokens: 900_000, cache_write_input_tokens: 100_000,
+  cache_hit_rate: 0.75, pricing_status: 'priced', total_cost_microusd: 3_420_000,
+}, 100);
+assert.equal(priced.costUsd, 3.42);
+assert.ok(Math.abs(priced.costPerStepUsd - 0.0342) < 1e-9);
+const rText = m.buildStepBudgetFactsText({ ...facts, resources: priced });
+assert.match(rText, /## Resource usage/);
+assert.match(rText, /cache_hit_rate 75\.0%/);
+assert.match(rText, /cost_usd_so_far: 3\.4200; cost_per_step_usd: 0\.0342/);
+const label = m.formatStepBudgetResourceLabel(priced, 50);
+assert.match(label, /입력 1\.20M 토큰 \(캐시 75%\)/);
+assert.match(label, /지금까지 약 \$3\.42/);
+assert.match(label, /추가 50스텝 예상 약 \$1\.71/);
+const unpriced = m.buildStepBudgetResources({
+  input_tokens: 5000, output_tokens: 100, cached_input_tokens: 0, cache_write_input_tokens: 0,
+  cache_hit_rate: 0, pricing_status: 'unpriced',
+}, 100);
+assert.equal(unpriced.costUsd, undefined);
+assert.match(m.buildStepBudgetFactsText({ ...facts, resources: unpriced }), /cost_usd_so_far: unknown/);
+assert.match(m.formatStepBudgetResourceLabel(unpriced), /가격 정보 없음/);
+assert.equal(m.formatStepBudgetResourceLabel(undefined), '');
+assert.match(m.buildStepBudgetSystemPrompt(), /never stop only because a run is expensive/);
 
 // reviewStepBudget: falls through a failing reviewer, returns unavailable when all fail.
 const cqrRoot = path.join(os.tmpdir(), 'verify-step-budget-review');
@@ -76,9 +102,13 @@ assert.match(note, /지시: 원인부터 읽어라/);
 const stepLoop = readFileSync(new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url), 'utf8');
 assert.match(stepLoop, /while \(state\.steps < stepLimit \|\| await extendStepBudget\(\)\)/);
 assert.match(stepLoop, /resolveAgentBudgetBand\(state\.steps, stepLimit\)/);
+assert.match(stepLoop, /lastModelOutput: \(state\.lastModelOutput \|\| state\.answerBuf\)\.trim\(\),\s*resources,/);
+assert.match(stepLoop, /buildStepBudgetResources\(\s*calculateLlmUsageCost\(state\.llmUsage/);
 const orch = readFileSync(new URL('../core/src/chat/chat-orchestrator.ts', import.meta.url), 'utf8');
 assert.match(orch, /onStepBudgetExhausted: async/);
 assert.match(orch, /tool: 'step_budget'/);
+assert.match(orch, /formatStepBudgetResourceLabel\(facts\.resources/);
+assert.match(orch, /est_extension_cost_usd/);
 const wsAgent = readFileSync(new URL('../core/src/chat/modes/workspace-agent.ts', import.meta.url), 'utf8');
 assert.match(wsAgent, /onStepBudgetExhausted: callbacks\?\.onStepBudgetExhausted/);
 

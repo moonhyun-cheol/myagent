@@ -63,6 +63,53 @@ assert.equal(
   'unpriced',
 );
 
+// Cache-write premium is billed separately and reduces net savings.
+const writeCost = calculateLlmUsageCost(
+  { prompt_tokens: 100, completion_tokens: 0, cached_tokens: 50, cache_write_tokens: 40 },
+  'w-model',
+  {
+    MY_AGENT_LLM_PRICING_JSON: JSON.stringify({
+      'w-model': {
+        input_usd_per_million: 4,
+        cached_input_usd_per_million: 0.2,
+        cache_write_input_usd_per_million: 5,
+        output_usd_per_million: 20,
+      },
+    }),
+  },
+);
+assert.equal(writeCost.uncached_input_tokens, 10);
+assert.equal(writeCost.cache_write_cost_microusd, 200);
+assert.equal(writeCost.total_cost_microusd, 40 + 10 + 200);
+assert.equal(writeCost.cache_savings_microusd, 190);
+assert.equal(writeCost.cache_net_savings_microusd, 150);
+
+// Fallback: provider price table persisted from /models (data/model-pricing.json).
+{
+  const pricingMod = await import(pathToFileURL(path.join(root, 'core/dist/models/model-pricing.js')).href);
+  pricingMod.setModelPricingFileForTest(null);
+  assert.deepEqual(
+    pricingMod.parseModelPricing({ pricing: { prompt: '0.000004', completion: '0.00002', input_cache_read: '0.0000002', input_cache_write: '0.000005' } }),
+    { input: 4, output: 20, cache_read: 0.2, cache_write: 5 },
+  );
+  pricingMod.recordProviderPricing('custom', [{ id: 'anthropic/claude-opus-5.5', pricing: { input: 4, output: 20, cache_read: 0.2 } }]);
+  const listed = calculateLlmUsageCost(
+    { prompt_tokens: 1000, completion_tokens: 10, cached_tokens: 800, cache_write_tokens: 100 },
+    'anthropic/claude-opus-5.5',
+    {},
+    'custom',
+  );
+  assert.equal(listed.pricing_status, 'priced');
+  assert.equal(listed.pricing_source, 'model-pricing.json');
+  assert.equal(listed.cache_write_priced, false);
+  assert.equal(listed.total_cost_microusd, 400 + 160 + 400 + 200);
+  assert.equal(
+    calculateLlmUsageCost({ prompt_tokens: 10, completion_tokens: 0 }, 'anthropic/claude-opus-5.5', {}, 'other').pricing_status,
+    'priced',
+  );
+  pricingMod.setModelPricingFileForTest(null);
+}
+
 const sample = {
   at: new Date().toISOString(),
   wall_ms: 12,

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { fetchWithUsage } from './llm-usage-log.js';
+import { currentLlmUsageSessionId, fetchWithUsage } from './llm-usage-log.js';
 import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 import { logResponsesBoundary } from './llm-wire-log.js';
 import type {
@@ -63,6 +63,35 @@ export function resolveResponsesPromptCacheHint(
   const name = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model;
   if (vendor === 'anthropic' || /^claude([-_.:]|$)/.test(name)) return { cache_control: { type: 'ephemeral' } };
   return undefined;
+}
+
+function isOpenRouterBaseUrl(baseUrl?: string): boolean {
+  let host = '';
+  try {
+    host = baseUrl ? new URL(baseUrl).hostname.toLowerCase() : '';
+  } catch {
+    host = '';
+  }
+  return host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
+}
+
+/**
+ * OpenRouter sticky routing pin. Without it, OpenRouter only sticks to a
+ * provider after the first cache hit, so multi-turn agent calls can land on a
+ * different upstream and miss its prompt cache. Sent as the `x-session-id`
+ * header (not a body field) so the request body, its settings fingerprint and
+ * Responses replay contract stay byte-identical. The local session id is
+ * hashed so it is never exposed verbatim. Opt out with
+ * MY_AGENT_RESPONSES_SESSION_PIN=0.
+ */
+export function resolveResponsesSessionPin(
+  baseUrl: string | undefined,
+  sessionId: string | undefined,
+): string | undefined {
+  if (/^(0|off|false|no)$/i.test(process.env.MY_AGENT_RESPONSES_SESSION_PIN ?? '')) return undefined;
+  const id = sessionId?.trim();
+  if (!id || !isOpenRouterBaseUrl(baseUrl)) return undefined;
+  return `myagent-${createHash('sha256').update(id).digest('hex').slice(0, 32)}`;
 }
 
 class ResponsesHttpError extends Error {
@@ -475,9 +504,16 @@ async function postResponse(
     invalidation_reason: opts?.responsesState?.invalidation_reason,
   };
   logResponsesBoundary({ phase: 'request', ...summary });
+  const sessionPin = opts?.promptCacheMode === 'off'
+    ? undefined
+    : resolveResponsesSessionPin(baseUrl, opts?.promptCacheSessionId ?? currentLlmUsageSessionId());
   const response = await fetchWithUsage(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      ...(sessionPin ? { 'x-session-id': sessionPin } : {}),
+    },
     body: serialized,
     signal,
   });

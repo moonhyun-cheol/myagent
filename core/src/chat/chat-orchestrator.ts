@@ -45,6 +45,7 @@ import {
   STEP_BUDGET_MAX_AUTO_GRANTS,
   decideStepBudgetGrant,
   formatStepBudgetExtensionNote,
+  formatStepBudgetResourceLabel,
   reviewStepBudget,
 } from '../agent/step-budget-review.js';
 import {
@@ -1111,7 +1112,9 @@ export class ChatOrchestrator {
               // automatically (max 2 per run); otherwise, or after that, the user is asked.
               onStepBudgetExhausted: async ({ facts, workingModelId, autoGrantsUsed }) => {
                 const approvalPolicy = requestedExecutionPolicy.approval;
-                sseEvent(res, { type: 'status', text: `실행 예산 ${facts.stepLimit} 스텝 도달 · 검토 모델이 진행 상황을 판단 중` });
+                const spend = formatStepBudgetResourceLabel(facts.resources, STEP_BUDGET_EXTENSION);
+                const spendSuffix = spend ? ` · ${spend}` : '';
+                sseEvent(res, { type: 'status', text: `실행 예산 ${facts.stepLimit} 스텝 도달${spendSuffix} · 검토 모델이 진행 상황을 판단 중` });
                 const review = await reviewStepBudget({
                   providerStore: this.providerStore,
                   cqrRoot: this.cqrRoot,
@@ -1127,7 +1130,7 @@ export class ChatOrchestrator {
                   return { extend: 0, stopReason: `검토 모델(${review.reviewer}) 판단: 멈춤 — ${review.reason}` };
                 }
                 if (grantMode === 'auto') {
-                  sseEvent(res, { type: 'status', text: `추가 ${STEP_BUDGET_EXTENSION} 스텝 자동 승인 (${autoGrantsUsed + 1}/${STEP_BUDGET_MAX_AUTO_GRANTS}) · ${verdictLabel} — ${review.reason}` });
+                  sseEvent(res, { type: 'status', text: `추가 ${STEP_BUDGET_EXTENSION} 스텝 자동 승인 (${autoGrantsUsed + 1}/${STEP_BUDGET_MAX_AUTO_GRANTS}) · ${verdictLabel} — ${review.reason}${spendSuffix}` });
                   return { extend: STEP_BUDGET_EXTENSION, auto: true, note: formatStepBudgetExtensionNote(review, STEP_BUDGET_EXTENSION, 'auto') };
                 }
                 const id = createToolApprovalId();
@@ -1137,8 +1140,15 @@ export class ChatOrchestrator {
                   type: 'tool_approval',
                   id,
                   tool: 'step_budget',
-                  summary: `실행 예산 ${facts.stepLimit} 스텝을 다 썼습니다. 추가 ${STEP_BUDGET_EXTENSION} 스텝을 줄까요? (${why})`,
-                  args_preview: JSON.stringify({ extend: STEP_BUDGET_EXTENSION, verdict: review.verdict, instruction: review.instruction || undefined }).slice(0, 1200),
+                  summary: `실행 예산 ${facts.stepLimit} 스텝을 다 썼습니다. 추가 ${STEP_BUDGET_EXTENSION} 스텝을 줄까요? (${why})${spend ? ` [사용량: ${spend}]` : ''}`,
+                  args_preview: JSON.stringify({
+                    extend: STEP_BUDGET_EXTENSION,
+                    verdict: review.verdict,
+                    instruction: review.instruction || undefined,
+                    cost_usd_so_far: facts.resources?.costUsd === undefined ? undefined : Number(facts.resources.costUsd.toFixed(4)),
+                    est_extension_cost_usd: facts.resources?.costPerStepUsd === undefined ? undefined : Number((facts.resources.costPerStepUsd * STEP_BUDGET_EXTENSION).toFixed(4)),
+                    cache_hit_rate: facts.resources ? Number(facts.resources.cacheHitRate.toFixed(3)) : undefined,
+                  }).slice(0, 1200),
                   danger: false,
                   access: 'operation',
                   expires: 'once',

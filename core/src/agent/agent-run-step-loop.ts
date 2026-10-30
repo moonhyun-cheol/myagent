@@ -74,7 +74,8 @@ import {
   needsHumanApproval,
   normalizeToolApprovalOutcome,
 } from './tool-approval.js';
-import type { StepBudgetAction } from './step-budget-review.js';
+import { buildStepBudgetResources, type StepBudgetAction } from './step-budget-review.js';
+import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import {
   formatSyntaxBrokenRepairPrompt,
   toolOutputHasSyntaxBroken,
@@ -339,6 +340,11 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     const todoSummary = (ledger?.todos ?? [])
       .map((todo) => `[${todo.status}] ${todo.text}`)
       .join('\n');
+    // Spend of this run (per-run budget = state.steps), priced from data/model-pricing.json.
+    const resources = buildStepBudgetResources(
+      calculateLlmUsageCost(state.llmUsage, state.modelId, process.env, state.opts.providerId),
+      state.steps,
+    );
     try {
       const grant = await handler({
         facts: {
@@ -350,6 +356,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           mutatedPaths: [...state.mutatedPathsThisRun],
           todoSummary,
           lastModelOutput: (state.lastModelOutput || state.answerBuf).trim(),
+          resources,
         },
         workingModelId: state.modelId,
         autoGrantsUsed: autoBudgetGrants,

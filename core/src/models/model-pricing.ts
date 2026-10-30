@@ -20,6 +20,7 @@ export interface ModelPricing {
   input?: number;
   output?: number;
   cache_read?: number;
+  cache_write?: number;
 }
 
 export type ModelCostTier = 'premium' | 'standard' | 'unknown';
@@ -46,11 +47,13 @@ export function parseModelPricing(row: Record<string, unknown>): ModelPricing | 
   const input = perTokenToPerMillion(p.prompt ?? p.input);
   const output = perTokenToPerMillion(p.completion ?? p.output);
   const cacheRead = perTokenToPerMillion(p.input_cache_read ?? p.cache_read);
-  if (input === undefined && output === undefined && cacheRead === undefined) return undefined;
+  const cacheWrite = perTokenToPerMillion(p.input_cache_write ?? p.cache_write);
+  if (input === undefined && output === undefined && cacheRead === undefined && cacheWrite === undefined) return undefined;
   return {
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
     ...(cacheRead !== undefined ? { cache_read: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cache_write: cacheWrite } : {}),
   };
 }
 
@@ -155,6 +158,20 @@ export function hasModelPricing(): boolean {
 
 export function lookupModelPricing(providerId: string, modelId: string): ModelPricing | undefined {
   return loadTable().get(providerId)?.get(modelId);
+}
+
+/** Provider-scoped lookup first, then the first provider that lists the same model id. */
+export function lookupModelPricingAny(modelId: string, providerId?: string): ModelPricing | undefined {
+  const t = loadTable();
+  if (providerId) {
+    const hit = t.get(providerId)?.get(modelId);
+    if (hit) return hit;
+  }
+  for (const models of t.values()) {
+    const hit = models.get(modelId);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 export function modelCostTier(

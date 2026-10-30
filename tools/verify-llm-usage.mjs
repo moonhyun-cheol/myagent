@@ -58,6 +58,24 @@ try {
     await responses.responsesCompletion(base, key, 'model', input);
     assert.equal(last().wire_api, 'responses'); assert.equal(last().input_tokens, 80); assert.equal(last().reasoning_tokens, 3);
   });
+  await test('OpenRouter session pin: hashed, host-scoped, opt-out; upstream provider + billed cost logged', async () => {
+    const pin = responses.resolveResponsesSessionPin('https://openrouter.ai/api/v1', 'session_PRIVATE');
+    assert.match(pin, /^myagent-[0-9a-f]{32}$/); assert.ok(!pin.includes('session_PRIVATE'));
+    assert.equal(responses.resolveResponsesSessionPin('https://openrouter.ai/api/v1', 'session_PRIVATE'), pin);
+    assert.equal(responses.resolveResponsesSessionPin(base, 'session_PRIVATE'), undefined);
+    assert.equal(responses.resolveResponsesSessionPin('https://openrouter.ai/api/v1', ''), undefined);
+    process.env.MY_AGENT_RESPONSES_SESSION_PIN = '0';
+    assert.equal(responses.resolveResponsesSessionPin('https://openrouter.ai/api/v1', 'session_PRIVATE'), undefined);
+    delete process.env.MY_AGENT_RESPONSES_SESSION_PIN;
+    reply.doc = { provider: 'Google Vertex', usage: { input_tokens: 100, output_tokens: 2, cost: 0.0012, input_tokens_details: { cached_tokens: 90, cache_discount: 0.0003 } } };
+    const res = await fetchWithUsage(`${base}/responses`, { method: 'POST', body: '{"model":"model"}', headers: { 'x-session-id': pin } });
+    await res.text();
+    assert.equal(last().session_pinned, true); assert.equal(last().upstream_provider, 'Google Vertex');
+    assert.equal(last().provider_cost_usd, 0.0012); assert.equal(last().cache_discount_usd, 0.0003);
+    assert.ok(!JSON.stringify(last()).includes(pin));
+    await direct({ usage: { input_tokens: 1, output_tokens: 1 } });
+    assert.equal(last().session_pinned, false); assert.equal(last().upstream_provider, null);
+  });
   await test('Anthropic real entry; cache-inclusive total and raw semantics', async () => {
     reply.doc = { model: 'model', content: [{ type: 'text', text: 'answer' }], usage: { input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 50, cache_creation_input_tokens: 20 } };
     await messages.messagesCompletion(base, key, 'model', input);
