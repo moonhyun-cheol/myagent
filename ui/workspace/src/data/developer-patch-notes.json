@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "document-start-new-button",
+      "status": "development",
+      "title": "문서 시작 화면의 「새 문서」 버튼이 눌러도 반응하지 않던 문제 수정",
+      "detail": "시작 화면의 「새 문서」는 이미 열린 빈 초안을 편집 화면으로 바꾸기만 해서, 열린 탭이 없거나 화면이 보는 탭과 현재 탭이 다르면 아무 일도 일어나지 않았습니다. 이제 상단 + 버튼과 같이 항상 새 문서 탭을 렌더링 편집 화면으로 열고, 시작 화면용으로 깔려 있던 손대지 않은 빈 초안은 새 탭으로 바꿔 빈 「제목 없음」 탭이 남지 않게 했습니다.",
+      "area": "ui",
+      "created_at": "2026-10-30",
+      "source_paths": ["ui/workspace/src/components/MarkdownDocument.tsx", "ui/workspace/src/store/workspaceStore.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "usage-provider-rows-by-endpoint",
       "status": "development",
       "title": "사용량 「프로바이더별」 표에서 같은 OpenRouter가 두 줄로 나뉘던 문제 수정",

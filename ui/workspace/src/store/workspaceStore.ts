@@ -2981,9 +2981,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
     newDocument: async () => {
       // + 탭은 바로 쓰기 화면(렌더링 편집)으로 연다. 빈 「읽기」 화면을 거치지 않게.
-      const tab: DocumentTab = { ...newDraftDocumentTab(get().documentTabs), view: 'rendered' };
+      // 시작 화면용 빈 「읽기」 초안은 남기지 않고 새 탭으로 교체한다(탭이 없거나 활성 id가 어긋나도 동작).
+      const kept = get().documentTabs.filter((t) => !(
+        t.source === 'draft' && !t.dirty && !t.content.trim() && t.memos.length === 0 && t.view === 'preview'
+      ));
+      const tab: DocumentTab = { ...newDraftDocumentTab(kept), view: 'rendered' };
       set({
-        documentTabs: [...get().documentTabs, tab],
+        documentTabs: [...kept, tab],
         activeDocumentTabId: tab.id,
         mode: 'document',
       });
