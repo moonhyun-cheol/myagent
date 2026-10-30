@@ -3,63 +3,63 @@
   "notes": [
     {
       "id": "chat-media-bubble-cost",
-      "status": "development",
+      "status": "released",
       "title": "이미지·영상 답변 아래에 청구 비용 표시",
       "detail": "대화 표시에서 토큰 보기를 켜 두면 이미지·영상 답변 아래에 이번 생성의 청구 비용(예: 비용 $0.61)이 함께 나옵니다. 이미지는 토큰과 비용을, 토큰 정보가 없는 영상은 비용만 보여 줍니다. 공급자가 비용을 알려 주지 않은 경우에는 표시하지 않습니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-log.ts", "core/src/chat/modes/image-gen.ts", "core/src/chat/modes/video-gen.ts", "core/src/chat/chat-orchestrator.ts", "ui/workspace/src/components/ChatPane.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "media-tab-newest-first",
-      "status": "development",
+      "status": "released",
       "title": "미디어 탭에서 첨부 이미지도 최신순으로 정렬",
       "detail": "사용자가 첨부한 이미지는 시각 정보가 없어 오래된 것이 위에 오던 문제를 고쳤습니다. 이제 바로 다음 답변 시각을 기준으로 최신 항목이 위에 옵니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["ui/workspace/src/lib/mediaCatalog.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "usage-chat-context-and-cost-recovery",
-      "status": "development",
+      "status": "released",
       "title": "일반 대화 요청의 사용량을 대화별로 기록하고, 앱을 꺼서 놓친 비용도 나중에 채움",
       "detail": "도구 없이 답하는 일반 대화(대화에서 고른 이미지 모델 포함)는 사용량 기록에 대화·연결 정보가 빠졌습니다. 이제 함께 기록합니다. 비용 조회 전에 앱을 끄면 비용이 비던 문제도, 요청 번호를 남겨 사용량 화면을 열 때 다시 조회합니다. 이미지 모델 판별은 모델 목록의 출력 종류를 먼저 봅니다.",
       "area": "core",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/chat/chat-orchestrator.ts", "core/src/providers/llm-usage-log.ts", "core/src/models/model-pricing.ts", "core/src/routes/dispatch.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "usage-image-cost-recovery",
-      "status": "development",
+      "status": "released",
       "title": "이미지 생성 요청의 비용·토큰이 사용량에 빠지던 문제 수정",
       "detail": "이미지 모델은 생성한 이미지 전체를 마지막 응답 이벤트에 담아 보내는데, 1MB가 넘는 이벤트는 통째로 건너뛰어 같은 이벤트의 토큰·비용도 버려졌습니다. 이제 큰 이벤트의 끝부분만 남겨 사용량을 읽고, 그래도 비용이 없으면 OpenRouter 요청 기록 조회로 나중에 채웁니다. 용도가 지정되지 않은 이미지 모델 요청은 일반 대화가 아니라 「이미지 생성」으로 집계합니다.",
       "area": "core",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-log.ts", "core/src/providers/llm-usage-summary.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "document-start-new-button",
-      "status": "development",
+      "status": "released",
       "title": "문서 시작 화면의 「새 문서」 버튼이 눌러도 반응하지 않던 문제 수정",
       "detail": "시작 화면의 「새 문서」는 이미 열린 빈 초안을 편집 화면으로 바꾸기만 해서, 열린 탭이 없거나 화면이 보는 탭과 현재 탭이 다르면 아무 일도 일어나지 않았습니다. 이제 상단 + 버튼과 같이 항상 새 문서 탭을 렌더링 편집 화면으로 열고, 시작 화면용으로 깔려 있던 손대지 않은 빈 초안은 새 탭으로 바꿔 빈 「제목 없음」 탭이 남지 않게 했습니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["ui/workspace/src/components/MarkdownDocument.tsx", "ui/workspace/src/store/workspaceStore.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "usage-provider-rows-by-endpoint",
-      "status": "development",
+      "status": "released",
       "title": "사용량 「프로바이더별」 표에서 같은 OpenRouter가 두 줄로 나뉘던 문제 수정",
       "detail": "에이전트 작업 요청은 연결 ID(custom)로, 연결 테스트 같은 그 밖의 요청은 주소(openrouter.ai)로 묶여 같은 OpenRouter가 두 줄로 보였습니다. 이제 요청을 보낸 주소를 기준으로 「OpenRouter」·「OpenAI」처럼 읽기 쉬운 이름으로 묶고, 주소가 없는 예전 기록만 연결 ID로 표시합니다.",
       "area": "core",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-summary.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.22", "update_sequence": 70 }
     },
     {
       "id": "agent-run-wall-time-and-stream-stall",
