@@ -889,10 +889,15 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
               access: hitl.access,
             });
           }
-        } else if (args.confirm === true) {
+        } else if (state.opts.allowHeadlessConfirm === true && args.confirm === true) {
           approved = true;
         } else {
-          const output = formatApprovalDenied(execCall.function.name, 'confirm_required');
+          // No approval channel: a model-authored confirm=true is not consent (prompt
+          // injection could add it). Deny and say why instead of inviting a retry.
+          const output = formatApprovalDenied(
+            execCall.function.name,
+            args.confirm === true ? 'no_approval_channel' : 'confirm_required',
+          );
           loopGuard.noteResult(execCall, output);
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (승인 필요)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);

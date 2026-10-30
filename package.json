@@ -32,6 +32,7 @@
     "verify:session-workspace-binding": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && npm --prefix ui/workspace run build && node tools/verify-session-workspace-binding.mjs",
     "verify:preview-explorer": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && npm --prefix ui/workspace run build && node tools/verify-preview-explorer.mjs",
     "verify:approval-auto-review": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-approval-auto-review.mjs",
+    "verify:local-api-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-api-guard.mjs",
     "verify:model-directed-runtime": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-model-directed-runtime.mjs",
     "verify:parity": "node tools/verify-deploy-parity.mjs",
     "verify:nas": "node tools/verify-no-nas-paths.mjs",

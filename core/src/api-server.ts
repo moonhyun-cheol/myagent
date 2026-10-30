@@ -33,6 +33,7 @@ import { startVisibleBrowserBridge, getVisibleBrowserBridge } from './browser/vi
 import { writeInstallRootPointer } from './setup/install-root-pointer.js';
 import { warmModelPricingIfMissing } from './models/model-picker.js';
 import { trackSlowRequest } from './routes/slow-request-log.js';
+import { checkLocalApiRequest } from './security/local-api-guard.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -242,6 +243,24 @@ export async function createApiServer(port: number) {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
     const method = req.method ?? 'GET';
+    const guard = checkLocalApiRequest(req, port);
+    if (!guard.ok) {
+      // Browser-originated cross-site / DNS-rebinding request. Never dispatch it; log the
+      // reason only (no body, no query) so blocked probes are visible without leaking data.
+      try {
+        appendFileSync(
+          path.join(paths.logsDir, 'api-guard.log'),
+          `${new Date().toISOString()} blocked=${guard.reason} ${method} ${url.pathname} ${JSON.stringify(guard.detail)}\n`,
+          'utf8',
+        );
+      } catch {
+        /* logging must never block the response */
+      }
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'LOCAL_API_FORBIDDEN', reason: guard.reason }));
+      req.resume();
+      return;
+    }
     trackSlowRequest(paths.logsDir, req, res, url.pathname);
 
     try {

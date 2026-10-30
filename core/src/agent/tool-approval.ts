@@ -548,7 +548,18 @@ export function needsHumanApproval(
   return { needed: false, danger: false, summary: '', access: 'operation' };
 }
 
-export function formatApprovalDenied(toolName: string, reason: 'user_rejected' | 'timeout' | 'confirm_required'): string {
+export function formatApprovalDenied(
+  toolName: string,
+  reason: 'user_rejected' | 'timeout' | 'confirm_required' | 'no_approval_channel',
+): string {
+  if (reason === 'no_approval_channel') {
+    return [
+      'ERROR: human_approval_required',
+      `tool: ${toolName}`,
+      'This run has no approval channel (no chat UI Accept/Reject). confirm=true cannot approve it.',
+      'Do not retry this tool in this run. Tell the user which action needs approval so they can run it from the chat UI.',
+    ].join('\n');
+  }
   if (reason === 'confirm_required') {
     return [
       'ERROR: human_approval_required',

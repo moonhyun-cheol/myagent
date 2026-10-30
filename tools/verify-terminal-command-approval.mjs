@@ -93,7 +93,7 @@ if (process.platform === 'win32') {
     const { runCodeAgent } = await import('../core/dist/agent/agent-run-loop.js');
     const originalFetch = globalThis.fetch;
     try {
-      for (const mode of ['allow', 'reject', 'confirm', 'unconfirmed']) {
+      for (const mode of ['allow', 'reject', 'confirm', 'headless', 'unconfirmed']) {
         const approvals = [];
         const completed = [];
         const statuses = [];
@@ -109,6 +109,9 @@ if (process.platform === 'win32') {
         await runCodeAgent({
           workspaceRoot: cwd, cqrRoot: tmp, userMessage: 'Execute this fixture terminal command.',
           providerId: 'fixture', modelId: 'fixture-model', autopilot: false,
+          // 'confirm' = model-authored confirm=true with no approval channel: must be denied.
+          // 'headless' = trusted in-process harness opt-in only.
+          ...(mode === 'headless' ? { allowHeadlessConfirm: true } : {}),
           providerStore: { resolveProvider: () => ({
             def: { kind: 'openai_compatible', name: 'Fixture' }, secret: { api_key: 'fixture-key' },
             baseUrl: 'https://fixture.invalid/v1', modelId: 'fixture-model',
@@ -124,7 +127,13 @@ if (process.platform === 'win32') {
             afterTool: (row) => { if (row.tool === 'run_terminal') completed.push(JSON.parse(row.output)); },
           },
         });
-        if (mode === 'allow' || mode === 'confirm') {
+        if (mode === 'confirm') {
+          assert.ok(
+            statuses.some((s) => /승인 필요/.test(String(s))),
+            'confirm: self-approval must surface as approval-required',
+          );
+        }
+        if (mode === 'allow' || mode === 'headless') {
           assert.equal(completed.length, 1, `${mode}: driver must execute once`);
           assert.equal(completed[0].ok, true, completed[0].output);
           assert.match(completed[0].output, /approval-boundary-fixture/);

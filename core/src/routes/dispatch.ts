@@ -2964,8 +2964,11 @@ export async function dispatchApiRequest(
         if (!transcript) return sendJson(res, 400, { error: 'EMPTY_SESSION' });
 
         const targetId = randomUUID();
+        // Summarize in an unbound session: a project-bound chat would start the tool-using
+        // workspace agent with no approval channel, fed by the whole (possibly web-derived)
+        // transcript. The project binding is attached only after the summary is written.
         sessionStore.ensure(targetId, {
-          project_id: body.create_session ? (source.project_id ?? null) : null,
+          project_id: null,
           execution_policy: source.execution_policy,
         });
         try {
@@ -2991,6 +2994,7 @@ export async function dispatchApiRequest(
               source.title,
               collectSessionMediaUrls(source.messages),
             );
+            if (source.project_id) sessionStore.setProject(targetId, source.project_id);
           } else {
             sessionStore.delete(targetId);
           }

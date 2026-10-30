@@ -367,7 +367,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'delete_file',
       description:
-        'Delete a file (relative under workspace context, or absolute/UNC). Requires prior read_file on the path and user approval (stream UI) or confirm=true. NAS delete needs consent.',
+        'Delete a file (relative under workspace context, or absolute/UNC). Requires prior read_file on the path and user approval in the chat UI (confirm=true marks intent only; it never approves). NAS delete needs consent.',
       parameters: {
         type: 'object',
         properties: {
@@ -377,7 +377,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
           },
           confirm: {
             type: 'boolean',
-            description: 'Must be true after user approved deletion (non-stream fallback)',
+            description: 'Set true only when the user asked for this deletion (intent flag; approval still comes from the chat UI)',
           },
         },
         required: ['path'],
@@ -471,14 +471,14 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'run_terminal',
       description:
-        'Run a shell command in the dev workspace root (PowerShell). Requires user approval (stream UI) or confirm=true. Prefer run_tests for project tests.',
+        'Run a shell command in the dev workspace root (PowerShell). Requires user approval in the chat UI (confirm=true marks intent only; it never approves). Prefer run_tests for project tests.',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'PowerShell command to run (cwd = workspace root)' },
           confirm: {
             type: 'boolean',
-            description: 'Must be true after user approved the command (non-stream fallback)',
+            description: 'Set true only when the user asked for this command (intent flag; approval still comes from the chat UI)',
           },
         },
         required: ['command'],
