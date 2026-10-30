@@ -70,6 +70,9 @@ try {
   assert.equal(byPurpose('image').length, 1);
   assert.equal(byPurpose('chat').length, 1);
   pass('context purpose image vs default chat');
+  assert.deepEqual(byPurpose('image')[0].cost_probe, { usage_fields: ['completion_tokens', 'cost', 'prompt_tokens'] });
+  assert.ok(!JSON.stringify(byPurpose('image')[0].cost_probe).includes('0.02'), 'probe never logs values');
+  pass('billed row without cache_discount logs usage field names only');
   const videos = byPurpose('video');
   assert.equal(videos.filter((r) => r.model === 'vendor/video-1').length, 1, 'video job counted once');
   assert.equal(videos.find((r) => r.model === 'vendor/video-1').provider_cost_usd, 0.75);

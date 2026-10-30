@@ -156,6 +156,8 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let upstreamProvider: string | undefined;
   /** Field/header NAMES only (never values) — diagnoses where upstream provider is reported. */
   let terminalFieldNames: string[] | undefined;
+  /** usage field NAMES only (never values) — diagnoses where cache discount is reported. */
+  let usageFieldNames: string[] | undefined;
   let costs: { cost?: number; cache_discount?: number } = {};
   let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
   let responseHeaders: Headers | undefined;
@@ -184,6 +186,9 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
           header_names: fieldNames(responseHeaders ? [...responseHeaders.keys()].filter((h) => /^(x-|openrouter)/i.test(h)) : []),
         },
       } : {}),
+      ...(costs.cost !== undefined && costs.cache_discount === undefined ? {
+        cost_probe: { usage_fields: usageFieldNames ?? null },
+      } : {}),
       provider_cost_usd: costs.cost ?? null,
       cache_discount_usd: costs.cache_discount ?? null,
       usage_source: 'provider', observation_truncated: truncated,
@@ -197,6 +202,13 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     // Providers send cumulative snapshots, not increments. Never add snapshots.
     usage = { ...usage, ...normalize(raw) };
     costs = { ...costs, ...costFields(raw) };
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const u = raw as Record<string, unknown>;
+      usageFieldNames = fieldNames(Object.entries(u).flatMap(([k, v]) => {
+        const nested = record(v);
+        return [k, ...Object.keys(nested).map((n) => `${k}.${n}`)];
+      }));
+    }
     responseModel = id(doc.model ?? response.model ?? message.model) ?? responseModel;
     upstreamProvider = providerName(doc.provider ?? response.provider ?? message.provider) ?? upstreamProvider;
     if (doc.error || response.error || ['error', 'response.failed', 'response.incomplete'].includes(String(doc.type)) || ['failed', 'incomplete'].includes(String(doc.status))) {
