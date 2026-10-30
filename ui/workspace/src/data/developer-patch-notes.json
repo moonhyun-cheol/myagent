@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "usage-page-ux-polish",
+      "status": "development",
+      "title": "사용량·비용 화면 정리: 하루치 차트 표시, 캐시 내역 부호, 차트 모양 위치",
+      "detail": "하루치 조회에서 빈 격자만 보이던 차트를 막대·점으로 그립니다. 캐시 내역의 마지막 열은 「비용 증감」으로 바꿔 할인은 초록 −, 저장 추가 비용은 주황 +로 보이고 「추정」은 열 제목에만 씁니다. 시각은 초까지 보이고 표 안에서 스크롤됩니다. 차트 모양 선택은 차트 제목 옆으로 옮겼고, 캐시 카드의 「내역 보기 ↓」로 내역 표로 이동합니다.",
+      "area": "ui",
+      "created_at": "2026-10-30",
+      "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "usage-model-rows-split-by-purpose",
       "status": "development",
       "title": "사용량 「모델별」 표에서 같은 모델의 대화와 승인 판단을 나눠 표시",

@@ -31,6 +31,13 @@ function formatSince(iso: string): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+function formatStamp(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+const CACHE_SECTION_ID = 'usage-cache-requests';
+
 function TrackingSwitch({ on, disabled, onChange }: { on: boolean; disabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -73,30 +80,34 @@ function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; t
   const [shown, setShown] = useState(CACHE_PAGE);
   if (!items.length) return null;
   const visible = items.slice(0, shown);
+  const anyEstimated = items.some((r) => r.estimated && r.savings_usd !== 0);
+  const th = 'sticky top-0 bg-panel py-2 font-medium';
   return (
-    <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+    <section id={CACHE_SECTION_ID} className="mt-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
       <h3 className="mb-3 text-sm font-semibold text-text">캐시 할인 내역 <span className="font-normal text-muted">{total.toLocaleString()}건</span></h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
+      <div className="max-h-[28rem] overflow-auto">
+        <table className="w-full text-left text-xs tabular-nums">
           <thead className="text-muted">
             <tr className="border-b border-line">
-              <th className="py-2 pr-3 font-medium">시각</th>
-              <th className="py-2 pr-3 font-medium">모델</th>
-              <th className="py-2 pr-3 text-right font-medium">캐시 읽기</th>
-              <th className="py-2 pr-3 text-right font-medium">캐시 저장</th>
-              <th className="py-2 text-right font-medium">할인</th>
+              <th className={`${th} pr-3`}>시각</th>
+              <th className={`${th} pr-3`}>모델</th>
+              <th className={`${th} pr-3 text-right`}>캐시 읽기</th>
+              <th className={`${th} pr-3 text-right`}>캐시 저장</th>
+              <th className={`${th} text-right`}>비용 증감{anyEstimated ? ' (추정)' : ''}</th>
             </tr>
           </thead>
           <tbody>
             {visible.map((r, i) => (
               <tr key={`${r.started_at}-${i}`} className="border-b border-line/60 last:border-0">
-                <td className="whitespace-nowrap py-2 pr-3">{formatSince(r.started_at)}</td>
+                <td className="whitespace-nowrap py-2 pr-3 text-muted">{formatStamp(r.started_at)}</td>
                 <td className="max-w-64 truncate py-2 pr-3 text-text" title={r.model}>{r.model}</td>
                 <td className="py-2 pr-3 text-right">{r.cached_tokens ? formatTokens(r.cached_tokens) : '-'}</td>
                 <td className="py-2 pr-3 text-right">{r.cache_write_tokens ? formatTokens(r.cache_write_tokens) : '-'}</td>
-                <td className={`whitespace-nowrap py-2 text-right ${r.savings_usd < 0 ? 'text-amber-500' : 'text-text'}`}>
-                  {r.savings_usd < 0 ? `+${formatUsd(-r.savings_usd)} 저장 비용` : r.savings_usd > 0 ? `−${formatUsd(r.savings_usd)}` : '-'}
-                  {r.estimated && r.savings_usd !== 0 ? <span className="ml-1 text-muted">추정</span> : null}
+                <td
+                  className={`whitespace-nowrap py-2 text-right ${r.savings_usd < 0 ? 'text-amber-500' : r.savings_usd > 0 ? 'text-emerald-500' : 'text-muted'}`}
+                  title={r.savings_usd < 0 ? '캐시 저장 추가 비용' : r.savings_usd > 0 ? '캐시 읽기 할인' : undefined}
+                >
+                  {r.savings_usd < 0 ? `+${formatUsd(-r.savings_usd)}` : r.savings_usd > 0 ? `−${formatUsd(r.savings_usd)}` : '-'}
                 </td>
               </tr>
             ))}
@@ -109,7 +120,8 @@ function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; t
         </button>
       ) : null}
       <p className="mt-3 text-[11px] leading-4 text-muted">
-        캐시를 읽거나 저장한 요청만 보여 줍니다. 캐시에 처음 저장할 때는 정가보다 비싸 「저장 비용」으로, 다시 읽을 때는 할인으로 표시됩니다.
+        캐시를 읽거나 저장한 요청만 최신순으로 보여 줍니다. 정가 대비 청구액이 줄어든 할인은 초록색 −, 캐시에 처음 저장할 때 정가보다 더 든 비용은 주황색 +로 표시합니다.
+        {anyEstimated ? ' 금액은 정가와 실제 청구액의 차이로 계산한 추정치입니다.' : ''}
         {total > items.length ? ` 최근 ${items.length.toLocaleString()}건까지 표시합니다.` : ''}
       </p>
     </section>
@@ -199,6 +211,7 @@ function UsageChart({
   const pts = (vals: number[]) => vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * yMax);
   const labelEvery = Math.max(1, Math.ceil(n / 7));
+  const BAR = 56;
 
   const stackedLayers = useMemo(() => {
     if (mode !== 'stacked') return [];
@@ -225,9 +238,18 @@ function UsageChart({
         ) : null))}
 
         {mode === 'line' && series.map((s) => (
-          <polyline key={s.key} points={pts(s.values)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" />
+          <g key={s.key}>
+            {n > 1 ? <polyline points={pts(s.values)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" /> : null}
+            {n <= 31 ? s.values.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={n === 1 ? 4 : 2.5} fill={s.color} />) : null}
+          </g>
         ))}
-        {mode === 'stacked' && stackedLayers.map(({ s, lower, upper }) => (
+        {mode === 'stacked' && n === 1 && stackedLayers.map(({ s, lower, upper }) => (
+          <rect key={s.key} x={x(0) - BAR / 2} y={y(upper[0])} width={BAR} height={Math.max(0, y(lower[0]) - y(upper[0]))} fill={s.color} fillOpacity={0.75} />
+        ))}
+        {mode === 'cumulative' && n === 1 && (
+          <rect x={x(0) - BAR / 2} y={y(cumulative[0])} width={BAR} height={Math.max(0, y(0) - y(cumulative[0]))} fill={PALETTE[0]} fillOpacity={0.6} />
+        )}
+        {mode === 'stacked' && n > 1 && stackedLayers.map(({ s, lower, upper }) => (
           <polygon
             key={s.key}
             points={`${pts(upper)} ${[...lower].reverse().map((v, ri) => `${x(n - 1 - ri).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}`}
@@ -237,7 +259,7 @@ function UsageChart({
             strokeWidth={1}
           />
         ))}
-        {mode === 'cumulative' && (
+        {mode === 'cumulative' && n > 1 && (
           <>
             <polygon points={`${x(0)},${y(0)} ${pts(cumulative)} ${x(n - 1)},${y(0)}`} fill={PALETTE[0]} fillOpacity={0.15} />
             <polyline points={pts(cumulative)} fill="none" stroke={PALETTE[0]} strokeWidth={2} />
@@ -278,12 +300,18 @@ function UsageChart({
   );
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatCard({ label, value, hint, onHintClick }: { label: string; value: string; hint?: string; onHintClick?: () => void }) {
   return (
     <div className="rounded-xl border border-line bg-panel p-4 shadow-sm">
-      <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-text">{value}</p>
-      {hint ? <p className="mt-1 text-[11px] leading-4 text-muted">{hint}</p> : null}
+      <p className="truncate text-xs text-muted" title={label}>{label}</p>
+      <p className="mt-1 text-xl font-semibold tabular-nums text-text">{value}</p>
+      {hint ? (
+        onHintClick ? (
+          <button type="button" onClick={onHintClick} className="mt-1 block max-w-full truncate text-left text-[11px] leading-4 text-muted hover:text-accent">{hint}</button>
+        ) : (
+          <p className="mt-1 truncate text-[11px] leading-4 text-muted" title={hint}>{hint}</p>
+        )
+      ) : null}
     </div>
   );
 }
@@ -432,12 +460,6 @@ export function SettingsUsagePage() {
           onChange={setGroupBy}
           options={(Object.keys(GROUP_LABEL) as GroupBy[]).map((g) => ({ value: g, label: GROUP_LABEL[g].short }))}
         />
-        <Segmented
-          label="보기"
-          value={mode}
-          onChange={setMode}
-          options={[{ value: 'line', label: '선' }, { value: 'stacked', label: '누적 영역' }, { value: 'cumulative', label: '누적 합계' }]}
-        />
         <button type="button" onClick={() => void load()} disabled={loading} className="ml-auto rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text disabled:opacity-50">
           {loading ? '불러오는 중…' : '새로고침'}
         </button>
@@ -457,18 +479,27 @@ export function SettingsUsagePage() {
           <StatCard
             label={`${totals.cache_savings_usd < 0 ? '캐시 저장 추가 비용' : '캐시로 아낀 금액'}${totals.cache_savings_estimated_requests ? ' (추정)' : ''}`}
             value={formatUsd(Math.abs(totals.cache_savings_usd))}
-            hint={data?.cache_requests_total ? `캐시 사용 요청 ${data.cache_requests_total.toLocaleString()}건 · 아래 내역 참고` : undefined}
+            hint={data?.cache_requests_total ? `캐시 적용 ${data.cache_requests_total.toLocaleString()}건 · 내역 보기 ↓` : undefined}
+            onHintClick={data?.cache_requests?.length
+              ? () => document.getElementById(CACHE_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              : undefined}
           />
         </div>
       ) : null}
 
       <section className="mb-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <ChartLine size={18} className="text-accent" />
-          <h3 className="text-sm font-semibold text-text">
-            일별 {metric === 'tokens' ? '토큰' : '비용'} · {mode === 'line' ? '선' : mode === 'stacked' ? '누적 영역' : '누적 합계'}
-          </h3>
-          {data ? <span className="ml-auto text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
+          <h3 className="text-sm font-semibold text-text">일별 {metric === 'tokens' ? '토큰' : '비용'}</h3>
+          {data ? <span className="text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
+          <span className="ml-auto">
+            <Segmented
+              label="차트 모양"
+              value={mode}
+              onChange={setMode}
+              options={[{ value: 'line', label: '선' }, { value: 'stacked', label: '누적 영역' }, { value: 'cumulative', label: '누적 합계' }]}
+            />
+          </span>
         </div>
         {series.length === 0 ? (
           <p className="py-16 text-center text-sm text-muted">{loading
@@ -492,7 +523,7 @@ export function SettingsUsagePage() {
             ) : null}
           </>
         )}
-        {mode === 'stacked' ? (
+        {mode === 'stacked' && dates.length > 1 ? (
           <p className="mt-2 text-[11px] text-muted">맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.</p>
         ) : null}
       </section>
@@ -501,7 +532,7 @@ export function SettingsUsagePage() {
         <section className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
           <h3 className="mb-3 text-sm font-semibold text-text">{GROUP_LABEL[groupBy].short} 합계</h3>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs tabular-nums">
               <thead className="text-muted">
                 <tr className="border-b border-line">
                   <th className="py-2 pr-3 font-medium">{GROUP_LABEL[groupBy].column}</th>
