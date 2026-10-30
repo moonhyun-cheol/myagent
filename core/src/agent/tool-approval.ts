@@ -7,6 +7,7 @@ import { isOfficeBinaryPath } from '../security/workspace-capabilities.js';
 import { isAbsoluteUserPath, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
 import { classifyTerminalCommand } from './terminal-risk-policy.js';
+import { mcpServerIdFromTool, networkApprovalNeed } from './untrusted-content.js';
 
 export type ToolApprovalAccess =
   | 'operation'
@@ -268,6 +269,9 @@ export function canDelegateToolApproval(
     }
     return paths.length > 0 && paths.every((p) => inside(p) && !isOfficeBinaryPath(String(p ?? '')));
   }
+  // Network destinations (unrequested site, first user-MCP call): the reviewer judges
+  // whether the destination matches the request and whether arguments carry data out.
+  if (toolName === 'browser_navigate' || mcpServerIdFromTool(toolName)) return true;
   // Rollback/plugin changes, moves, and every external write (NAS included)
   // deliberately stay outside delegated authority.
   return false;
@@ -385,6 +389,10 @@ export function needsHumanApproval(
     workspaceRoot?: string;
     allowedWriteRoots?: readonly string[];
     approvedExternalReadRoots?: ReadonlySet<string>;
+    /** Latest user request; hosts it names need no navigation card. */
+    userMessage?: string;
+    /** Run-scoped network grants (`host:` / `mcp:` keys). Never persisted. */
+    approvedNetworkGrants?: ReadonlySet<string>;
   },
 ): {
   needed: boolean;
@@ -453,6 +461,21 @@ export function needsHumanApproval(
         };
       }
     }
+  }
+  const network = networkApprovalNeed(toolName, args, {
+    userMessage: context?.userMessage,
+    grants: context?.approvedNetworkGrants,
+  }, env);
+  if (network) {
+    return {
+      needed: true,
+      danger: false,
+      access: 'network',
+      targets: network.targets,
+      grantRoots: network.grantKeys,
+      expires: 'run',
+      summary: network.summary,
+    };
   }
   if (toolName === 'browser_evaluate') {
     return {

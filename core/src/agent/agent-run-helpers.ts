@@ -34,6 +34,7 @@ import type { CodeAgentOptions } from './agent-run-types.js';
 import type { EvidenceRecord } from './agent-evidence-types.js';
 import { formatEvidenceEnvelope } from './agent-evidence-store.js';
 import { TOKEN_EFFICIENCY_PRINCIPLES } from './agent-token-efficiency.js';
+import { UNTRUSTED_CONTENT_SYSTEM_RULE } from './untrusted-content.js';
 import { formatTurnContextMessage } from './agent-context-assembler.js';
 
 const CODE_SNIPPET_MAX = 1200;
@@ -207,6 +208,7 @@ export function buildAgentMessages(
         ...TOKEN_EFFICIENCY_PRINCIPLES,
         'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and sufficient outcome-relevant verification, call active_task complete. User correction may replace/cancel it.',
         'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
+        UNTRUSTED_CONTENT_SYSTEM_RULE,
         'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
         `Dev workspace root (not an FS cage): ${root}`,
         'Relative paths resolve here; absolute/UNC allowed when the user points outside. NAS writes need consent. Do not ask to copy NAS files in — list/read UNC directly.',

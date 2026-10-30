@@ -303,6 +303,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   const toolTrace: NonNullable<AgentPerfSnapshot['tool_trace']> = [];
   const approvalTrace: NonNullable<AgentPerfSnapshot['approval_trace']> = [];
   const approvedExternalReadRoots = new Set<string>();
+  const approvedNetworkGrants = new Set<string>();
   let approvalWaitMs = 0;
   const llmUsage: NonNullable<AgentPerfSnapshot['usage']> = {
     prompt_tokens: 0,
@@ -878,6 +879,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     approvalWaitMs,
     approvalTrace,
     approvedExternalReadRoots,
+    approvedNetworkGrants,
     llmUsage,
     browserSession,
     toolCtx,

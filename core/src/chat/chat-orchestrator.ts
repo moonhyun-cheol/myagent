@@ -1048,7 +1048,10 @@ export class ChatOrchestrator {
               onToolApproval: async (approvalReq) => {
                 const approvalPolicy = requestedExecutionPolicy.approval;
                 const fixedSevere = approvalReq.fixedSeverity === 'severe';
-                if (approvalPolicy === 'autopilot' && approvalReq.delegable === true && !fixedSevere) {
+                // Network destinations (unrequested site / first user-MCP call) are where web
+                // injection exfiltrates data, so Autopilot hands them to the decision model.
+                const networkAccess = approvalReq.access === 'network';
+                if (approvalPolicy === 'autopilot' && approvalReq.delegable === true && !fixedSevere && !networkAccess) {
                   sseEvent(res, { type: 'status', text: `Autopilot 승인 · 워크스페이스 안전 범위 — ${approvalReq.summary}` });
                   return { approved: true, by: 'policy' };
                 }
@@ -1060,7 +1063,7 @@ export class ChatOrchestrator {
                 }
                 const approvalOverrides = loadUserOverrides(this.configPath);
                 // Autopilot still asks the decision model for folder wipes / DB destruction.
-                const reviewMode = approvalPolicy === 'delegate' || (approvalPolicy === 'autopilot' && fixedSevere)
+                const reviewMode = approvalPolicy === 'delegate' || (approvalPolicy === 'autopilot' && (fixedSevere || networkAccess))
                   ? 'delegate'
                   : approvalPolicy === 'ask' && approvalOverrides.approval_card_triage === true ? 'triage' : null;
                 if (reviewMode && approvalReq.delegable === true) {

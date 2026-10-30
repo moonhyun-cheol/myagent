@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "untrusted-web-mcp-content",
+      "status": "development",
+      "title": "웹 페이지·외부 MCP 내용 속 지시를 따르지 않도록 보호",
+      "detail": "브라우저로 읽은 페이지 내용과 사용자가 추가한 MCP 서버의 결과·도구 설명을 AI에게 「지시가 아닌 데이터」로 표시해 전달합니다. 요청에 없던 사이트로 이동하거나 MCP 서버를 이번 작업에서 처음 쓸 때는 한 번 승인을 받습니다. 요청에 적힌 사이트와 내 PC의 로컬 주소는 묻지 않으며, 「나 대신 승인」과 Autopilot에서는 판단 모델이 주소와 인자를 보고 정합니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/untrusted-content.ts", "core/src/agent/tool-approval.ts", "core/src/agent/agent-run-step-loop.ts", "core/src/agent/user-mcp.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "in-app-browser-single-control-path",
       "status": "development",
       "title": "인앱 브라우저 조작 경로를 하나로 정리",

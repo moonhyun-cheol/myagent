@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { AgentToolDefinition } from './agent-tool-types.js';
 import { TOOL_IMAGE_MAX_BYTES, TOOL_IMAGE_MAX_COUNT, toolImageFromBase64 } from './tool-image.js';
+import { formatUntrustedMcpDescription } from './untrusted-content.js';
 
 export type UserMcpServerConfig = {
   id: string;
@@ -126,7 +127,8 @@ export async function listUserMcpToolDefinitions(
           type: 'function',
           function: {
             name,
-            description: `[mcp:${server.id}] ${t.description || t.name}`.slice(0, 500),
+            // Server-authored text sits in every turn's tool catalog: label it as data.
+            description: formatUntrustedMcpDescription(server.id, t.description || t.name),
             parameters:
               (t.inputSchema as Record<string, unknown>)
               || { type: 'object', properties: {} },
