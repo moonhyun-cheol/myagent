@@ -3,167 +3,167 @@
   "notes": [
     {
       "id": "agent-run-wall-time-and-stream-stall",
-      "status": "development",
+      "status": "released",
       "title": "오래 안 멈추는 작업 방지: 30분마다 진행 점검, 1시간 후 자동 연장 중단, 멈춘 응답 끊기",
       "detail": "한 작업이 30분·60분…을 넘길 때마다 걸음 수와 상관없이 검토 모델이 계속 진행할지 판단합니다. 1시간이 지나면 자동 연장 없이 사용자에게 묻습니다. 검토 모델에 경과 시간과 걸음당 평균 시간을 넘기고, 상태 줄과 승인 카드에 경과 시간을 표시합니다. 모델 응답 스트림이 2분(첫 출력 전 5분) 동안 아무것도 보내지 않으면 끊고 다시 시도합니다.",
       "area": "core",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/stream-idle.ts", "core/src/agent/step-budget-review.ts", "core/src/agent/agent-run-step-loop.ts", "core/src/chat/chat-orchestrator.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "usage-page-ux-polish",
-      "status": "development",
+      "status": "released",
       "title": "사용량·비용 화면 정리: 하루치 차트 표시, 캐시 내역 부호, 차트 모양 위치",
       "detail": "하루치 조회에서 빈 격자만 보이던 차트를 막대·점으로 그립니다. 캐시 내역의 마지막 열은 「비용 증감」으로 바꿔 할인은 초록 −, 저장 추가 비용은 주황 +로 보이고 「추정」은 열 제목에만 씁니다. 시각은 초까지 보이고 표 안에서 스크롤됩니다. 차트 모양 선택은 차트 제목 옆으로 옮겼고, 캐시 카드의 「내역 보기 ↓」로 내역 표로 이동합니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "usage-model-rows-split-by-purpose",
-      "status": "development",
+      "status": "released",
       "title": "사용량 「모델별」 표에서 같은 모델의 대화와 승인 판단을 나눠 표시",
       "detail": "대화와 승인 판단에 같은 모델을 쓰면 「모델별」 표와 그래프에서 한 줄로 합쳐지던 문제를 고쳤습니다. 대화가 아닌 요청은 「모델 이름 (승인 판단)」처럼 용도를 붙여 따로 보여 줍니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-summary.ts", "tools/verify-llm-usage-purpose.mjs"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "approval-review-reason-korean",
-      "status": "development",
+      "status": "released",
       "title": "승인 판단 사유를 한국어로 고정",
       "detail": "범용 판단 모델(Sol 등)이 판단 사유를 영어로 쓰던 문제를 고쳤습니다. 판단 지침에 한국어로 쓰라는 규칙을 넣었고, 판단 실패·건너뜀 같은 앱 자체 문구도 한국어로 바꿨습니다.",
       "area": "agent",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/agent/approval-auto-review.ts", "tools/verify-approval-auto-review.mjs"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "approval-review-fallback-sol",
-      "status": "development",
+      "status": "released",
       "title": "「나 대신 승인」 마지막 대체 판단 모델을 Luna에서 Sol로 변경",
       "detail": "판단 전문 모델(microsoft-decision, Jev)이 모두 실패했을 때 마지막으로 판단하는 범용 모델을 Luna에서 더 상위 모델인 Sol 최신 버전으로 바꿨습니다. 설정에서 Luna를 골라 둔 경우에도 Sol로 판단합니다.",
       "area": "agent",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/agent/approval-auto-review.ts", "tools/verify-approval-auto-review.mjs"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "approval-review-image-size-fit",
-      "status": "development",
+      "status": "released",
       "title": "이미지를 첨부한 대화에서 「나 대신 승인」 판단이 실패하던 문제 수정",
       "detail": "이미지를 받는 판단 모델(Jev)은 가로·세로가 각각 280~1568픽셀인 이미지만 받아서, 작게 자른 캡처나 큰 전체 화면 캡처를 첨부하면 판단이 실패하고 승인 카드가 떴습니다. 이제 PNG 이미지는 이 범위에 맞게 크기를 바꿔 보내고, 크기를 바꿀 수 없는 이미지는 빼고 판단합니다. 사용량·비용의 모델 표에도 「(알 수 없음)」 대신 실제 판단 모델 이름이 나옵니다.",
       "area": "agent",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/agent/decision-image-fit.ts", "core/src/agent/approval-auto-review.ts", "core/src/providers/llm-usage-log.ts", "tools/verify-decision-image-fit.mjs", "tools/verify-approval-auto-review.mjs", "tools/verify-llm-usage-purpose.mjs"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "settings-llm-usage-cache-savings-estimate",
-      "status": "development",
+      "status": "released",
       "title": "사용량·비용에서 캐시로 아낀 금액 추정 표시와 요청별 캐시 할인 내역",
       "detail": "OpenRouter는 캐시 할인액을 따로 알려 주지 않습니다. 그래서 정가로 계산한 입력 비용에서 실제로 청구된 입력 비용을 빼 캐시로 아낀 금액을 구하고, 화면에 「추정」으로 표시합니다. 캐시 저장 비용이 더 들어 합계가 음수가 되면 카드 제목이 「캐시 저장 추가 비용」으로 바뀝니다. 아래에는 캐시를 읽거나 저장한 요청만 모은 「캐시 할인 내역」 표(시각·모델·캐시 읽기·캐시 저장·할인)가 최신순으로 나옵니다.",
       "area": "settings",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-log.ts", "core/src/providers/llm-usage-summary.ts", "tools/verify-llm-usage-purpose.mjs", "ui/workspace/src/components/SettingsUsagePage.tsx", "ui/workspace/src/api/myAgentClient.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "settings-llm-usage-cost",
-      "status": "development",
+      "status": "released",
       "title": "설정에 「사용량·비용」 화면 추가",
       "detail": "설정 → 모델 → 사용량·비용에서 토큰과 비용을 모델·프로바이더·용도별 차트와 표로 봅니다. 대화 외에 승인 판단·이미지·영상·임베딩 호출도 기록합니다. 「사용량·비용 집계」 스위치를 켠 동안 보낸 요청만 집계하며, 켜기 전 기록과 일시 중지한 동안의 요청은 포함하지 않습니다. 다시 켜면 이어서 집계합니다. 기간은 7·30·90일, 전체, 기간 지정(최대 1년)으로 볼 수 있습니다.",
       "area": "settings",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/llm-usage-summary.ts", "core/src/providers/llm-usage-log.ts", "core/src/agent/approval-auto-review.ts", "core/src/video/video-generation.ts", "core/src/chat/modes/image-gen.ts", "core/src/chat/modes/video-gen.ts", "core/src/providers/embeddings.ts", "tools/verify-llm-usage-purpose.mjs", "core/src/routes/dispatch.ts", "ui/workspace/src/components/SettingsUsagePage.tsx", "ui/workspace/src/components/SettingsModal.tsx", "ui/workspace/src/api/myAgentClient.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "web-action-audit-log",
-      "status": "development",
+      "status": "released",
       "title": "AI 브라우저·웹 작업 기록",
       "detail": "AI가 브라우저를 조작하거나 웹 파일을 받거나 외부 MCP 도구를 쓸 때마다, 어느 브라우저(화면/별도)에서 어떤 동작을 어느 사이트에 했고 결과가 어땠는지(성공·실패·차단·사용자 제어·승인 거절)를 로컬 감사 기록에 남깁니다. 입력한 값, 실행한 스크립트, 주소의 경로·검색어, 페이지 내용은 기록하지 않습니다.",
       "area": "browser",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/agent/web-action-audit.ts", "core/src/agent/agent-audit-ledger.ts", "core/src/agent/agent-tool-execute.ts", "core/src/agent/agent-run-step-loop.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "browser-url-guard-hardening",
-      "status": "development",
+      "status": "released",
       "title": "AI 브라우저 작업의 주소 차단 강화",
       "detail": "AI가 쓰는 브라우저·크롤링·웹 파일 저장에서 처음 주소뿐 아니라 리다이렉트, 링크 클릭, 스크립트 이동, 페이지가 불러오는 리소스까지 같은 규칙으로 검사합니다. 내부망 주소 판정을 넓혔고, 설정의 차단 목록에 적은 주소(예: 사내 관리자 페이지)는 AI가 열거나 내용을 읽지 못합니다.",
       "area": "browser",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/browser/url-guard.ts", "core/src/browser/playwright-session.ts", "core/src/browser/web-crawl-service.ts", "core/src/sessions/save-web-asset.ts", "core/src/agent/agent-tool-execute.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "untrusted-web-mcp-content",
-      "status": "development",
+      "status": "released",
       "title": "웹 페이지·외부 MCP 내용 속 지시를 따르지 않도록 보호",
       "detail": "브라우저로 읽은 페이지 내용과 사용자가 추가한 MCP 서버의 결과·도구 설명을 AI에게 「지시가 아닌 데이터」로 표시해 전달합니다. 요청에 없던 사이트로 이동하거나 MCP 서버를 이번 작업에서 처음 쓸 때는 한 번 승인을 받습니다. 요청에 적힌 사이트와 내 PC의 로컬 주소는 묻지 않으며, 「나 대신 승인」과 Autopilot에서는 판단 모델이 주소와 인자를 보고 정합니다.",
       "area": "agent",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/agent/untrusted-content.ts", "core/src/agent/tool-approval.ts", "core/src/agent/agent-run-step-loop.ts", "core/src/agent/user-mcp.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "in-app-browser-single-control-path",
-      "status": "development",
+      "status": "released",
       "title": "인앱 브라우저 조작 경로를 하나로 정리",
       "detail": "AI가 화면에 보이는 인앱 브라우저를 조작할 때는 앱 내부 연결 하나만 사용합니다. 잠금, 사용자 제어권, 비밀번호 칸 보호가 모든 조작에 똑같이 적용됩니다. 인앱 브라우저는 더 이상 외부 디버깅 포트를 열지 않으며, 화면에 보이는 브라우저를 쓸 수 없을 때는 보이지 않는 별도 브라우저에서 작업합니다.",
       "area": "browser",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/browser/playwright-session.ts", "core/src/agent/agent-tool-execute.ts", "shell/CqrPa.Shell/MainWindow.BrowserTabs.cs"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "in-app-browser-user-takeover",
-      "status": "development",
+      "status": "released",
       "title": "「제어 가져오기」 후에는 AI가 브라우저를 다시 조작하지 않음",
       "detail": "인앱 브라우저에서 「제어 가져오기」를 누르면 「에이전트에 다시 맡기기」를 누를 때까지 AI가 그 탭을 조작하거나 새 탭으로 피해 가지 않습니다. AI는 사용자가 제어 중이라고 알리고 기다립니다.",
       "area": "browser",
       "created_at": "2026-10-30",
       "source_paths": ["shell/CqrPa.Shell/MainWindow.BrowserTabs.cs", "ui/workspace/src/components/BrowserPane.tsx", "core/src/agent/agent-tool-execute.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "local-api-origin-guard",
-      "status": "development",
+      "status": "released",
       "title": "다른 웹 페이지가 내 PC의 MY Agent를 호출하지 못하게 차단",
       "detail": "브라우저에서 연 외부 웹 페이지가 내 PC에서 실행 중인 MY Agent에 요청을 보내지 못하도록 요청 출처를 검사합니다. 승인 창을 띄울 수 없는 실행에서는 AI가 스스로 승인 표시를 붙여 위험한 작업을 넘기지 못하게 막았습니다.",
       "area": "security",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/security/local-api-guard.ts", "core/src/api-server.ts", "core/src/agent/tool-approval.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "openrouter-session-pin-cost",
-      "status": "development",
+      "status": "released",
       "title": "OpenRouter 요청의 캐시 유지와 비용 기록 개선",
       "detail": "같은 대화의 OpenRouter 요청을 하나의 세션으로 묶어 프롬프트 캐시가 더 잘 유지되도록 했습니다. 요청마다 모델 가격표로 비용을 계산해 기록하고, 작업 단계가 길어져 계속 진행할지 판단할 때도 지금까지 쓴 비용을 함께 봅니다.",
       "area": "agent",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/providers/responses-compatible.ts", "core/src/agent/llm-usage-cost.ts", "core/src/agent/step-budget-review.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "tool-visual-results",
-      "status": "development",
+      "status": "released",
       "title": "브라우저 캡처와 도구 이미지 결과를 AI가 확인",
       "detail": "브라우저 캡처와 외부 도구의 이미지 결과를 AI의 다음 요청에 이미지로 전달합니다. 내려받거나 작업 중 만든 이미지도 경로를 지정해 열어볼 수 있습니다. 지원하지 않는 형식이나 크기 제한으로 이미지를 전달하지 못하면 이를 알리고, 긴 문서 변환 결과는 누락 범위와 이어 읽을 위치를 표시합니다. 이미지 확인에는 이미지 입력을 지원하는 모델이 필요합니다.",
       "area": "agent",
       "created_at": "2026-10-29",
       "source_paths": ["core/src/agent/agent-tool-execute.ts", "core/src/agent/tool-image.ts", "core/src/agent/user-mcp.ts", "core/src/sidecars/markitdown-sidecar.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "provider-payment-error-diagnostics",
-      "status": "development",
+      "status": "released",
       "title": "AI 요청의 결제·한도 오류 원인 추적 보강",
       "detail": "AI 요청이 결제·한도 문제로 중단되면 연결 대상과 요청 크기, 최대 출력량, 공급자가 알려 준 오류 사유를 로컬 기록에서 비교할 수 있도록 보강했습니다. 잔액 부족·지출 한도·요청 비용 초과를 구분하고, 상세 사유가 없으면 불명으로 남깁니다. 질문 본문과 원문 오류 문구는 기록하지 않습니다.",
       "area": "agent",
@@ -173,79 +173,79 @@
         "core/src/providers/provider-error-diagnostics.ts"
       ],
       "release": {
-        "version": null,
-        "update_sequence": null
+        "version": "1.1.21",
+        "update_sequence": 69
       }
     },
     {
       "id": "new-chat-faster",
-      "status": "development",
+      "status": "released",
       "title": "새 대화 시작과 대화 목록 불러오기 속도 개선",
       "detail": "대화 목록을 읽을 때 대화 전체 내용 대신 필요한 항목만 읽고, 새 대화를 만들 때 주고받는 요청 수를 줄였습니다. 대화가 많을수록 목록이 더 빨리 열립니다. 응답이 0.5초 넘게 걸린 요청은 로컬 기록에 남겨 느려진 원인을 찾을 수 있습니다.",
       "area": "workspace",
       "created_at": "2026-10-29",
       "source_paths": ["core/src/sessions/session-store.ts", "core/src/routes/slow-request-log.ts", "ui/workspace/src/store/workspaceStore.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "scheduler-run-trace-recovery",
-      "status": "development",
+      "status": "released",
       "title": "자동화 실행 기록과 중단된 실행 정리",
       "detail": "자동화가 실행될 때마다 주고받은 메시지와 도구 호출 기록을 남기고, 실패한 실행에도 오류 보고서를 붙입니다. 앱이 꺼져 끝나지 못한 실행은 다음 시작 때 중단으로 정리하고, 앱이 꺼져 있어 건너뛴 실행도 알림에 표시합니다. 기록은 90일까지 보관합니다.",
       "area": "scheduler",
       "created_at": "2026-10-29",
       "source_paths": ["core/src/scheduler/personal-scheduler-service.ts", "core/src/scheduler/run-trace.ts", "core/src/scheduler/personal-scheduler-store.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "document-start-screen",
-      "status": "development",
+      "status": "released",
       "title": "문서를 열지 않았을 때 시작 화면 표시",
       "detail": "문서를 열지 않은 상태에서는 새 문서, 프로젝트 문서 열기, 외부 파일 가져오기, 최근 문서 5개를 고르는 시작 화면이 나옵니다. 새 문서는 바로 렌더링 편집으로 열리고, 문서를 열면 빈 「제목 없음」 탭이 남지 않습니다. 좁은 화면에서는 보조 버튼을 더보기로 접습니다.",
       "area": "document",
       "created_at": "2026-10-29",
       "source_paths": ["ui/workspace/src/components/MarkdownDocument.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "media-tab-redesign",
-      "status": "development",
+      "status": "released",
       "title": "미디어 탭 갤러리와 미리보기 개편",
       "detail": "대화와 작업 폴더의 이미지·영상을 한 목록으로 모아 보여 주고, 미리보기 창에서 원본 보기, 내려받기, 채팅에 첨부를 할 수 있습니다. 작업 폴더의 영상은 원하는 위치로 바로 넘겨 볼 수 있습니다.",
       "area": "media",
       "created_at": "2026-10-29",
       "source_paths": ["ui/workspace/src/components/MediaPane.tsx", "ui/workspace/src/components/ImagePreviewModal.tsx", "ui/workspace/src/lib/mediaCatalog.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "pinned-instructions-context",
-      "status": "development",
+      "status": "released",
       "title": "고정 지침을 대화 메시지와 분리해 전달",
       "detail": "고정 지침을 사용자 메시지 앞에 붙이지 않고 별도 항목으로 AI에 전달합니다. 대화 기록에 고정 지침 문구가 섞이지 않습니다.",
       "area": "chat",
       "created_at": "2026-10-29",
       "source_paths": ["core/src/chat/session-context.ts", "core/src/chat/chat-request.ts", "ui/workspace/src/lib/pinnedInstructions.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "work-panel-redesign",
-      "status": "development",
+      "status": "released",
       "title": "우측 작업 패널 정리와 파일·웹·코드 뷰어 오류 수정",
       "detail": "우측 작업 패널의 탭 구성과 접기 버튼을 정리했습니다. 파일을 열면 「열린 파일」 탭의 코드 뷰어로 열리고, 큰 폴더는 펼칠 때 불러오며 점(.)으로 시작하는 폴더도 보입니다. 웹 탭의 빈 페이지·초기화 동작과 코드 뷰어 저장 단축키 오류도 고쳤습니다.",
       "area": "workspace",
       "created_at": "2026-10-29",
       "source_paths": ["ui/workspace/src/components/WorkspaceObjectsPane.tsx", "ui/workspace/src/components/InlineCodeViewer.tsx", "ui/workspace/src/components/AssetExplorer.tsx", "ui/workspace/src/components/BrowserPane.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "decision-approval-context",
-      "status": "development",
+      "status": "released",
       "title": "「나 대신 승인」 판단에 쓰는 정보 보강",
       "detail": "원격에 올리기 같은 위험한 작업을 판단할 때 직전 AI 답변의 끝부분도 함께 봐서, 「2번으로 진행」처럼 제안을 고른 답도 직접 지시로 인정합니다. 명령과 인자는 일부가 아닌 전체를 보고, 대화에 등록한 폴더도 작업 폴더처럼 맡길 수 있습니다(네트워크 폴더 제외).",
       "area": "agent",
       "created_at": "2026-10-26",
       "source_paths": ["core/src/agent/approval-auto-review.ts", "core/src/agent/tool-approval.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
       "id": "decision-model-auto-approval",

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-30T02:53:12.938Z",
+  "generated_at": "2026-10-30T06:02:22.786Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 121,
+    "route_count": 123,
     "routes": [
       {
         "method": "GET",
@@ -543,6 +543,16 @@
       },
       {
         "method": "GET",
+        "path": "/runtime/llm-usage-summary",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/runtime/llm-usage-tracking",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
         "path": "/sessions",
         "match": "exact"
       },
@@ -645,16 +655,6 @@
         "method": "PUT",
         "path": "/workspace/documents",
         "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/workspace/documents/",
-        "match": "prefix"
-      },
-      {
-        "method": "POST",
-        "path": "/workspace/documents/",
-        "match": "prefix"
       }
     ]
   }
