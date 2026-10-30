@@ -100,6 +100,7 @@ import {
   createWorkspaceCheckpoint,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
+import { isAuditedWebTool, recordWebActionAudit } from './web-action-audit.js';
 import {
   MAX_AGENT_STEPS,
   type CodeAgentResult,
@@ -903,6 +904,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             execCall.function.name,
             args.confirm === true ? 'no_approval_channel' : 'confirm_required',
           );
+          if (isAuditedWebTool(execCall.function.name)) {
+            recordWebActionAudit({
+              cqrRoot: state.opts.cqrRoot, sessionId: state.opts.sessionId,
+              tool: execCall.function.name, args, outcome: 'no_approval_channel',
+            });
+          }
           loopGuard.noteResult(execCall, output);
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (승인 필요)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
@@ -910,6 +917,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
         if (!approved) {
           const output = formatApprovalDenied(execCall.function.name, 'user_rejected');
+          if (isAuditedWebTool(execCall.function.name)) {
+            recordWebActionAudit({
+              cqrRoot: state.opts.cqrRoot, sessionId: state.opts.sessionId,
+              tool: execCall.function.name, args, outcome: 'approval_denied',
+            });
+          }
           loopGuard.noteResult(execCall, output);
           state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (거절됨)`);
           pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);

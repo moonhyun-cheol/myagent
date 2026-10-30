@@ -26,7 +26,16 @@ export type AgentAuditEventType =
   | 'role_end'
   | 'turn_decision'
   | 'approval_review'
-  | 'budget_review';
+  | 'budget_review'
+  | 'web_action';
+
+/** Browser / web download / user MCP action (see web-action-audit.ts). Host only — never path, query or values. */
+export interface AgentWebAuditFields {
+  target: 'visible' | 'isolated' | 'download' | 'mcp' | 'none';
+  action: string;
+  host?: string;
+  outcome: 'ok' | 'error' | 'blocked' | 'taken_over' | 'approval_denied' | 'no_approval_channel';
+}
 
 export interface AgentAuditEvent {
   id: string;
@@ -48,6 +57,8 @@ export interface AgentAuditEvent {
   parentRunId?: string;
   /** MAR role name. */
   role?: string;
+  /** web_action only. */
+  web?: AgentWebAuditFields;
 }
 
 export interface AuditShipPolicy {
@@ -91,6 +102,7 @@ export function appendAgentAuditEvent(cqrRoot: string, partial: Omit<AgentAuditE
     agentId: partial.agentId,
     parentRunId: partial.parentRunId,
     role: partial.role,
+    web: partial.web,
   };
   const dir = ledgerDir(cqrRoot);
   mkdirSync(dir, { recursive: true });
@@ -205,6 +217,12 @@ export type AgentAuditSummary = {
   top_tools: { tool: string; count: number; fail: number }[];
   failure_types: Record<string, number>;
   recent_blocks: { at: string; type: string; detail?: string; tool?: string }[];
+  web_actions: {
+    total: number;
+    by_target: Record<string, number>;
+    by_outcome: Record<string, number>;
+    top_hosts: { host: string; count: number; visible: number }[];
+  };
   ledger_path: string;
 };
 
@@ -229,6 +247,7 @@ export function summarizeAgentAuditLedger(
     top_tools: [],
     failure_types: {},
     recent_blocks: [],
+    web_actions: { total: 0, by_target: {}, by_outcome: {}, top_hosts: [] },
     ledger_path: lp,
   };
   if (!existsSync(lp)) return empty;
@@ -249,6 +268,10 @@ export function summarizeAgentAuditLedger(
   let guardBlocks = 0;
   let workMode = 0;
   const failureTypes: Record<string, number> = {};
+  const webByTarget: Record<string, number> = {};
+  const webByOutcome: Record<string, number> = {};
+  const webHosts = new Map<string, { count: number; visible: number }>();
+  let webTotal = 0;
 
   for (const line of slice) {
     let ev: AgentAuditEvent;
@@ -279,6 +302,17 @@ export function summarizeAgentAuditLedger(
       blocks.push({ at: ev.at, type: ev.type, detail: ev.detail, tool: ev.tool });
     }
     if (ev.type === 'work_mode') workMode += 1;
+    if (ev.type === 'web_action' && ev.web) {
+      webTotal += 1;
+      webByTarget[ev.web.target] = (webByTarget[ev.web.target] ?? 0) + 1;
+      webByOutcome[ev.web.outcome] = (webByOutcome[ev.web.outcome] ?? 0) + 1;
+      if (ev.web.host) {
+        const cur = webHosts.get(ev.web.host) ?? { count: 0, visible: 0 };
+        cur.count += 1;
+        if (ev.web.target === 'visible') cur.visible += 1;
+        webHosts.set(ev.web.host, cur);
+      }
+    }
   }
 
   const top_tools = [...toolCounts.entries()]
@@ -299,6 +333,15 @@ export function summarizeAgentAuditLedger(
     top_tools,
     failure_types: failureTypes,
     recent_blocks: blocks.slice(-recentBlocksN).reverse(),
+    web_actions: {
+      total: webTotal,
+      by_target: webByTarget,
+      by_outcome: webByOutcome,
+      top_hosts: [...webHosts.entries()]
+        .map(([host, v]) => ({ host, count: v.count, visible: v.visible }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10),
+    },
     ledger_path: lp,
   };
 }
@@ -321,6 +364,10 @@ export function formatAuditSummaryBrief(summary: AgentAuditSummary): string {
       : '',
     Object.keys(summary.failure_types).length
       ? `failures: ${Object.entries(summary.failure_types).map(([k, v]) => `${k}=${v}`).join(', ')}`
+      : '',
+    summary.web_actions?.total
+      ? `web: ${Object.entries(summary.web_actions.by_target).map(([k, v]) => `${k}=${v}`).join(', ')}`
+        + ` | web_outcomes: ${Object.entries(summary.web_actions.by_outcome).map(([k, v]) => `${k}=${v}`).join(', ')}`
       : '',
   ]
     .filter(Boolean)

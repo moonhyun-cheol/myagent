@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "web-action-audit-log",
+      "status": "development",
+      "title": "AI 브라우저·웹 작업 기록",
+      "detail": "AI가 브라우저를 조작하거나 웹 파일을 받거나 외부 MCP 도구를 쓸 때마다, 어느 브라우저(화면/별도)에서 어떤 동작을 어느 사이트에 했고 결과가 어땠는지(성공·실패·차단·사용자 제어·승인 거절)를 로컬 감사 기록에 남깁니다. 입력한 값, 실행한 스크립트, 주소의 경로·검색어, 페이지 내용은 기록하지 않습니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/web-action-audit.ts", "core/src/agent/agent-audit-ledger.ts", "core/src/agent/agent-tool-execute.ts", "core/src/agent/agent-run-step-loop.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "browser-url-guard-hardening",
       "status": "development",
       "title": "AI 브라우저 작업의 주소 차단 강화",

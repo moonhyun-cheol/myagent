@@ -35,6 +35,7 @@
     "verify:local-api-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-api-guard.mjs",
     "verify:untrusted-content": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-untrusted-content.mjs",
     "verify:browser-url-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-browser-url-guard.mjs",
+    "verify:web-action-audit": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-web-action-audit.mjs",
     "verify:model-directed-runtime": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-model-directed-runtime.mjs",
     "verify:parity": "node tools/verify-deploy-parity.mjs",
     "verify:nas": "node tools/verify-no-nas-paths.mjs",

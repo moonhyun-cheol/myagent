@@ -69,6 +69,7 @@ import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOLS } from './agent-tool-definitions.
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
 import { assertAllowedBrowserUrl, visibleBlockedOutput } from '../browser/url-guard.js';
+import { isAuditedWebTool, recordWebActionAudit } from './web-action-audit.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { AttachmentService } from '../attachments/attachment-service.js';
 import {
@@ -231,10 +232,28 @@ export async function executeAgentTool(
   const execution = cancellable ? registerToolExecution(id, ctx!.sessionId!, ctx?.signal, () => activity.requestCancel()) : undefined;
   const signal = execution?.signal ?? ctx?.signal;
   const untrack = trackChatRunTool(normalized.function.name);
+  const webAudit = ctx?.cqrRoot && isAuditedWebTool(normalized.function.name)
+    ? (() => {
+        const auditArgs = parseToolArgs(normalized.function.arguments);
+        return {
+          cqrRoot: ctx.cqrRoot!,
+          sessionId: ctx.sessionId,
+          tool: normalized.function.name,
+          args: auditArgs,
+          resolvedBrowserTarget: normalized.function.name.startsWith('browser_')
+            ? browserExecutionTarget(auditArgs, ctx)
+            : undefined,
+          startedAt: Date.now(),
+        };
+      })()
+    : null;
   try {
     const result = await executeAgentToolInner(workspaceRoot, normalized, guard, {
       ...ctx, signal, onOutput: (stream, chunk) => activity.output(stream, chunk),
     });
+    if (webAudit) {
+      recordWebActionAudit({ ...webAudit, output: result.output, durationMs: Date.now() - webAudit.startedAt });
+    }
     activity.finish(result.output, signal?.aborted);
     if (execution?.signal.aborted && !ctx?.signal?.aborted) {
       let raw: Record<string, unknown> = {};
@@ -246,6 +265,9 @@ export async function executeAgentTool(
     }
     return result;
   } catch (error) {
+    if (webAudit) {
+      recordWebActionAudit({ ...webAudit, outcome: 'error', durationMs: Date.now() - webAudit.startedAt });
+    }
     activity.finish('ERROR: execution failed', signal?.aborted);
     throw error;
   } finally {
