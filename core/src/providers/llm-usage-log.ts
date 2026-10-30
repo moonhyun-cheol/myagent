@@ -14,6 +14,8 @@ export interface LlmUsageContext {
   runId?: string;
   providerId?: string;
   purpose?: LlmUsagePurpose;
+  /** Version-check request (decision `latest` alias). Unknown-id 400s are excluded from the usage summary. */
+  probe?: boolean;
   step?: () => number;
 }
 const context = new AsyncLocalStorage<LlmUsageContext>();
@@ -122,6 +124,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     version: 1, call_id: callId, started_at: new Date(started).toISOString(),
     session_id: id(ctx?.sessionId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId), step,
     wire_api: wire, purpose: requestPurpose(new URL(url).pathname, ctx), model: id(body.model), stream, attempt,
+    ...(ctx?.probe === true ? { probe: true } : {}),
     endpoint_hash: createHash('sha256').update(new URL(url).origin + new URL(url).pathname).digest('hex').slice(0, 24),
     request_bytes: typeof init.body === 'string' ? Buffer.byteLength(init.body) : undefined,
     // Only the host: never URL credentials, paths, query parameters or request headers.

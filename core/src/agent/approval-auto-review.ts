@@ -286,8 +286,9 @@ async function probeDecisionModel(endpoint: string, apiKey: string, model: strin
   signal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), DECISION_PROBE_TIMEOUT_MS);
   try {
-    // Logged too: an existing id answers a real (billed) decision.
-    const res = await fetchWithUsage(endpoint, {
+    // Logged too (an existing id answers a real billed decision), but marked as a probe so the
+    // usage summary drops the free unknown-id 400s instead of showing them as models/failures.
+    const res = await withLlmUsageContext({ probe: true }, () => fetchWithUsage(endpoint, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -296,7 +297,7 @@ async function probeDecisionModel(endpoint: string, apiKey: string, model: strin
         questions: { ok: { type: 'choice', instructions: 'Answer ok.', criteria: { ok: 'ok', no: 'no' } } },
       }),
       signal: controller.signal,
-    });
+    }));
     const text = await res.text();
     if (res.ok) return true;
     if (res.status === 400 && /does not exist/i.test(text)) return false;

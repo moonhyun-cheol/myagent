@@ -273,6 +273,9 @@ export function summarizeLlmUsage(options: {
       let row: Record<string, unknown>;
       try { row = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
       if (row.event !== 'finish') continue;
+      // Decision version checks: an unknown id answers a free 400 — not usage, not a failure.
+      // A probe that hit an existing id is a real billed decision and stays counted.
+      if (row.probe === true && row.http_status === 400) continue;
       const started = Date.parse(String(row.started_at ?? ''));
       if (!Number.isFinite(started)) continue;
       if (!intervals.some(([a, b]) => started >= a && started < b)) continue;
