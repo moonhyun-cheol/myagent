@@ -10,6 +10,7 @@ import { generateVideo, retrieveVideoJob, VideoJobError } from '../../video/vide
 import { findVideoModel, hasOrganizationVideoAccess, type VideoModelDef } from '../../video/video-models.js';
 import type { MediaRecord } from '../../media/media-store.js';
 import type { VideoJobRecord } from '../../sessions/types.js';
+import { withLlmUsageContext } from '../../providers/llm-usage-log.js';
 
 export const VIDEO_MODEL_ORG_REQUIRED_MESSAGE = [
   '**동영상 모델을 사용할 수 없습니다**',
@@ -99,7 +100,7 @@ export async function handleVideoGenMode(opts: {
   const segment = safeSegment(sessionId);
   let job: VideoJobRecord | undefined;
   try {
-    const out = await generateVideo({
+    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId, purpose: 'video' }, () => generateVideo({
       baseUrl: conn.baseUrl,
       apiKey: conn.apiKey,
       model,
@@ -118,7 +119,7 @@ export async function handleVideoGenMode(opts: {
         // Survives a stop before the reply is written (finalizeStoppedRun attaches it).
         sessionStore.notePendingVideoJob(sessionId, job);
       },
-    });
+    }));
     const mb = (out.bytes / (1024 * 1024)).toFixed(1);
     return reply(
       `동영상을 생성했습니다. (${model.label} · ${model.duration}초 · ${model.resolution} · ${mb}MB)`,
@@ -201,12 +202,13 @@ async function retrieveStoredVideoJobOnce(opts: {
   const segment = safeSegment(sessionId);
   const now = () => new Date().toISOString();
   try {
-    const out = await retrieveVideoJob({
+    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId: stored.provider_id, purpose: 'video' }, () => retrieveVideoJob({
       baseUrl: conn.baseUrl,
       apiKey: conn.apiKey,
       jobId,
+      modelId: stored.model_id,
       output: { dir: path.join(videoOut, segment), urlPrefix: `/outputs/videos/${segment}`, baseName: randomUUID(), cqrRoot },
-    });
+    }));
     if (out.state === 'pending') {
       const video_job: VideoJobRecord = { ...stored, updated_at: now(), error: `아직 생성 중 (${out.status})` };
       sessionStore.updateVideoJob(sessionId, jobId, { video_job });

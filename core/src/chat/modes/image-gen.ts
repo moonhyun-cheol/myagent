@@ -12,6 +12,7 @@ import { ingestOwuiChatImages } from '../../image/owui-media.js';
 import { assertWritablePath } from '../../security/path-guard.js';
 import { appendAssistantReply } from '../assistant-reply.js';
 import { withFailureModelLine } from '../../agent/agent-failure-plane.js';
+import { withLlmUsageContext } from '../../providers/llm-usage-log.js';
 
 function resolveInitImage(
   attachments: AttachmentService,
@@ -46,13 +47,17 @@ async function requestOwuiImage(opts: {
   systemPrompt?: string;
 }): Promise<{ content: string; imageUrls: string[]; model: string }> {
   const { cloudChat, providerStore, cqrRoot, imageOut, message, sessionId, resolved } = opts;
-  const out = await cloudChat.complete(
-    resolved.route.providerId,
-    message,
-    undefined,
-    [],
-    opts.systemPrompt,
-    { modelId: resolved.route.modelId, timeoutMs: 300_000 },
+  // Usage log: counted as image generation, not chat.
+  const out = await withLlmUsageContext(
+    { cqrRoot, sessionId, providerId: resolved.route.providerId, purpose: 'image' },
+    () => cloudChat.complete(
+      resolved.route.providerId,
+      message,
+      undefined,
+      [],
+      opts.systemPrompt,
+      { modelId: resolved.route.modelId, timeoutMs: 300_000 },
+    ),
   );
   const finalized = await ingestOwuiChatImages({
     content: out.content,

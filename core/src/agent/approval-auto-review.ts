@@ -1,4 +1,5 @@
 import { chatCompletion, type ChatMessage } from '../providers/openai-compatible.js';
+import { fetchWithUsage, withLlmUsageContext } from '../providers/llm-usage-log.js';
 import type { ProviderStore } from '../providers/provider-store.js';
 import type { ToolApprovalRequest } from './tool-approval.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
@@ -234,7 +235,7 @@ function defaultDecide(): DecideReview {
     request.signal?.addEventListener('abort', onAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), 8_000);
     try {
-      const res = await fetch(request.endpoint, {
+      const res = await fetchWithUsage(request.endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${request.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: request.model, state: request.state, questions: request.questions }),
@@ -285,7 +286,8 @@ async function probeDecisionModel(endpoint: string, apiKey: string, model: strin
   signal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(), DECISION_PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(endpoint, {
+    // Logged too: an existing id answers a real (billed) decision.
+    const res = await fetchWithUsage(endpoint, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -634,6 +636,9 @@ export async function reviewToolApproval(input: {
   const complete = input.complete ?? defaultComplete();
   const decide = input.decide ?? defaultDecide();
   const resolveModel = input.resolveModel ?? resolveDecisionModel;
+  // Usage log: approval calls are split from chat on the Settings usage page.
+  const usage = <T>(work: () => Promise<T>): Promise<T> =>
+    withLlmUsageContext({ cqrRoot: input.cqrRoot, sessionId: input.sessionId, purpose: 'approval' }, work);
   const failures: string[] = [];
 
   for (const [index, route] of routes.entries()) {
@@ -652,15 +657,15 @@ export async function reviewToolApproval(input: {
       }
       try {
         // Local latest alias (microsoft-decision) → concrete id; other ids pass through.
-        const model = await resolveModel({ endpoint, apiKey: provider.secret.api_key, modelId: route.modelId, signal: input.signal });
-        const response = await decide({
+        const model = await usage(() => resolveModel({ endpoint, apiKey: provider.secret.api_key, modelId: route.modelId, signal: input.signal }));
+        const response = await usage(() => decide({
           endpoint,
           apiKey: provider.secret.api_key,
           model,
           state: buildDecisionPayload(decisionState, images),
           questions: DECISION_QUESTIONS,
           signal: input.signal,
-        });
+        }));
         // Alias routes report the concrete build (e.g. typesafe/jev-1.14-20261014).
         const concrete = response.model || model;
         const built = concrete !== route.modelId ? ` → ${concrete}` : '';
@@ -683,14 +688,15 @@ export async function reviewToolApproval(input: {
       continue;
     }
     try {
-      const response = await complete({
+      const wireApi = provider.wireApi;
+      const response = await usage(() => complete({
         baseUrl: provider.baseUrl,
         apiKey: provider.secret.api_key,
         model: route.modelId,
         messages,
-        wireApi: provider.wireApi,
+        wireApi,
         signal: input.signal,
-      });
+      }));
       let parsed = parseApprovalReview(response.content);
       if (fixedSeverity === 'severe' && parsed.decision === 'allow' && parsed.confidence < FIXED_SEVERE_EXPLICIT_MIN) {
         parsed = { ...parsed, decision: 'ask_user', reason: `${parsed.reason} · 고정 심각 작업: 확신 ${Math.round(parsed.confidence * 100)}% < 85%` };

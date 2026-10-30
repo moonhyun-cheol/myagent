@@ -1170,6 +1170,69 @@ export async function fetchLlmRuntimeStatus(): Promise<Record<string, unknown>> 
   return data as Record<string, unknown>;
 }
 
+export interface LlmUsageTotals {
+  requests: number;
+  failed_requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  billed_cost_usd: number;
+  estimated_cost_usd: number;
+  unpriced_requests: number;
+  cache_savings_usd: number;
+}
+export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: number }
+export interface LlmUsageSummary {
+  range: { from: string; to: string; days: number; tz_offset_minutes: number };
+  logging_disabled: boolean;
+  tracking: LlmUsageTracking;
+  totals: LlmUsageTotals;
+  models: Array<LlmUsageTotals & { key: string }>;
+  providers: Array<LlmUsageTotals & { key: string }>;
+  purposes: Array<LlmUsageTotals & { key: string }>;
+  daily: Array<{
+    date: string;
+    models: Record<string, LlmUsageDayPoint>;
+    providers: Record<string, LlmUsageDayPoint>;
+    purposes: Record<string, LlmUsageDayPoint>;
+  }>;
+}
+
+export interface LlmUsageTracking {
+  enabled: boolean;
+  first_started_at: string | null;
+  periods: Array<{ from: string; to: string | null }>;
+}
+
+/** 「비용 추적」 switch. The server marks on/off at its current time; past points are not selectable. */
+export async function setLlmUsageTracking(enabled: boolean): Promise<LlmUsageTracking> {
+  const res = await fetch('/runtime/llm-usage-tracking', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `비용 추적 설정 실패 (${res.status})`);
+  return data.tracking as LlmUsageTracking;
+}
+
+export type LlmUsageRangeQuery = { days: number | 'all' } | { from: string; to: string };
+
+/** Local llm-usage log aggregation, bucketed by the PC's local date. */
+export async function fetchLlmUsageSummary(range: LlmUsageRangeQuery): Promise<LlmUsageSummary> {
+  const tz = -new Date().getTimezoneOffset();
+  const q = 'from' in range
+    ? `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
+    : `days=${encodeURIComponent(String(range.days))}`;
+  const res = await fetch(`/runtime/llm-usage-summary?${q}&tz_offset=${tz}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `사용량 조회 실패 (${res.status})`);
+  return data as LlmUsageSummary;
+}
+
 export async function fetchAppConfig(): Promise<{
   local_only?: boolean;
   dev_workspace_root?: string;

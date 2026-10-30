@@ -5,11 +5,15 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 
+/** What the request was for, so the usage page can split chat from approvals/images/videos. */
+export type LlmUsagePurpose = 'chat' | 'approval' | 'image' | 'video' | 'embedding';
+
 export interface LlmUsageContext {
   cqrRoot?: string;
   sessionId?: string;
   runId?: string;
   providerId?: string;
+  purpose?: LlmUsagePurpose;
   step?: () => number;
 }
 const context = new AsyncLocalStorage<LlmUsageContext>();
@@ -56,6 +60,49 @@ function normalize(raw: unknown): Usage {
   return Object.fromEntries(Object.entries(candidates).flatMap(([k, v]) => token(v) === undefined ? [] : [[k, v]]));
 }
 
+function usageLogDir(ctx: LlmUsageContext | undefined): string {
+  return path.resolve(process.env.MY_AGENT_LLM_USAGE_LOG_DIR || path.join(ctx?.cqrRoot ?? process.cwd(), 'data', 'logs', 'llm-usage'));
+}
+
+function requestPurpose(pathname: string, ctx: LlmUsageContext | undefined): LlmUsagePurpose {
+  if (pathname.endsWith('/decisions')) return 'approval';
+  if (pathname.endsWith('/embeddings')) return 'embedding';
+  return ctx?.purpose ?? 'chat';
+}
+
+/**
+ * One `finish` row for provider jobs that are not a single streamed HTTP call (async video jobs).
+ * Same body-free schema as fetchWithUsage; never throws.
+ */
+export function recordLlmUsageEvent(event: {
+  model?: string;
+  endpointHost?: string;
+  outcome: string;
+  costUsd?: number;
+  startedAt?: number;
+  httpStatus?: number;
+  purpose?: LlmUsagePurpose;
+}): void {
+  if (/^(0|off|false|no)$/i.test(process.env.MY_AGENT_LLM_USAGE_LOG ?? '')) return;
+  try {
+    const ctx = context.getStore();
+    const started = event.startedAt ?? Date.now();
+    const dir = usageLogDir(ctx);
+    const row = {
+      version: 1, call_id: randomUUID(), event: 'finish', started_at: new Date(started).toISOString(),
+      finished_at: new Date().toISOString(), duration_ms: Math.max(0, Date.now() - started),
+      session_id: id(ctx?.sessionId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId),
+      purpose: event.purpose ?? ctx?.purpose ?? 'chat', wire_api: 'job', model: id(event.model), stream: false, attempt: 1,
+      endpoint_host: event.endpointHost, http_status: event.httpStatus ?? null, outcome: event.outcome,
+      usage_status: 'unavailable', input_tokens: null, output_tokens: null, cached_tokens: null,
+      cache_write_tokens: null, reasoning_tokens: null, total_input_tokens: null,
+      provider_cost_usd: money(event.costUsd) ?? null, cache_discount_usd: null, usage_source: 'provider',
+    };
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(path.join(dir, `llm-usage-${new Date(started).toISOString().slice(0, 10)}.jsonl`), JSON.stringify(row) + '\n', 'utf8');
+  } catch { /* logging must never break generation */ }
+}
+
 /** Same fetch contract; observes bytes only while the caller consumes them. No tee/background drain. */
 export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1): Promise<Response> {
   if (/^(0|off|false|no)$/i.test(process.env.MY_AGENT_LLM_USAGE_LOG ?? '')) return fetch(url, init);
@@ -66,7 +113,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   const wire: Wire = new URL(url).pathname.endsWith('/responses') ? 'responses' : new URL(url).pathname.endsWith('/messages') ? 'messages' : 'chat';
   const stream = body.stream === true;
   const callId = randomUUID();
-  const dir = path.resolve(process.env.MY_AGENT_LLM_USAGE_LOG_DIR || path.join(ctx?.cqrRoot ?? process.cwd(), 'data', 'logs', 'llm-usage'));
+  const dir = usageLogDir(ctx);
   const logPath = path.join(dir, `llm-usage-${new Date(started).toISOString().slice(0, 10)}.jsonl`);
   let step: number | undefined;
   try { step = token(ctx?.step?.()); } catch { /* optional context must not affect inference */ }
@@ -74,7 +121,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   const base = {
     version: 1, call_id: callId, started_at: new Date(started).toISOString(),
     session_id: id(ctx?.sessionId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId), step,
-    wire_api: wire, model: id(body.model), stream, attempt,
+    wire_api: wire, purpose: requestPurpose(new URL(url).pathname, ctx), model: id(body.model), stream, attempt,
     endpoint_hash: createHash('sha256').update(new URL(url).origin + new URL(url).pathname).digest('hex').slice(0, 24),
     request_bytes: typeof init.body === 'string' ? Buffer.byteLength(init.body) : undefined,
     // Only the host: never URL credentials, paths, query parameters or request headers.
