@@ -156,7 +156,7 @@ export interface ChatTurn {
   /** Host/application notice displayed outside the model-authored bubble. */
   applicationNotice?: ApplicationNotice;
   /** Provider-reported token usage (input maps to the request, output to this reply). */
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
 }
 
 export interface CanvasCardData extends Record<string, unknown> {

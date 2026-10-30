@@ -12,6 +12,7 @@ import type { ModelRegistry } from '../models/model-registry.js';
 import type { ProviderStore } from '../providers/provider-store.js';
 import type { SessionStore } from '../sessions/session-store.js';
 import { CloudChatService } from '../providers/cloud-chat.js';
+import { createLlmUsageCollector, withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { ProviderError } from '../providers/types.js';
 import type { ChatRequest, ChatResponse, ChatMode, RouteDecision } from '../router/types.js';
 import { DeepResearchPipeline } from '../research/deep-research.js';
@@ -897,7 +898,7 @@ export class ChatOrchestrator {
         });
         sseEvent(res, { type: 'token', text: full.content });
         for (const img of full.images ?? []) sseEvent(res, { type: 'image', image: img });
-        sseEvent(res, { type: 'done', model: full.model, mode: full.mode });
+        sseEvent(res, { type: 'done', model: full.model, mode: full.mode, ...(full.usage ? { usage: full.usage } : {}) });
       } catch (e: unknown) {
         if (isAbortError(e) || (e instanceof Error && e.message === 'VIDEO_ABORTED')) {
           sseEvent(res, { type: 'done', model: '중지됨', mode: routing.mode });
@@ -1427,7 +1428,7 @@ export class ChatOrchestrator {
           sseEvent(res, { type: 'image', image: full.image });
         }
         if (full.research) sseEvent(res, { type: 'research', research: full.research });
-        sseEvent(res, { type: 'done', model: full.model, mode: full.mode });
+        sseEvent(res, { type: 'done', model: full.model, mode: full.mode, ...(full.usage ? { usage: full.usage } : {}) });
       } catch (e: unknown) {
         const msg = formatChatErrorMessage(e);
         // One-shot modes resolve the model inside handle(); it rides on the error.
@@ -1549,8 +1550,11 @@ export class ChatOrchestrator {
     let streamedPartial = '';
     try {
       if (resolved.route.type === 'provider') {
-        const out = await this.cloudChat.completeStream(
-          resolved.route.providerId,
+        const { providerId, modelId } = resolved.route;
+        // Usage log: session/provider for plain chat streams (image models chosen in chat included).
+        const usageCollector = createLlmUsageCollector();
+        const out = await withLlmUsageContext({ cqrRoot: this.cqrRoot, sessionId, providerId, collect: usageCollector.collect }, () => this.cloudChat.completeStream(
+          providerId,
           message,
           modelCtx,
           history,
@@ -1560,7 +1564,7 @@ export class ChatOrchestrator {
           },
           systemPrompt ?? undefined,
           {
-            modelId: resolved.route.modelId,
+            modelId,
             hasWorkspaceContext,
             signal,
             imageDataUrls,
@@ -1568,7 +1572,7 @@ export class ChatOrchestrator {
             reasoningEffort: effectiveReasoning,
             onThought: (text) => emitThought(text, '모델 추론'),
           },
-        );
+        ));
         const finalized = await this.finalizeAssistantReply(
           out.content,
           sessionId,
@@ -1581,6 +1585,9 @@ export class ChatOrchestrator {
         for (const url of finalized.imageUrls) {
           sseEvent(res, { type: 'image', image: { url } });
         }
+        // Image models picked in plain chat: show the billed cost under the bubble like image mode.
+        const replyCost = finalized.imageUrls.length || finalized.media.length ? usageCollector.result()?.cost_usd : undefined;
+        const replyUsage = replyCost !== undefined ? { ...(out.usage ?? {}), cost_usd: replyCost } : out.usage;
         this.sessionStore.append(sessionId, {
           role: 'assistant',
           content: finalized.content,
@@ -1591,13 +1598,13 @@ export class ChatOrchestrator {
           image_urls: finalized.imageUrls.length ? finalized.imageUrls : undefined,
           ...(finalized.media.length ? { media: finalized.media } : {}),
           ...(finalized.notice ? { application_notice: finalized.notice } : {}),
-          ...(out.usage ? { usage: out.usage } : {}),
+          ...(replyUsage ? { usage: replyUsage } : {}),
         });
         sseEvent(res, {
           type: 'done',
           model: out.model,
           mode: routing.mode,
-          ...(out.usage ? { usage: out.usage } : {}),
+          ...(replyUsage ? { usage: replyUsage } : {}),
           ...(finalized.notice ? { applicationNotice: finalized.notice } : {}),
         });
         sseDone(res);
@@ -1691,14 +1698,15 @@ export class ChatOrchestrator {
   }> {
     if (resolved.route.type === 'provider') {
       try {
-        return await this.cloudChat.complete(
-          resolved.route.providerId,
+        const { providerId, modelId } = resolved.route;
+        return await withLlmUsageContext({ cqrRoot: this.cqrRoot, sessionId, providerId }, () => this.cloudChat.complete(
+          providerId,
           message,
           ctx,
           history,
           systemPrompt,
-          { modelId: resolved.route.modelId, hasWorkspaceContext, imageDataUrls, sessionId },
-        );
+          { modelId, hasWorkspaceContext, imageDataUrls, sessionId },
+        ));
       } catch (e: unknown) {
         if (e instanceof ProviderError) throw e;
         const note = e instanceof Error ? e.message : String(e);

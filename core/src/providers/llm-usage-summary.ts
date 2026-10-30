@@ -209,6 +209,19 @@ interface RowMetrics {
   savingsEstimated: boolean;
 }
 
+const BACKFILL_FIELDS = [
+  'provider_cost_usd', 'cache_discount_usd', 'input_tokens', 'total_input_tokens', 'output_tokens',
+  'cached_tokens', 'reasoning_tokens', 'upstream_provider',
+] as const;
+/** Backfill only fills what the reply itself did not report; reported values always win. */
+function mergeCostBackfill(row: Record<string, unknown>, fill: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...row, cost_backfilled: true };
+  for (const key of BACKFILL_FIELDS) {
+    if ((merged[key] === null || merged[key] === undefined) && fill[key] !== null && fill[key] !== undefined) merged[key] = fill[key];
+  }
+  return merged;
+}
+
 function rowMetrics(row: Record<string, unknown>, env: NodeJS.ProcessEnv): RowMetrics {
   const failed = row.outcome !== 'completed';
   const cached = num(row.cached_tokens);
@@ -338,11 +351,23 @@ export function summarizeLlmUsage(options: {
     if (!existsSync(file)) continue;
     let text = '';
     try { text = readFileSync(file, 'utf8'); } catch { continue; }
-    for (const line of text.split('\n')) {
+    const lines = text.split('\n');
+    // Late OpenRouter generation-stats rows (same call_id, same file) fill fields the reply lacked.
+    const backfills = new Map<string, Record<string, unknown>>();
+    for (const line of lines) {
+      if (!line.includes('"cost_backfill"')) continue;
+      try {
+        const fill = JSON.parse(line) as Record<string, unknown>;
+        if (fill.event === 'cost_backfill' && typeof fill.call_id === 'string') backfills.set(fill.call_id, fill);
+      } catch { /* skip */ }
+    }
+    for (const line of lines) {
       if (!line.includes('"finish"')) continue;
       let row: Record<string, unknown>;
       try { row = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
       if (row.event !== 'finish') continue;
+      const fill = typeof row.call_id === 'string' ? backfills.get(row.call_id) : undefined;
+      if (fill) row = mergeCostBackfill(row, fill);
       // Decision version checks: an unknown id answers a free 400 — not usage, not a failure.
       // A probe that hit an existing id is a real billed decision and stays counted.
       if (row.probe === true && row.http_status === 400) continue;

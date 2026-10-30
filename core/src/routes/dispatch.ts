@@ -47,6 +47,7 @@ import type { ModelKind } from '../models/types.js';
 import { buildModelPicker, invalidateRemoteModelCache } from '../models/model-picker.js';
 import { testConnection, testNativeToolConnection, listRemoteModels } from '../providers/openai-compatible.js';
 import { summarizeLlmUsage, setLlmUsageTracking } from '../providers/llm-usage-summary.js';
+import { recoverPendingCostBackfills } from '../providers/llm-usage-log.js';
 import { curateRemoteModels, resolveDefaultOwuiModel } from '../providers/remote-model-curate.js';
 import { ProviderError } from '../providers/types.js';
 import type { ProviderWireApi } from '../providers/types.js';
@@ -440,6 +441,21 @@ export async function dispatchApiRequest(
         const tzOffsetMinutes = Number(url.searchParams.get('tz_offset') ?? 0);
         const from = url.searchParams.get('from') ?? undefined;
         const to = url.searchParams.get('to') ?? undefined;
+        // Costs whose delayed lookup was cut off (app closed) are fetched in the background; next load shows them.
+        void recoverPendingCostBackfills({
+          cqrRoot,
+          authFor: (providerId, host) => {
+            const ids = [...new Set([...(providerId ? [providerId] : []), ...providerStore.getConfiguredIds()])];
+            for (const pid of ids) {
+              const secret = providerStore.getSecret(pid);
+              const base = secret?.base_url || providerStore.getDefinition(pid)?.base_url;
+              try {
+                if (secret?.api_key && base && new URL(base).host.toLowerCase() === host) return `Bearer ${secret.api_key}`;
+              } catch { /* invalid base URL */ }
+            }
+            return null;
+          },
+        }).catch(() => 0);
         return sendJson(res, 200, summarizeLlmUsage({ cqrRoot, days, from, to, tzOffsetMinutes }));
       }
 

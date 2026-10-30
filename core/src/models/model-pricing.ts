@@ -21,6 +21,8 @@ export interface ModelPricing {
   output?: number;
   cache_read?: number;
   cache_write?: number;
+  /** `/models` `architecture.output_modalities` ("text", "image", …) — tells image generators apart. */
+  outputs?: string[];
 }
 
 export type ModelCostTier = 'premium' | 'standard' | 'unknown';
@@ -49,7 +51,12 @@ export function parseModelPricing(row: Record<string, unknown>): ModelPricing | 
   const cacheRead = perTokenToPerMillion(p.input_cache_read ?? p.cache_read);
   const cacheWrite = perTokenToPerMillion(p.input_cache_write ?? p.cache_write);
   if (input === undefined && output === undefined && cacheRead === undefined && cacheWrite === undefined) return undefined;
+  const arch = row.architecture && typeof row.architecture === 'object' ? row.architecture as Record<string, unknown> : {};
+  const outputs = Array.isArray(arch.output_modalities)
+    ? [...new Set(arch.output_modalities.filter((m): m is string => typeof m === 'string' && /^[a-z_-]{1,20}$/.test(m)))].slice(0, 8)
+    : [];
   return {
+    ...(outputs.length ? { outputs } : {}),
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
     ...(cacheRead !== undefined ? { cache_read: cacheRead } : {}),

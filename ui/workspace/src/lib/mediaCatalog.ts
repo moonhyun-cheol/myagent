@@ -111,8 +111,11 @@ export function selectMediaItems(
   const activeSessionId = Array.isArray(assetsOrInput) ? activeSessionIdArg : assetsOrInput.activeSessionId;
 
   const byKey = new Map<string, MediaItem>();
+  // Tie-break for equal timestamps: later chat turns first, explorer-only files last.
+  const orderByKey = new Map<string, number>();
 
-  const upsert = (key: string, candidate: MediaItem) => {
+  const upsert = (key: string, candidate: MediaItem, order = 0) => {
+    orderByKey.set(key, Math.max(orderByKey.get(key) ?? 0, order));
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, candidate);
@@ -182,7 +185,12 @@ export function selectMediaItems(
       turn.role === 'assistant' && i > 0 && chat[i - 1]?.role === 'user'
         ? chat[i - 1].text
         : undefined;
-    const turnCreatedAt = turn.completedAt || turn.startedAt || new Date(0).toISOString();
+    // User turns carry no timestamp; borrow the reply's start (or the previous turn's end).
+    const turnCreatedAt =
+      turn.completedAt ||
+      turn.startedAt ||
+      (turn.role === 'user' ? chat[i + 1]?.startedAt || chat[i - 1]?.completedAt : undefined) ||
+      new Date(0).toISOString();
     const urls = Array.isArray(turn.imageUrls) ? turn.imageUrls : [];
 
     for (let uIdx = 0; uIdx < urls.length; uIdx += 1) {
@@ -218,7 +226,7 @@ export function selectMediaItems(
         origin,
         mediaKind,
         kind: mediaKind,
-      });
+      }, i + 1);
     }
   }
 
@@ -247,13 +255,14 @@ export function selectMediaItems(
     }
   }
 
-  const list = Array.from(byKey.values());
-  list.sort((a, b) => {
+  const entries = Array.from(byKey.entries());
+  entries.sort(([keyA, a], [keyB, b]) => {
     const timeA = Date.parse(a.updatedAt || a.createdAt || '') || 0;
     const timeB = Date.parse(b.updatedAt || b.createdAt || '') || 0;
-    return timeB - timeA;
+    if (timeB !== timeA) return timeB - timeA;
+    return (orderByKey.get(keyB) ?? 0) - (orderByKey.get(keyA) ?? 0);
   });
-  return list;
+  return entries.map(([, item]) => item);
 }
 
 export function mediaItemToPreviewPayload(

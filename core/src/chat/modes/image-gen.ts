@@ -12,7 +12,7 @@ import { ingestOwuiChatImages } from '../../image/owui-media.js';
 import { assertWritablePath } from '../../security/path-guard.js';
 import { appendAssistantReply } from '../assistant-reply.js';
 import { withFailureModelLine } from '../../agent/agent-failure-plane.js';
-import { withLlmUsageContext } from '../../providers/llm-usage-log.js';
+import { createLlmUsageCollector, withLlmUsageContext } from '../../providers/llm-usage-log.js';
 
 function resolveInitImage(
   attachments: AttachmentService,
@@ -146,8 +146,10 @@ export async function handleImageGenMode(opts: {
     if (def?.custom) {
       let owuiFail: string | null = null;
       let modelReply: string | null = null;
+      // Tokens + billed cost shown under the image bubble (failed attempts are billed too).
+      const usageCollector = createLlmUsageCollector();
       try {
-        const owui = await generateImageViaOwui({
+        const owui = await withLlmUsageContext({ collect: usageCollector.collect }, () => generateImageViaOwui({
           cloudChat,
           providerStore,
           cqrRoot,
@@ -155,13 +157,15 @@ export async function handleImageGenMode(opts: {
           message,
           sessionId,
           resolved,
-        });
+        }));
         if (owui.imageUrls.length > 0) {
+          const usage = usageCollector.result();
           const content = appendAssistantReply(sessionStore, sessionId, {
             content: owui.content || '이미지를 생성했습니다.',
             model: owui.model,
             mode: 'image_gen',
             image_urls: owui.imageUrls,
+            ...(usage ? { usage } : {}),
           });
           return {
             role: 'assistant',
@@ -171,6 +175,7 @@ export async function handleImageGenMode(opts: {
             model: owui.model,
             image: { url: owui.imageUrls[0] },
             images: owui.imageUrls.map((url) => ({ url })),
+            ...(usage ? { usage } : {}),
           };
         }
         owuiFail = '이미지 모델이 이미지 대신 텍스트로 답했습니다.';
@@ -178,6 +183,7 @@ export async function handleImageGenMode(opts: {
       } catch (e: unknown) {
         owuiFail = e instanceof Error ? e.message : String(e);
       }
+      const failUsage = usageCollector.result();
       const content = appendAssistantReply(sessionStore, sessionId, {
         content: [
           '**MY OpenRouter 이미지 생성 실패**',
@@ -193,6 +199,7 @@ export async function handleImageGenMode(opts: {
         ].join('\n'),
         model: resolved.display,
         mode: 'image_gen',
+        ...(failUsage ? { usage: failUsage } : {}),
       });
       return {
         role: 'assistant',
@@ -200,6 +207,7 @@ export async function handleImageGenMode(opts: {
         mode: 'image_gen',
         routing,
         model: resolved.display,
+        ...(failUsage ? { usage: failUsage } : {}),
       };
     }
   }

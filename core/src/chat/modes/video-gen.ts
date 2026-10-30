@@ -10,7 +10,7 @@ import { generateVideo, retrieveVideoJob, VideoJobError } from '../../video/vide
 import { findVideoModel, hasOrganizationVideoAccess, type VideoModelDef } from '../../video/video-models.js';
 import type { MediaRecord } from '../../media/media-store.js';
 import type { VideoJobRecord } from '../../sessions/types.js';
-import { withLlmUsageContext } from '../../providers/llm-usage-log.js';
+import { createLlmUsageCollector, withLlmUsageContext } from '../../providers/llm-usage-log.js';
 
 export const VIDEO_MODEL_ORG_REQUIRED_MESSAGE = [
   '**동영상 모델을 사용할 수 없습니다**',
@@ -58,8 +58,12 @@ export async function handleVideoGenMode(opts: {
   onVideoJob?: (job: VideoJobRecord) => void;
 }): Promise<ChatResponse> {
   const { providerStore, sessionStore, cqrRoot, videoOut, sessionId, message, routing, resolved, model } = opts;
+  // Billed cost shown under the video bubble (jobs report cost only, no tokens).
+  const usageCollector = createLlmUsageCollector();
   const reply = (content: string, modelLabel: string, video?: MediaRecord, job?: VideoJobRecord): ChatResponse => {
+    const usage = usageCollector.result();
     const stored = appendAssistantReply(sessionStore, sessionId, {
+      ...(usage ? { usage } : {}),
       content,
       model: modelLabel,
       mode: routing.mode,
@@ -75,6 +79,7 @@ export async function handleVideoGenMode(opts: {
       routing,
       model: modelLabel,
       ...(video ? { images: [{ url: video.url }] } : {}),
+      ...(usage ? { usage } : {}),
     };
   };
 
@@ -100,7 +105,7 @@ export async function handleVideoGenMode(opts: {
   const segment = safeSegment(sessionId);
   let job: VideoJobRecord | undefined;
   try {
-    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId, purpose: 'video' }, () => generateVideo({
+    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId, purpose: 'video', collect: usageCollector.collect }, () => generateVideo({
       baseUrl: conn.baseUrl,
       apiKey: conn.apiKey,
       model,
@@ -201,8 +206,9 @@ async function retrieveStoredVideoJobOnce(opts: {
 
   const segment = safeSegment(sessionId);
   const now = () => new Date().toISOString();
+  const usageCollector = createLlmUsageCollector();
   try {
-    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId: stored.provider_id, purpose: 'video' }, () => retrieveVideoJob({
+    const out = await withLlmUsageContext({ cqrRoot, sessionId, providerId: stored.provider_id, purpose: 'video', collect: usageCollector.collect }, () => retrieveVideoJob({
       baseUrl: conn.baseUrl,
       apiKey: conn.apiKey,
       jobId,
@@ -218,7 +224,10 @@ async function retrieveStoredVideoJobOnce(opts: {
     const content = `동영상 결과를 다시 받았습니다. (${model.label} · ${model.duration}초 · ${model.resolution} · ${mb}MB)`;
     const video_job: VideoJobRecord = { ...stored, status: 'completed', updated_at: now() };
     delete video_job.error;
-    sessionStore.updateVideoJob(sessionId, jobId, { video_job, content, media: [out.media] });
+    // Cost arrives with the completed job; keep an earlier stored cost if this lookup carried none.
+    const cost = usageCollector.result()?.cost_usd;
+    const usage = cost !== undefined ? { ...(msg?.usage ?? {}), cost_usd: cost } : undefined;
+    sessionStore.updateVideoJob(sessionId, jobId, { video_job, content, media: [out.media], ...(usage ? { usage } : {}) });
     return { ok: true, state: 'completed', video_job, media: [out.media], content };
   } catch (e: unknown) {
     const text = e instanceof Error ? e.message : String(e);

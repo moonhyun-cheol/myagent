@@ -134,8 +134,8 @@ export interface SessionMessage {
   attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice, never model-authored chat content. */
   application_notice?: ApplicationNotice;
-  /** Provider-reported token usage for this assistant response. */
-  usage?: { input_tokens?: number; output_tokens?: number };
+  /** Provider-reported token usage (and billed USD for image/video replies) for this assistant response. */
+  usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number };
 }
 
 export interface SessionRecord {
@@ -444,20 +444,21 @@ export interface StreamHandlers {
     checkpointId?: string;
     planConstraintsLocked?: boolean;
     lastProcessedTokens?: number;
-    usage?: { inputTokens?: number; outputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
     applicationNotice?: ApplicationNotice;
   }) => void;
   onError?: (message: string) => void;
   signal?: AbortSignal;
 }
 
-function parseUsageEvent(raw: unknown): { inputTokens?: number; outputTokens?: number } | undefined {
+function parseUsageEvent(raw: unknown): { inputTokens?: number; outputTokens?: number; costUsd?: number } | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const record = raw as Record<string, unknown>;
-  const out: { inputTokens?: number; outputTokens?: number } = {};
+  const out: { inputTokens?: number; outputTokens?: number; costUsd?: number } = {};
   if (typeof record.input_tokens === 'number') out.inputTokens = record.input_tokens;
   if (typeof record.output_tokens === 'number') out.outputTokens = record.output_tokens;
-  return out.inputTokens === undefined && out.outputTokens === undefined ? undefined : out;
+  if (typeof record.cost_usd === 'number' && Number.isFinite(record.cost_usd)) out.costUsd = record.cost_usd;
+  return out.inputTokens === undefined && out.outputTokens === undefined && out.costUsd === undefined ? undefined : out;
 }
 
 export interface PickerModel {

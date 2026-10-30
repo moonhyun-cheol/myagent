@@ -1915,6 +1915,11 @@ export function ChatPane() {
                     if (conversationDisplay.showTokens && typeof turn.usage?.outputTokens === 'number') {
                       parts.push(`출력 ${turn.usage.outputTokens.toLocaleString()} 토큰`);
                     }
+                    // Billed cost (image/video replies). Video jobs report cost only, no tokens.
+                    if (conversationDisplay.showTokens && typeof turn.usage?.costUsd === 'number') {
+                      const usd = turn.usage.costUsd;
+                      parts.push(`비용 $${usd >= 0.01 || usd === 0 ? usd.toFixed(2) : usd.toFixed(4)}`);
+                    }
                     if (conversationDisplay.showTime) {
                       const done = formatClockTime(turn.completedAt);
                       if (done) parts.push(`완료 ${done}`);

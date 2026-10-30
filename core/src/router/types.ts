@@ -85,4 +85,6 @@ export interface ChatResponse {
   applicationNotice?: ApplicationNotice;
   /** Final isolated-browser page that a host UI may promote after background completion. */
   browserHandoff?: { url: string; title: string };
+  /** Tokens/billed cost of this reply (image/video modes), forwarded on the SSE `done` event. */
+  usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number };
 }

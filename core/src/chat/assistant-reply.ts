@@ -37,6 +37,7 @@ export function appendAssistantReply(
     video_job?: import('../sessions/types.js').VideoJobRecord;
     tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
     application_notice?: import('../sessions/types.js').ApplicationNotice;
+    usage?: import('../sessions/types.js').SessionMessage['usage'];
     emptyFallback?: string;
     /** Used for Korean-vs-Chinese outlet language warning */
     userMessage?: string;
@@ -58,6 +59,7 @@ export function appendAssistantReply(
     ...(opts.video_job ? { video_job: opts.video_job } : {}),
     ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity } : {}),
     ...(opts.application_notice ? { application_notice: opts.application_notice } : {}),
+    ...(opts.usage ? { usage: opts.usage } : {}),
   });
   return content;
 }
