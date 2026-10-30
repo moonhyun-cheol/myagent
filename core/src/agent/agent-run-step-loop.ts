@@ -76,7 +76,12 @@ import {
   needsHumanApproval,
   normalizeToolApprovalOutcome,
 } from './tool-approval.js';
-import { buildStepBudgetResources, type StepBudgetAction } from './step-budget-review.js';
+import {
+  buildStepBudgetResources,
+  STEP_BUDGET_TIME_CHECK_INTERVAL_MS,
+  type StepBudgetAction,
+  type StepBudgetTrigger,
+} from './step-budget-review.js';
 import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import {
   formatSyntaxBrokenRepairPrompt,
@@ -222,6 +227,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   let autoBudgetGrants = 0;
   let budgetExtensions = 0;
   let budgetStopReason = '';
+  // Wall-time checkpoint of this run (30 min, 60 min, ...), reviewed even below the step cap.
+  let nextTimeCheckMs = STEP_BUDGET_TIME_CHECK_INTERVAL_MS;
+  const runElapsedMs = (): number => Math.max(0, Date.now() - state.runStartedAt);
   const recentActions: StepBudgetAction[] = [];
   // Display/persisted count across the continuation chain. The per-run budget below is
   // state.steps alone, so a resume after hitting the cap gets a fresh budget.
@@ -335,10 +343,13 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     );
   }
 
-  const extendStepBudget = async (): Promise<boolean> => {
+  const extendStepBudget = async (trigger: StepBudgetTrigger = 'steps'): Promise<boolean> => {
     const handler = state.opts.onStepBudgetExhausted;
     if (!handler || state.opts.signal?.aborted) return false;
-    state.reportStatus(`실행 예산 ${stepLimit} 스텝 도달 · 추가 예산 검토 중`);
+    const elapsedMs = runElapsedMs();
+    state.reportStatus(trigger === 'time'
+      ? `작업 ${Math.round(elapsedMs / 60_000)}분 경과 · 진행 상황 검토 중`
+      : `실행 예산 ${stepLimit} 스텝 도달 · 추가 예산 검토 중`);
     const ledger = loadAgentRunMeta(state.opts.cqrRoot, state.opts.sessionId).todoLedger;
     const todoSummary = (ledger?.todos ?? [])
       .map((todo) => `[${todo.status}] ${todo.text}`)
@@ -360,6 +371,8 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           todoSummary,
           lastModelOutput: (state.lastModelOutput || state.answerBuf).trim(),
           resources,
+          elapsedMs,
+          trigger,
         },
         workingModelId: state.modelId,
         autoGrantsUsed: autoBudgetGrants,
@@ -367,6 +380,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       if (!grant || !(grant.extend > 0)) {
         budgetStopReason = grant?.stopReason ?? '';
         return false;
+      }
+      if (trigger === 'time') {
+        // Keep going without extra steps; the next checkpoint is 30 minutes later.
+        if (grant.note) state.messages.push({ role: 'user', content: grant.note });
+        persistContinuationSnapshot(`작업 ${Math.round(elapsedMs / 60_000)}분 경과 · 계속 진행 (${grant.auto ? '자동' : '사용자'} 승인)`);
+        return true;
       }
       stepLimit += Math.floor(grant.extend);
       budgetExtensions += 1;
@@ -384,6 +403,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
 
   while (state.steps < stepLimit || await extendStepBudget()) {
     throwIfAborted(state.opts.signal);
+    if (state.opts.onStepBudgetExhausted && state.steps > 0 && runElapsedMs() >= nextTimeCheckMs) {
+      while (nextTimeCheckMs <= runElapsedMs()) nextTimeCheckMs += STEP_BUDGET_TIME_CHECK_INTERVAL_MS;
+      if (!await extendStepBudget('time')) break;
+    }
     state.steps += 1;
     state.thoughtBuf = '';
     state.answerBuf = '';

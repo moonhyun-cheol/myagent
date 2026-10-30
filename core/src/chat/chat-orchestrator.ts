@@ -44,8 +44,10 @@ import {
   STEP_BUDGET_EXTENSION,
   STEP_BUDGET_MAX_AUTO_GRANTS,
   decideStepBudgetGrant,
+  formatElapsedMinutes,
   formatStepBudgetExtensionNote,
   formatStepBudgetResourceLabel,
+  formatStepBudgetTimeNote,
   reviewStepBudget,
 } from '../agent/step-budget-review.js';
 import {
@@ -1117,7 +1119,12 @@ export class ChatOrchestrator {
                 const approvalPolicy = requestedExecutionPolicy.approval;
                 const spend = formatStepBudgetResourceLabel(facts.resources, STEP_BUDGET_EXTENSION);
                 const spendSuffix = spend ? ` · ${spend}` : '';
-                sseEvent(res, { type: 'status', text: `실행 예산 ${facts.stepLimit} 스텝 도달${spendSuffix} · 검토 모델이 진행 상황을 판단 중` });
+                const byTime = facts.trigger === 'time';
+                const elapsedMs = facts.elapsedMs ?? 0;
+                const elapsedLabel = formatElapsedMinutes(elapsedMs);
+                sseEvent(res, { type: 'status', text: byTime
+                  ? `작업 ${elapsedLabel} 경과 · ${facts.stepsUsed} 스텝${spendSuffix} · 검토 모델이 진행 상황을 판단 중`
+                  : `실행 예산 ${facts.stepLimit} 스텝 도달 · ${elapsedLabel} 경과${spendSuffix} · 검토 모델이 진행 상황을 판단 중` });
                 const review = await reviewStepBudget({
                   providerStore: this.providerStore,
                   cqrRoot: this.cqrRoot,
@@ -1127,10 +1134,14 @@ export class ChatOrchestrator {
                   signal,
                 });
                 const verdictLabel = review.verdict === 'redirect' ? '방향 수정 후 계속' : review.verdict === 'continue' ? '계속' : '멈춤';
-                const grantMode = decideStepBudgetGrant({ review, approvalPolicy, autoGrantsUsed });
+                const grantMode = decideStepBudgetGrant({ review, approvalPolicy, autoGrantsUsed, elapsedMs, trigger: facts.trigger });
                 if (grantMode === 'stop') {
                   sseEvent(res, { type: 'status', text: `검토 모델 판단: 멈춤 — ${review.reason}` });
-                  return { extend: 0, stopReason: `검토 모델(${review.reviewer}) 판단: 멈춤 — ${review.reason}` };
+                  return { extend: 0, stopReason: `검토 모델(${review.reviewer}) 판단: 멈춤 (${elapsedLabel} 경과) — ${review.reason}` };
+                }
+                if (byTime && grantMode === 'auto') {
+                  sseEvent(res, { type: 'status', text: `작업 ${elapsedLabel} 경과 · 계속 진행 (자동) · ${verdictLabel} — ${review.reason}` });
+                  return { extend: STEP_BUDGET_EXTENSION, auto: true, note: formatStepBudgetTimeNote(review, elapsedMs, 'auto') };
                 }
                 if (grantMode === 'auto') {
                   sseEvent(res, { type: 'status', text: `추가 ${STEP_BUDGET_EXTENSION} 스텝 자동 승인 (${autoGrantsUsed + 1}/${STEP_BUDGET_MAX_AUTO_GRANTS}) · ${verdictLabel} — ${review.reason}${spendSuffix}` });
@@ -1143,9 +1154,13 @@ export class ChatOrchestrator {
                   type: 'tool_approval',
                   id,
                   tool: 'step_budget',
-                  summary: `실행 예산 ${facts.stepLimit} 스텝을 다 썼습니다. 추가 ${STEP_BUDGET_EXTENSION} 스텝을 줄까요? (${why})${spend ? ` [사용량: ${spend}]` : ''}`,
+                  summary: byTime
+                    ? `작업을 시작한 지 ${elapsedLabel}이 지났습니다 (${facts.stepsUsed} 스텝). 계속 진행할까요? (${why})${spend ? ` [사용량: ${spend}]` : ''}`
+                    : `실행 예산 ${facts.stepLimit} 스텝을 다 썼습니다 (${elapsedLabel} 경과). 추가 ${STEP_BUDGET_EXTENSION} 스텝을 줄까요? (${why})${spend ? ` [사용량: ${spend}]` : ''}`,
                   args_preview: JSON.stringify({
-                    extend: STEP_BUDGET_EXTENSION,
+                    trigger: facts.trigger ?? 'steps',
+                    elapsed_minutes: Math.round(elapsedMs / 60_000),
+                    extend: byTime ? 0 : STEP_BUDGET_EXTENSION,
                     verdict: review.verdict,
                     instruction: review.instruction || undefined,
                     cost_usd_so_far: facts.resources?.costUsd === undefined ? undefined : Number(facts.resources.costUsd.toFixed(4)),
@@ -1159,11 +1174,17 @@ export class ChatOrchestrator {
                   session_title: this.sessionStore.load(sessionId)?.title ?? '',
                 });
                 const approved = await wait;
-                if (!approved) return { extend: 0, stopReason: '추가 실행 예산을 승인하지 않아 멈췄습니다.' };
-                const granted = review.reviewer === 'unavailable'
+                if (!approved) {
+                  return { extend: 0, stopReason: byTime
+                    ? `작업 ${elapsedLabel} 경과 후 계속 진행을 승인하지 않아 멈췄습니다.`
+                    : '추가 실행 예산을 승인하지 않아 멈췄습니다.' };
+                }
+                const granted = review.reviewer === 'unavailable' || review.verdict === 'stop_ask_user'
                   ? { ...review, verdict: 'continue' as const, reason: '사용자가 직접 승인했습니다.' }
                   : review;
-                return { extend: STEP_BUDGET_EXTENSION, note: formatStepBudgetExtensionNote(granted, STEP_BUDGET_EXTENSION, 'user') };
+                return { extend: STEP_BUDGET_EXTENSION, note: byTime
+                  ? formatStepBudgetTimeNote(granted, elapsedMs, 'user')
+                  : formatStepBudgetExtensionNote(granted, STEP_BUDGET_EXTENSION, 'user') };
               },
             },
             signal,

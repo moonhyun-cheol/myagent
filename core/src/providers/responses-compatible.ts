@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { currentLlmUsageSessionId, fetchWithUsage } from './llm-usage-log.js';
 import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 import { logResponsesBoundary } from './llm-wire-log.js';
+import { readWithIdleTimeout, resolveStreamIdleTimeoutMs } from './stream-idle.js';
 import type {
   AgentToolCallPayload,
   ChatCompletionOptions,
@@ -681,7 +682,8 @@ async function responsesStreamAt(
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
-    const { done, value } = await reader.read();
+    const sawOutput = Boolean(acc.content || acc.thought || acc.calls.size);
+    const { done, value } = await readWithIdleTimeout(reader, resolveStreamIdleTimeoutMs(sawOutput));
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const frames = buffer.split(/\r?\n\r?\n/);

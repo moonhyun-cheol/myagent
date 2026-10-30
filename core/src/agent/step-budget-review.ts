@@ -14,6 +14,15 @@ import type { LlmUsageCost } from './llm-usage-cost.js';
  */
 export const STEP_BUDGET_EXTENSION = 50;
 export const STEP_BUDGET_MAX_AUTO_GRANTS = 2;
+/**
+ * Wall-time checkpoints: every 30 minutes of one run the same review runs even below the
+ * step cap, so slow steps cannot keep a run going for hours unseen.
+ */
+export const STEP_BUDGET_TIME_CHECK_INTERVAL_MS = 30 * 60_000;
+/** From this run age on, nothing is granted automatically; the user is asked. */
+export const STEP_BUDGET_AUTO_GRANT_MAX_ELAPSED_MS = 60 * 60_000;
+
+export type StepBudgetTrigger = 'steps' | 'time';
 
 /**
  * Reviewer candidates in preference order (OpenRouter `~` aliases follow the newest release).
@@ -70,6 +79,10 @@ export interface StepBudgetFacts {
   lastModelOutput?: string;
   /** Spend of this run so far; lets the reviewer weigh progress against cost. */
   resources?: StepBudgetResources;
+  /** Wall time of this run so far (ms). */
+  elapsedMs?: number;
+  /** Why the review runs: step cap reached, or a wall-time checkpoint. Default steps. */
+  trigger?: StepBudgetTrigger;
 }
 
 /** Host decision passed back to the step loop. */
@@ -113,6 +126,8 @@ export function buildStepBudgetSystemPrompt(extension = STEP_BUDGET_EXTENSION): 
     'Choose stop_ask_user only when the request itself cannot be understood or continuing is risky.',
     'Resource usage (tokens, cache hit rate, USD so far) is context, not a verdict by itself: never stop only because a run is expensive.',
     `Use it to judge waste: high spend with repeated failures or no new files/progress supports redirect or stop_ask_user; high spend with steady progress is fine. The next ${extension} steps will cost roughly cost_per_step × ${extension}.`,
+    'Elapsed wall time is also context: a long run with steady progress is fine, but a long run with few completed steps, repeated slow failures, or no new files supports redirect or stop_ask_user.',
+    'When trigger is time, the step budget is not exhausted; decide whether the run should keep going at all (continue/redirect) or stop and ask the user.',
   ].join('\n');
 }
 
@@ -175,12 +190,20 @@ export function buildStepBudgetFactsText(facts: StepBudgetFacts): string {
     redact(facts.userRequest.trim()).slice(-1200) || '(not recorded)',
     '',
     '## Run facts (app-collected)',
+    `trigger: ${facts.trigger === 'time' ? 'time (wall-time checkpoint; step budget not exhausted)' : 'steps (step budget exhausted)'}`,
     `steps_used: ${facts.stepsUsed}/${facts.stepLimit}`,
     `extensions_already_granted: ${facts.extensionsGranted}`,
     `failed_steps: ${failed}`,
     `tool_counts: ${JSON.stringify(counts)}`,
     `files_mutated: ${facts.mutatedPaths.slice(0, 20).map((p) => oneLine(p, 80)).join(', ') || '(none)'}`,
   ];
+  if (typeof facts.elapsedMs === 'number' && facts.elapsedMs >= 0) {
+    const perStep = facts.stepsUsed > 0 ? facts.elapsedMs / facts.stepsUsed / 1000 : 0;
+    parts.push(
+      `elapsed_minutes: ${(facts.elapsedMs / 60_000).toFixed(1)}`,
+      `avg_seconds_per_step: ${perStep.toFixed(1)}`,
+    );
+  }
   const r = facts.resources;
   if (r) {
     parts.push(
@@ -335,12 +358,38 @@ export function decideStepBudgetGrant(input: {
   review: Pick<StepBudgetReview, 'verdict' | 'reviewer'>;
   approvalPolicy: 'ask' | 'delegate' | 'autopilot' | string;
   autoGrantsUsed: number;
+  /** Run wall time; past STEP_BUDGET_AUTO_GRANT_MAX_ELAPSED_MS the user is always asked. */
+  elapsedMs?: number;
+  trigger?: StepBudgetTrigger;
 }): 'auto' | 'ask' | 'stop' {
   const unavailable = input.review.reviewer === 'unavailable';
   if (unavailable) return 'ask';
   if (input.review.verdict === 'stop_ask_user') return 'stop';
+  if ((input.elapsedMs ?? 0) >= STEP_BUDGET_AUTO_GRANT_MAX_ELAPSED_MS) return 'ask';
+  // A time checkpoint grants no steps; under an hour the reviewer's go-ahead is enough.
+  if (input.trigger === 'time') return 'auto';
   const delegated = input.approvalPolicy === 'delegate' || input.approvalPolicy === 'autopilot';
   return delegated && input.autoGrantsUsed < STEP_BUDGET_MAX_AUTO_GRANTS ? 'auto' : 'ask';
+}
+
+/** Korean minutes label (e.g. 「42분」, 「1시간 5분」). */
+export function formatElapsedMinutes(elapsedMs: number): string {
+  const total = Math.max(0, Math.round(elapsedMs / 60_000));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (!h) return `${m}분`;
+  return m ? `${h}시간 ${m}분` : `${h}시간`;
+}
+
+/** Working-model note appended when a wall-time checkpoint lets the run continue. */
+export function formatStepBudgetTimeNote(review: StepBudgetReview, elapsedMs: number, grantedBy: 'auto' | 'user'): string {
+  const lines = [
+    `## 작업 시간 점검 (${formatElapsedMinutes(elapsedMs)} 경과, ${grantedBy === 'auto' ? '자동 승인' : '사용자 승인'})`,
+    `검토 모델 판단: ${review.verdict === 'redirect' ? '방향 수정 필요' : '계속 진행'} — ${review.reason || '(이유 없음)'}`,
+  ];
+  if (review.verdict === 'redirect' && review.instruction) lines.push(`지시: ${review.instruction}`);
+  lines.push('오래 걸리고 있습니다. 남은 일을 줄여 빨리 끝내고, 끝내기 어려우면 진행 상황과 남은 일을 정리해 보고하세요.');
+  return lines.join('\n');
 }
 
 /** Working-model note appended when the budget is extended. */
