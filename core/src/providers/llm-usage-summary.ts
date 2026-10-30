@@ -71,6 +71,19 @@ const MAX_CACHE_REQUESTS = 500;
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
 
+/** Non-chat purposes get their own 「모델별」 row so a model shared with chat is not merged. */
+const PURPOSE_MODEL_SUFFIX: Record<string, string> = {
+  approval: '승인 판단',
+  image: '이미지 생성',
+  video: '영상 생성',
+  embedding: '임베딩',
+};
+
+export function usageModelGroupKey(modelKey: string, purposeKey: string): string {
+  if (purposeKey === 'chat') return modelKey;
+  return `${modelKey} (${PURPOSE_MODEL_SUFFIX[purposeKey] ?? purposeKey})`;
+}
+
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 160) : undefined);
 const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
@@ -324,13 +337,14 @@ export function summarizeLlmUsage(options: {
       const modelKey = str(row.response_model) ?? str(row.model) ?? '(알 수 없음)';
       const providerKey = str(row.provider_id) ?? str(row.endpoint_host) ?? '(알 수 없음)';
       const purposeKey = str(row.purpose) ?? 'chat';
+      const modelGroupKey = usageModelGroupKey(modelKey, purposeKey);
       addTo(totals, m);
-      for (const [map, key] of [[models, modelKey], [providers, providerKey], [purposes, purposeKey]] as const) {
+      for (const [map, key] of [[models, modelGroupKey], [providers, providerKey], [purposes, purposeKey]] as const) {
         let g = map.get(key);
         if (!g) { g = { key, ...emptyTotals() }; map.set(key, g); }
         addTo(g, m);
       }
-      addPoint(bucket.models, modelKey, m);
+      addPoint(bucket.models, modelGroupKey, m);
       addPoint(bucket.providers, providerKey, m);
       addPoint(bucket.purposes, purposeKey, m);
       if (m.cached + m.write > 0) {

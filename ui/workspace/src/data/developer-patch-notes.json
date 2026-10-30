@@ -2,6 +2,46 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "usage-model-rows-split-by-purpose",
+      "status": "development",
+      "title": "사용량 「모델별」 표에서 같은 모델의 대화와 승인 판단을 나눠 표시",
+      "detail": "대화와 승인 판단에 같은 모델을 쓰면 「모델별」 표와 그래프에서 한 줄로 합쳐지던 문제를 고쳤습니다. 대화가 아닌 요청은 「모델 이름 (승인 판단)」처럼 용도를 붙여 따로 보여 줍니다.",
+      "area": "ui",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/providers/llm-usage-summary.ts", "tools/verify-llm-usage-purpose.mjs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "approval-review-reason-korean",
+      "status": "development",
+      "title": "승인 판단 사유를 한국어로 고정",
+      "detail": "범용 판단 모델(Sol 등)이 판단 사유를 영어로 쓰던 문제를 고쳤습니다. 판단 지침에 한국어로 쓰라는 규칙을 넣었고, 판단 실패·건너뜀 같은 앱 자체 문구도 한국어로 바꿨습니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/approval-auto-review.ts", "tools/verify-approval-auto-review.mjs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "approval-review-fallback-sol",
+      "status": "development",
+      "title": "「나 대신 승인」 마지막 대체 판단 모델을 Luna에서 Sol로 변경",
+      "detail": "판단 전문 모델(microsoft-decision, Jev)이 모두 실패했을 때 마지막으로 판단하는 범용 모델을 Luna에서 더 상위 모델인 Sol 최신 버전으로 바꿨습니다. 설정에서 Luna를 골라 둔 경우에도 Sol로 판단합니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/approval-auto-review.ts", "tools/verify-approval-auto-review.mjs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "approval-review-image-size-fit",
+      "status": "development",
+      "title": "이미지를 첨부한 대화에서 「나 대신 승인」 판단이 실패하던 문제 수정",
+      "detail": "이미지를 받는 판단 모델(Jev)은 가로·세로가 각각 280~1568픽셀인 이미지만 받아서, 작게 자른 캡처나 큰 전체 화면 캡처를 첨부하면 판단이 실패하고 승인 카드가 떴습니다. 이제 PNG 이미지는 이 범위에 맞게 크기를 바꿔 보내고, 크기를 바꿀 수 없는 이미지는 빼고 판단합니다. 사용량·비용의 모델 표에도 「(알 수 없음)」 대신 실제 판단 모델 이름이 나옵니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/agent/decision-image-fit.ts", "core/src/agent/approval-auto-review.ts", "core/src/providers/llm-usage-log.ts", "tools/verify-decision-image-fit.mjs", "tools/verify-approval-auto-review.mjs", "tools/verify-llm-usage-purpose.mjs"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "settings-llm-usage-cache-savings-estimate",
       "status": "development",
       "title": "사용량·비용에서 캐시로 아낀 금액 추정 표시와 요청별 캐시 할인 내역",
@@ -72,6 +112,26 @@
       "release": { "version": null, "update_sequence": null }
     },
     {
+      "id": "local-api-origin-guard",
+      "status": "development",
+      "title": "다른 웹 페이지가 내 PC의 MY Agent를 호출하지 못하게 차단",
+      "detail": "브라우저에서 연 외부 웹 페이지가 내 PC에서 실행 중인 MY Agent에 요청을 보내지 못하도록 요청 출처를 검사합니다. 승인 창을 띄울 수 없는 실행에서는 AI가 스스로 승인 표시를 붙여 위험한 작업을 넘기지 못하게 막았습니다.",
+      "area": "security",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/security/local-api-guard.ts", "core/src/api-server.ts", "core/src/agent/tool-approval.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "openrouter-session-pin-cost",
+      "status": "development",
+      "title": "OpenRouter 요청의 캐시 유지와 비용 기록 개선",
+      "detail": "같은 대화의 OpenRouter 요청을 하나의 세션으로 묶어 프롬프트 캐시가 더 잘 유지되도록 했습니다. 요청마다 모델 가격표로 비용을 계산해 기록하고, 작업 단계가 길어져 계속 진행할지 판단할 때도 지금까지 쓴 비용을 함께 봅니다.",
+      "area": "agent",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/providers/responses-compatible.ts", "core/src/agent/llm-usage-cost.ts", "core/src/agent/step-budget-review.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "tool-visual-results",
       "status": "development",
       "title": "브라우저 캡처와 도구 이미지 결과를 AI가 확인",
@@ -96,6 +156,76 @@
         "version": null,
         "update_sequence": null
       }
+    },
+    {
+      "id": "new-chat-faster",
+      "status": "development",
+      "title": "새 대화 시작과 대화 목록 불러오기 속도 개선",
+      "detail": "대화 목록을 읽을 때 대화 전체 내용 대신 필요한 항목만 읽고, 새 대화를 만들 때 주고받는 요청 수를 줄였습니다. 대화가 많을수록 목록이 더 빨리 열립니다. 응답이 0.5초 넘게 걸린 요청은 로컬 기록에 남겨 느려진 원인을 찾을 수 있습니다.",
+      "area": "workspace",
+      "created_at": "2026-10-29",
+      "source_paths": ["core/src/sessions/session-store.ts", "core/src/routes/slow-request-log.ts", "ui/workspace/src/store/workspaceStore.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "scheduler-run-trace-recovery",
+      "status": "development",
+      "title": "자동화 실행 기록과 중단된 실행 정리",
+      "detail": "자동화가 실행될 때마다 주고받은 메시지와 도구 호출 기록을 남기고, 실패한 실행에도 오류 보고서를 붙입니다. 앱이 꺼져 끝나지 못한 실행은 다음 시작 때 중단으로 정리하고, 앱이 꺼져 있어 건너뛴 실행도 알림에 표시합니다. 기록은 90일까지 보관합니다.",
+      "area": "scheduler",
+      "created_at": "2026-10-29",
+      "source_paths": ["core/src/scheduler/personal-scheduler-service.ts", "core/src/scheduler/run-trace.ts", "core/src/scheduler/personal-scheduler-store.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "document-start-screen",
+      "status": "development",
+      "title": "문서를 열지 않았을 때 시작 화면 표시",
+      "detail": "문서를 열지 않은 상태에서는 새 문서, 프로젝트 문서 열기, 외부 파일 가져오기, 최근 문서 5개를 고르는 시작 화면이 나옵니다. 새 문서는 바로 렌더링 편집으로 열리고, 문서를 열면 빈 「제목 없음」 탭이 남지 않습니다. 좁은 화면에서는 보조 버튼을 더보기로 접습니다.",
+      "area": "document",
+      "created_at": "2026-10-29",
+      "source_paths": ["ui/workspace/src/components/MarkdownDocument.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "media-tab-redesign",
+      "status": "development",
+      "title": "미디어 탭 갤러리와 미리보기 개편",
+      "detail": "대화와 작업 폴더의 이미지·영상을 한 목록으로 모아 보여 주고, 미리보기 창에서 원본 보기, 내려받기, 채팅에 첨부를 할 수 있습니다. 작업 폴더의 영상은 원하는 위치로 바로 넘겨 볼 수 있습니다.",
+      "area": "media",
+      "created_at": "2026-10-29",
+      "source_paths": ["ui/workspace/src/components/MediaPane.tsx", "ui/workspace/src/components/ImagePreviewModal.tsx", "ui/workspace/src/lib/mediaCatalog.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "pinned-instructions-context",
+      "status": "development",
+      "title": "고정 지침을 대화 메시지와 분리해 전달",
+      "detail": "고정 지침을 사용자 메시지 앞에 붙이지 않고 별도 항목으로 AI에 전달합니다. 대화 기록에 고정 지침 문구가 섞이지 않습니다.",
+      "area": "chat",
+      "created_at": "2026-10-29",
+      "source_paths": ["core/src/chat/session-context.ts", "core/src/chat/chat-request.ts", "ui/workspace/src/lib/pinnedInstructions.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "work-panel-redesign",
+      "status": "development",
+      "title": "우측 작업 패널 정리와 파일·웹·코드 뷰어 오류 수정",
+      "detail": "우측 작업 패널의 탭 구성과 접기 버튼을 정리했습니다. 파일을 열면 「열린 파일」 탭의 코드 뷰어로 열리고, 큰 폴더는 펼칠 때 불러오며 점(.)으로 시작하는 폴더도 보입니다. 웹 탭의 빈 페이지·초기화 동작과 코드 뷰어 저장 단축키 오류도 고쳤습니다.",
+      "area": "workspace",
+      "created_at": "2026-10-29",
+      "source_paths": ["ui/workspace/src/components/WorkspaceObjectsPane.tsx", "ui/workspace/src/components/InlineCodeViewer.tsx", "ui/workspace/src/components/AssetExplorer.tsx", "ui/workspace/src/components/BrowserPane.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "decision-approval-context",
+      "status": "development",
+      "title": "「나 대신 승인」 판단에 쓰는 정보 보강",
+      "detail": "원격에 올리기 같은 위험한 작업을 판단할 때 직전 AI 답변의 끝부분도 함께 봐서, 「2번으로 진행」처럼 제안을 고른 답도 직접 지시로 인정합니다. 명령과 인자는 일부가 아닌 전체를 보고, 대화에 등록한 폴더도 작업 폴더처럼 맡길 수 있습니다(네트워크 폴더 제외).",
+      "area": "agent",
+      "created_at": "2026-10-26",
+      "source_paths": ["core/src/agent/approval-auto-review.ts", "core/src/agent/tool-approval.ts"],
+      "release": { "version": null, "update_sequence": null }
     },
     {
       "id": "decision-model-auto-approval",

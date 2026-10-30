@@ -31,7 +31,8 @@ type Wire = 'chat' | 'responses' | 'messages';
 type Usage = Partial<Record<'input_tokens' | 'output_tokens' | 'cached_tokens' | 'cache_write_tokens' | 'reasoning_tokens', number>>;
 const token = (v: unknown): number | undefined => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined;
 const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
-const id = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9_./:-]{1,160}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v : undefined;
+/** `~` covers OpenRouter latest aliases (`~typesafe/jev-latest`); still no spaces/quotes/secrets. */
+const id = (v: unknown): string | undefined => typeof v === 'string' && /^~?[a-zA-Z0-9_./:-]{1,160}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v : undefined;
 /** Upstream provider display names may contain spaces ("Google Vertex"). */
 const providerName = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9 _.()-]{1,80}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v.trim() : undefined;
 /** Safe identifier names only; values are never read here. */
