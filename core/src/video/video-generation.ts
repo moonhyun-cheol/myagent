@@ -1,6 +1,7 @@
 import type { VideoModelDef } from './video-models.js';
 import { saveMediaStream, type MediaRecord } from '../media/media-store.js';
 import { guardedMediaFetch } from '../media/media-fetch.js';
+import { recordLlmUsageEvent } from '../providers/llm-usage-log.js';
 
 /** Shown while the paid provider job runs: stopping here only stops local polling. */
 export const VIDEO_STOP_HINT = '중지해도 공급자 쪽 생성과 비용은 계속될 수 있습니다';
@@ -13,6 +14,9 @@ export interface VideoJobStatus {
   polling_url?: string;
   unsigned_urls?: string[];
   error?: unknown;
+  /** Billed USD when the provider reports it (OpenRouter usage accounting). */
+  usage?: { cost?: unknown };
+  cost?: unknown;
 }
 
 export interface GenerateVideoInput {
@@ -61,6 +65,8 @@ export interface RetrieveVideoInput {
   baseUrl: string;
   apiKey: string;
   jobId: string;
+  /** Usage log label only. */
+  modelId?: string;
   output: GenerateVideoInput['output'];
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -71,6 +77,26 @@ export type RetrieveVideoResult =
   | { state: 'pending'; jobId: string; status: string };
 
 const TERMINAL_FAIL = new Set(['failed', 'cancelled', 'canceled', 'expired']);
+
+/** One usage row per provider job (generate + later retrieve must not count it twice). */
+const loggedVideoJobs = new Set<string>();
+function logVideoUsage(ctx: JobContext, model: string | undefined, job: VideoJobStatus, jobId: string, outcome: string, startedAt?: number): void {
+  if (jobId) {
+    if (loggedVideoJobs.has(jobId)) return;
+    if (loggedVideoJobs.size > 500) loggedVideoJobs.clear();
+    loggedVideoJobs.add(jobId);
+  }
+  const raw = job.usage?.cost ?? job.cost;
+  const cost = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : undefined;
+  recordLlmUsageEvent({
+    purpose: 'video',
+    model,
+    endpointHost: new URL(ctx.base).host,
+    outcome,
+    startedAt,
+    ...(cost !== undefined && Number.isFinite(cost) ? { costUsd: cost } : {}),
+  });
+}
 
 function errText(value: unknown): string {
   if (!value) return '';
@@ -195,6 +221,7 @@ export async function generateVideo(
   const ctx = jobContext(input);
   const pollMs = input.pollIntervalMs ?? 10_000;
   const deadline = Date.now() + (input.timeoutMs ?? 15 * 60_000);
+  const submittedAt = Date.now();
 
   const submit = await ctx.doFetch(`${ctx.base}/videos`, {
     method: 'POST',
@@ -209,7 +236,10 @@ export async function generateVideo(
     }),
     signal: input.signal,
   });
-  if (!submit.ok) throw new Error(`VIDEO_SUBMIT_FAILED ${await readError(submit)}`);
+  if (!submit.ok) {
+    recordLlmUsageEvent({ purpose: 'video', model: input.model.id, endpointHost: new URL(ctx.base).host, outcome: 'http_error', httpStatus: submit.status, startedAt: submittedAt });
+    throw new Error(`VIDEO_SUBMIT_FAILED ${await readError(submit)}`);
+  }
   let job = (await submit.json()) as VideoJobStatus;
   const jobId = String(job.id ?? '').trim();
   if (!jobId) throw new Error('VIDEO_SUBMIT_FAILED 응답에 작업 id가 없습니다.');
@@ -219,12 +249,17 @@ export async function generateVideo(
   try {
     while (job.status !== 'completed') {
       const failed = terminalFailure(job, jobId);
-      if (failed) throw failed;
+      if (failed) {
+        logVideoUsage(ctx, input.model.id, job, jobId, 'provider_error', submittedAt);
+        throw failed;
+      }
       if (Date.now() > deadline) throw new Error('VIDEO_TIMEOUT 생성이 제한 시간 안에 끝나지 않았습니다.');
       await sleep(pollMs, input.signal);
       job = await pollJob(ctx, job, jobId);
       input.onStatus?.(`동영상 생성 중… (${job.status ?? 'pending'}) · ${VIDEO_STOP_HINT}`);
     }
+    // Billed once the provider finishes, even if the local download fails afterwards.
+    logVideoUsage(ctx, input.model.id, job, jobId, 'completed', submittedAt);
     return await downloadJob(ctx, job, jobId);
   } catch (e: unknown) {
     throw asJobError(e, jobId, input.signal);
@@ -242,10 +277,14 @@ export async function retrieveVideoJob(input: RetrieveVideoInput): Promise<Retri
   try {
     const job = await pollJob(ctx, { id: jobId }, jobId);
     const failed = terminalFailure(job, jobId);
-    if (failed) throw failed;
+    if (failed) {
+      logVideoUsage(ctx, input.modelId, job, jobId, 'provider_error');
+      throw failed;
+    }
     if (job.status !== 'completed') {
       return { state: 'pending', jobId, status: String(job.status ?? 'pending') };
     }
+    logVideoUsage(ctx, input.modelId, job, jobId, 'completed');
     return { state: 'completed', ...(await downloadJob(ctx, job, jobId)) };
   } catch (e: unknown) {
     throw asJobError(e, jobId, input.signal);

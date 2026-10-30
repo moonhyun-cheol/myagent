@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "settings-llm-usage-cost",
+      "status": "development",
+      "title": "설정에 「사용량·비용」 화면 추가",
+      "detail": "설정 → 모델 → 사용량·비용에서 토큰과 비용을 모델·프로바이더·용도별 차트와 표로 봅니다. 대화 외에 승인 판단·이미지·영상·임베딩 호출도 기록합니다. 「사용량·비용 집계」 스위치를 켠 동안 보낸 요청만 집계하며, 켜기 전 기록과 일시 중지한 동안의 요청은 포함하지 않습니다. 다시 켜면 이어서 집계합니다. 기간은 7·30·90일, 전체, 기간 지정(최대 1년)으로 볼 수 있습니다.",
+      "area": "settings",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/providers/llm-usage-summary.ts", "core/src/providers/llm-usage-log.ts", "core/src/agent/approval-auto-review.ts", "core/src/video/video-generation.ts", "core/src/chat/modes/image-gen.ts", "core/src/chat/modes/video-gen.ts", "core/src/providers/embeddings.ts", "tools/verify-llm-usage-purpose.mjs", "core/src/routes/dispatch.ts", "ui/workspace/src/components/SettingsUsagePage.tsx", "ui/workspace/src/components/SettingsModal.tsx", "ui/workspace/src/api/myAgentClient.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "web-action-audit-log",
       "status": "development",
       "title": "AI 브라우저·웹 작업 기록",

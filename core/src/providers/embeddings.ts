@@ -2,6 +2,8 @@
  * Optional OpenAI-compatible /embeddings client for ADR-003 A2 cloud path.
  * Falls back to deterministic stub vectors when apiKey starts with stub:.
  */
+import { fetchWithUsage } from './llm-usage-log.js';
+
 export interface CreateEmbeddingsResult {
   model: string;
   vectors: number[][];
@@ -63,7 +65,7 @@ export async function createEmbeddings(
   opts?.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithUsage(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

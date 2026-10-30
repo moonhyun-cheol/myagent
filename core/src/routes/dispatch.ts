@@ -46,6 +46,7 @@ import { testOllamaReachable } from '../inference/local-llama-runtime.js';
 import type { ModelKind } from '../models/types.js';
 import { buildModelPicker, invalidateRemoteModelCache } from '../models/model-picker.js';
 import { testConnection, testNativeToolConnection, listRemoteModels } from '../providers/openai-compatible.js';
+import { summarizeLlmUsage, setLlmUsageTracking } from '../providers/llm-usage-summary.js';
 import { curateRemoteModels, resolveDefaultOwuiModel } from '../providers/remote-model-curate.js';
 import { ProviderError } from '../providers/types.js';
 import type { ProviderWireApi } from '../providers/types.js';
@@ -431,6 +432,24 @@ export async function dispatchApiRequest(
         const fresh = url.searchParams.get('fresh') === '1';
         const llm = await collectLlmRuntimeStatus(providerStore, userConfigPath, { fresh });
         return sendJson(res, 200, llm);
+      }
+
+      if (method === 'GET' && url.pathname === '/runtime/llm-usage-summary') {
+        const daysParam = url.searchParams.get('days') ?? '30';
+        const days = daysParam === 'all' ? 'all' : Number(daysParam);
+        const tzOffsetMinutes = Number(url.searchParams.get('tz_offset') ?? 0);
+        const from = url.searchParams.get('from') ?? undefined;
+        const to = url.searchParams.get('to') ?? undefined;
+        return sendJson(res, 200, summarizeLlmUsage({ cqrRoot, days, from, to, tzOffsetMinutes }));
+      }
+
+      // 「비용 추적」 switch: { enabled: boolean } only — the server clock marks on/off (no past points).
+      if (method === 'POST' && url.pathname === '/runtime/llm-usage-tracking') {
+        const body = JSON.parse((await readBody(req)) || '{}') as { enabled?: unknown };
+        if (typeof body.enabled !== 'boolean') {
+          return sendJson(res, 400, { error: 'INVALID_TRACKING', message: 'enabled(true/false)만 받습니다.' });
+        }
+        return sendJson(res, 200, { tracking: setLlmUsageTracking(cqrRoot, body.enabled) });
       }
 
       if (method === 'GET' && url.pathname === '/license/status') {

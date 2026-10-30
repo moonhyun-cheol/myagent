@@ -1,4 +1,5 @@
 import {
+  ChartLine,
   ChatText,
   FolderSimple,
   GearSix,
@@ -18,6 +19,7 @@ import { SettingsGeneralPage } from './SettingsGeneralPage';
 import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
 import { SettingsSkillsPage } from './SettingsSkillsPage';
+import { SettingsUsagePage } from './SettingsUsagePage';
 import { SettingsWorkspacePage } from './SettingsWorkspacePage';
 
 interface SettingsSectionProps {
@@ -53,6 +55,14 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     icon: Stack,
     keywords: ['모델', 'llm', 'provider', 'api key', '프로바이더', 'openai', 'gemini'],
     render: () => <ModelManagementModal open embedded onClose={ignoreEmbeddedClose} />,
+  },
+  {
+    id: 'usage',
+    group: '모델',
+    label: '사용량·비용',
+    icon: ChartLine,
+    keywords: ['사용량', 'usage', '비용', 'cost', 'spending', '토큰', 'token', '청구', '통계'],
+    render: () => <SettingsUsagePage />,
   },
   {
     id: 'conversation',
