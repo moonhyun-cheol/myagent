@@ -375,7 +375,7 @@ export class SessionStore {
   updateVideoJob(
     id: string,
     jobId: string,
-    patch: { video_job: VideoJobRecord; content?: string; media?: SessionMessage['media'] },
+    patch: { video_job: VideoJobRecord; content?: string; media?: SessionMessage['media']; usage?: SessionMessage['usage'] },
   ): SessionRecord | null {
     assertChatRunWritable(id);
     const rec = this.load(id);
@@ -388,6 +388,7 @@ export class SessionStore {
       ...prev,
       video_job: patch.video_job,
       ...(patch.content ? { content: patch.content } : {}),
+      ...(patch.usage ? { usage: patch.usage } : {}),
       ...(urls.length
         ? {
             media: [...(prev.media ?? []), ...(patch.media ?? [])],

@@ -79,7 +79,12 @@ export interface SessionMessage {
    * `input_tokens` maps to the preceding user request, `output_tokens` to this
    * assistant reply. Absent when the provider did not report usage.
    */
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    /** Provider-billed USD for this reply (image/video generation); absent when not reported. */
+    cost_usd?: number;
+  };
   /**
    * When true, UI may still show the message but it must not be fed back to the model.
    * Used for guardrail / hallucination-block notices that would pollute later turns.

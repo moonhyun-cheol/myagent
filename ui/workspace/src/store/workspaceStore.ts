@@ -313,6 +313,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
         ? {
             ...(typeof m.usage.input_tokens === 'number' ? { inputTokens: m.usage.input_tokens } : {}),
             ...(typeof m.usage.output_tokens === 'number' ? { outputTokens: m.usage.output_tokens } : {}),
+            ...(typeof m.usage.cost_usd === 'number' ? { costUsd: m.usage.cost_usd } : {}),
           }
         : undefined,
       planBuildOffer: m.status !== 'stopped' && shouldOfferPlanBuild(messages, i),

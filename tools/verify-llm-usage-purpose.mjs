@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 const root = path.resolve(import.meta.dirname, '..');
 const temp = mkdtempSync(path.join(root, 'data', 'verify-llm-usage-purpose-'));
 let server;
+let server2;
 let passed = 0;
 const readFileSafe = (f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } };
 const pass = (name) => { passed += 1; console.log(`PASS ${name}`); };
@@ -213,6 +214,138 @@ try {
   assert.equal(prov.providers.find((p) => p.key === 'legacy-id')?.requests, 1, 'host-less rows keep provider id');
   pass('provider rows group by endpoint host');
 
+  // Image replies: base64 image in an oversized `response.completed`, usage recovered from its tail;
+  // a reply without cost but with x-generation-id is backfilled from the generation-stats API.
+  const imageDir = path.join(temp, 'usage-image');
+  process.env.MY_AGENT_LLM_USAGE_LOG_DIR = imageDir;
+  process.env.MY_AGENT_LLM_USAGE_BACKFILL_DELAYS_MS = '20,60';
+  const bigImage = 'A'.repeat(2_500_000);
+  let statsAuth;
+  server2 = createServer(async (req, res) => {
+    for await (const _ of req) { /* drain */ }
+    if (req.url.startsWith('/api/v1/generation')) {
+      statsAuth = req.headers.authorization;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: { id: 'gen-two', total_cost: 0.05, native_tokens_prompt: 7, native_tokens_completion: 1290, provider_name: 'Google' } }));
+      return;
+    }
+    const withUsage = req.headers['x-case'] === 'big';
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'x-generation-id': withUsage ? 'gen-one' : 'gen-two' });
+    res.write(`data: ${JSON.stringify({ type: 'response.created', response: { model: 'google/gemini-3-pro-image' } })}\n\n`);
+    const completed = JSON.stringify({ type: 'response.completed', response: {
+      model: 'google/gemini-3-pro-image', output: [{ type: 'image_generation_call', result: withUsage ? bigImage : 'x' }],
+      ...(withUsage ? { usage: { input_tokens: 12, output_tokens: 1290, cost: 0.134, input_tokens_details: { cached_tokens: 0 } } } : {}),
+    } });
+    const frame = `data: ${completed}\n\n`;
+    for (let i = 0; i < frame.length; i += 65_536) res.write(frame.slice(i, i + 65_536));
+    res.end();
+  });
+  await new Promise((resolve) => server2.listen(0, '127.0.0.1', resolve));
+  const imgBase = `http://127.0.0.1:${server2.address().port}/api/v1`;
+  const imgPost = (kind) => ({ method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer sk-img', 'x-case': kind }, body: JSON.stringify({ model: 'google/gemini-3-pro-image', input: [], stream: true }) });
+  const bigText = await (await fetchWithUsage(`${imgBase}/responses`, imgPost('big'))).text();
+  assert.ok(bigText.length > 2_500_000, 'bytes delivered unchanged');
+  await (await fetchWithUsage(`${imgBase}/responses`, imgPost('small'))).text();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const imageRows = readdirSync(imageDir).flatMap((f) => readFileSync(path.join(imageDir, f), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)));
+  const finishes = imageRows.filter((r) => r.event === 'finish');
+  assert.equal(finishes.length, 2);
+  assert.ok(finishes.every((r) => r.purpose === 'image'), 'context-less image model counted as image');
+  const big = finishes.find((r) => r.output_tokens === 1290);
+  assert.ok(big, 'usage salvaged from oversized event');
+  assert.equal(big.provider_cost_usd, 0.134);
+  assert.equal(big.usage_salvaged, true);
+  assert.equal(big.observation_truncated, true);
+  assert.equal(big.outcome, 'completed', 'terminal type read from event head');
+  pass('oversized image event: usage + cost salvaged, purpose image');
+  const fills = imageRows.filter((r) => r.event === 'cost_backfill');
+  assert.equal(fills.length, 1, 'only the cost-less reply is backfilled');
+  assert.equal(statsAuth, 'Bearer sk-img', 'stats API uses the same key');
+  assert.ok(!JSON.stringify(imageRows).includes('sk-img'), 'no secrets in rows');
+  const small = finishes.find((r) => r.call_id === fills[0].call_id);
+  assert.equal(small.provider_cost_usd, null);
+  const imgSummary = summarizeLlmUsage({ cqrRoot: temp, days: 7, tracking: openSince(new Date(Date.now() - 3_600_000).toISOString()) });
+  assert.ok(Math.abs(imgSummary.totals.billed_cost_usd - (0.134 + 0.05)) < 1e-9, `billed ${imgSummary.totals.billed_cost_usd}`);
+  assert.equal(imgSummary.purposes.find((p) => p.key === 'image')?.requests, 2);
+  assert.equal(imgSummary.totals.requests, 2, 'backfill row is not a request');
+  pass('generation-stats backfill fills a cost-less reply');
+  assert.equal(small.generation_id, 'gen-two', 'cost-less row keeps generation id');
+  assert.equal(big.generation_id, undefined, 'priced row does not keep generation id');
+
+  // App closed before the delayed lookup: the next usage-page load recovers it from the kept generation id.
+  const { recoverPendingCostBackfills } = await load('providers/llm-usage-log');
+  const recAt = Date.now();
+  const recFile = path.join(imageDir, `llm-usage-${new Date(recAt).toISOString().slice(0, 10)}.jsonl`);
+  writeFileSync(recFile, readFileSafe(recFile)
+    + JSON.stringify({ call_id: 'rec-old', event: 'finish', started_at: new Date(recAt - 300_000).toISOString(), finished_at: new Date(recAt - 290_000).toISOString(), outcome: 'completed', provider_id: 'custom', endpoint_host: 'openrouter.ai', model: 'google/gemini-3-pro-image', provider_cost_usd: null, generation_id: 'gen-two' }) + '\n'
+    + JSON.stringify({ call_id: 'rec-young', event: 'finish', started_at: new Date(recAt - 5_000).toISOString(), finished_at: new Date(recAt - 4_000).toISOString(), outcome: 'completed', endpoint_host: 'openrouter.ai', provider_cost_usd: null, generation_id: 'gen-two' }) + '\n'
+    + JSON.stringify({ call_id: 'rec-other-host', event: 'finish', started_at: new Date(recAt - 300_000).toISOString(), finished_at: new Date(recAt - 290_000).toISOString(), outcome: 'completed', endpoint_host: 'api.example.com', provider_cost_usd: null, generation_id: 'gen-two' }) + '\n');
+  statsAuth = undefined;
+  const authCalls = [];
+  const recover = () => recoverPendingCostBackfills({
+    cqrRoot: temp, force: true, now: recAt,
+    authFor: (pid, host) => { authCalls.push([pid, host]); return host === 'openrouter.ai' ? 'Bearer sk-rec' : null; },
+    statsUrlFor: (_host, gid) => `${imgBase}/generation?id=${gid}`,
+  });
+  assert.equal(await recover(), 1, 'only the old OpenRouter row is recovered');
+  assert.equal(statsAuth, 'Bearer sk-rec');
+  assert.deepEqual(authCalls, [['custom', 'openrouter.ai']]);
+  assert.equal(await recover(), 0, 'already filled rows are not fetched again');
+  const recRows = readFileSync(recFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const recFill = recRows.find((r) => r.event === 'cost_backfill' && r.call_id === 'rec-old');
+  assert.equal(recFill?.provider_cost_usd, 0.05);
+  assert.equal(recFill?.backfill_recovered, true);
+  assert.ok(!readFileSync(recFile, 'utf8').includes('sk-rec'), 'no secrets in rows');
+  pass('kept generation id: cost recovered after restart');
+
+  // Image detection: the /models listing (output_modalities) decides first, the id pattern only as fallback.
+  const { parseModelPricing, recordProviderPricing, setModelPricingFileForTest } = await load('models/model-pricing');
+  const { isImageGenerationModelId } = await load('providers/llm-usage-log');
+  assert.deepEqual(parseModelPricing({ pricing: { prompt: '0.000001' }, architecture: { output_modalities: ['image', 'text'] } })?.outputs, ['image', 'text']);
+  setModelPricingFileForTest(null);
+  recordProviderPricing('or', [
+    { id: 'vendor/chat-image-reader', pricing: { input: 1, outputs: ['text'] } },
+    { id: 'vendor/painter', pricing: { input: 1, outputs: ['image', 'text'] } },
+  ]);
+  assert.equal(isImageGenerationModelId('vendor/chat-image-reader', 'or'), false, 'text-only listing overrides the name');
+  assert.equal(isImageGenerationModelId('vendor/painter', 'or'), true, 'image output without an image-like name');
+  assert.equal(isImageGenerationModelId('unlisted/flux-2', 'or'), true, 'unlisted model falls back to the name');
+  assert.equal(isImageGenerationModelId('unlisted/chat-1', 'or'), false);
+  setModelPricingFileForTest(undefined);
+  pass('image detection prefers listed output modalities');
+
+  // Plain chat streams (image models picked in chat) carry session + provider into the usage log.
+  const orchSrc = readFileSync(path.join(root, 'core/src/chat/chat-orchestrator.ts'), 'utf8');
+  assert.match(orchSrc, /withLlmUsageContext\(\{ cqrRoot: this\.cqrRoot, sessionId, providerId, collect: usageCollector\.collect \}, \(\) => this\.cloudChat\.completeStream\(/);
+  assert.match(orchSrc, /withLlmUsageContext\(\{ cqrRoot: this\.cqrRoot, sessionId, providerId \}, \(\) => this\.cloudChat\.complete\(/);
+  pass('plain chat calls carry usage context');
+
+  // Bubble usage: a reply-scoped collector sums every finished call (tokens + billed cost), jobs give cost only.
+  {
+    const { createLlmUsageCollector } = await load('providers/llm-usage-log');
+    const c = createLlmUsageCollector();
+    assert.equal(c.result(), undefined);
+    await withLlmUsageContext({ purpose: 'image', collect: c.collect }, async () => {
+      await (await fetchWithUsage(`${base}/v1/chat/completions`, post({ model: 'img-model', messages: [] }))).text();
+      await withLlmUsageContext({ sessionId: 'nested' }, async () => (await fetchWithUsage(`${base}/v1/chat/completions`, post({ model: 'img-model', messages: [] }))).text());
+    });
+    const r = c.result();
+    assert.equal(r.input_tokens, 20);
+    assert.equal(r.output_tokens, 4);
+    assert.ok(Math.abs(r.cost_usd - 0.04) < 1e-9, String(r.cost_usd));
+    const v = createLlmUsageCollector();
+    withLlmUsageContext({ purpose: 'video', collect: v.collect }, () => recordLlmUsageEvent({ purpose: 'video', model: 'vendor/video-3', outcome: 'completed', costUsd: 0.61 }));
+    assert.deepEqual(v.result(), { cost_usd: 0.61 });
+    for (const rel of ['core/src/chat/modes/image-gen.ts', 'core/src/chat/modes/video-gen.ts']) {
+      assert.match(readFileSync(path.join(root, rel), 'utf8'), /collect: usageCollector\.collect/, rel);
+    }
+    const clientSrc = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
+    assert.match(clientSrc, /out\.costUsd = record\.cost_usd/);
+    pass('reply usage collector feeds image/video bubble cost');
+  }
+  delete process.env.MY_AGENT_LLM_USAGE_BACKFILL_DELAYS_MS;
+  process.env.MY_AGENT_LLM_USAGE_LOG_DIR = usageDir;
+
   // Route takes only a boolean switch (no past points).
   const dispatchSrc = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   assert.match(dispatchSrc, /typeof body\.enabled !== 'boolean'/);
@@ -222,5 +355,6 @@ try {
   console.log(`verify-llm-usage-purpose: ${passed} passed`);
 } finally {
   server?.close();
+  server2?.close();
   rmSync(temp, { recursive: true, force: true });
 }
