@@ -7,6 +7,7 @@ import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { AgentToolDefinition } from './agent-tool-types.js';
+import { TOOL_IMAGE_MAX_BYTES, TOOL_IMAGE_MAX_COUNT, toolImageFromBase64 } from './tool-image.js';
 
 export type UserMcpServerConfig = {
   id: string;
@@ -139,21 +140,60 @@ export async function listUserMcpToolDefinitions(
   return out;
 }
 
-/** Call mcp_{serverId}_{tool} through the configured remote MCP server. */
+export type UserMcpToolResult = { output: string; followUpImages?: string[] };
+
+/** Keep image bytes out of text logs/evidence; report rejected/unsupported blocks explicitly. */
+export function normalizeUserMcpResult(result: Record<string, unknown>): UserMcpToolResult {
+  const texts: string[] = [];
+  const images: string[] = [];
+  const warnings: string[] = [];
+  let bytes = 0;
+  for (const item of Array.isArray(result.content) ? result.content : []) {
+    const block = item as Record<string, unknown> | null;
+    if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text);
+    else if (block?.type === 'image') {
+      try {
+        if (result.isError) throw new Error('오류 결과의 이미지는 전달하지 않습니다.');
+        if (images.length >= TOOL_IMAGE_MAX_COUNT) throw new Error('이미지는 요청당 최대 4장입니다.');
+        if (typeof block.data !== 'string' || typeof block.mimeType !== 'string') throw new Error('이미지 데이터 또는 MIME이 없습니다.');
+        const image = toolImageFromBase64(block.data, block.mimeType);
+        const size = Buffer.byteLength(block.data, 'base64');
+        if (bytes + size > TOOL_IMAGE_MAX_BYTES) throw new Error('이미지 합계가 8MB를 초과합니다.');
+        bytes += size;
+        images.push(image);
+      } catch (error) { warnings.push(error instanceof Error ? error.message : String(error)); }
+    } else warnings.push(`지원하지 않는 MCP 결과 블록: ${String(block?.type ?? 'unknown')}`);
+  }
+  const text = texts.join('\n');
+  if (result.isError) return { output: JSON.stringify({ ok: false, error: text || 'mcp tool error', warnings }) };
+  if (!images.length && !warnings.length) return { output: text || JSON.stringify({ ok: true, note: '(empty mcp result)' }) };
+  return { output: JSON.stringify({ ok: true, text, image_count: images.length, warnings,
+    note: images.length ? '이미지는 다음 모델 요청에 전달합니다. 이미지 미지원 모델에서는 지원 모델로 변경하세요.'
+      : '전달된 이미지가 없습니다. 경고를 확인하고 이미지 내용을 봤다고 판단하지 마세요.' }), followUpImages: images };
+}
+
+/** Compatibility for text-only callers. */
 export async function callUserMcpTool(
+  cqrRoot: string, toolNameFull: string, args: Record<string, unknown>, opts?: { timeoutMs?: number },
+): Promise<string> {
+  return (await callUserMcpToolWithImages(cqrRoot, toolNameFull, args, opts)).output;
+}
+
+/** Call mcp_{serverId}_{tool} through the configured remote MCP server. */
+export async function callUserMcpToolWithImages(
   cqrRoot: string,
   toolNameFull: string,
   args: Record<string, unknown>,
   opts?: { timeoutMs?: number },
-): Promise<string> {
+): Promise<UserMcpToolResult> {
   const m = /^mcp_([a-zA-Z0-9_-]+)_(.+)$/.exec(toolNameFull);
-  if (!m) return JSON.stringify({ ok: false, error: 'invalid mcp tool name' });
+  if (!m) return { output: JSON.stringify({ ok: false, error: 'invalid mcp tool name' }) };
   const serverId = m[1];
   const rawTool = m[2];
   const cfg = loadUserMcpConfig(cqrRoot);
   const server = cfg.servers.find((item) => item.id === serverId && item.enabled !== false);
   if (!server) {
-    return JSON.stringify({ ok: false, error: `mcp server not found/disabled: ${serverId}` });
+    return { output: JSON.stringify({ ok: false, error: `mcp server not found/disabled: ${serverId}` }) };
   }
 
   try {
@@ -164,23 +204,16 @@ export async function callUserMcpTool(
       || listed.tools.find((t) => t.name.replace(/[^a-zA-Z0-9_]/g, '_') === rawTool)
       || listed.tools.find((t) => t.name === rawTool);
     if (!match) {
-      return JSON.stringify({ ok: false, error: `tool not on server ${serverId}: ${rawTool}` });
+      return { output: JSON.stringify({ ok: false, error: `tool not on server ${serverId}: ${rawTool}` }) };
     }
     const result = await client.callTool(
       { name: match.name, arguments: args },
       undefined,
       { timeout: opts?.timeoutMs ?? 120_000 },
     );
-    const text = (Array.isArray(result.content) ? result.content : [])
-      .filter((content): content is { type: 'text'; text: string } => content.type === 'text' && 'text' in content)
-      .map((content) => content.text)
-      .join('\n');
-    if (result.isError) {
-      return JSON.stringify({ ok: false, error: text || 'mcp tool error', tool: match.name });
-    }
-    return text || JSON.stringify({ ok: true, note: '(empty mcp result)' });
+    return normalizeUserMcpResult(result);
   } catch (error: unknown) {
-    return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    return { output: JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }) };
   }
 }
 

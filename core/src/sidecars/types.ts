@@ -14,4 +14,15 @@ export type SidecarResult = {
   error?: string;
   hitlRequired?: boolean;
   rawLog?: string;
+  coverage?: {
+    total_chars: number;
+    start_char: number;
+    end_char: number;
+    truncated: boolean;
+    next_start_char: number | null;
+    sha256: string;
+    source_complete: boolean;
+    guidance: string;
+    warning?: string;
+  };
 };

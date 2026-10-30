@@ -168,7 +168,7 @@ export function toolPathTargets(
   args: Record<string, unknown>,
 ): { mode: 'read' | 'write' | null; paths: string[] } {
   const one = (value: unknown) => typeof value === 'string' && value.trim() ? [value.trim()] : [];
-  if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files') {
+  if (toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'image_get' || toolName === 'markitdown_convert') {
     return { mode: 'read', paths: one(args.path ?? '.') };
   }
   if (toolName === 'workspace_checkpoint') {
@@ -224,7 +224,7 @@ export function canDelegateToolApproval(
 ): boolean {
   const extraRoots = delegableExtraRoots(allowedWriteRoots);
   const inside = (candidate: unknown) => pathInsideDelegableRoots(candidate, workspaceRoot, extraRoots);
-  const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files';
+  const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'image_get' || toolName === 'markitdown_convert';
   // NAS / network-share workspaces: a model may never approve a mutation or a
   // terminal command there (the shell would run with the share as cwd).
   if (!readOnlyTool && isNetworkSharePath(workspaceRoot)) return false;

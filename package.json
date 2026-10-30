@@ -85,6 +85,7 @@
     "verify:domain-registry": "node tools/verify-domain-registry.mjs",
     "verify:personal-scheduler": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-personal-scheduler.mjs",
     "verify:conversation-image-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-conversation-image-catalog.mjs",
+    "verify:tool-visual-results": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-tool-visual-results.mjs",
     "verify:work-timeline": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-work-timeline.mjs",
     "verify:tool-activity-groups-ui": "node tools/verify-tool-activity-group-ui.mjs",
     "verify:release-critical-ui": "node tools/verify-release-critical-ui-journeys.mjs",

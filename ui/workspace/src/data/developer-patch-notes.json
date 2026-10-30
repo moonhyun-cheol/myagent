@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "tool-visual-results",
+      "status": "development",
+      "title": "브라우저 캡처와 도구 이미지 결과를 AI가 확인",
+      "detail": "브라우저 캡처와 외부 도구의 이미지 결과를 AI의 다음 요청에 이미지로 전달합니다. 내려받거나 작업 중 만든 이미지도 경로를 지정해 열어볼 수 있습니다. 지원하지 않는 형식이나 크기 제한으로 이미지를 전달하지 못하면 이를 알리고, 긴 문서 변환 결과는 누락 범위와 이어 읽을 위치를 표시합니다. 이미지 확인에는 이미지 입력을 지원하는 모델이 필요합니다.",
+      "area": "agent",
+      "created_at": "2026-10-29",
+      "source_paths": ["core/src/agent/agent-tool-execute.ts", "core/src/agent/tool-image.ts", "core/src/agent/user-mcp.ts", "core/src/sidecars/markitdown-sidecar.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "provider-payment-error-diagnostics",
       "status": "development",
       "title": "AI 요청의 결제·한도 오류 원인 추적 보강",

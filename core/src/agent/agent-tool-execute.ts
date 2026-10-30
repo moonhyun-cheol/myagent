@@ -45,7 +45,9 @@ import {
   setAgentPluginEnabled,
 } from './agent-plugin-store.js';
 import { runAgentPlugin } from './agent-plugin-runner.js';
-import { callUserMcpTool } from './user-mcp.js';
+import { callUserMcpToolWithImages } from './user-mcp.js';
+import { readToolImage, toolImageFromBase64 } from './tool-image.js';
+import { resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
 import { runWorkspaceTestsAsync, runWorkspaceDiagnosticsAsync } from './run-verification-async.js';
 import {
   createWorkspaceCheckpoint,
@@ -192,7 +194,7 @@ export async function executeAgentTool(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string; followUpImage?: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string; followUpImages?: string[] }> {
   assertChatRunWritable();
   throwIfAborted(ctx?.signal);
   const normalized = normalizeToolCall(call);
@@ -232,7 +234,7 @@ async function executeAgentToolInner(
   call: AgentToolCall,
   guard: import('../security/dev-workspace-guard.js').WorkspaceGuardOptions = {},
   ctx?: AgentToolContext,
-): Promise<{ output: string; label: string; followUpImage?: string }> {
+): Promise<{ output: string; label: string; followUpImage?: string; followUpImages?: string[] }> {
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
@@ -898,14 +900,16 @@ async function executeAgentToolInner(
             output: JSON.stringify({ ok: false, error: 'path required' }),
           };
         }
-        const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
+        const abs = resolveDevWorkspaceReadPath(workspaceRoot, rel);
         if (!existsSync(abs)) {
           return {
             label: 'markitdown_convert',
             output: JSON.stringify({ ok: false, error: 'FILE_NOT_FOUND', path: abs }),
           };
         }
-        const result = runMarkitdownSidecar({ filePath: abs });
+        const result = runMarkitdownSidecar({ filePath: abs, cqrRoot: ctx?.cqrRoot,
+          startChar: typeof args.start_char === 'number' ? args.start_char : undefined,
+          maxChars: typeof args.max_chars === 'number' ? args.max_chars : undefined });
         return { label: 'markitdown_convert', output: JSON.stringify(result, null, 2) };
       }
       case 'git_history_tree': {
@@ -1097,7 +1101,15 @@ async function executeAgentToolInner(
           filename: typeof args.filename === 'string' ? args.filename : undefined,
           allowLocalhost: ctx.allowLocalhost === true,
         });
-        return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify(result, null, 2) };
+        return { label: `save_web_asset ${result.url ?? result.error ?? ''}`, output: JSON.stringify({ ...result,
+          ...(result.ok ? { image_guidance: '이미지는 아직 시각 입력으로 전달되지 않았습니다. 이미지라면 image_get에 반환된 path를 넣어 조회하세요.' } : {}),
+        }, null, 2) };
+      }
+      case 'image_get': {
+        const input = String(args.path ?? '');
+        const image = readToolImage(workspaceRoot, input, ctx);
+        return { label: `image_get ${input}`, output: JSON.stringify({ ok: true, path: input,
+          note: '이미지를 다음 모델 요청의 시각 입력으로 전달합니다. 이미지 미지원 모델에서는 지원 모델로 변경하세요.' }), followUpImage: image };
       }
       case 'conversation_image_get': {
         const cqrRoot = ctx?.cqrRoot;
@@ -1266,13 +1278,27 @@ async function executeAgentToolInner(
           writeFileSync(absolute, Buffer.from(image, 'base64'));
           const relative = path.relative(ctx.cqrRoot, absolute).split(path.sep).join('/');
           const shot = { path: absolute, relative, url: `/${relative}`, page_url: result.url };
-          return { label: `screenshot ${relative}`, output: JSON.stringify(shot, null, 2) };
+          try {
+            return { label: `screenshot ${relative}`, output: JSON.stringify({ ...shot, image_attached: true }, null, 2),
+              followUpImage: toolImageFromBase64(image, 'image/png') };
+          } catch (error) {
+            return { label: `screenshot ${relative}`, output: JSON.stringify({ ...shot, image_attached: false,
+              image_error: error instanceof Error ? error.message : String(error),
+              guidance: '파일은 저장됐지만 시각 입력은 전달되지 않았습니다. 이미지를 축소한 뒤 image_get으로 조회하세요.' }, null, 2) };
+          }
         }
         const session = await isolatedBrowserSession(args, ctx);
         if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
         const rel = typeof args.path === 'string' ? args.path : undefined;
         const shot = await session.screenshot(workspaceRoot, rel, ctx?.sessionId, guard);
-        return { label: `screenshot ${shot.relative}`, output: JSON.stringify(shot, null, 2) };
+        try {
+          return { label: `screenshot ${shot.relative}`, output: JSON.stringify({ ...shot, image_attached: true }, null, 2),
+            followUpImage: readToolImage(workspaceRoot, shot.path, ctx) };
+        } catch (error) {
+          return { label: `screenshot ${shot.relative}`, output: JSON.stringify({ ...shot, image_attached: false,
+            image_error: error instanceof Error ? error.message : String(error),
+            guidance: '파일은 저장됐지만 시각 입력은 전달되지 않았습니다. 이미지를 축소한 뒤 image_get으로 조회하세요.' }, null, 2) };
+        }
       }
       case 'browser_click': {
         const target = browserExecutionTarget(args, ctx);
@@ -1355,12 +1381,12 @@ async function executeAgentToolInner(
       }
       default: {
         if (name.startsWith('mcp_') && ctx?.cqrRoot) {
-          const output = await callUserMcpTool(
+          const result = await callUserMcpToolWithImages(
             ctx.cqrRoot,
             name,
             args as Record<string, unknown>,
           );
-          return { label: name, output };
+          return { label: name, ...result };
         }
         if (name.startsWith('plugin_') && ctx?.cqrRoot) {
           const rec = getAgentPluginByToolName(ctx.cqrRoot, name);
