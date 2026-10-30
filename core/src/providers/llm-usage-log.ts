@@ -28,6 +28,8 @@ const record = (v: unknown): Record<string, unknown> => v && typeof v === 'objec
 const id = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9_./:-]{1,160}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v : undefined;
 /** Upstream provider display names may contain spaces ("Google Vertex"). */
 const providerName = (v: unknown): string | undefined => typeof v === 'string' && /^[a-zA-Z0-9 _.()-]{1,80}$/.test(v) && !/^(sk-|Bearer|eyJ)/i.test(v) ? v.trim() : undefined;
+/** Safe identifier names only; values are never read here. */
+const fieldNames = (names: string[]): string[] => [...new Set(names.filter((n) => /^[$a-zA-Z0-9_.-]{1,60}$/.test(n)))].sort().slice(0, 60);
 const money = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 /** OpenRouter usage accounting: billed USD and cache discount (positive = saved, negative = write premium). */
 function costFields(raw: unknown): { cost?: number; cache_discount?: number } {
@@ -102,6 +104,8 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let status: number | undefined;
   let responseModel: string | undefined;
   let upstreamProvider: string | undefined;
+  /** Field/header NAMES only (never values) — diagnoses where upstream provider is reported. */
+  let terminalFieldNames: string[] | undefined;
   let costs: { cost?: number; cache_discount?: number } = {};
   let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
   let responseHeaders: Headers | undefined;
@@ -124,6 +128,12 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
       reasoning_tokens: usage.reasoning_tokens ?? null, total_input_tokens: totalInput,
       input_semantics: wire === 'messages' ? 'excludes_cache' : 'includes_cache',
       upstream_provider: upstreamProvider ?? null,
+      ...(upstreamProvider === undefined && status !== undefined && status < 400 ? {
+        provider_probe: {
+          terminal_fields: terminalFieldNames ?? null,
+          header_names: fieldNames(responseHeaders ? [...responseHeaders.keys()].filter((h) => /^(x-|openrouter)/i.test(h)) : []),
+        },
+      } : {}),
       provider_cost_usd: costs.cost ?? null,
       cache_discount_usd: costs.cache_discount ?? null,
       usage_source: 'provider', observation_truncated: truncated,
@@ -144,6 +154,9 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
       errorDiagnostics = providerErrorDiagnostics(doc, { status: status ?? 200, headers: responseHeaders ?? new Headers() });
     }
     if (doc.type === 'response.completed' || doc.type === 'message_stop') terminal = true;
+    if (doc.type === 'response.completed' || !stream) {
+      terminalFieldNames = fieldNames([...Object.keys(doc).map((k) => `$.${k}`), ...Object.keys(response).map((k) => `response.${k}`)]);
+    }
   };
   let response: Response;
   try { response = await fetch(url, init); }
