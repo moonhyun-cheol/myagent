@@ -1,5 +1,6 @@
 import { fetchWithUsage } from './llm-usage-log.js';
 import { logLlmWireRequest, logLlmWireResponse } from './llm-wire-log.js';
+import { readWithIdleTimeout, resolveStreamIdleTimeoutMs } from './stream-idle.js';
 import type { ProviderWireApi } from './types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 import {
@@ -613,7 +614,7 @@ async function chatCompletionStreamAt(
 
   while (true) {
     throwIfAborted(opts?.signal);
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout(reader, resolveStreamIdleTimeoutMs(full.length > 0));
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
@@ -1332,7 +1333,8 @@ async function chatCompletionWithToolsStreamAt(
 
   while (true) {
     throwIfAborted(opts?.signal);
-    const { done, value } = await reader.read();
+    const sawOutput = content.length > 0 || thoughtAcc.length > 0 || toolAcc.size > 0;
+    const { done, value } = await readWithIdleTimeout(reader, resolveStreamIdleTimeoutMs(sawOutput));
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');

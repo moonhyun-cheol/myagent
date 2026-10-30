@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "agent-run-wall-time-and-stream-stall",
+      "status": "development",
+      "title": "오래 안 멈추는 작업 방지: 30분마다 진행 점검, 1시간 후 자동 연장 중단, 멈춘 응답 끊기",
+      "detail": "한 작업이 30분·60분…을 넘길 때마다 걸음 수와 상관없이 검토 모델이 계속 진행할지 판단합니다. 1시간이 지나면 자동 연장 없이 사용자에게 묻습니다. 검토 모델에 경과 시간과 걸음당 평균 시간을 넘기고, 상태 줄과 승인 카드에 경과 시간을 표시합니다. 모델 응답 스트림이 2분(첫 출력 전 5분) 동안 아무것도 보내지 않으면 끊고 다시 시도합니다.",
+      "area": "core",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/providers/stream-idle.ts", "core/src/agent/step-budget-review.ts", "core/src/agent/agent-run-step-loop.ts", "core/src/chat/chat-orchestrator.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "usage-page-ux-polish",
       "status": "development",
       "title": "사용량·비용 화면 정리: 하루치 차트 표시, 캐시 내역 부호, 차트 모양 위치",
