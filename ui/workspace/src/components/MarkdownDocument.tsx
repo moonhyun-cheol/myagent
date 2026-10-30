@@ -953,7 +953,7 @@ export function MarkdownDocument() {
                 type="button"
                 className="ui-primary"
                 data-testid="document-blank-new"
-                onClick={() => setDocumentView('rendered')}
+                onClick={() => void newDocument()}
               >
                 새 문서
               </button>
