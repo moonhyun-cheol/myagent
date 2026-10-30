@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-26T00:33:06.771Z",
+  "generated_at": "2026-10-30T02:53:12.938Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 120,
+    "route_count": 121,
     "routes": [
       {
         "method": "GET",
@@ -314,6 +314,11 @@
       {
         "method": "POST",
         "path": "/fs/workspace-file/rename",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/fs/workspace-raw",
         "match": "exact"
       },
       {
@@ -648,11 +653,6 @@
       },
       {
         "method": "POST",
-        "path": "/workspace/documents/",
-        "match": "prefix"
-      },
-      {
-        "method": "PUT",
         "path": "/workspace/documents/",
         "match": "prefix"
       }
