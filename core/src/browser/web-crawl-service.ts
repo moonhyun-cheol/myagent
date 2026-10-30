@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { importPlaywright, isPlaywrightAvailable } from '../browser/playwright-probe.js';
-import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
+import {
+  assertAllowedBrowserUrl,
+  assertBrowserUrlResolvesAllowed,
+  browserUrlBlockReason,
+  type UrlGuardOptions,
+} from '../browser/url-guard.js';
+import { installBrowserRequestGuard, type GuardablePage } from '../browser/playwright-session.js';
 import { formatToolSelfCorrection } from '../agent/tool-self-correction.js';
 
 const DEFAULT_MAX_PAGES = 12;
@@ -22,7 +28,7 @@ export interface WebCrawlResult {
   engine: 'playwright';
 }
 
-type PwPage = {
+type PwPage = GuardablePage & {
   goto(url: string, opts: { waitUntil: string; timeout: number }): Promise<unknown>;
   title(): Promise<string>;
   url(): string;
@@ -60,7 +66,9 @@ async function crawlWithPlaywright(opts: {
   maxPages: number;
   allowLocalhost: boolean;
 }): Promise<CrawlPageResult[]> {
-  const start = assertAllowedBrowserUrl(opts.startUrl, { allowLocalhost: opts.allowLocalhost });
+  const guard: UrlGuardOptions = { allowLocalhost: opts.allowLocalhost };
+  const start = assertAllowedBrowserUrl(opts.startUrl, guard);
+  await assertBrowserUrlResolvesAllowed(start.toString(), guard);
   const pw = await importPlaywright(opts.cqrRoot);
   const browser = (await pw.chromium.launch({ headless: true })) as PwBrowser;
   const pages: CrawlPageResult[] = [];
@@ -75,7 +83,10 @@ async function crawlWithPlaywright(opts: {
 
       const page = await browser.newPage();
       try {
+        // Every request (redirect targets included) re-checked, not just the start URL.
+        await installBrowserRequestGuard(page, guard, () => undefined);
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+        if (browserUrlBlockReason(page.url(), guard)) continue;
         const title = await page.title();
         const bodyText = String(
           await page.evaluate(() => document.body?.innerText ?? ''),
@@ -96,6 +107,7 @@ async function crawlWithPlaywright(opts: {
           const abs = normalizeLink(new URL(url), href);
           if (!abs || seen.has(abs) || queue.includes(abs)) continue;
           if (!sameHost(start.toString(), abs)) continue;
+          if (browserUrlBlockReason(abs, guard)) continue;
           queue.push(abs);
         }
       } catch {

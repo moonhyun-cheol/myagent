@@ -4,7 +4,12 @@ import { assertPathUnder } from '../security/path-guard.js';
 import { resolveDevWorkspaceRelPath } from '../security/dev-workspace-guard.js';
 import type { WorkspaceGuardOptions } from '../security/dev-workspace-guard.js';
 import { importPlaywright } from './playwright-probe.js';
-import { assertAllowedBrowserUrl, type UrlGuardOptions } from './url-guard.js';
+import {
+  assertAllowedBrowserUrl,
+  assertBrowserUrlResolvesAllowed,
+  browserUrlBlockReason,
+  type UrlGuardOptions,
+} from './url-guard.js';
 import { ensurePlaywrightGitignore } from '../sessions/workspace-scratch-gitignore.js';
 
 const NAVIGATION_TIMEOUT_MS = 20_000;
@@ -57,6 +62,57 @@ type PwDownload = {
   failure(): Promise<string | null>;
 };
 
+type PwRequest = { url(): string; isNavigationRequest(): boolean };
+type PwRoute = {
+  request(): PwRequest;
+  abort(errorCode?: string): Promise<void>;
+  continue(): Promise<void>;
+};
+type PwFrame = { url(): string; parentFrame(): PwFrame | null };
+
+/** Minimal page surface needed by {@link installBrowserRequestGuard}. */
+export type GuardablePage = {
+  route(url: string, handler: (route: PwRoute) => unknown): Promise<void>;
+  on(event: string, listener: (...args: any[]) => void): void;
+};
+
+export interface BlockedBrowserRequest {
+  url: string;
+  reason: string;
+  navigation: boolean;
+}
+
+/**
+ * Enforce the URL guard on every request the page makes, not only the first `goto`:
+ * link clicks, `location=` changes, form posts, iframes and sub-resources. Chromium
+ * redirects are re-checked by the post-navigation guards (route handlers may not see
+ * redirect hops).
+ */
+export async function installBrowserRequestGuard(
+  page: GuardablePage,
+  guard: UrlGuardOptions,
+  onBlocked: (blocked: BlockedBrowserRequest) => void,
+): Promise<void> {
+  await page.route('**/*', (route: PwRoute) => {
+    const req = route.request();
+    const url = req.url();
+    const navigation = req.isNavigationRequest();
+    if (!/^https?:/i.test(url)) {
+      if (navigation && !/^(about|data|blob):/i.test(url)) {
+        onBlocked({ url, reason: 'BLOCKED_PROTOCOL: only http/https navigation allowed', navigation });
+        return route.abort('blockedbyclient').catch(() => undefined);
+      }
+      return route.continue().catch(() => undefined);
+    }
+    const reason = browserUrlBlockReason(url, guard);
+    if (reason) {
+      onBlocked({ url, reason, navigation });
+      return route.abort('blockedbyclient').catch(() => undefined);
+    }
+    return route.continue().catch(() => undefined);
+  });
+}
+
 type PwPage = {
   goto(url: string, opts: { waitUntil: string; timeout: number }): Promise<unknown>;
   title(): Promise<string>;
@@ -78,6 +134,7 @@ type PwPage = {
   goForward(opts: { waitUntil: string; timeout: number }): Promise<unknown>;
   reload(opts: { waitUntil: string; timeout: number }): Promise<unknown>;
   on(event: string, listener: (...args: any[]) => void): void;
+  route(url: string, handler: (route: PwRoute) => unknown): Promise<void>;
   close(): Promise<void>;
   setDefaultTimeout(ms: number): void;
   setDefaultNavigationTimeout(ms: number): void;
@@ -111,6 +168,8 @@ export class PlaywrightSession {
   private readonly headless: boolean;
   private readonly urlGuard: UrlGuardOptions;
   private readonly signal?: AbortSignal;
+  /** Last navigation the request guard refused (cleared at the start of each navigation). */
+  private lastBlocked: BlockedBrowserRequest | null = null;
 
   /**
    * Always a separate Chromium. The user-facing WebView2 is reachable only through the
@@ -174,7 +233,40 @@ export class PlaywrightSession {
     this.page.setDefaultTimeout(ACTION_TIMEOUT_MS);
     this.page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
     this.attachDiagnostics(this.page);
-    return this.page;
+    const page = this.page;
+    await installBrowserRequestGuard(page, this.urlGuard, (blocked) => {
+      if (blocked.navigation) this.lastBlocked = blocked;
+    });
+    page.on('framenavigated', (frame: PwFrame) => {
+      if (frame.parentFrame()) return;
+      const url = frame.url();
+      if (!/^https?:/i.test(url)) return;
+      const reason = browserUrlBlockReason(url, this.urlGuard);
+      if (!reason) return;
+      // A redirect / script landed on a blocked page: unload it so nothing can be read.
+      this.lastBlocked = { url, reason, navigation: true };
+      this.invalidateSnapshot();
+      void page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
+    });
+    return page;
+  }
+
+  /** Refuse to read/act on a page whose current URL is blocked (redirect/click/script). */
+  private async guardCurrentPage(page: PwPage): Promise<void> {
+    const url = page.url();
+    if (!/^https?:/i.test(url)) return;
+    const reason = browserUrlBlockReason(url, this.urlGuard);
+    if (!reason) return;
+    this.invalidateSnapshot();
+    await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
+    throw new Error(`BLOCKED_NAVIGATION: the page moved to a blocked URL (${url}). ${reason}`);
+  }
+
+  private blockedNote(): string {
+    const blocked = this.lastBlocked;
+    if (!blocked) return '';
+    this.lastBlocked = null;
+    return ` (navigation to ${blocked.url} was blocked: ${blocked.reason})`;
   }
 
   private pushDiagnostic(entry: Omit<BrowserDiagnosticEntry, 'at'>): void {
@@ -236,10 +328,28 @@ export class PlaywrightSession {
   async navigate(url: string): Promise<{ title: string; url: string; excerpt: string }> {
     this.invalidateSnapshot();
     const parsed = assertAllowedBrowserUrl(url, this.urlGuard);
+    await assertBrowserUrlResolvesAllowed(parsed.toString(), this.urlGuard);
     const page = await this.ensureBrowser();
     return this.raceAbort(
       (async () => {
-        await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+        this.lastBlocked = null;
+        try {
+          await page.goto(parsed.toString(), { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS });
+        } catch (error) {
+          const blocked = this.lastBlocked as BlockedBrowserRequest | null;
+          if (blocked) {
+            this.lastBlocked = null;
+            throw new Error(`BLOCKED_NAVIGATION: ${blocked.url} — ${blocked.reason}`);
+          }
+          throw error;
+        }
+        // Redirect hops are not routed; the framenavigated guard unloads a blocked landing page.
+        const landed = this.lastBlocked as BlockedBrowserRequest | null;
+        if (landed) {
+          this.lastBlocked = null;
+          throw new Error(`BLOCKED_NAVIGATION: redirected to ${landed.url} — ${landed.reason}`);
+        }
+        await this.guardCurrentPage(page);
         const title = await page.title();
         const bodyText = String(
           await page.evaluate(() => {
@@ -262,6 +372,7 @@ export class PlaywrightSession {
     guard: WorkspaceGuardOptions,
   ): Promise<{ path: string; relative: string; url?: string }> {
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     const targetRel = relPath?.trim() || defaultScreenshotRel(sessionId);
     const abs = resolveScreenshotPath(workspaceRoot, targetRel, sessionId, this.cqrRoot, guard);
     mkdirSync(path.dirname(abs), { recursive: true });
@@ -279,9 +390,11 @@ export class PlaywrightSession {
 
   async click(selector: string): Promise<string> {
     const page = await this.ensureBrowser();
+    this.lastBlocked = null;
     await this.raceAbort(page.click(selector, { timeout: ACTION_TIMEOUT_MS }));
     this.invalidateSnapshot();
-    return `Clicked selector: ${selector}`;
+    await this.guardCurrentPage(page);
+    return `Clicked selector: ${selector}${this.blockedNote()}`;
   }
 
   async clickRef(ref: string, snapshotId?: string): Promise<string> {
@@ -305,6 +418,7 @@ export class PlaywrightSession {
 
   async fill(selector: string, value: string): Promise<string> {
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     await this.raceAbort(page.fill(selector, value, { timeout: ACTION_TIMEOUT_MS }));
     this.invalidateSnapshot();
     return `Filled selector: ${selector}`;
@@ -342,13 +456,15 @@ export class PlaywrightSession {
     const normalized = key.trim();
     if (!normalized || normalized.length > 80) throw new Error('BROWSER_KEY_INVALID');
     const page = await this.ensureBrowser();
+    this.lastBlocked = null;
     if (selector?.trim()) {
       await this.raceAbort(page.press(selector.trim(), normalized, { timeout: ACTION_TIMEOUT_MS }));
     } else {
       await this.raceAbort(page.keyboard.press(normalized));
     }
     this.invalidateSnapshot();
-    return `Pressed ${normalized}${selector?.trim() ? ` on ${selector.trim()}` : ''}`;
+    await this.guardCurrentPage(page);
+    return `Pressed ${normalized}${selector?.trim() ? ` on ${selector.trim()}` : ''}${this.blockedNote()}`;
   }
 
   async history(action: 'back' | 'forward' | 'reload'): Promise<{ title: string; url: string }> {
@@ -357,6 +473,7 @@ export class PlaywrightSession {
     if (action === 'back') await this.raceAbort(page.goBack({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }));
     else if (action === 'forward') await this.raceAbort(page.goForward({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }));
     else await this.raceAbort(page.reload({ waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }));
+    await this.guardCurrentPage(page);
     return { title: await this.raceAbort(page.title()), url: page.url() };
   }
 
@@ -402,6 +519,7 @@ export class PlaywrightSession {
     const query = text.trim();
     if (!query) throw new Error('BROWSER_FIND_TEXT_REQUIRED');
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     return this.raceAbort(page.evaluate(({ needle }) => {
       const stableSelector = (element: Element): string => {
         const html = element as HTMLElement;
@@ -485,6 +603,7 @@ export class PlaywrightSession {
 
   async readText(selector?: string, mode: 'text' | 'table' = 'text'): Promise<string> {
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     const result = await this.raceAbort(page.evaluate(({ css, extractionMode, maxChars }) => {
       const root = css ? document.querySelector(css) : document.body;
       if (!root) throw new Error(`Element not found: ${css}`);
@@ -505,6 +624,7 @@ export class PlaywrightSession {
 
   async snapshot(): Promise<BrowserSnapshotResult> {
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     const rows = await this.raceAbort(page.evaluate(({ maxNodes }) => {
       const stableSelector = (element: Element): string => {
         const html = element as HTMLElement;
@@ -580,11 +700,13 @@ export class PlaywrightSession {
     if (!page) return null;
     const url = page.url();
     if (!/^https?:\/\//i.test(url)) return null;
+    if (browserUrlBlockReason(url, this.urlGuard)) return null;
     return { url, title: await this.raceAbort(page.title()) };
   }
 
   async evaluate(expression: string): Promise<string> {
     const page = await this.ensureBrowser();
+    await this.guardCurrentPage(page);
     const result = await this.raceAbort(page.evaluate(async ({ expr }) => {
       // eslint-disable-next-line no-eval
       const v = eval(expr);

@@ -68,7 +68,7 @@ import {
 import { BROWSER_AGENT_TOOLS, CODE_AGENT_TOOLS } from './agent-tool-definitions.js';
 import { isPlaceholderNavUrl } from '../browser/browser-service.js';
 import { getVisibleBrowserBridge, visibleBrowserConnected } from '../browser/visible-browser-bridge.js';
-import { assertAllowedBrowserUrl } from '../browser/url-guard.js';
+import { assertAllowedBrowserUrl, visibleBlockedOutput } from '../browser/url-guard.js';
 import { saveWebAsset } from '../sessions/save-web-asset.js';
 import { AttachmentService } from '../attachments/attachment-service.js';
 import {
@@ -1254,6 +1254,8 @@ async function executeAgentToolInner(
           const bridge = getVisibleBrowserBridge();
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           const snapshot = await bridge.request('snapshot', withVisibleTab(args));
+          const blockedSnapshot = visibleBlockedOutput(snapshot, ctx?.allowLocalhost === true);
+          if (blockedSnapshot) return { label: 'browser snapshot visible blocked', output: blockedSnapshot };
           return { label: 'browser snapshot visible', output: JSON.stringify(snapshot, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1278,6 +1280,8 @@ async function executeAgentToolInner(
           await ensureVisibleLock(args, ctx, bridge, tabId);
           const parsed = assertAllowedBrowserUrl(url, { allowLocalhost: ctx?.allowLocalhost === true });
           const result = await bridge.request('navigate', withVisibleTab(args, { url: parsed.toString() }));
+          const blockedNav = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedNav) return { label: `navigate visible blocked ${url}`, output: blockedNav };
           return { label: `navigate visible ${url}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1293,6 +1297,8 @@ async function executeAgentToolInner(
           if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
           if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
           const result = await bridge.request('screenshot', withVisibleTab(args));
+          const blockedShot = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedShot) return { label: 'screenshot visible blocked', output: blockedShot };
           const image = typeof result.image_base64 === 'string' ? result.image_base64 : '';
           if (!image) throw new Error('VISIBLE_BROWSER_SCREENSHOT_EMPTY');
           const sid = (ctx.sessionId?.trim() || 'session').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'session';
@@ -1337,6 +1343,8 @@ async function executeAgentToolInner(
           const result = await bridge.request('click', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''),
           }));
+          const blockedClick = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedClick) return { label: `click visible blocked ${String(args.ref ?? '')}`, output: blockedClick };
           return { label: `click visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);
@@ -1362,6 +1370,8 @@ async function executeAgentToolInner(
             target_ref: String(args.target_ref ?? ''),
             target_position: targetPosition,
           }));
+          const blockedDrag = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedDrag) return { label: 'drag visible blocked', output: blockedDrag };
           return {
             label: `drag visible ${String(args.source_ref ?? '')} -> ${String(args.target_ref ?? '')}`,
             output: JSON.stringify(result, null, 2),
@@ -1389,6 +1399,8 @@ async function executeAgentToolInner(
           const result = await bridge.request('fill', withVisibleTab(args, {
             snapshot_id: String(args.snapshot_id ?? ''), ref: String(args.ref ?? ''), value,
           }));
+          const blockedFill = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+          if (blockedFill) return { label: `fill visible blocked ${String(args.ref ?? '')}`, output: blockedFill };
           return { label: `fill visible ${String(args.ref ?? '')}`, output: JSON.stringify(result, null, 2) };
         }
         const session = await isolatedBrowserSession(args, ctx);

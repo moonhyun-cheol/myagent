@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "browser-url-guard-hardening",
+      "status": "development",
+      "title": "AI 브라우저 작업의 주소 차단 강화",
+      "detail": "AI가 쓰는 브라우저·크롤링·웹 파일 저장에서 처음 주소뿐 아니라 리다이렉트, 링크 클릭, 스크립트 이동, 페이지가 불러오는 리소스까지 같은 규칙으로 검사합니다. 내부망 주소 판정을 넓혔고, 설정의 차단 목록에 적은 주소(예: 사내 관리자 페이지)는 AI가 열거나 내용을 읽지 못합니다.",
+      "area": "browser",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/browser/url-guard.ts", "core/src/browser/playwright-session.ts", "core/src/browser/web-crawl-service.ts", "core/src/sessions/save-web-asset.ts", "core/src/agent/agent-tool-execute.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "untrusted-web-mcp-content",
       "status": "development",
       "title": "웹 페이지·외부 MCP 내용 속 지시를 따르지 않도록 보호",

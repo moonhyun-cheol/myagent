@@ -34,6 +34,7 @@ import { writeInstallRootPointer } from './setup/install-root-pointer.js';
 import { warmModelPricingIfMissing } from './models/model-picker.js';
 import { trackSlowRequest } from './routes/slow-request-log.js';
 import { checkLocalApiRequest } from './security/local-api-guard.js';
+import { configureBrowserUrlBlocklistFile } from './browser/url-guard.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -58,6 +59,8 @@ export async function createApiServer(port: number) {
   const license = new FileLicenseGate(paths.vaultDir, cqrRoot);
   const userConfigPath = path.join(paths.dataDir, 'config', 'user-overrides.json');
   const getOverrides = () => loadUserOverrides(userConfigPath);
+  // `browser_blocked_urls` is re-read on change (mtime) by every browser URL check.
+  configureBrowserUrlBlocklistFile(userConfigPath);
   const initialOverrides = getOverrides();
   const attachments = new AttachmentService(
     paths.attachmentsDir,
