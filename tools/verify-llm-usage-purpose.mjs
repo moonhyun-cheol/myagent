@@ -31,7 +31,7 @@ try {
     res.writeHead(200, { 'content-type': 'application/json' });
     if (req.url.endsWith('/decisions')) res.end(JSON.stringify({ model: 'typesafe/jev-1', answers: { severity: 'normal' }, usage: { cost: 0.001 } }));
     else if (req.url.endsWith('/embeddings')) res.end(JSON.stringify({ model: 'emb', data: [{ index: 0, embedding: [1, 0] }], usage: { prompt_tokens: 5, total_tokens: 5 } }));
-    else res.end(JSON.stringify({ model: 'img-model', choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.02 } }));
+    else res.end(JSON.stringify({ model: 'img-model', choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.02, cost_details: { upstream_inference_input_cost: 0.004 } } }));
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}/api`;
@@ -70,9 +70,9 @@ try {
   assert.equal(byPurpose('image').length, 1);
   assert.equal(byPurpose('chat').length, 1);
   pass('context purpose image vs default chat');
-  assert.deepEqual(byPurpose('image')[0].cost_probe, { usage_fields: ['completion_tokens', 'cost', 'prompt_tokens'] });
-  assert.ok(!JSON.stringify(byPurpose('image')[0].cost_probe).includes('0.02'), 'probe never logs values');
-  pass('billed row without cache_discount logs usage field names only');
+  assert.equal(byPurpose('image')[0].upstream_input_cost_usd, 0.004);
+  assert.equal(byPurpose('image')[0].cost_probe, undefined, 'diagnostic probe retired');
+  pass('billed row logs actual input cost (cost_details)');
   const videos = byPurpose('video');
   assert.equal(videos.filter((r) => r.model === 'vendor/video-1').length, 1, 'video job counted once');
   assert.equal(videos.find((r) => r.model === 'vendor/video-1').provider_cost_usd, 0.75);
@@ -161,6 +161,29 @@ try {
   assert.equal(probeRows.length, 1, 'probe context marks the logged row');
   assert.equal(probeRows[0].purpose, 'approval');
   pass('decision version probes: free 400 excluded, billed probe kept');
+
+  // Cache savings without cache_discount: list input price − actual input cost, marked as estimated.
+  process.env.MY_AGENT_LLM_PRICING_JSON = JSON.stringify({ 'cache-model': { input_usd_per_million: 5, output_usd_per_million: 25 } });
+  const cacheAt = new Date();
+  writeFileSync(fileFor(cacheAt), readFileSafe(fileFor(cacheAt))
+    + JSON.stringify({ event: 'finish', started_at: cacheAt.toISOString(), outcome: 'completed', model: 'cache-model', total_input_tokens: 40_000, input_tokens: 40_000, cached_tokens: 39_000, cache_write_tokens: 500, output_tokens: 100, provider_cost_usd: 0.03, cache_discount_usd: null, upstream_input_cost_usd: 0.025 }) + '\n'
+    + JSON.stringify({ event: 'finish', started_at: cacheAt.toISOString(), outcome: 'completed', model: 'cache-model', total_input_tokens: 1_000, input_tokens: 1_000, cached_tokens: 0, cache_write_tokens: 0, output_tokens: 10, provider_cost_usd: 0.006, upstream_input_cost_usd: 0.0051 }) + '\n');
+  const cacheSummary = summarizeLlmUsage({ cqrRoot: temp, days: 7 });
+  const cache = cacheSummary.models.find((m) => m.key === 'cache-model');
+  assert.ok(Math.abs(cache.cache_savings_usd - (0.2 - 0.025)) < 1e-9, `savings ${cache.cache_savings_usd}`);
+  assert.equal(cache.cache_savings_estimated_requests, 1, 'no-cache row is not estimated');
+  // Per-request cache list: only cache-using rows, newest first.
+  const cacheRows = cacheSummary.cache_requests.filter((r) => r.model === 'cache-model');
+  assert.equal(cacheRows.length, 1, 'no-cache request is not listed');
+  assert.equal(cacheRows[0].cached_tokens, 39_000);
+  assert.equal(cacheRows[0].cache_write_tokens, 500);
+  assert.ok(Math.abs(cacheRows[0].savings_usd - (0.2 - 0.025)) < 1e-9);
+  assert.equal(cacheRows[0].estimated, true);
+  assert.equal(cacheSummary.cache_requests_total, cacheSummary.cache_requests.length);
+  assert.ok(cacheSummary.cache_requests.every((r, i, a) => i === 0 || Date.parse(a[i - 1].started_at) >= Date.parse(r.started_at)));
+  pass('per-request cache list');
+  delete process.env.MY_AGENT_LLM_PRICING_JSON;
+  pass('cache savings estimated from list price − actual input cost');
 
   // Route takes only a boolean switch (no past points).
   const dispatchSrc = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');

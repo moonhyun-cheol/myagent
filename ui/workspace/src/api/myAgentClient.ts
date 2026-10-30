@@ -1183,6 +1183,18 @@ export interface LlmUsageTotals {
   estimated_cost_usd: number;
   unpriced_requests: number;
   cache_savings_usd: number;
+  cache_savings_estimated_requests: number;
+  cache_write_tokens?: number;
+}
+export interface LlmUsageCacheRequest {
+  started_at: string;
+  model: string;
+  purpose: string;
+  input_tokens: number;
+  cached_tokens: number;
+  cache_write_tokens: number;
+  savings_usd: number;
+  estimated: boolean;
 }
 export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: number }
 export interface LlmUsageSummary {
@@ -1199,6 +1211,8 @@ export interface LlmUsageSummary {
     providers: Record<string, LlmUsageDayPoint>;
     purposes: Record<string, LlmUsageDayPoint>;
   }>;
+  cache_requests?: LlmUsageCacheRequest[];
+  cache_requests_total?: number;
 }
 
 export interface LlmUsageTracking {

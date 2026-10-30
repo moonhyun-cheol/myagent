@@ -37,14 +37,24 @@ const providerName = (v: unknown): string | undefined => typeof v === 'string' &
 /** Safe identifier names only; values are never read here. */
 const fieldNames = (names: string[]): string[] => [...new Set(names.filter((n) => /^[$a-zA-Z0-9_.-]{1,60}$/.test(n)))].sort().slice(0, 60);
 const money = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-/** OpenRouter usage accounting: billed USD and cache discount (positive = saved, negative = write premium). */
-function costFields(raw: unknown): { cost?: number; cache_discount?: number } {
+type CostFields = { cost?: number; cache_discount?: number; upstream_input_cost?: number };
+/**
+ * OpenRouter usage accounting: billed USD, cache discount (positive = saved, negative = write premium) and
+ * `cost_details.upstream_inference_input_cost` (actual input cost after caching). Chat responses send no
+ * cache_discount (checked via usage field names), so the summary derives savings from the input cost.
+ */
+function costFields(raw: unknown): CostFields {
   const u = record(raw);
   const input = record(u.input_tokens_details);
   const prompt = record(u.prompt_tokens_details);
   const cost = money(u.cost);
   const discount = money(u.cache_discount ?? input.cache_discount ?? prompt.cache_discount);
-  return { ...(cost === undefined ? {} : { cost }), ...(discount === undefined ? {} : { cache_discount: discount }) };
+  const upstreamInput = money(record(u.cost_details).upstream_inference_input_cost);
+  return {
+    ...(cost === undefined ? {} : { cost }),
+    ...(discount === undefined ? {} : { cache_discount: discount }),
+    ...(upstreamInput === undefined ? {} : { upstream_input_cost: upstreamInput }),
+  };
 }
 function normalize(raw: unknown): Usage {
   const u = record(raw);
@@ -156,9 +166,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let upstreamProvider: string | undefined;
   /** Field/header NAMES only (never values) — diagnoses where upstream provider is reported. */
   let terminalFieldNames: string[] | undefined;
-  /** usage field NAMES only (never values) — diagnoses where cache discount is reported. */
-  let usageFieldNames: string[] | undefined;
-  let costs: { cost?: number; cache_discount?: number } = {};
+  let costs: CostFields = {};
   let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
   let responseHeaders: Headers | undefined;
   let removeAbort = () => {};
@@ -186,11 +194,9 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
           header_names: fieldNames(responseHeaders ? [...responseHeaders.keys()].filter((h) => /^(x-|openrouter)/i.test(h)) : []),
         },
       } : {}),
-      ...(costs.cost !== undefined && costs.cache_discount === undefined ? {
-        cost_probe: { usage_fields: usageFieldNames ?? null },
-      } : {}),
       provider_cost_usd: costs.cost ?? null,
       cache_discount_usd: costs.cache_discount ?? null,
+      upstream_input_cost_usd: costs.upstream_input_cost ?? null,
       usage_source: 'provider', observation_truncated: truncated,
       error_diagnostics: errorDiagnostics,
     });
@@ -202,13 +208,6 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     // Providers send cumulative snapshots, not increments. Never add snapshots.
     usage = { ...usage, ...normalize(raw) };
     costs = { ...costs, ...costFields(raw) };
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      const u = raw as Record<string, unknown>;
-      usageFieldNames = fieldNames(Object.entries(u).flatMap(([k, v]) => {
-        const nested = record(v);
-        return [k, ...Object.keys(nested).map((n) => `${k}.${n}`)];
-      }));
-    }
     responseModel = id(doc.model ?? response.model ?? message.model) ?? responseModel;
     upstreamProvider = providerName(doc.provider ?? response.provider ?? message.provider) ?? upstreamProvider;
     if (doc.error || response.error || ['error', 'response.failed', 'response.incomplete'].includes(String(doc.type)) || ['failed', 'incomplete'].includes(String(doc.status))) {
