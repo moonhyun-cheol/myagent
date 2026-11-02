@@ -128,7 +128,7 @@ function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; t
   );
 }
 
-type ChartMode = 'line' | 'stacked' | 'cumulative';
+type ChartMode = 'daily' | 'cumulative';
 
 const TURN_PAGE = 20;
 
@@ -315,11 +315,12 @@ function UsageChart({
   const T = 12;
   const B = 28;
   const n = dates.length;
-  const daySum = dates.map((_, i) => series.reduce((s, x) => s + x.values[i], 0));
-  const cumulative = daySum.reduce<number[]>((acc, v, i) => { acc.push((acc[i - 1] ?? 0) + v); return acc; }, []);
-  const maxRaw = mode === 'line'
-    ? Math.max(0, ...series.flatMap((s) => s.values))
-    : mode === 'stacked' ? Math.max(0, ...daySum) : Math.max(0, ...cumulative);
+  // 누적 mode stacks each item's running total, so the top edge is the overall running total.
+  const shown = useMemo<Series[]>(() => (mode === 'cumulative'
+    ? series.map((s) => ({ ...s, values: s.values.reduce<number[]>((acc, v, i) => { acc.push((acc[i - 1] ?? 0) + v); return acc; }, []) }))
+    : series), [mode, series]);
+  const daySum = dates.map((_, i) => shown.reduce((s, x) => s + x.values[i], 0));
+  const maxRaw = Math.max(0, ...daySum);
   const yMax = niceCeil(maxRaw);
   const x = (i: number) => L + (n <= 1 ? (W - L - R) / 2 : (i * (W - L - R)) / (n - 1));
   const y = (v: number) => T + (H - T - B) * (1 - v / yMax);
@@ -329,19 +330,18 @@ function UsageChart({
   const BAR = 56;
 
   const stackedLayers = useMemo(() => {
-    if (mode !== 'stacked') return [];
     const base = new Array<number>(n).fill(0);
-    return series.map((s) => {
+    return shown.map((s) => {
       const lower = [...base];
       const upper = base.map((b, i) => b + s.values[i]);
       for (let i = 0; i < n; i += 1) base[i] = upper[i];
       return { s, lower, upper };
     });
-  }, [mode, series, n]);
+  }, [shown, n]);
 
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="일별 사용량 차트" onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={mode === 'cumulative' ? '누적 사용량 차트' : '일별 사용량 차트'} onMouseLeave={() => setHover(null)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="currentColor" className="text-line" strokeWidth={1} />
@@ -352,19 +352,10 @@ function UsageChart({
           <text key={d} x={x(i)} y={H - 8} textAnchor="middle" fontSize={11} fill="currentColor" className="text-muted">{d.slice(5)}</text>
         ) : null))}
 
-        {mode === 'line' && series.map((s) => (
-          <g key={s.key}>
-            {n > 1 ? <polyline points={pts(s.values)} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" /> : null}
-            {n <= 31 ? s.values.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={n === 1 ? 4 : 2.5} fill={s.color} />) : null}
-          </g>
-        ))}
-        {mode === 'stacked' && n === 1 && stackedLayers.map(({ s, lower, upper }) => (
+        {n === 1 && stackedLayers.map(({ s, lower, upper }) => (
           <rect key={s.key} x={x(0) - BAR / 2} y={y(upper[0])} width={BAR} height={Math.max(0, y(lower[0]) - y(upper[0]))} fill={s.color} fillOpacity={0.75} />
         ))}
-        {mode === 'cumulative' && n === 1 && (
-          <rect x={x(0) - BAR / 2} y={y(cumulative[0])} width={BAR} height={Math.max(0, y(0) - y(cumulative[0]))} fill={PALETTE[0]} fillOpacity={0.6} />
-        )}
-        {mode === 'stacked' && n > 1 && stackedLayers.map(({ s, lower, upper }) => (
+        {n > 1 && stackedLayers.map(({ s, lower, upper }) => (
           <polygon
             key={s.key}
             points={`${pts(upper)} ${[...lower].reverse().map((v, ri) => `${x(n - 1 - ri).toFixed(1)},${y(v).toFixed(1)}`).join(' ')}`}
@@ -374,12 +365,6 @@ function UsageChart({
             strokeWidth={1}
           />
         ))}
-        {mode === 'cumulative' && n > 1 && (
-          <>
-            <polygon points={`${x(0)},${y(0)} ${pts(cumulative)} ${x(n - 1)},${y(0)}`} fill={PALETTE[0]} fillOpacity={0.15} />
-            <polyline points={pts(cumulative)} fill="none" stroke={PALETTE[0]} strokeWidth={2} />
-          </>
-        )}
 
         {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} stroke="currentColor" className="text-muted" strokeDasharray="3 3" />}
         {dates.map((d, i) => {
@@ -394,21 +379,15 @@ function UsageChart({
           className="pointer-events-none absolute top-2 z-10 min-w-44 rounded-lg border border-line bg-panel px-3 py-2 text-xs shadow-lg"
           style={{ left: `${(x(hover) / W) * 100}%`, transform: x(hover) > W / 2 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)' }}
         >
-          <p className="mb-1 font-semibold text-text">{dates[hover]}</p>
-          {mode === 'cumulative' ? (
-            <p className="text-muted">누적 합계 <span className="float-right ml-3 text-text">{format(cumulative[hover])}</span></p>
-          ) : (
-            <>
-              {series.filter((s) => s.values[hover] > 0).map((s) => (
-                <p key={s.key} className="flex items-center gap-2 text-muted">
-                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
-                  <span className="min-w-0 flex-1 truncate">{s.key}</span>
-                  <span className="text-text">{format(s.values[hover])}</span>
-                </p>
-              ))}
-              <p className="mt-1 border-t border-line pt-1 text-muted">합계 <span className="float-right text-text">{format(daySum[hover])}</span></p>
-            </>
-          )}
+          <p className="mb-1 font-semibold text-text">{dates[hover]}{mode === 'cumulative' ? '까지 누적' : ''}</p>
+          {shown.filter((s) => s.values[hover] > 0).map((s) => (
+            <p key={s.key} className="flex items-center gap-2 text-muted">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+              <span className="min-w-0 flex-1 truncate">{s.key}</span>
+              <span className="text-text">{format(s.values[hover])}</span>
+            </p>
+          ))}
+          <p className="mt-1 border-t border-line pt-1 text-muted">합계 <span className="float-right text-text">{format(daySum[hover])}</span></p>
         </div>
       )}
     </div>
@@ -440,7 +419,7 @@ export function SettingsUsagePage() {
   const [switchBusy, setSwitchBusy] = useState(false);
   const [metric, setMetric] = useState<Metric>('tokens');
   const [groupBy, setGroupBy] = useState<GroupBy>('models');
-  const [mode, setMode] = useState<ChartMode>('stacked');
+  const [mode, setMode] = useState<ChartMode>('daily');
   const [data, setData] = useState<LlmUsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -611,14 +590,14 @@ export function SettingsUsagePage() {
       <section className="mb-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <ChartLine size={18} className="text-accent" />
-          <h3 className="text-sm font-semibold text-text">일별 {metric === 'tokens' ? '토큰' : '비용'}</h3>
+          <h3 className="text-sm font-semibold text-text">{mode === 'cumulative' ? '누적' : '일별'} {metric === 'tokens' ? '토큰' : '비용'}</h3>
           {data ? <span className="text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
           <span className="ml-auto">
             <Segmented
               label="차트 모양"
               value={mode}
               onChange={setMode}
-              options={[{ value: 'line', label: '선' }, { value: 'stacked', label: '누적 영역' }, { value: 'cumulative', label: '누적 합계' }]}
+              options={[{ value: 'daily', label: '일별' }, { value: 'cumulative', label: '누적' }]}
             />
           </span>
         </div>
@@ -631,21 +610,21 @@ export function SettingsUsagePage() {
         ) : (
           <>
             <UsageChart dates={dates} series={series} mode={mode} format={format} />
-            {mode !== 'cumulative' ? (
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                {series.map((s) => (
-                  <span key={s.key} className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
-                    <span className="max-w-56 truncate">{s.key}</span>
-                    <span className="text-text">{format(s.total)}</span>
-                  </span>
-                ))}
-              </div>
-            ) : null}
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+              {series.map((s) => (
+                <span key={s.key} className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
+                  <span className="max-w-56 truncate">{s.key}</span>
+                  <span className="text-text">{format(s.total)}</span>
+                </span>
+              ))}
+            </div>
           </>
         )}
-        {mode === 'stacked' && dates.length > 1 ? (
-          <p className="mt-2 text-[11px] text-muted">맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.</p>
+        {series.length > 0 && dates.length > 1 ? (
+          <p className="mt-2 text-[11px] text-muted">{mode === 'cumulative'
+            ? '맨 위 선이 그날까지 쌓인 합계, 띠의 두께가 각 항목이 쌓은 몫입니다.'
+            : '맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.'}</p>
         ) : null}
       </section>
 

@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "llm-usage-chart-cumulative-by-item",
+      "status": "development",
+      "title": "사용량 차트를 일별·누적 두 가지로 정리",
+      "detail": "사용량 차트의 「선」 보기를 빼고 「일별」과 「누적」 두 가지만 남겼습니다. 누적 보기도 모델별(또는 선택한 묶기 기준별)로 띠를 쌓아, 날짜마다 항목별로 쌓인 양과 전체 합계를 함께 보여 줍니다.",
+      "area": "ui",
+      "created_at": "2026-11-02",
+      "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "todo-hide-author-line",
       "status": "development",
       "title": "할 일 목록에서 작성자 줄 숨김",
