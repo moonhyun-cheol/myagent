@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "todo-hide-author-line",
+      "status": "development",
+      "title": "할 일 목록에서 작성자 줄 숨김",
+      "detail": "우측 패널 할 일 항목 아래에 붙던 「작성: 모델 (todo_update)」 줄을 지웠습니다. 작성자 값은 core와 API에 그대로 남고 화면에만 보이지 않습니다.",
+      "area": "ui",
+      "created_at": "2026-11-02",
+      "source_paths": ["ui/workspace/src/components/WorkspaceObjectsPane.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "llm-usage-per-question",
       "status": "development",
       "title": "사용량 화면에 질문별 사용량 추가",
