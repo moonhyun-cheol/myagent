@@ -5,6 +5,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { providerErrorDiagnostics } from './provider-error-diagnostics.js';
 import { lookupModelPricingAny } from '../models/model-pricing.js';
+import {
+  insertLlmUsageFinish, llmUsageStoreMode, pendingLlmUsageBackfills, updateLlmUsageBackfill, updateLlmUsageErrorDetail,
+} from './llm-usage-store.js';
 
 /** What the request was for, so the usage page can split chat from approvals/images/videos. */
 export type LlmUsagePurpose = 'chat' | 'approval' | 'image' | 'video' | 'embedding';
@@ -12,6 +15,8 @@ export type LlmUsagePurpose = 'chat' | 'approval' | 'image' | 'video' | 'embeddi
 export interface LlmUsageContext {
   cqrRoot?: string;
   sessionId?: string;
+  /** Chat turn id (the UI's run id for one question). Every call made while answering it carries this. */
+  turnId?: string;
   runId?: string;
   providerId?: string;
   purpose?: LlmUsagePurpose;
@@ -90,6 +95,25 @@ function normalize(raw: unknown): Usage {
 
 function usageLogDir(ctx: LlmUsageContext | undefined): string {
   return path.resolve(process.env.MY_AGENT_LLM_USAGE_LOG_DIR || path.join(ctx?.cqrRoot ?? process.cwd(), 'data', 'logs', 'llm-usage'));
+}
+
+/**
+ * One usage-log row. SQLite store (after the one-time JSONL migration): `finish` rows are inserted,
+ * `cost_backfill`/`http_error_detail` update their call, `start` rows are not kept. Otherwise the
+ * legacy daily JSONL file gets the row appended. Never throws.
+ */
+function writeUsageRow(dir: string, jsonlPath: string, row: Record<string, unknown>): void {
+  try {
+    if (llmUsageStoreMode(dir) === 'sqlite') {
+      const callId = typeof row.call_id === 'string' ? row.call_id : '';
+      if (row.event === 'finish') insertLlmUsageFinish(dir, row);
+      else if (row.event === 'cost_backfill' && callId) updateLlmUsageBackfill(dir, callId, row);
+      else if (row.event === 'http_error_detail' && callId) updateLlmUsageErrorDetail(dir, callId, row);
+      return;
+    }
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(jsonlPath, JSON.stringify(row) + '\n', 'utf8');
+  } catch { /* disk full/permission/logging errors must never break model calls */ }
 }
 
 function requestPurpose(pathname: string, ctx: LlmUsageContext | undefined): LlmUsagePurpose {
@@ -250,9 +274,20 @@ export async function recoverPendingCostBackfills(options: {
   lastRecoveryAt = now;
   const dir = usageLogDir({ cqrRoot: options.cqrRoot });
   const days = Math.max(1, Math.min(7, options.maxAgeDays ?? 3));
-  type Pending = { file: string; callId: string; generationId: string; host: string; providerId?: string };
+  /** `file` = legacy JSONL row; absent = SQLite row. */
+  type Pending = { file?: string; callId: string; generationId: string; host: string; providerId?: string };
   const pending: Pending[] = [];
-  for (let i = 0; i <= days && pending.length < RECOVERY_MAX_ROWS; i += 1) {
+  const openRouterHost = (host: string) => host === 'openrouter.ai' || host.endsWith('.openrouter.ai');
+  const sqlite = llmUsageStoreMode(dir) === 'sqlite';
+  if (sqlite) {
+    for (const r of pendingLlmUsageBackfills(dir, now - (days + 1) * 86_400_000, RECOVERY_MAX_ROWS)) {
+      if (pending.length >= RECOVERY_MAX_ROWS) break;
+      if (!openRouterHost(r.host) || !GENERATION_ID_RE.test(r.generationId)) continue;
+      if (!Number.isFinite(r.finishedMs) || now - r.finishedMs < RECOVERY_MIN_AGE_MS || recoveryGaveUp.has(r.callId)) continue;
+      pending.push({ callId: r.callId, generationId: r.generationId, host: r.host, providerId: id(r.providerId) });
+    }
+  }
+  for (let i = 0; !sqlite && i <= days && pending.length < RECOVERY_MAX_ROWS; i += 1) {
     const file = path.join(dir, `llm-usage-${new Date(now - i * 86_400_000).toISOString().slice(0, 10)}.jsonl`);
     if (!existsSync(file)) continue;
     let text = '';
@@ -271,7 +306,7 @@ export async function recoverPendingCostBackfills(options: {
       const host = typeof row.endpoint_host === 'string' ? row.endpoint_host.toLowerCase() : '';
       const finished = Date.parse(String(row.finished_at ?? ''));
       if (row.event !== 'finish' || row.provider_cost_usd != null || !GENERATION_ID_RE.test(generationId)) continue;
-      if (host !== 'openrouter.ai' && !host.endsWith('.openrouter.ai')) continue;
+      if (!openRouterHost(host)) continue;
       if (!Number.isFinite(finished) || now - finished < RECOVERY_MIN_AGE_MS || recoveryGaveUp.has(callId)) continue;
       candidates.push({ file, callId, generationId, host, providerId: id(row.provider_id) });
     }
@@ -288,7 +323,9 @@ export async function recoverPendingCostBackfills(options: {
     if (result.kind === 'stop') recoveryGaveUp.add(p.callId);
     if (result.kind !== 'filled') continue;
     try {
-      appendFileSync(p.file, JSON.stringify({ version: 1, call_id: p.callId, ...result.row, backfill_recovered: true }) + '\n', 'utf8');
+      const row = { version: 1, call_id: p.callId, ...result.row, backfill_recovered: true };
+      if (p.file) appendFileSync(p.file, JSON.stringify(row) + '\n', 'utf8');
+      else updateLlmUsageBackfill(dir, p.callId, row);
       count += 1;
     } catch { /* best-effort */ }
   }
@@ -316,15 +353,14 @@ export function recordLlmUsageEvent(event: {
     const row = {
       version: 1, call_id: randomUUID(), event: 'finish', started_at: new Date(started).toISOString(),
       finished_at: new Date().toISOString(), duration_ms: Math.max(0, Date.now() - started),
-      session_id: id(ctx?.sessionId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId),
+      session_id: id(ctx?.sessionId), turn_id: id(ctx?.turnId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId),
       purpose: event.purpose ?? ctx?.purpose ?? 'chat', wire_api: 'job', model: id(event.model), stream: false, attempt: 1,
       endpoint_host: event.endpointHost, http_status: event.httpStatus ?? null, outcome: event.outcome,
       usage_status: 'unavailable', input_tokens: null, output_tokens: null, cached_tokens: null,
       cache_write_tokens: null, reasoning_tokens: null, total_input_tokens: null,
       provider_cost_usd: money(event.costUsd) ?? null, cache_discount_usd: null, usage_source: 'provider',
     };
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(path.join(dir, `llm-usage-${new Date(started).toISOString().slice(0, 10)}.jsonl`), JSON.stringify(row) + '\n', 'utf8');
+    writeUsageRow(dir, path.join(dir, `llm-usage-${new Date(started).toISOString().slice(0, 10)}.jsonl`), row);
   } catch { /* logging must never break generation */ }
   try { context.getStore()?.collect?.({ cost_usd: money(event.costUsd) }); } catch { /* optional */ }
 }
@@ -346,7 +382,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   const items = Array.isArray(body.input) ? body.input : Array.isArray(body.messages) ? body.messages : [];
   const base = {
     version: 1, call_id: callId, started_at: new Date(started).toISOString(),
-    session_id: id(ctx?.sessionId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId), step,
+    session_id: id(ctx?.sessionId), turn_id: id(ctx?.turnId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId), step,
     wire_api: wire, purpose: resolvePurpose(new URL(url).pathname, ctx, id(body.model)), model: id(body.model), stream, attempt,
     ...(ctx?.probe === true ? { probe: true } : {}),
     endpoint_hash: createHash('sha256').update(new URL(url).origin + new URL(url).pathname).digest('hex').slice(0, 24),
@@ -362,12 +398,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     // Presence only — the pin value itself is never logged.
     session_pinned: new Headers(init.headers).has('x-session-id') || typeof body.session_id === 'string',
   };
-  const write = (row: Record<string, unknown>) => {
-    try {
-      mkdirSync(dir, { recursive: true });
-      appendFileSync(logPath, JSON.stringify({ ...base, ...row }) + '\n', 'utf8');
-    } catch { /* disk full/permission/logging errors must never break model calls */ }
-  };
+  const write = (row: Record<string, unknown>) => writeUsageRow(dir, logPath, { ...base, ...row });
   write({ event: 'start' });
   let usage: Usage = {};
   let terminal = false;

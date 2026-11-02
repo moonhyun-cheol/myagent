@@ -17,6 +17,8 @@ try {
   process.env.MY_AGENT_LLM_LOG = 'off';
   const usageDir = path.join(temp, 'usage');
   process.env.MY_AGENT_LLM_USAGE_LOG_DIR = usageDir;
+  // Legacy JSONL store: fixtures are written as daily files (SQLite store: verify-llm-usage-sqlite.mjs).
+  process.env.MY_AGENT_LLM_USAGE_STORE = 'jsonl';
   delete process.env.MY_AGENT_LLM_USAGE_LOG;
   const build = spawnSync(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '-p', path.join(root, 'tsconfig.json'), '--outDir', path.join(temp, 'compiled'), '--declaration', 'false'], { cwd: root, encoding: 'utf8' });
   assert.equal(build.status, 0, build.stdout + build.stderr);

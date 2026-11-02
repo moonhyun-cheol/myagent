@@ -1212,6 +1212,8 @@ export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: 
 export interface LlmUsageSummary {
   range: { from: string; to: string; days: number; tz_offset_minutes: number };
   logging_disabled: boolean;
+  /** Pre-SQLite dates whose imported totals may differ from the old log files. */
+  legacy_mismatch_dates?: string[];
   tracking: LlmUsageTracking;
   totals: LlmUsageTotals;
   models: Array<LlmUsageTotals & { key: string }>;

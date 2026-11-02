@@ -12,6 +12,9 @@ const oldLog = process.env.MY_AGENT_LLM_LOG;
 const oldDir = process.env.MY_AGENT_LLM_LOG_DIR;
 const oldUsageDir = process.env.MY_AGENT_LLM_USAGE_LOG_DIR;
 process.env.MY_AGENT_LLM_USAGE_LOG_DIR = path.join(temp, 'usage');
+// Usage rows are not inspected here; JSONL keeps no open DB handle in the temp dir (cleanup on Windows).
+const oldUsageStore = process.env.MY_AGENT_LLM_USAGE_STORE;
+process.env.MY_AGENT_LLM_USAGE_STORE = 'jsonl';
 process.env.MY_AGENT_LLM_LOG = 'full'; // Even full must not expose Responses content.
 process.env.MY_AGENT_LLM_LOG_DIR = path.join(temp, 'logs');
 let server;
@@ -308,5 +311,6 @@ try {
   if (oldLog === undefined) delete process.env.MY_AGENT_LLM_LOG; else process.env.MY_AGENT_LLM_LOG = oldLog;
   if (oldDir === undefined) delete process.env.MY_AGENT_LLM_LOG_DIR; else process.env.MY_AGENT_LLM_LOG_DIR = oldDir;
   if (oldUsageDir === undefined) delete process.env.MY_AGENT_LLM_USAGE_LOG_DIR; else process.env.MY_AGENT_LLM_USAGE_LOG_DIR = oldUsageDir;
+  if (oldUsageStore === undefined) delete process.env.MY_AGENT_LLM_USAGE_STORE; else process.env.MY_AGENT_LLM_USAGE_STORE = oldUsageStore;
   rmSync(temp, { recursive: true, force: true });
 }
