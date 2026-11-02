@@ -467,6 +467,13 @@ export async function dispatchApiRequest(
             if (label?.question) t.question = label.question;
           }
         } catch { /* labels are optional */ }
+        try {
+          const titles = sessionStore.sessionTitles(usage.sessions.map((s) => s.session_id));
+          for (const s of usage.sessions) {
+            const title = titles.get(s.session_id);
+            if (title !== undefined) s.session_title = title;
+          }
+        } catch { /* titles are optional */ }
         return sendJson(res, 200, usage);
       }
 
