@@ -471,6 +471,12 @@ export function SettingsUsagePage() {
         </p>
       ) : null}
 
+      {data?.legacy_mismatch_dates?.length ? (
+        <p className="mb-4 rounded-xl border border-line px-4 py-2 text-xs text-muted" title={data.legacy_mismatch_dates.join(', ')}>
+          일부 예전 기록({data.legacy_mismatch_dates.length}일)은 새 저장소로 옮기는 과정에서 집계가 조금 다를 수 있습니다. 새 기록에는 영향이 없습니다.
+        </p>
+      ) : null}
+
       {totals ? (
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard label="총 토큰" value={formatTokens(totals.total_tokens)} hint={`입력 ${formatTokens(totals.input_tokens)} · 출력 ${formatTokens(totals.output_tokens)}`} />

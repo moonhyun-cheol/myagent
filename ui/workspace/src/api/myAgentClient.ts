@@ -957,6 +957,17 @@ export async function fetchSession(id: string): Promise<SessionRecord> {
   return (await res.json()) as SessionRecord;
 }
 
+/** Newest committed messages plus the live run (if any) — a cheap poll for long conversations. */
+export async function fetchSessionTail(
+  id: string,
+  limit = 1,
+): Promise<{ messages: SessionMessage[]; active_run?: SessionRecord['active_run'] }> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}/messages?limit=${limit}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`세션 로드 실패 (${res.status})`);
+  const data = await res.json();
+  return { messages: Array.isArray(data.messages) ? data.messages : [], ...(data.active_run ? { active_run: data.active_run } : {}) };
+}
+
 export interface VideoJobRef {
   jobId: string;
   status: 'pending' | 'failed' | 'completed';
@@ -1201,6 +1212,8 @@ export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: 
 export interface LlmUsageSummary {
   range: { from: string; to: string; days: number; tz_offset_minutes: number };
   logging_disabled: boolean;
+  /** Pre-SQLite dates whose imported totals may differ from the old log files. */
+  legacy_mismatch_dates?: string[];
   tracking: LlmUsageTracking;
   totals: LlmUsageTotals;
   models: Array<LlmUsageTotals & { key: string }>;

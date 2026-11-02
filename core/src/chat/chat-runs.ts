@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { beginActiveWork, endActiveWork } from '../system/active-work-registry.js';
+import { withLlmUsageContext } from '../providers/llm-usage-log.js';
 
 export type ChatRunState = 'running' | 'cancelling' | 'stopped' | 'completed' | 'failed';
 export interface ChatRun {
@@ -146,10 +147,12 @@ export async function executeChatRun<T>(
   if (signal?.aborted) abort();
   let failed = false;
   try {
-    return await context.run(run, async () => {
+    // Usage log: every AI call made while answering this question (agent steps, plain chat, images,
+    // videos, approval reviews, embeddings) carries the same turn id as the stored messages' run_id.
+    return await context.run(run, () => withLlmUsageContext({ sessionId: run.sessionId, turnId: run.runId }, async () => {
       assertChatRunWritable(run.sessionId);
       return work(run.controller.signal);
-    });
+    }));
   } catch (error) {
     if (!run.controller.signal.aborted) { failed = true; throw error; }
     return undefined;

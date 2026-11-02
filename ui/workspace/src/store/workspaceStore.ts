@@ -43,6 +43,7 @@ import {
   deleteAttachment,
   fetchModelPicker,
   fetchSession,
+  fetchSessionTail,
   toVideoJobRef,
   fetchWorkspaceFsTree,
   readWorkspaceFsFile,
@@ -709,6 +710,22 @@ function chatWithRunDraft(messages: SessionMessage[], run: SessionActiveRun): Ch
   };
   return chat;
 }
+
+/**
+ * Replace only the in-progress draft turn of an already shown transcript. Returns null when the
+ * shown transcript does not end at the run's committed user message (then reload the full record).
+ */
+function withDetachedDraft(base: ChatTurn[], tail: SessionMessage[], run: SessionActiveRun): ChatTurn[] | null {
+  const draftId = `detached-${run.run_id}`;
+  const committed = base.filter((turn) => turn.id !== draftId);
+  const lastMessage = tail[tail.length - 1];
+  const lastTurn = committed[committed.length - 1];
+  if (!lastMessage || !lastTurn || lastTurn.role !== lastMessage.role
+    || !lastTurn.id.endsWith(`-${lastMessage.at}`)) return null;
+  if (!run.draft) return committed;
+  const [, draftTurn] = chatWithRunDraft([lastMessage], run);
+  return draftTurn ? [...committed, draftTurn] : committed;
+}
 const MESSAGE_QUEUE_KEY = 'my-agent-message-queue-v1';
 const WORK_OBJECTS_KEY = 'my-agent-work-objects-v1';
 
@@ -1010,12 +1027,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       while (detachedRuns.get(sid)?.runId === runId && !liveJobs.has(sid)) {
         await new Promise((resolve) => setTimeout(resolve, DETACHED_RUN_POLL_MS));
         if (detachedRuns.get(sid)?.runId !== runId || liveJobs.has(sid)) return;
-        let rec: Awaited<ReturnType<typeof fetchSession>>;
+        // Poll only the newest message + live draft; long conversations were re-downloaded
+        // (megabytes) and fully re-rendered every poll. The full record is read once at the end.
+        let tail: Awaited<ReturnType<typeof fetchSessionTail>>;
         try {
-          rec = await fetchSession(sid);
+          tail = await fetchSessionTail(sid, 1);
           failures = 0;
         } catch {
           // Deleted conversation / API gone: stop holding the composer after a bounded wait.
+          if (++failures >= DETACHED_RUN_MAX_FAILURES) endDetachedRun(sid);
+          continue;
+        }
+        if (detachedRuns.get(sid)?.runId !== runId || liveJobs.has(sid)) return;
+        const base = sessionViewCache.get(sid)?.chat ?? (get().activeSessionId === sid ? get().chat : null);
+        const patched = tail.active_run?.run_id === runId && base
+          ? withDetachedDraft(base, tail.messages, tail.active_run)
+          : null;
+        if (patched && tail.active_run) {
+          applyDetachedRun(sid, tail.active_run);
+          showSessionChat(sid, patched);
+          continue;
+        }
+        let rec: Awaited<ReturnType<typeof fetchSession>>;
+        try {
+          rec = await fetchSession(sid);
+        } catch {
           if (++failures >= DETACHED_RUN_MAX_FAILURES) endDetachedRun(sid);
           continue;
         }

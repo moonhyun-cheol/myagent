@@ -35,6 +35,8 @@ import { warmModelPricingIfMissing } from './models/model-picker.js';
 import { trackSlowRequest } from './routes/slow-request-log.js';
 import { checkLocalApiRequest } from './security/local-api-guard.js';
 import { configureBrowserUrlBlocklistFile } from './browser/url-guard.js';
+import { prepareLlmUsageStore } from './providers/llm-usage-store.js';
+import { resolveLlmUsageLogDir } from './providers/llm-usage-summary.js';
 
 export async function createApiServer(port: number) {
   const cqrRoot = resolveCqrRoot();
@@ -210,6 +212,20 @@ export async function createApiServer(port: number) {
   // Housekeeping is deliberately deferred until after server.listen(). A large checkpoint
   // tree must not hold the first visible window behind the health gate.
   setImmediate(() => {
+    // Usage log: one-time JSONL → SQLite migration (date-by-date totals must match, else JSONL stays).
+    try {
+      const usage = prepareLlmUsageStore(resolveLlmUsageLogDir(cqrRoot));
+      const r = usage.report;
+      if (r && usage.migratedNow) {
+        appendFileSync(
+          path.join(paths.logsDir, 'api-start.log'),
+          `${new Date().toISOString()} llm-usage-store mode=${usage.mode} status=${r.status} files=${r.files} rows=${r.rows} ms=${r.duration_ms ?? 0}${r.mismatched_dates?.length ? ` mismatched=${r.mismatched_dates.map((d) => d.date).join(',')}` : ''}${r.error ? ` error=${r.error}` : ''}\n`,
+          'utf8',
+        );
+      }
+    } catch {
+      /* housekeeping must never block boot */
+    }
     try {
       const swept = sweepCheckpoints(cqrRoot);
       if (swept.removedSessions || swept.removedCheckpoints) {

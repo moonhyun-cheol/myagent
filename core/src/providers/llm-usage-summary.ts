@@ -1,11 +1,13 @@
 /**
- * Read-only aggregation of local llm-usage JSONL logs for the Settings usage page.
- * Counts only `finish` rows written by fetchWithUsage (one row per HTTP attempt).
+ * Read-only aggregation of the local LLM usage log for the Settings usage page.
+ * Counts only `finish` rows written by fetchWithUsage (one row per HTTP attempt). Rows come from the
+ * SQLite store (indexed start-time range) once the JSONL migration succeeded, else from the JSONL files.
  * Billed cost = provider-reported `usage.cost` (OpenRouter); otherwise estimated from the price table.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { calculateLlmUsageCost } from '../agent/llm-usage-cost.js';
+import { isCountedUsageRow, mergeCostBackfill, rowMetrics, str, type RowMetrics } from './llm-usage-metrics.js';
+import { llmUsageMismatchedDates, llmUsageStoreMode, readLlmUsageFinishRows } from './llm-usage-store.js';
 
 export interface LlmUsageTotals {
   requests: number;
@@ -31,6 +33,9 @@ export interface LlmUsageCacheRequest {
   started_at: string;
   model: string;
   purpose: string;
+  /** Conversation and question (chat turn) ids; absent on rows written before they were recorded. */
+  session_id?: string;
+  turn_id?: string;
   input_tokens: number;
   cached_tokens: number;
   cache_write_tokens: number;
@@ -54,6 +59,10 @@ type DayGroups = { models: Record<string, LlmUsageDayPoint>; providers: Record<s
 export interface LlmUsageSummary {
   range: { from: string; to: string; days: number; tz_offset_minutes: number };
   logging_disabled: boolean;
+  /** Where rows were read from: SQLite after the one-time JSONL migration, else the legacy JSONL files. */
+  storage: 'sqlite' | 'jsonl';
+  /** Legacy (pre-SQLite) dates whose imported totals differed from the JSONL files; omitted when none. */
+  legacy_mismatch_dates?: string[];
   /** 「비용 추적」 switch state. No periods = never turned on → nothing is counted. */
   tracking: LlmUsageTracking;
   totals: LlmUsageTotals;
@@ -101,10 +110,6 @@ export function usageProviderGroupKey(endpointHost: string | undefined, provider
   if (host) return PROVIDER_HOST_LABELS[host] ?? host;
   return providerId ?? '(알 수 없음)';
 }
-
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 160) : undefined);
-const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 function emptyTotals(): LlmUsageTotals {
   return {
@@ -195,83 +200,6 @@ function localDate(ms: number, tzOffsetMinutes: number): string {
   return new Date(ms + tzOffsetMinutes * 60_000).toISOString().slice(0, 10);
 }
 
-interface RowMetrics {
-  failed: boolean;
-  input: number;
-  output: number;
-  cached: number;
-  write: number;
-  reasoning: number;
-  billed?: number;
-  estimated?: number;
-  unpriced: boolean;
-  savings: number;
-  savingsEstimated: boolean;
-}
-
-const BACKFILL_FIELDS = [
-  'provider_cost_usd', 'cache_discount_usd', 'input_tokens', 'total_input_tokens', 'output_tokens',
-  'cached_tokens', 'reasoning_tokens', 'upstream_provider',
-] as const;
-/** Backfill only fills what the reply itself did not report; reported values always win. */
-function mergeCostBackfill(row: Record<string, unknown>, fill: Record<string, unknown>): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...row, cost_backfilled: true };
-  for (const key of BACKFILL_FIELDS) {
-    if ((merged[key] === null || merged[key] === undefined) && fill[key] !== null && fill[key] !== undefined) merged[key] = fill[key];
-  }
-  return merged;
-}
-
-function rowMetrics(row: Record<string, unknown>, env: NodeJS.ProcessEnv): RowMetrics {
-  const failed = row.outcome !== 'completed';
-  const cached = num(row.cached_tokens);
-  const write = num(row.cache_write_tokens);
-  // total_input_tokens already includes cache reads/writes for every wire.
-  let input = num(row.total_input_tokens);
-  if (!input && row.input_tokens != null) {
-    input = num(row.input_tokens) + (row.input_semantics === 'excludes_cache' ? cached + write : 0);
-  }
-  const output = num(row.output_tokens);
-  const metrics: RowMetrics = { failed, input, output, cached, write, reasoning: num(row.reasoning_tokens), unpriced: false, savings: 0, savingsEstimated: false };
-  const modelId = str(row.response_model) ?? str(row.model) ?? 'default';
-  const billed = finite(row.provider_cost_usd);
-  if (billed !== undefined) {
-    metrics.billed = Math.max(0, billed);
-    const discount = finite(row.cache_discount_usd);
-    const actualInput = finite(row.upstream_input_cost_usd);
-    if (discount !== undefined) metrics.savings = discount;
-    else if (actualInput !== undefined && cached + write > 0) {
-      // Savings = what the input would cost at the list rate − what it actually cost (reads discounted,
-      // writes at a premium, so it can be negative). Only the list rate comes from the price table.
-      const list = calculateLlmUsageCost({ prompt_tokens: input, completion_tokens: 0 }, modelId, env, str(row.provider_id));
-      if (list.pricing_status === 'priced' && list.input_cost_microusd !== undefined) {
-        metrics.savings = list.input_cost_microusd / 1_000_000 - actualInput;
-        metrics.savingsEstimated = true;
-      }
-    }
-    return metrics;
-  }
-  if (input + output === 0) {
-    // Completed but nothing to price (video jobs without a reported cost, usage-less replies).
-    metrics.unpriced = !failed;
-    return metrics;
-  }
-  const cost = calculateLlmUsageCost(
-    { prompt_tokens: input, completion_tokens: output, cached_tokens: cached, cache_write_tokens: write },
-    modelId,
-    env,
-    str(row.provider_id),
-  );
-  if (cost.pricing_status === 'priced' && cost.total_cost_microusd !== undefined) {
-    metrics.estimated = cost.total_cost_microusd / 1_000_000;
-    metrics.savings = (cost.cache_net_savings_microusd ?? 0) / 1_000_000;
-    metrics.savingsEstimated = cached + write > 0;
-  } else {
-    metrics.unpriced = true;
-  }
-  return metrics;
-}
-
 function addTo(t: LlmUsageTotals, m: RowMetrics): void {
   t.requests += 1;
   if (m.failed) t.failed_requests += 1;
@@ -344,9 +272,45 @@ export function summarizeLlmUsage(options: {
   const purposes = new Map<string, LlmUsageGroupRow>();
   const cacheRequests: LlmUsageCacheRequest[] = [];
 
-  // Files are split by UTC start date; read one extra day on each side of the local-time window.
+  const consume = (row: Record<string, unknown>) => {
+    if (!isCountedUsageRow(row)) return;
+    const started = Date.parse(String(row.started_at ?? ''));
+    if (!Number.isFinite(started)) return;
+    if (!intervals.some(([a, b]) => started >= a && started < b)) return;
+    const bucket = daily.get(localDate(started, tz));
+    if (!bucket) return;
+    const m = rowMetrics(row, env);
+    const modelKey = str(row.response_model) ?? str(row.model) ?? '(알 수 없음)';
+    const providerKey = usageProviderGroupKey(str(row.endpoint_host), str(row.provider_id));
+    const purposeKey = str(row.purpose) ?? 'chat';
+    const modelGroupKey = usageModelGroupKey(modelKey, purposeKey);
+    addTo(totals, m);
+    for (const [map, key] of [[models, modelGroupKey], [providers, providerKey], [purposes, purposeKey]] as const) {
+      let g = map.get(key);
+      if (!g) { g = { key, ...emptyTotals() }; map.set(key, g); }
+      addTo(g, m);
+    }
+    addPoint(bucket.models, modelGroupKey, m);
+    addPoint(bucket.providers, providerKey, m);
+    addPoint(bucket.purposes, purposeKey, m);
+    if (m.cached + m.write > 0) {
+      const sessionId = str(row.session_id);
+      const turnId = str(row.turn_id);
+      cacheRequests.push({
+        started_at: new Date(started).toISOString(), model: modelKey, purpose: purposeKey,
+        ...(sessionId ? { session_id: sessionId } : {}), ...(turnId ? { turn_id: turnId } : {}),
+        input_tokens: m.input, cached_tokens: m.cached, cache_write_tokens: m.write, savings_usd: m.savings, estimated: m.savingsEstimated,
+      });
+    }
+  };
+
   // Never tracked → empty summary; rows outside the on-intervals are never mixed in.
-  for (let i = -1; intervals.length > 0 && i <= days; i += 1) {
+  // One extra day on each side of the local-time window (rows/files are keyed by UTC start).
+  const sqlite = intervals.length > 0 && llmUsageStoreMode(dir, env) === 'sqlite';
+  if (sqlite) {
+    for (const row of readLlmUsageFinishRows(dir, fromMs - DAY_MS, fromMs + (days + 1) * DAY_MS)) consume(row);
+  }
+  for (let i = -1; !sqlite && intervals.length > 0 && i <= days; i += 1) {
     const file = path.join(dir, `llm-usage-${new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10)}.jsonl`);
     if (!existsSync(file)) continue;
     let text = '';
@@ -368,34 +332,7 @@ export function summarizeLlmUsage(options: {
       if (row.event !== 'finish') continue;
       const fill = typeof row.call_id === 'string' ? backfills.get(row.call_id) : undefined;
       if (fill) row = mergeCostBackfill(row, fill);
-      // Decision version checks: an unknown id answers a free 400 — not usage, not a failure.
-      // A probe that hit an existing id is a real billed decision and stays counted.
-      if (row.probe === true && row.http_status === 400) continue;
-      const started = Date.parse(String(row.started_at ?? ''));
-      if (!Number.isFinite(started)) continue;
-      if (!intervals.some(([a, b]) => started >= a && started < b)) continue;
-      const bucket = daily.get(localDate(started, tz));
-      if (!bucket) continue;
-      const m = rowMetrics(row, env);
-      const modelKey = str(row.response_model) ?? str(row.model) ?? '(알 수 없음)';
-      const providerKey = usageProviderGroupKey(str(row.endpoint_host), str(row.provider_id));
-      const purposeKey = str(row.purpose) ?? 'chat';
-      const modelGroupKey = usageModelGroupKey(modelKey, purposeKey);
-      addTo(totals, m);
-      for (const [map, key] of [[models, modelGroupKey], [providers, providerKey], [purposes, purposeKey]] as const) {
-        let g = map.get(key);
-        if (!g) { g = { key, ...emptyTotals() }; map.set(key, g); }
-        addTo(g, m);
-      }
-      addPoint(bucket.models, modelGroupKey, m);
-      addPoint(bucket.providers, providerKey, m);
-      addPoint(bucket.purposes, purposeKey, m);
-      if (m.cached + m.write > 0) {
-        cacheRequests.push({
-          started_at: new Date(started).toISOString(), model: modelKey, purpose: purposeKey, input_tokens: m.input,
-          cached_tokens: m.cached, cache_write_tokens: m.write, savings_usd: m.savings, estimated: m.savingsEstimated,
-        });
-      }
+      consume(row);
     }
   }
   cacheRequests.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
@@ -404,6 +341,11 @@ export function summarizeLlmUsage(options: {
   return {
     range: { from: dateKeys[0], to, days, tz_offset_minutes: tz },
     logging_disabled: /^(0|off|false|no)$/i.test(env.MY_AGENT_LLM_USAGE_LOG ?? ''),
+    storage: llmUsageStoreMode(dir, env),
+    ...((): { legacy_mismatch_dates?: string[] } => {
+      const dates = llmUsageMismatchedDates(dir, env);
+      return dates.length ? { legacy_mismatch_dates: dates } : {};
+    })(),
     tracking,
     totals,
     models: sortRows([...models.values()]),

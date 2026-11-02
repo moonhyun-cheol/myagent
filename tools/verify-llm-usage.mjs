@@ -13,6 +13,8 @@ let passed = 0;
 try {
   process.env.MY_AGENT_LLM_LOG = 'off';
   process.env.MY_AGENT_LLM_USAGE_LOG_DIR = path.join(temp, 'usage');
+  // Legacy JSONL store: these checks read the raw daily files (SQLite store: verify-llm-usage-sqlite.mjs).
+  process.env.MY_AGENT_LLM_USAGE_STORE = 'jsonl';
   delete process.env.MY_AGENT_LLM_USAGE_LOG;
   const build = spawnSync(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '-p', path.join(root, 'tsconfig.json'), '--outDir', path.join(temp, 'compiled'), '--declaration', 'false'], { cwd: root, encoding: 'utf8' });
   assert.equal(build.status, 0, build.stdout + build.stderr);
@@ -236,7 +238,8 @@ try {
   await test('bounded oversized observation preserves output bytes', async () => {
     reply.raw = JSON.stringify({ text: 'x'.repeat(8_388_609), usage: { input_tokens: 1, output_tokens: 1 } });
     const res = await fetchWithUsage(`${base}/responses`, { method: 'POST', body: '{}' }); assert.equal((await res.text()).length, reply.raw.length);
-    assert.equal(last().observation_truncated, true); assert.equal(last().usage_status, 'unavailable');
+    // Usage is salvaged from the tail of an oversized body (image replies carry base64 before usage).
+    assert.equal(last().observation_truncated, true); assert.equal(last().usage_status, 'reported'); assert.equal(last().input_tokens, 1);
   });
   await test('multiline SSE, EOF frame, UTF8, and oversized SSE observation', async () => {
     reply.frames = 'data: {"usage":\r\ndata: {"prompt_tokens":12,"completion_tokens":3}}\r\n\r\ndata: [DONE]';

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } 
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
-import type { SessionMessage, SessionRecord, SessionSummary } from './types.js';
+import type { ResponsesContinuationState, SessionMessage, SessionRecord, SessionSummary } from './types.js';
 
 type Row = { body: string; seq: number };
 type DraftRow = { session_id: string; run_id: string; owner_pid: number; body: string };
@@ -45,8 +45,14 @@ export class SessionSqliteStore {
           run_id TEXT NOT NULL, owner_pid INTEGER NOT NULL, body TEXT NOT NULL,
           PRIMARY KEY (session_id, run_id)
         );
+        CREATE TABLE IF NOT EXISTS responses_states (
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          lane TEXT NOT NULL, body TEXT NOT NULL,
+          PRIMARY KEY (session_id, lane)
+        );
         PRAGMA user_version = 2;
       `));
+      this.splitResponsesStates(db);
       // Fail closed: a corrupt source must not silently disappear from the live set (or GC).
       // Each file and its marker commit together; a restart resumes without duplicates.
       for (const filename of readdirSync(dir).filter((name) => name.endsWith('.json'))) {
@@ -133,10 +139,44 @@ export class SessionSqliteStore {
     catch (error) { db.exec('ROLLBACK'); throw error; }
   }
 
+  /**
+   * Provider continuation state (can be megabytes) lives in its own table so ordinary
+   * metadata reads/writes and per-call state saves never rewrite or parse it with the
+   * transcript. Idempotent: also moves state written into the body by an older build.
+   * The schema version stays 2 (additive table) so an older build still opens the file.
+   */
+  private splitResponsesStates(db: DatabaseSync): void {
+    const rows = db.prepare(`SELECT id, json_extract(body, '$.responses_state') AS chat,
+        json_extract(body, '$.responses_states') AS lanes FROM sessions
+      WHERE json_type(body, '$.responses_state') IS NOT NULL OR json_type(body, '$.responses_states') IS NOT NULL`)
+      .all() as unknown as { id: string; chat: string | null; lanes: string | null }[];
+    if (!rows.length) return;
+    this.backup(db, 'before-responses-state-split');
+    this.transaction(db, () => {
+      const upsert = db.prepare(`INSERT INTO responses_states(session_id, lane, body) VALUES (?, ?, ?)
+        ON CONFLICT(session_id, lane) DO UPDATE SET body = excluded.body`);
+      for (const row of rows) {
+        const lanes = row.lanes ? JSON.parse(row.lanes) as Record<string, unknown> : {};
+        for (const [lane, state] of Object.entries(lanes)) {
+          if (state && typeof state === 'object') upsert.run(row.id, lane, JSON.stringify(state));
+        }
+        if (row.chat && !(lanes && typeof lanes === 'object' && 'chat' in lanes)) upsert.run(row.id, 'chat', row.chat);
+        db.prepare(`UPDATE sessions SET body = json_remove(body, '$.responses_state', '$.responses_states') WHERE id = ?`)
+          .run(row.id);
+      }
+    });
+  }
+
   private saveRecord(db: DatabaseSync, rec: SessionRecord): void {
-    const { messages, ...metadata } = rec;
+    const { messages, responses_state: _chatState, responses_states: _laneStates, ...metadata } = rec;
     db.prepare(`INSERT INTO sessions(id, body) VALUES (?, ?)
       ON CONFLICT(id) DO UPDATE SET body = excluded.body`).run(rec.id, JSON.stringify(metadata));
+    // Records loaded from this store never carry continuation state; an explicit one (legacy
+    // import / tests) is written to its table instead of the metadata body.
+    if (_laneStates) {
+      for (const [lane, state] of Object.entries(_laneStates)) this.writeResponsesStateRow(db, rec.id, lane, state);
+    }
+    if (_chatState && !_laneStates?.chat) this.writeResponsesStateRow(db, rec.id, 'chat', _chatState);
     // Unchanged rows are never rewritten. Explicit undo/summary replacement can remove rows.
     const previous = db.prepare('SELECT seq, body FROM messages WHERE session_id = ? ORDER BY seq').all(rec.id) as unknown as Row[];
     const upsert = db.prepare(`INSERT INTO messages(session_id, seq, body) VALUES (?, ?, ?)
@@ -148,9 +188,10 @@ export class SessionSqliteStore {
     db.prepare('DELETE FROM messages WHERE session_id = ? AND seq > ?').run(rec.id, messages.length);
   }
 
-  save(rec: SessionRecord): void {
+  save(rec: SessionRecord, opts: { clearResponsesStates?: boolean } = {}): void {
     this.withDb((db) => this.transaction(db, () => {
       this.saveRecord(db, rec);
+      if (opts.clearResponsesStates) db.prepare('DELETE FROM responses_states WHERE session_id = ?').run(rec.id);
       const drafts = db.prepare('SELECT run_id FROM assistant_drafts WHERE session_id = ?').all(rec.id) as { run_id: string }[];
       for (const { run_id } of drafts) {
         if (!rec.messages.some((m) => m.role === 'user' && m.run_id === run_id)
@@ -224,13 +265,66 @@ export class SessionSqliteStore {
           application_notice: { kind: 'failure', title: '중단된 응답 복구',
             message: '응답이 완료되지 않아 마지막 저장 내용을 복구했습니다. 도구 작업은 자동 재실행하지 않습니다.' } };
         const rec = { ...JSON.parse(row.body), messages: [...messages, recovered] } as SessionRecord;
-        delete rec.responses_state;
-        delete rec.responses_states;
         rec.updated_at = new Date().toISOString();
         this.saveRecord(db, rec);
+        db.prepare('DELETE FROM responses_states WHERE session_id = ?').run(draft.session_id);
       }
     }
     db.prepare('DELETE FROM assistant_drafts WHERE session_id = ? AND run_id = ?').run(draft.session_id, draft.run_id);
+  }
+
+  private writeResponsesStateRow(db: DatabaseSync, id: string, lane: string, state: ResponsesContinuationState): void {
+    db.prepare(`INSERT INTO responses_states(session_id, lane, body) VALUES (?, ?, ?)
+      ON CONFLICT(session_id, lane) DO UPDATE SET body = excluded.body`).run(id, lane, JSON.stringify(state));
+  }
+
+  responsesState(id: string, lane: string): ResponsesContinuationState | null {
+    return this.withDbReadOnly((db) => {
+      const row = db.prepare('SELECT body FROM responses_states WHERE session_id = ? AND lane = ?')
+        .get(id, lane) as { body: string } | undefined;
+      return row ? JSON.parse(row.body) as ResponsesContinuationState : null;
+    });
+  }
+
+  /** Every lane of one session (diagnostics/tests). */
+  responsesStates(id: string): Record<string, ResponsesContinuationState> {
+    return this.withDbReadOnly((db) => Object.fromEntries(
+      (db.prepare('SELECT lane, body FROM responses_states WHERE session_id = ?').all(id) as unknown as { lane: string; body: string }[])
+        .map((row) => [row.lane, JSON.parse(row.body) as ResponsesContinuationState]),
+    ));
+  }
+
+  /** One row write + updated_at bump; the transcript is not read. False when the session is missing. */
+  saveResponsesState(id: string, lane: string, state: ResponsesContinuationState, updatedAt: string): boolean {
+    return this.withDb((db) => this.transaction(db, () => {
+      const updated = db.prepare(`UPDATE sessions SET body = json_set(body, '$.updated_at', ?) WHERE id = ?`).run(updatedAt, id);
+      if (!Number(updated.changes)) return false;
+      this.writeResponsesStateRow(db, id, lane, state);
+      return true;
+    }));
+  }
+
+  clearResponsesStates(id: string, lane: string | undefined, updatedAt: string): boolean {
+    return this.withDb((db) => this.transaction(db, () => {
+      const updated = db.prepare(`UPDATE sessions SET body = json_set(body, '$.updated_at', ?) WHERE id = ?`).run(updatedAt, id);
+      if (!Number(updated.changes)) return false;
+      if (lane) db.prepare('DELETE FROM responses_states WHERE session_id = ? AND lane = ?').run(id, lane);
+      else db.prepare('DELETE FROM responses_states WHERE session_id = ?').run(id);
+      return true;
+    }));
+  }
+
+  /** Patch the newest assistant message row only (no full transcript rewrite). */
+  setLastAssistantUsage(id: string, usage: SessionMessage['usage']): boolean {
+    return this.withDb((db) => this.transaction(db, () => {
+      const row = db.prepare(`SELECT seq, body FROM messages WHERE session_id = ?
+          AND json_extract(body, '$.role') = 'assistant' ORDER BY seq DESC LIMIT 1`).get(id) as Row | undefined;
+      if (!row) return false;
+      const message = JSON.parse(row.body) as SessionMessage;
+      message.usage = usage;
+      db.prepare('UPDATE messages SET body = ? WHERE session_id = ? AND seq = ?').run(JSON.stringify(message), id, row.seq);
+      return true;
+    }));
   }
 
   load(id: string): SessionRecord | null {
