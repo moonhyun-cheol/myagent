@@ -149,7 +149,7 @@ export async function executeChatRun<T>(
   try {
     // Usage log: every AI call made while answering this question (agent steps, plain chat, images,
     // videos, approval reviews, embeddings) carries the same turn id as the stored messages' run_id.
-    return await context.run(run, () => withLlmUsageContext({ sessionId: run.sessionId, turnId: run.runId }, async () => {
+    return await context.run(run, () => withLlmUsageContext({ sessionId: run.sessionId, turnId: run.runId, turnLink: {} }, async () => {
       assertChatRunWritable(run.sessionId);
       return work(run.controller.signal);
     }));

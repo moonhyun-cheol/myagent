@@ -17,6 +17,12 @@ export interface LlmUsageContext {
   sessionId?: string;
   /** Chat turn id (the UI's run id for one question). Every call made while answering it carries this. */
   turnId?: string;
+  /**
+   * Shared by every nested context of one turn (set once in executeChatRun). When the turn resumes
+   * an earlier question's stored run, later rows carry `continues_turn_id` so the usage page can
+   * show them inside that question.
+   */
+  turnLink?: { continuesTurnId?: string };
   runId?: string;
   providerId?: string;
   purpose?: LlmUsagePurpose;
@@ -45,6 +51,17 @@ export function withLlmUsageContext<T>(value: LlmUsageContext, work: () => T): T
 /** Current chat session id (agent runs), used only for OpenRouter sticky-routing pins. */
 export function currentLlmUsageSessionId(): string | undefined {
   return context.getStore()?.sessionId;
+}
+/** Current chat turn id (run id of the question being answered), if any. */
+export function currentLlmUsageTurnId(): string | undefined {
+  return id(context.getStore()?.turnId);
+}
+/** Marks the current turn as a continuation of `originTurnId` (same id or no turn holder = no-op). */
+export function markLlmUsageTurnContinues(originTurnId: string | undefined): void {
+  const ctx = context.getStore();
+  const origin = id(originTurnId);
+  if (!ctx?.turnLink || !origin || origin === ctx.turnId) return;
+  ctx.turnLink.continuesTurnId = origin;
 }
 
 type Wire = 'chat' | 'responses' | 'messages';
@@ -355,6 +372,7 @@ export function recordLlmUsageEvent(event: {
       finished_at: new Date().toISOString(), duration_ms: Math.max(0, Date.now() - started),
       session_id: id(ctx?.sessionId), turn_id: id(ctx?.turnId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId),
       purpose: event.purpose ?? ctx?.purpose ?? 'chat', wire_api: 'job', model: id(event.model), stream: false, attempt: 1,
+      continues_turn_id: id(ctx?.turnLink?.continuesTurnId),
       endpoint_host: event.endpointHost, http_status: event.httpStatus ?? null, outcome: event.outcome,
       usage_status: 'unavailable', input_tokens: null, output_tokens: null, cached_tokens: null,
       cache_write_tokens: null, reasoning_tokens: null, total_input_tokens: null,
@@ -383,6 +401,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   const base = {
     version: 1, call_id: callId, started_at: new Date(started).toISOString(),
     session_id: id(ctx?.sessionId), turn_id: id(ctx?.turnId), run_id: id(ctx?.runId), provider_id: id(ctx?.providerId), step,
+    continues_turn_id: id(ctx?.turnLink?.continuesTurnId),
     wire_api: wire, purpose: resolvePurpose(new URL(url).pathname, ctx, id(body.model)), model: id(body.model), stream, attempt,
     ...(ctx?.probe === true ? { probe: true } : {}),
     endpoint_hash: createHash('sha256').update(new URL(url).origin + new URL(url).pathname).digest('hex').slice(0, 24),

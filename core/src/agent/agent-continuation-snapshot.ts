@@ -20,6 +20,11 @@ export interface AgentContinuationSnapshot {
   /** User 「이어서」 resumes already spent on this chain (host retries excluded). */
   resumeCount?: number;
   /**
+   * Chat turn (run id) that started this continuation chain. A run that resumes the chain
+   * (active_task resume_run) is shown inside that question on the usage page.
+   */
+  originTurnId?: string;
+  /**
    * Disk fingerprint (`size:mtimeMs`) of read/mutated paths when the snapshot was taken.
    * A resume seeds read_before_write only for paths whose fingerprint still matches.
    */
@@ -40,6 +45,7 @@ export interface AgentContinuationSnapshotInput {
   lastModelOutput?: string;
   resumeCount?: number;
   pathFingerprints?: Record<string, string>;
+  originTurnId?: string;
   now?: string;
 }
 
@@ -110,6 +116,7 @@ export function buildAgentContinuationSnapshot(
   const lastModelOutput = String(input.lastModelOutput || '').trim().slice(-6_000);
   const resumeCount = Math.max(0, Math.trunc(Number(input.resumeCount) || 0));
   const pathFingerprints = normalizePathFingerprints(input.pathFingerprints);
+  const originTurnId = normalizeOriginTurnId(input.originTurnId);
   return {
     version: 1,
     at: input.now ?? new Date().toISOString(),
@@ -126,7 +133,13 @@ export function buildAgentContinuationSnapshot(
     ...(lastModelOutput ? { lastModelOutput } : {}),
     ...(resumeCount ? { resumeCount } : {}),
     ...(pathFingerprints ? { pathFingerprints } : {}),
+    ...(originTurnId ? { originTurnId } : {}),
   };
+}
+
+/** Run ids are short safe tokens; anything else is dropped. */
+export function normalizeOriginTurnId(raw: unknown): string | undefined {
+  return typeof raw === 'string' && /^[a-zA-Z0-9_.:-]{1,160}$/.test(raw) ? raw : undefined;
 }
 
 export function formatAgentContinuationResumeNote(snapshot: AgentContinuationSnapshot): string {

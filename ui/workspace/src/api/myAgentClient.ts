@@ -1238,6 +1238,8 @@ export interface LlmUsageTurn extends LlmUsageTotals {
   question?: string;
   /** N-th user message of its conversation (same basis everywhere; absent when not found). */
   question_no?: number;
+  /** Later 「이어서」 runs (resumed this question's stored work) folded into this row. */
+  continued_runs?: number;
   calls?: LlmUsageCall[];
   calls_total?: number;
 }

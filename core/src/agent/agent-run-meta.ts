@@ -7,7 +7,7 @@ import path from 'node:path';
 import type { AgentPerfSnapshot } from './agent-perf-metrics.js';
 import type { AgentProgressCheckpoint } from './agent-progress-checkpoint.js';
 import type { AgentContinuationSnapshot } from './agent-continuation-snapshot.js';
-import { normalizePathFingerprints } from './agent-continuation-snapshot.js';
+import { normalizeOriginTurnId, normalizePathFingerprints } from './agent-continuation-snapshot.js';
 import type { EvidenceRecord } from './agent-evidence-types.js';
 import type { TodoLedger } from './agent-todo-types.js';
 import { normalizeTodoLedger } from './agent-todo-ledger.js';
@@ -202,7 +202,8 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
     const snapshot = raw.continuationSnapshot as AgentContinuationSnapshot;
     if (snapshot.version === 1 && Number.isFinite(snapshot.step)) {
       const pathFingerprints = normalizePathFingerprints(snapshot.pathFingerprints);
-      const { pathFingerprints: _rawFingerprints, ...snapshotRest } = snapshot;
+      const originTurnId = normalizeOriginTurnId(snapshot.originTurnId);
+      const { pathFingerprints: _rawFingerprints, originTurnId: _rawOrigin, ...snapshotRest } = snapshot;
       out.continuationSnapshot = {
         ...snapshotRest,
         at: typeof snapshot.at === 'string' ? snapshot.at : new Date().toISOString(),
@@ -226,6 +227,7 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
           ? { resumeCount: Math.trunc(Number(snapshot.resumeCount)) }
           : {}),
         ...(pathFingerprints ? { pathFingerprints } : {}),
+        ...(originTurnId ? { originTurnId } : {}),
       };
     }
   }

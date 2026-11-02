@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { resolveResponsesReasoningSummaryPolicy } from '../providers/responses-compatible.js';
+import { currentLlmUsageTurnId, markLlmUsageTurnContinues } from '../providers/llm-usage-log.js';
 import type { ChatMessage, ToolCompletionResult } from '../providers/openai-compatible.js';
 import {
   clientToolProtocolCacheKey,
@@ -777,6 +778,9 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     live.resumeCount = resume.resumeCount;
     live.priorSteps = Math.max(0, snap?.step ?? cp?.step ?? 0);
     live.priorElapsedMs = Math.max(0, snap?.elapsedMs ?? cp?.runtime?.elapsedMs ?? 0);
+    // Usage page: this question's calls are shown inside the question that started the chain.
+    live.originTurnId = snap?.originTurnId;
+    markLlmUsageTurnContinues(snap?.originTurnId);
     live.pendingContinuation = null;
     live.continuationOwner = true;
     pushThought(
@@ -850,6 +854,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     autopilot,
     priorSteps,
     resumeCount: continuationResume.resumeCount,
+    originTurnId: sessionContinuity ? continuationSnapshot?.originTurnId : undefined,
     pendingContinuation,
     continuationOwner: !pendingContinuation,
     hadStoredContinuationAtStart: Boolean(pendingContinuation) || sessionContinuity,
@@ -913,6 +918,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     apiToolsTimeoutMs,
   };
   stepState = state;
+  if (sessionContinuity) markLlmUsageTurnContinues(continuationSnapshot?.originTurnId);
 
   try {
     return await runAgentStepLoop(state);
@@ -939,6 +945,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       const snapshot = buildAgentContinuationSnapshot({
         step: live.priorSteps + live.steps,
         resumeCount: live.resumeCount,
+        originTurnId: live.originTurnId ?? currentLlmUsageTurnId(),
         readPaths: [...live.successfulReadsThisRun],
         mutatedPaths: [...live.mutatedPathsThisRun, ...live.sessionMutatedPaths],
         unresolvedFailures: recentFailures,
