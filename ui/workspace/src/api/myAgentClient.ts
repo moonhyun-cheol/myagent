@@ -1202,11 +1202,24 @@ export interface LlmUsageCacheRequest {
   started_at: string;
   model: string;
   purpose: string;
+  session_id?: string;
+  turn_id?: string;
   input_tokens: number;
   cached_tokens: number;
   cache_write_tokens: number;
   savings_usd: number;
   estimated: boolean;
+}
+/** All AI calls made while answering one question. */
+export interface LlmUsageTurn extends LlmUsageTotals {
+  turn_id: string;
+  session_id?: string;
+  started_at: string;
+  finished_at: string;
+  models: string[];
+  purposes: string[];
+  session_title?: string;
+  question?: string;
 }
 export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: number }
 export interface LlmUsageSummary {
@@ -1227,6 +1240,9 @@ export interface LlmUsageSummary {
   }>;
   cache_requests?: LlmUsageCacheRequest[];
   cache_requests_total?: number;
+  turns?: LlmUsageTurn[];
+  turns_total?: number;
+  untracked_turn_requests?: number;
 }
 
 export interface LlmUsageTracking {

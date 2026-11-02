@@ -397,4 +397,19 @@ export class SessionSqliteStore {
       return rows.reverse().map((row) => JSON.parse(row.body) as SessionMessage);
     });
   }
+
+  /**
+   * Question text (first `maxChars`) of the user messages that started the given runs, read only
+   * inside the listed conversations. Used to label per-question usage rows.
+   */
+  userQuestions(sessionIds: string[], runIds: string[], maxChars = 160): Array<{ session_id: string; run_id: string; content: string }> {
+    if (!sessionIds.length || !runIds.length) return [];
+    return this.withDbReadOnly((db) => db.prepare(`SELECT session_id, json_extract(body, '$.run_id') AS run_id,
+        substr(json_extract(body, '$.content'), 1, ?) AS content
+      FROM messages
+      WHERE session_id IN (SELECT value FROM json_each(?))
+        AND json_extract(body, '$.role') = 'user'
+        AND json_extract(body, '$.run_id') IN (SELECT value FROM json_each(?))`)
+      .all(maxChars, JSON.stringify(sessionIds), JSON.stringify(runIds)) as unknown as Array<{ session_id: string; run_id: string; content: string }>);
+  }
 }

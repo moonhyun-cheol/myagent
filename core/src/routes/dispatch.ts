@@ -456,7 +456,18 @@ export async function dispatchApiRequest(
             return null;
           },
         }).catch(() => 0);
-        return sendJson(res, 200, summarizeLlmUsage({ cqrRoot, days, from, to, tzOffsetMinutes }));
+        const usage = summarizeLlmUsage({ cqrRoot, days, from, to, tzOffsetMinutes });
+        // Per-question rows get the conversation title and question text (local store, read-only).
+        try {
+          const labels = sessionStore.questionLabels(usage.turns
+            .filter((t) => t.session_id).map((t) => ({ sessionId: t.session_id!, runId: t.turn_id })));
+          for (const t of usage.turns) {
+            const label = t.session_id ? labels.get(`${t.session_id}\u0000${t.turn_id}`) : undefined;
+            if (label?.title !== undefined) t.session_title = label.title;
+            if (label?.question) t.question = label.question;
+          }
+        } catch { /* labels are optional */ }
+        return sendJson(res, 200, usage);
       }
 
       // 「비용 추적」 switch: { enabled: boolean } only — the server clock marks on/off (no past points).

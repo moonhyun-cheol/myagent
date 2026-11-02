@@ -216,6 +216,9 @@ export function prepareLlmUsageStore(dir: string, env: NodeJS.ProcessEnv = proce
       const finished = priorReport?.status === 'done' || (priorReport?.status === 'mismatch' && priorReport.imported === true);
       const migratedNow = !finished;
       const report = migratedNow ? migrateJsonl(db, key, env, hooks) : priorReport!;
+      // The import (tens of MB) leaves an equally large -wal file that is only reused, never shrunk,
+      // while the app keeps the DB open. Fold it into the DB once per start; cheap when already small.
+      try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* busy reader: retried next start */ }
       handle = { mode: 'sqlite', db, report, migratedNow };
     } catch (error) {
       try { db?.close(); } catch { /* ignore */ }
