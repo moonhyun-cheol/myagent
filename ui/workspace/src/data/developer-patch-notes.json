@@ -2,6 +2,18 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "llm-usage-drilldown-top-controls",
+      "status": "development",
+      "title": "사용량 단계별 보기에서 위 메뉴가 반응 없던 문제 수정",
+      "detail": "대화방·질문을 보고 있을 때 묶기를 누르면 전체 화면으로 돌아가 바로 적용합니다. 기간을 바꿔 보던 대화방·질문이 빠지면 선택을 지우고 안내합니다. 단계별 화면에서도 불러오는 중이 보이고, 기간·토큰/비용이 이 화면에 적용된다는 안내를 넣었습니다.",
+      "area": "ui",
+      "created_at": "2026-11-02",
+      "source_paths": [
+        "ui/workspace/src/components/SettingsUsagePage.tsx"
+      ],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "llm-usage-session-turn-call-drilldown",
       "status": "development",
       "title": "사용량 화면에 대화방 → 질문 → 작업 단계별 보기 추가",

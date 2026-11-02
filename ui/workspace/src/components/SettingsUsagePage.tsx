@@ -628,6 +628,7 @@ export function SettingsUsagePage() {
   const [tab, setTab] = useState<'sessions' | 'turns'>('sessions');
   const [sort, setSort] = useState<Sort>('recent');
   const [showZero, setShowZero] = useState(false);
+  const [focusNotice, setFocusNotice] = useState<string | null>(null);
   const chartRef = useRef<HTMLElement>(null);
   const [data, setData] = useState<LlmUsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -733,9 +734,24 @@ export function SettingsUsagePage() {
     ? (data?.turns ?? []).filter((t) => t.session_id === sessionId).sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
     : []), [data, sessionId]);
 
-  const goRoot = useCallback(() => { setFocusSession(null); setFocusTurn(null); }, []);
-  const openSession = useCallback((id: string) => { setFocusSession(id); setFocusTurn(null); }, []);
-  const openTurn = useCallback((t: LlmUsageTurn) => { setFocusSession(t.session_id ?? null); setFocusTurn(turnKeyOf(t)); }, []);
+  const goRoot = useCallback(() => { setFocusSession(null); setFocusTurn(null); setFocusNotice(null); }, []);
+  const openSession = useCallback((id: string) => { setFocusSession(id); setFocusTurn(null); setFocusNotice(null); }, []);
+  const openTurn = useCallback((t: LlmUsageTurn) => { setFocusSession(t.session_id ?? null); setFocusTurn(turnKeyOf(t)); setFocusNotice(null); }, []);
+  /** 묶기 only shapes the overview chart, so picking one while drilled in returns to the overview. */
+  const pickGroupBy = useCallback((g: GroupBy) => { setGroupBy(g); goRoot(); }, [goRoot]);
+  // After a period change / refresh, drop a focus the new data no longer contains instead of keeping it
+  // hidden (it used to silently fall back and then reappear on the next period change).
+  useEffect(() => {
+    if (!data) return;
+    if (focusSession && !(data.sessions ?? []).some((s) => s.session_id === focusSession)) {
+      setFocusSession(null);
+      setFocusTurn(null);
+      setFocusNotice('선택한 기간에는 보던 대화방이 없어 전체 화면으로 돌아왔습니다.');
+    } else if (focusTurn && !(data.turns ?? []).some((t) => turnKeyOf(t) === focusTurn)) {
+      setFocusTurn(null);
+      setFocusNotice('선택한 기간에는 보던 질문이 없어 대화방 화면으로 돌아왔습니다.');
+    }
+  }, [data, focusSession, focusTurn]);
   useEffect(() => {
     if (focusSession || focusTurn) chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [focusSession, focusTurn]);
@@ -849,13 +865,25 @@ export function SettingsUsagePage() {
         <Segmented
           label="묶기"
           value={groupBy}
-          onChange={setGroupBy}
+          onChange={pickGroupBy}
           options={(Object.keys(GROUP_LABEL) as GroupBy[]).map((g) => ({ value: g, label: GROUP_LABEL[g].short }))}
         />
         <button type="button" onClick={() => void load()} disabled={loading} className="ml-auto rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text disabled:opacity-50">
           {loading ? '불러오는 중…' : '새로고침'}
         </button>
       </div>
+
+      {level > 0 ? (
+        <p className="-mt-2 mb-4 text-[11px] text-muted">
+          {level === 2 ? '질문 하나' : '대화방 하나'}를 보고 있습니다. 기간과 토큰/비용은 이 화면에도 적용되고, 묶기를 누르면 전체 화면으로 돌아갑니다.
+        </p>
+      ) : null}
+      {focusNotice ? (
+        <p className="mb-4 flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs">
+          <span className="flex-1">{focusNotice}</span>
+          <button type="button" onClick={() => setFocusNotice(null)} className="text-muted hover:text-text">닫기</button>
+        </p>
+      ) : null}
 
       {data?.logging_disabled ? (
         <p className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
@@ -890,7 +918,7 @@ export function SettingsUsagePage() {
         </div>
       ) : null}
 
-      <section ref={chartRef} className="mb-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      <section ref={chartRef} aria-busy={loading} className={`mb-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm transition-opacity ${loading ? 'opacity-60' : ''}`}>
         <Breadcrumb
           items={[
             { label: '전체 대화방', onClick: level > 0 ? goRoot : undefined },
