@@ -38,6 +38,13 @@ function formatStamp(iso: string): string {
 
 const CACHE_SECTION_ID = 'usage-cache-requests';
 
+/** Share of input tokens served from the prompt cache (input already includes cache reads). */
+function formatCacheRatio(ratio: number): string {
+  if (!(ratio > 0)) return '0%';
+  const pct = Math.min(ratio, 1) * 100;
+  return pct < 1 ? '<1%' : `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
+}
+
 function TrackingSwitch({ on, disabled, onChange }: { on: boolean; disabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -640,6 +647,7 @@ export function SettingsUsagePage() {
                   <th className="py-2 pr-3 text-right font-medium">입력</th>
                   <th className="py-2 pr-3 text-right font-medium">출력</th>
                   <th className="py-2 pr-3 text-right font-medium">캐시 읽기</th>
+                  <th className="py-2 pr-3 text-right font-medium" title="입력 토큰 중 캐시에서 읽은 비율">캐시 비율</th>
                   <th className="py-2 pr-3 text-right font-medium">비용</th>
                   <th className="py-2 text-right font-medium">요청당 평균</th>
                 </tr>
@@ -652,6 +660,14 @@ export function SettingsUsagePage() {
                     <td className="py-2 pr-3 text-right">{formatTokens(r.input_tokens)}</td>
                     <td className="py-2 pr-3 text-right">{formatTokens(r.output_tokens)}</td>
                     <td className="py-2 pr-3 text-right">{formatTokens(r.cached_tokens)}</td>
+                    <td
+                      className="py-2 pr-3 text-right"
+                      title={r.input_tokens > 0
+                        ? `입력 ${r.input_tokens.toLocaleString()} 중 캐시 읽기 ${r.cached_tokens.toLocaleString()}, 캐시 저장 ${(r.cache_write_tokens ?? 0).toLocaleString()}`
+                        : undefined}
+                    >
+                      {r.input_tokens > 0 ? formatCacheRatio(r.cached_tokens / r.input_tokens) : '-'}
+                    </td>
                     <td className="py-2 pr-3 text-right">
                       {formatUsd(r.cost_usd)}
                       {r.billed_cost_usd > 0 ? null : r.estimated_cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
