@@ -637,6 +637,15 @@ export class SessionStore {
     return out;
   }
 
+  /** Conversation titles for usage rows (deleted conversations are skipped). */
+  sessionTitles(ids: string[]): Map<string, string> {
+    const wanted = new Set(ids.map((id) => sanitizeId(id)).filter((id): id is string => Boolean(id)));
+    const out = new Map<string, string>();
+    if (!wanted.size) return out;
+    for (const s of this.database.list()) if (wanted.has(s.id) && typeof s.title === 'string') out.set(s.id, s.title);
+    return out;
+  }
+
   setWorkspaceProject(id: string, workspaceProjectId: string | null): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;

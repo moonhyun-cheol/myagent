@@ -139,6 +139,21 @@ try {
   assert.equal(withLive.untracked_turn_requests, legacy.totals.requests, 'pre-turn-id rows are not grouped');
   pass('per-question totals: one row per run, untracked legacy rows counted separately');
 
+  // 대화방 → 질문 → 작업: session totals include every call with its id; turn lists each call in order.
+  assert.equal(turn.calls_total, 2);
+  assert.equal(turn.calls.length, 2);
+  assert.ok(Date.parse(turn.calls[0].started_at) <= Date.parse(turn.calls[1].started_at), 'calls in start order');
+  assert.ok(turn.calls.every((c) => c.input_tokens === 800 && c.cached_tokens === 700 && c.output_tokens === 5 && c.billed && Math.abs(c.cost_usd - 0.004) < 1e-12));
+  const liveSession = withLive.sessions.find((s) => s.session_id === 'sess-live');
+  assert.ok(liveSession, 'live conversation listed');
+  assert.equal(liveSession.turn_count, 1);
+  assert.equal(liveSession.requests - liveSession.untracked_requests, 2);
+  const sessionReq = withLive.sessions.reduce((s, x) => s + x.requests, 0);
+  assert.equal(sessionReq + withLive.unsessioned_requests, withLive.totals.requests, 'sessions + outside = total');
+  const daySessions = withLive.daily.reduce((s, d) => s + Object.values(d.sessions).reduce((a, p) => a + p.requests, 0), 0);
+  assert.equal(daySessions, withLive.totals.requests, 'daily session series covers every call');
+  pass('sessions + calls: conversation totals add up, calls listed per question');
+
   // Question labels come from the conversation store (only the listed conversations are read).
   const { SessionSqliteStore } = await load('sessions/session-sqlite-store');
   const sessDir = path.join(temp, 'sessions');

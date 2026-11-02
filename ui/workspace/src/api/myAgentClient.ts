@@ -1210,6 +1210,22 @@ export interface LlmUsageCacheRequest {
   savings_usd: number;
   estimated: boolean;
 }
+/** One AI call (작업) inside a question. */
+export interface LlmUsageCall {
+  started_at: string;
+  duration_ms: number;
+  model: string;
+  purpose: string;
+  failed: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  billed: boolean;
+  unpriced: boolean;
+  savings_usd: number;
+}
 /** All AI calls made while answering one question. */
 export interface LlmUsageTurn extends LlmUsageTotals {
   turn_id: string;
@@ -1220,6 +1236,18 @@ export interface LlmUsageTurn extends LlmUsageTotals {
   purposes: string[];
   session_title?: string;
   question?: string;
+  calls?: LlmUsageCall[];
+  calls_total?: number;
+}
+/** One conversation (대화방): every call carrying its session id. */
+export interface LlmUsageSession extends LlmUsageTotals {
+  session_id: string;
+  started_at: string;
+  last_at: string;
+  turn_count: number;
+  untracked_requests: number;
+  models: string[];
+  session_title?: string;
 }
 export interface LlmUsageDayPoint { tokens: number; cost_usd: number; requests: number }
 export interface LlmUsageSummary {
@@ -1237,12 +1265,17 @@ export interface LlmUsageSummary {
     models: Record<string, LlmUsageDayPoint>;
     providers: Record<string, LlmUsageDayPoint>;
     purposes: Record<string, LlmUsageDayPoint>;
+    /** Keyed by session id; '' = calls outside any conversation. */
+    sessions?: Record<string, LlmUsageDayPoint>;
   }>;
   cache_requests?: LlmUsageCacheRequest[];
   cache_requests_total?: number;
   turns?: LlmUsageTurn[];
   turns_total?: number;
   untracked_turn_requests?: number;
+  sessions?: LlmUsageSession[];
+  sessions_total?: number;
+  unsessioned_requests?: number;
 }
 
 export interface LlmUsageTracking {

@@ -1,14 +1,18 @@
-import { ChartLine } from '@phosphor-icons/react';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchLlmUsageSummary, setLlmUsageTracking, type LlmUsageCacheRequest, type LlmUsageRangeQuery, type LlmUsageSummary, type LlmUsageTracking, type LlmUsageTurn } from '../api/myAgentClient';
+import { CaretRight, ChartLine } from '@phosphor-icons/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  fetchLlmUsageSummary, setLlmUsageTracking,
+  type LlmUsageCall, type LlmUsageRangeQuery, type LlmUsageSession, type LlmUsageSummary, type LlmUsageTotals, type LlmUsageTracking, type LlmUsageTurn,
+} from '../api/myAgentClient';
 
 type Metric = 'tokens' | 'cost';
-type GroupBy = 'models' | 'providers' | 'purposes';
+type GroupBy = 'sessions' | 'models' | 'providers' | 'purposes';
 type Range = 7 | 30 | 90 | 'all' | 'custom';
 
 const GROUP_LABEL: Record<GroupBy, { short: string; column: string }> = {
+  sessions: { short: '대화방별', column: '대화방' },
   models: { short: '모델별', column: '모델' },
-  providers: { short: '프로바이더별', column: '프로바이더' },
+  providers: { short: '공급자별', column: '공급자' },
   purposes: { short: '용도별', column: '용도' },
 };
 
@@ -19,6 +23,17 @@ const PURPOSE_LABEL: Record<string, string> = {
   video: '영상 생성',
   embedding: '임베딩',
 };
+
+/** Fixed colors so a purpose keeps its color across the question / task charts. */
+const PURPOSE_COLOR: Record<string, string> = {
+  chat: '#6366f1',
+  approval: '#a855f7',
+  image: '#22c55e',
+  video: '#06b6d4',
+  embedding: '#f59e0b',
+};
+const purposeColor = (p: string) => PURPOSE_COLOR[p] ?? '#94a3b8';
+const purposeLabel = (p: string) => PURPOSE_LABEL[p] ?? p;
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -81,118 +96,353 @@ function trackingMessage(t: LlmUsageTracking | undefined): { title: string; body
 
 type ChartMode = 'daily' | 'cumulative';
 
-const TURN_PAGE = 20;
+const PAGE = 20;
 
+/** Cache effect in words: discount = 절감, cache-write premium larger than the discount = 추가. */
 function savingsText(v: number): { text: string; cls: string } {
-  if (v < 0) return { text: `+${formatUsd(-v)}`, cls: 'text-amber-500' };
-  if (v > 0) return { text: `−${formatUsd(v)}`, cls: 'text-emerald-500' };
+  if (v < 0) return { text: `+${formatUsd(-v)} 추가`, cls: 'text-amber-500' };
+  if (v > 0) return { text: `${formatUsd(v)} 절감`, cls: 'text-emerald-500' };
   return { text: '-', cls: 'text-muted' };
 }
 
-/** One row per question: every AI call made while answering it (agent steps, approvals, images…). */
-function TurnsTable({ items, total, untracked, cacheRows }: {
-  items: LlmUsageTurn[]; total: number; untracked: number; cacheRows: LlmUsageCacheRequest[];
-}) {
-  const [shown, setShown] = useState(TURN_PAGE);
-  const [open, setOpen] = useState<string | null>(null);
-  if (!items.length) return null;
-  const keyOf = (t: LlmUsageTurn) => `${t.session_id ?? ''}:${t.turn_id}`;
-  const th = 'sticky top-0 bg-panel py-2 font-medium';
+function formatDuration(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 10) return `${s.toFixed(1)}초`;
+  if (s < 60) return `${Math.round(s)}초`;
+  return `${Math.floor(s / 60)}분 ${Math.round(s % 60)}초`;
+}
+
+const turnKeyOf = (t: LlmUsageTurn) => `${t.session_id ?? ''}\u0000${t.turn_id}`;
+
+function sessionName(id: string | undefined, title: string | undefined): string {
+  if (title) return title;
+  if (!id) return '대화방 밖 호출';
+  return `(삭제된 대화방 · ${id.slice(0, 6)})`;
+}
+
+type Sort = 'recent' | 'cost' | 'tokens';
+const SORT_OPTIONS: Array<{ value: Sort; label: string }> = [
+  { value: 'recent', label: '최신순' },
+  { value: 'cost', label: '비용순' },
+  { value: 'tokens', label: '토큰순' },
+];
+
+function sortItems<T extends LlmUsageTotals>(items: T[], sort: Sort, time: (x: T) => string): T[] {
+  const list = [...items];
+  if (sort === 'cost') return list.sort((a, b) => b.cost_usd - a.cost_usd || b.total_tokens - a.total_tokens);
+  if (sort === 'tokens') return list.sort((a, b) => b.total_tokens - a.total_tokens);
+  return list.sort((a, b) => Date.parse(time(b)) - Date.parse(time(a)));
+}
+
+function CostCell({ t }: { t: LlmUsageTotals }) {
   return (
-    <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
-      <h3 className="mb-3 text-sm font-semibold text-text">질문별 사용량 <span className="font-normal text-muted">{total.toLocaleString()}개</span></h3>
+    <>
+      {formatUsd(t.cost_usd)}
+      {t.billed_cost_usd > 0 ? null : t.estimated_cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
+      {t.unpriced_requests > 0 ? <span className="ml-1 text-amber-500" title={`청구액도 단가 정보도 없는 작업 ${t.unpriced_requests}건은 비용에서 빠졌습니다`}>*</span> : null}
+    </>
+  );
+}
+
+const cacheRatioText = (t: { input_tokens: number; cached_tokens: number }) =>
+  (t.input_tokens > 0 ? formatCacheRatio(t.cached_tokens / t.input_tokens) : '-');
+
+const TH = 'sticky top-0 bg-panel py-2 font-medium';
+const TD = 'py-2 pr-3 align-top';
+
+function MoreButton({ left, onClick }: { left: number; onClick: () => void }) {
+  if (left <= 0) return null;
+  return (
+    <button type="button" onClick={onClick} className="mt-3 rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
+      더 보기 ({left.toLocaleString()}개 남음)
+    </button>
+  );
+}
+
+/** 1단계: one row per conversation. */
+function SessionsTable({ items, onOpen }: { items: LlmUsageSession[]; onOpen: (s: LlmUsageSession) => void }) {
+  const [shown, setShown] = useState(PAGE);
+  return (
+    <>
       <div className="max-h-[32rem] overflow-auto">
         <table className="w-full text-left text-xs tabular-nums">
           <thead className="text-muted">
             <tr className="border-b border-line">
-              <th className={`${th} pr-3`}>시각</th>
-              <th className={`${th} pr-3`}>질문</th>
-              <th className={`${th} pr-3 text-right`}>AI 호출</th>
-              <th className={`${th} pr-3 text-right`}>토큰</th>
-              <th className={`${th} pr-3 text-right`}>캐시 읽기</th>
-              <th className={`${th} pr-3 text-right`}>비용</th>
-              <th className={`${th} text-right`}>캐시 증감</th>
+              <th className={`${TH} pr-3`}>최근 활동</th>
+              <th className={`${TH} pr-3`}>대화방</th>
+              <th className={`${TH} pr-3 text-right`}>질문</th>
+              <th className={`${TH} pr-3 text-right`}>작업</th>
+              <th className={`${TH} pr-3 text-right`}>토큰</th>
+              <th className={`${TH} pr-3 text-right`} title="입력 토큰 중 캐시에서 읽은 비율">캐시 비율</th>
+              <th className={`${TH} pr-3 text-right`}>비용</th>
+              <th className={`${TH} text-right`}>캐시 절감</th>
             </tr>
           </thead>
           <tbody>
-            {items.slice(0, shown).map((t) => {
-              const k = keyOf(t);
-              const expanded = open === k;
-              const s = savingsText(t.cache_savings_usd);
-              const cache = expanded ? cacheRows.filter((r) => r.turn_id === t.turn_id && (r.session_id ?? '') === (t.session_id ?? '')) : [];
+            {items.slice(0, shown).map((s) => {
+              const sv = savingsText(s.cache_savings_usd);
               return (
-                <Fragment key={k}>
-                  <tr
-                    className="cursor-pointer border-b border-line/60 hover:bg-line/20"
-                    onClick={() => setOpen(expanded ? null : k)}
-                    aria-expanded={expanded}
-                  >
-                    <td className="whitespace-nowrap py-2 pr-3 align-top text-muted">{formatStamp(t.started_at)}</td>
-                    <td className="max-w-80 py-2 pr-3 align-top">
-                      <div className="truncate text-text" title={t.question}>{t.question || <span className="text-muted">(질문 내용을 찾을 수 없음)</span>}</div>
-                      {t.session_title ? <div className="truncate text-[11px] text-muted" title={t.session_title}>{t.session_title}</div> : null}
-                    </td>
-                    <td className="py-2 pr-3 text-right align-top">
-                      {t.requests.toLocaleString()}
-                      {t.failed_requests ? <span className="ml-1 text-muted" title="실패·중단 포함">({t.failed_requests} 실패)</span> : null}
-                    </td>
-                    <td className="py-2 pr-3 text-right align-top">{formatTokens(t.total_tokens)}</td>
-                    <td className="py-2 pr-3 text-right align-top">{t.cached_tokens ? formatTokens(t.cached_tokens) : '-'}</td>
-                    <td className="whitespace-nowrap py-2 pr-3 text-right align-top">
-                      {formatUsd(t.cost_usd)}
-                      {t.billed_cost_usd > 0 ? null : t.estimated_cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
-                      {t.unpriced_requests > 0 ? <span className="ml-1 text-amber-500" title={`청구액도 단가 정보도 없는 호출 ${t.unpriced_requests}건은 비용에서 빠졌습니다`}>*</span> : null}
-                    </td>
-                    <td className={`whitespace-nowrap py-2 text-right align-top ${s.cls}`}>{s.text}</td>
-                  </tr>
-                  {expanded ? (
-                    <tr className="border-b border-line/60 bg-line/10">
-                      <td colSpan={7} className="px-3 py-3 text-[11px] leading-5 text-muted">
-                        <div>
-                          소요 {Math.max(0, Math.round((Date.parse(t.finished_at) - Date.parse(t.started_at)) / 1000)).toLocaleString()}초 ·
-                          입력 {formatTokens(t.input_tokens)} · 출력 {formatTokens(t.output_tokens)}
-                          {t.cache_write_tokens ? ` · 캐시 저장 ${formatTokens(t.cache_write_tokens)}` : ''}
-                        </div>
-                        <div>용도: {t.purposes.map((p) => PURPOSE_LABEL[p] ?? p).join(', ')}</div>
-                        <div className="truncate" title={t.models.join(', ')}>모델: {t.models.join(', ')}</div>
-                        {cache.length ? (
-                          <table className="mt-2 w-full tabular-nums">
-                            <tbody>
-                              {cache.map((r, i) => {
-                                const cs = savingsText(r.savings_usd);
-                                return (
-                                  <tr key={`${r.started_at}-${i}`}>
-                                    <td className="whitespace-nowrap pr-3">{formatStamp(r.started_at)}</td>
-                                    <td className="max-w-64 truncate pr-3" title={r.model}>{r.model}</td>
-                                    <td className="pr-3 text-right">읽기 {r.cached_tokens ? formatTokens(r.cached_tokens) : '-'}</td>
-                                    <td className="pr-3 text-right">저장 {r.cache_write_tokens ? formatTokens(r.cache_write_tokens) : '-'}</td>
-                                    <td className={`text-right ${cs.cls}`}>{cs.text}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
+                <tr key={s.session_id} className="cursor-pointer border-b border-line/60 hover:bg-line/20" onClick={() => onOpen(s)}>
+                  <td className={`${TD} whitespace-nowrap text-muted`}>{formatStamp(s.last_at)}</td>
+                  <td className={`${TD} max-w-80`}>
+                    <div className="flex items-center gap-1">
+                      <span className="truncate text-text" title={s.session_title}>{sessionName(s.session_id, s.session_title)}</span>
+                      <CaretRight size={11} className="shrink-0 text-muted" />
+                    </div>
+                  </td>
+                  <td className={`${TD} text-right`}>{s.turn_count ? s.turn_count.toLocaleString() : '-'}</td>
+                  <td className={`${TD} text-right`}>
+                    {s.requests.toLocaleString()}
+                    {s.failed_requests ? <span className="ml-1 text-muted">({s.failed_requests} 실패)</span> : null}
+                  </td>
+                  <td className={`${TD} text-right`}>{formatTokens(s.total_tokens)}</td>
+                  <td className={`${TD} text-right`}>{cacheRatioText(s)}</td>
+                  <td className={`${TD} whitespace-nowrap text-right`}><CostCell t={s} /></td>
+                  <td className={`whitespace-nowrap py-2 text-right align-top ${sv.cls}`}>{sv.text}</td>
+                </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      {items.length > shown ? (
-        <button type="button" onClick={() => setShown((n) => n + TURN_PAGE * 5)} className="mt-3 rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
-          더 보기
-        </button>
+      <MoreButton left={items.length - shown} onClick={() => setShown((n) => n + PAGE * 5)} />
+    </>
+  );
+}
+
+/** 2단계 (or the flat 「전체 질문」 tab): one row per question. */
+function QuestionsTable({ items, numbers, showSession, onOpen }: {
+  items: LlmUsageTurn[];
+  /** Question number inside its conversation (1 = first). */
+  numbers?: Map<string, number>;
+  showSession: boolean;
+  onOpen: (t: LlmUsageTurn) => void;
+}) {
+  const [shown, setShown] = useState(PAGE);
+  return (
+    <>
+      <div className="max-h-[32rem] overflow-auto">
+        <table className="w-full text-left text-xs tabular-nums">
+          <thead className="text-muted">
+            <tr className="border-b border-line">
+              <th className={`${TH} pr-3`}>시각</th>
+              <th className={`${TH} pr-3`}>질문</th>
+              <th className={`${TH} pr-3 text-right`}>작업</th>
+              <th className={`${TH} pr-3 text-right`}>토큰</th>
+              <th className={`${TH} pr-3 text-right`} title="입력 토큰 중 캐시에서 읽은 비율">캐시 비율</th>
+              <th className={`${TH} pr-3 text-right`}>비용</th>
+              <th className={`${TH} text-right`}>캐시 절감</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.slice(0, shown).map((t) => {
+              const k = turnKeyOf(t);
+              const sv = savingsText(t.cache_savings_usd);
+              const no = numbers?.get(k);
+              return (
+                <tr key={k} className="cursor-pointer border-b border-line/60 hover:bg-line/20" onClick={() => onOpen(t)}>
+                  <td className={`${TD} whitespace-nowrap text-muted`}>{formatStamp(t.started_at)}</td>
+                  <td className={`${TD} max-w-80`}>
+                    <div className="flex items-center gap-1">
+                      {no ? <span className="shrink-0 rounded bg-line/50 px-1 text-[10px] text-muted">#{no}</span> : null}
+                      <span className="truncate text-text" title={t.question}>{t.question || <span className="text-muted">(질문 내용을 찾을 수 없음)</span>}</span>
+                      <CaretRight size={11} className="shrink-0 text-muted" />
+                    </div>
+                    {showSession ? (
+                      <div className="truncate text-[11px] text-muted" title={t.session_title}>대화방: {sessionName(t.session_id, t.session_title)}</div>
+                    ) : null}
+                  </td>
+                  <td className={`${TD} text-right`}>
+                    {t.requests.toLocaleString()}
+                    {t.failed_requests ? <span className="ml-1 text-muted">({t.failed_requests} 실패)</span> : null}
+                  </td>
+                  <td className={`${TD} text-right`}>{formatTokens(t.total_tokens)}</td>
+                  <td className={`${TD} text-right`}>{cacheRatioText(t)}</td>
+                  <td className={`${TD} whitespace-nowrap text-right`}><CostCell t={t} /></td>
+                  <td className={`whitespace-nowrap py-2 text-right align-top ${sv.cls}`}>{sv.text}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <MoreButton left={items.length - shown} onClick={() => setShown((n) => n + PAGE * 5)} />
+    </>
+  );
+}
+
+/** 3단계: every AI call made for one question, in order. */
+function CallsTable({ calls }: { calls: LlmUsageCall[] }) {
+  return (
+    <div className="max-h-[32rem] overflow-auto">
+      <table className="w-full text-left text-xs tabular-nums">
+        <thead className="text-muted">
+          <tr className="border-b border-line">
+            <th className={`${TH} pr-3 text-right`}>#</th>
+            <th className={`${TH} pr-3`}>시각</th>
+            <th className={`${TH} pr-3`}>작업 종류</th>
+            <th className={`${TH} pr-3`}>모델</th>
+            <th className={`${TH} pr-3 text-right`}>입력</th>
+            <th className={`${TH} pr-3 text-right`}>캐시 읽기</th>
+            <th className={`${TH} pr-3 text-right`}>출력</th>
+            <th className={`${TH} pr-3 text-right`}>비용</th>
+            <th className={`${TH} pr-3 text-right`}>소요</th>
+            <th className={`${TH} text-right`}>캐시 절감</th>
+          </tr>
+        </thead>
+        <tbody>
+          {calls.map((c, i) => {
+            const sv = savingsText(c.savings_usd);
+            return (
+              <tr key={`${c.started_at}-${i}`} className="border-b border-line/60 last:border-0">
+                <td className={`${TD} text-right text-muted`}>{i + 1}</td>
+                <td className={`${TD} whitespace-nowrap text-muted`}>{formatStamp(c.started_at)}</td>
+                <td className={`${TD} whitespace-nowrap`}>
+                  <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: purposeColor(c.purpose) }} />
+                  {purposeLabel(c.purpose)}
+                  {c.failed ? <span className="ml-1 text-red-500">실패</span> : null}
+                </td>
+                <td className={`${TD} max-w-56 truncate`} title={c.model}>{c.model}</td>
+                <td className={`${TD} text-right`}>{formatTokens(c.input_tokens)}</td>
+                <td className={`${TD} text-right`} title={c.cache_write_tokens ? `캐시 저장 ${c.cache_write_tokens.toLocaleString()}` : undefined}>
+                  {c.cached_tokens ? formatTokens(c.cached_tokens) : '-'}
+                </td>
+                <td className={`${TD} text-right`}>{formatTokens(c.output_tokens)}</td>
+                <td className={`${TD} whitespace-nowrap text-right`}>
+                  {formatUsd(c.cost_usd)}
+                  {!c.billed && c.cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
+                  {c.unpriced ? <span className="ml-1 text-amber-500" title="청구액도 단가 정보도 없어 비용에서 빠졌습니다">*</span> : null}
+                </td>
+                <td className={`${TD} whitespace-nowrap text-right text-muted`}>{formatDuration(c.duration_ms)}</td>
+                <td className={`whitespace-nowrap py-2 text-right align-top ${sv.cls}`}>{sv.text}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface BarSegment { key: string; label: string; color: string; value: number }
+interface Bar { id: string; label: string; title: string; detail?: string; segments: BarSegment[] }
+
+/** Stacked bars in order (questions of a conversation, or tasks of a question). */
+function StackedBars({ bars, format, onPick }: { bars: Bar[]; format: (n: number) => string; onPick?: (i: number) => void }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 720;
+  const H = 260;
+  const L = 64;
+  const R = 12;
+  const T = 12;
+  const B = 28;
+  const n = bars.length;
+  const sums = bars.map((b) => b.segments.reduce((s, x) => s + x.value, 0));
+  const yMax = niceCeil(Math.max(0, ...sums));
+  const slot = (W - L - R) / Math.max(1, n);
+  const bw = Math.max(2, Math.min(48, slot * 0.7));
+  const x = (i: number) => L + slot * i + slot / 2;
+  const y = (v: number) => T + (H - T - B) * (1 - v / yMax);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => f * yMax);
+  const labelEvery = Math.max(1, Math.ceil(n / 14));
+  const hb = hover !== null ? bars[hover] : null;
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="막대 차트" onMouseLeave={() => setHover(null)}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="currentColor" className="text-line" strokeWidth={1} />
+            <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize={11} fill="currentColor" className="text-muted">{format(t)}</text>
+          </g>
+        ))}
+        {bars.map((b, i) => {
+          let base = 0;
+          return (
+            <g key={b.id} opacity={hover === null || hover === i ? 1 : 0.55}>
+              {b.segments.map((s) => {
+                const lo = base;
+                base += s.value;
+                return s.value > 0 ? (
+                  <rect key={s.key} x={x(i) - bw / 2} y={y(base)} width={bw} height={Math.max(0, y(lo) - y(base))} fill={s.color} fillOpacity={0.8} />
+                ) : null;
+              })}
+              {i % labelEvery === 0 || i === n - 1 ? (
+                <text x={x(i)} y={H - 8} textAnchor="middle" fontSize={11} fill="currentColor" className="text-muted">{b.label}</text>
+              ) : null}
+            </g>
+          );
+        })}
+        {bars.map((b, i) => (
+          <rect
+            key={`hit-${b.id}`}
+            x={L + slot * i}
+            y={T}
+            width={slot}
+            height={H - T - B}
+            fill="transparent"
+            className={onPick ? 'cursor-pointer' : undefined}
+            onMouseEnter={() => setHover(i)}
+            onClick={onPick ? () => onPick(i) : undefined}
+          />
+        ))}
+      </svg>
+      {hb && hover !== null ? (
+        <div
+          className="pointer-events-none absolute top-2 z-10 w-64 rounded-lg border border-line bg-panel px-3 py-2 text-xs shadow-lg"
+          style={{ left: `${(x(hover) / W) * 100}%`, transform: x(hover) > W / 2 ? 'translateX(calc(-100% - 8px))' : 'translateX(8px)' }}
+        >
+          <p className="mb-0.5 line-clamp-2 font-semibold text-text">{hb.title}</p>
+          {hb.detail ? <p className="mb-1 text-[11px] text-muted">{hb.detail}</p> : null}
+          {hb.segments.filter((s) => s.value > 0).map((s) => (
+            <p key={s.key} className="flex items-center gap-2 text-muted">
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+              <span className="min-w-0 flex-1 truncate">{s.label}</span>
+              <span className="text-text">{format(s.value)}</span>
+            </p>
+          ))}
+          <p className="mt-1 border-t border-line pt-1 text-muted">합계 <span className="float-right text-text">{format(sums[hover])}</span></p>
+          {onPick ? <p className="mt-1 text-[10px] text-muted">누르면 작업 내역을 봅니다</p> : null}
+        </div>
       ) : null}
-      <p className="mt-3 text-[11px] leading-4 text-muted">
-        질문 하나에 답하는 동안 부른 AI 호출(에이전트 단계, 승인 판단, 이미지·영상 생성 등)을 모두 합친 값입니다. 줄을 누르면 용도·모델과 캐시 내역을 볼 수 있습니다.
-        {total > items.length ? ` 최근 ${items.length.toLocaleString()}개까지 표시합니다.` : ''}
-        {untracked > 0 ? ` 질문 정보가 기록되기 전의 호출 ${untracked.toLocaleString()}건은 여기에 나오지 않고 위 합계에만 들어갑니다.` : ''}
-      </p>
-    </section>
+    </div>
+  );
+}
+
+function Legend({ items, format }: { items: Array<{ key: string; label: string; color: string; total?: number; onClick?: () => void }>; format: (n: number) => string }) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      {items.map((s) => {
+        const body = (
+          <>
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
+            <span className="max-w-56 truncate">{s.label}</span>
+            {s.total !== undefined ? <span className="text-text">{format(s.total)}</span> : null}
+          </>
+        );
+        return s.onClick ? (
+          <button key={s.key} type="button" onClick={s.onClick} className="flex items-center gap-1.5 hover:text-accent" title="이 대화방 보기">{body}</button>
+        ) : (
+          <span key={s.key} className="flex items-center gap-1.5">{body}</span>
+        );
+      })}
+    </div>
+  );
+}
+
+function Breadcrumb({ items }: { items: Array<{ label: string; onClick?: () => void }> }) {
+  return (
+    <nav aria-label="사용량 단계" className="mb-3 flex min-w-0 flex-wrap items-center gap-1 text-xs">
+      {items.map((it, i) => (
+        <span key={i} className="flex min-w-0 items-center gap-1">
+          {i > 0 ? <CaretRight size={11} className="shrink-0 text-muted" /> : null}
+          {it.onClick ? (
+            <button type="button" onClick={it.onClick} className="max-w-72 truncate rounded px-1 text-accent hover:underline">{it.label}</button>
+          ) : (
+            <span className="max-w-96 truncate px-1 font-medium text-text" title={it.label}>{it.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
   );
 }
 
@@ -230,6 +480,7 @@ function niceCeil(v: number): number {
 
 interface Series {
   key: string;
+  label: string;
   color: string;
   values: number[];
   total: number;
@@ -334,7 +585,7 @@ function UsageChart({
           {shown.filter((s) => s.values[hover] > 0).map((s) => (
             <p key={s.key} className="flex items-center gap-2 text-muted">
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
-              <span className="min-w-0 flex-1 truncate">{s.key}</span>
+              <span className="min-w-0 flex-1 truncate">{s.label}</span>
               <span className="text-text">{format(s.values[hover])}</span>
             </p>
           ))}
@@ -371,6 +622,13 @@ export function SettingsUsagePage() {
   const [metric, setMetric] = useState<Metric>('tokens');
   const [groupBy, setGroupBy] = useState<GroupBy>('models');
   const [mode, setMode] = useState<ChartMode>('daily');
+  // 대화방 → 질문 → 작업 drill-down; chart and table below follow the same focus.
+  const [focusSession, setFocusSession] = useState<string | null>(null);
+  const [focusTurn, setFocusTurn] = useState<string | null>(null);
+  const [tab, setTab] = useState<'sessions' | 'turns'>('sessions');
+  const [sort, setSort] = useState<Sort>('recent');
+  const [showZero, setShowZero] = useState(false);
+  const chartRef = useRef<HTMLElement>(null);
   const [data, setData] = useState<LlmUsageSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -413,31 +671,120 @@ export function SettingsUsagePage() {
       setSwitchBusy(false);
     }
   }, [load]);
-  const label = (key: string) => (groupBy === 'purposes' ? PURPOSE_LABEL[key] ?? key : key);
+  const label = (key: string) => (groupBy === 'purposes' ? purposeLabel(key) : key);
 
   const format = metric === 'tokens' ? formatTokens : formatUsd;
-  const rows = data ? data[groupBy] : [];
+  const metricWord = metric === 'tokens' ? '토큰' : '비용';
+  const pickTotals = useCallback((t: LlmUsageTotals) => (metric === 'tokens' ? t.total_tokens : t.cost_usd), [metric]);
+  const rows = data && groupBy !== 'sessions' ? data[groupBy] : [];
+  const zeroRows = rows.filter((r) => r.total_tokens === 0 && r.cost_usd === 0);
+  const visibleRows = showZero ? rows : rows.filter((r) => r.total_tokens > 0 || r.cost_usd > 0);
+
+  const sessionTitles = useMemo(() => new Map((data?.sessions ?? []).map((s) => [s.session_id, s.session_title])), [data]);
+  const seriesLabel = useCallback((key: string) => {
+    if (groupBy === 'purposes') return purposeLabel(key);
+    if (groupBy === 'sessions') return sessionName(key || undefined, sessionTitles.get(key));
+    return key;
+  }, [groupBy, sessionTitles]);
+
   const series = useMemo<Series[]>(() => {
     if (!data) return [];
     const pick = (p?: { tokens: number; cost_usd: number }) => (p ? (metric === 'tokens' ? p.tokens : p.cost_usd) : 0);
-    const ranked = [...data[groupBy]]
-      .map((r) => ({ key: r.key, total: metric === 'tokens' ? r.total_tokens : r.cost_usd }))
-      .filter((r) => r.total > 0)
-      .sort((a, b) => b.total - a.total);
+    const sums = new Map<string, number>();
+    for (const d of data.daily) for (const [k, p] of Object.entries(d[groupBy] ?? {})) sums.set(k, (sums.get(k) ?? 0) + pick(p));
+    const ranked = [...sums].map(([key, total]) => ({ key, total })).filter((r) => r.total > 0).sort((a, b) => b.total - a.total);
     const top = ranked.slice(0, MAX_SERIES);
     const rest = new Set(ranked.slice(MAX_SERIES).map((r) => r.key));
     const out: Series[] = top.map((r, i) => ({
-      key: groupBy === 'purposes' ? PURPOSE_LABEL[r.key] ?? r.key : r.key,
+      key: r.key,
+      label: seriesLabel(r.key),
       color: PALETTE[i % PALETTE.length],
       total: r.total,
-      values: data.daily.map((d) => pick(d[groupBy][r.key])),
+      values: data.daily.map((d) => pick(d[groupBy]?.[r.key])),
     }));
     if (rest.size) {
-      const values = data.daily.map((d) => Object.entries(d[groupBy]).reduce((s, [k, p]) => s + (rest.has(k) ? pick(p) : 0), 0));
-      out.push({ key: OTHER_KEY, color: PALETTE[PALETTE.length - 1], values, total: values.reduce((a, b) => a + b, 0) });
+      const values = data.daily.map((d) => Object.entries(d[groupBy] ?? {}).reduce((s, [k, p]) => s + (rest.has(k) ? pick(p) : 0), 0));
+      out.push({ key: `\u0000${OTHER_KEY}`, label: `${OTHER_KEY} ${rest.size}개`, color: PALETTE[PALETTE.length - 1], values, total: values.reduce((a, b) => a + b, 0) });
     }
     return out;
-  }, [data, groupBy, metric]);
+  }, [data, groupBy, metric, seriesLabel]);
+
+  // ---- drill-down focus ----
+  const turn = useMemo(() => (focusTurn ? data?.turns?.find((t) => turnKeyOf(t) === focusTurn) ?? null : null), [data, focusTurn]);
+  const sessionId = turn ? turn.session_id ?? null : focusSession;
+  const session = useMemo(() => (sessionId ? data?.sessions?.find((s) => s.session_id === sessionId) ?? null : null), [data, sessionId]);
+  const level: 0 | 1 | 2 = turn ? 2 : session ? 1 : 0;
+  /** Question number inside its conversation, counted in time order over the loaded questions. */
+  const turnNumbers = useMemo(() => {
+    const bySession = new Map<string, LlmUsageTurn[]>();
+    for (const t of data?.turns ?? []) {
+      if (!t.session_id) continue;
+      const list = bySession.get(t.session_id) ?? [];
+      list.push(t);
+      bySession.set(t.session_id, list);
+    }
+    const out = new Map<string, number>();
+    for (const list of bySession.values()) {
+      list.sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at)).forEach((t, i) => out.set(turnKeyOf(t), i + 1));
+    }
+    return out;
+  }, [data]);
+  const sessionTurns = useMemo(() => (sessionId
+    ? (data?.turns ?? []).filter((t) => t.session_id === sessionId).sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
+    : []), [data, sessionId]);
+
+  const goRoot = useCallback(() => { setFocusSession(null); setFocusTurn(null); }, []);
+  const openSession = useCallback((id: string) => { setFocusSession(id); setFocusTurn(null); }, []);
+  const openTurn = useCallback((t: LlmUsageTurn) => { setFocusSession(t.session_id ?? null); setFocusTurn(turnKeyOf(t)); }, []);
+  useEffect(() => {
+    if (focusSession || focusTurn) chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [focusSession, focusTurn]);
+
+  const questionBars = useMemo<Bar[]>(() => sessionTurns.map((t, i) => {
+    const byPurpose = new Map<string, number>();
+    const calls = t.calls ?? [];
+    if (calls.length) {
+      for (const c of calls) byPurpose.set(c.purpose, (byPurpose.get(c.purpose) ?? 0) + (metric === 'tokens' ? c.input_tokens + c.output_tokens : c.cost_usd));
+    } else {
+      byPurpose.set(t.purposes[0] ?? 'chat', pickTotals(t));
+    }
+    return {
+      id: turnKeyOf(t),
+      label: `#${i + 1}`,
+      title: t.question || '(질문 내용을 찾을 수 없음)',
+      detail: `${formatStamp(t.started_at)} · 작업 ${t.requests.toLocaleString()}회`,
+      segments: [...byPurpose].map(([p, v]) => ({ key: p, label: purposeLabel(p), color: purposeColor(p), value: v })),
+    };
+  }), [sessionTurns, metric, pickTotals]);
+
+  const callBars = useMemo<Bar[]>(() => (turn?.calls ?? []).map((c, i) => ({
+    id: `${c.started_at}-${i}`,
+    label: String(i + 1),
+    title: `${i + 1}번째 작업 · ${purposeLabel(c.purpose)}${c.failed ? ' (실패)' : ''}`,
+    detail: `${c.model} · ${formatDuration(c.duration_ms)}`,
+    segments: metric === 'tokens'
+      ? [
+          { key: 'cached', label: '캐시 읽기', color: '#c7d2fe', value: c.cached_tokens },
+          { key: 'input', label: '새 입력', color: '#6366f1', value: Math.max(0, c.input_tokens - c.cached_tokens) },
+          { key: 'output', label: '출력', color: '#f59e0b', value: c.output_tokens },
+        ]
+      : [{ key: c.purpose, label: purposeLabel(c.purpose), color: purposeColor(c.purpose), value: c.cost_usd }],
+  })), [turn, metric]);
+
+  const barLegend = (bars: Bar[]) => {
+    const seen = new Map<string, { key: string; label: string; color: string; total: number }>();
+    for (const b of bars) for (const s of b.segments) {
+      const e = seen.get(s.key) ?? { key: s.key, label: s.label, color: s.color, total: 0 };
+      e.total += s.value;
+      seen.set(s.key, e);
+    }
+    return [...seen.values()];
+  };
+
+  const focusTotals: (LlmUsageTotals & { turns?: number }) | null = turn ?? (session ? { ...session, turns: session.turn_count } : null);
+  const currentTurnNo = turn ? turnNumbers.get(turnKeyOf(turn)) : undefined;
+  const sessionsList = data?.sessions ?? [];
+  const turnsList = data?.turns ?? [];
 
   const totals = data?.totals;
   const dates = data?.daily.map((d) => d.date) ?? [];
@@ -526,7 +873,15 @@ export function SettingsUsagePage() {
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard label="총 토큰" value={formatTokens(totals.total_tokens)} hint={`입력 ${formatTokens(totals.input_tokens)} · 출력 ${formatTokens(totals.output_tokens)}`} />
           <StatCard label="총 비용" value={formatUsd(totals.cost_usd)} hint={costHint || undefined} />
-          <StatCard label="요청 수" value={totals.requests.toLocaleString()} hint={totals.failed_requests ? `실패·중단 ${totals.failed_requests}건 포함` : undefined} />
+          <StatCard
+            label="AI 작업 수"
+            value={totals.requests.toLocaleString()}
+            hint={[
+              data?.sessions_total ? `대화방 ${data.sessions_total.toLocaleString()}개` : null,
+              data?.turns_total ? `질문 ${data.turns_total.toLocaleString()}개` : null,
+              totals.failed_requests ? `실패·중단 ${totals.failed_requests}회 포함` : null,
+            ].filter(Boolean).join(' · ') || undefined}
+          />
           <StatCard
             label={`${totals.cache_savings_usd < 0 ? '캐시 저장 추가 비용' : '캐시로 아낀 금액'}${totals.cache_savings_estimated_requests ? ' (추정)' : ''}`}
             value={formatUsd(Math.abs(totals.cache_savings_usd))}
@@ -535,21 +890,72 @@ export function SettingsUsagePage() {
         </div>
       ) : null}
 
-      <section className="mb-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      <section ref={chartRef} className="mb-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+        <Breadcrumb
+          items={[
+            { label: '전체 대화방', onClick: level > 0 ? goRoot : undefined },
+            ...(level > 0 ? [{
+              label: sessionName(sessionId ?? undefined, session?.session_title ?? turn?.session_title),
+              onClick: level === 2 && sessionId ? () => openSession(sessionId) : undefined,
+            }] : []),
+            ...(turn ? [{ label: `${currentTurnNo ? `#${currentTurnNo} ` : ''}${turn.question || '질문'}` }] : []),
+          ]}
+        />
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <ChartLine size={18} className="text-accent" />
-          <h3 className="text-sm font-semibold text-text">{mode === 'cumulative' ? '누적' : '일별'} {metric === 'tokens' ? '토큰' : '비용'}</h3>
-          {data ? <span className="text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
-          <span className="ml-auto">
-            <Segmented
-              label="차트 모양"
-              value={mode}
-              onChange={setMode}
-              options={[{ value: 'daily', label: '일별' }, { value: 'cumulative', label: '누적' }]}
-            />
-          </span>
+          <h3 className="text-sm font-semibold text-text">
+            {level === 0 ? `${mode === 'cumulative' ? '누적' : '일별'} ${metricWord}` : level === 1 ? `질문별 ${metricWord}` : `작업별 ${metricWord}`}
+          </h3>
+          {data && level === 0 ? <span className="text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
+          {level === 0 ? (
+            <span className="ml-auto">
+              <Segmented
+                label="차트 모양"
+                value={mode}
+                onChange={setMode}
+                options={[{ value: 'daily', label: '일별' }, { value: 'cumulative', label: '누적' }]}
+              />
+            </span>
+          ) : (
+            <button type="button" onClick={level === 2 && sessionId ? () => openSession(sessionId) : goRoot} className="ml-auto rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
+              ← {level === 2 && sessionId ? '질문 목록' : '전체 대화방'}
+            </button>
+          )}
         </div>
-        {series.length === 0 ? (
+        {focusTotals ? (
+          <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 rounded-lg bg-line/20 px-3 py-2 text-xs text-muted tabular-nums">
+            {focusTotals.turns !== undefined ? <span>질문 <b className="font-medium text-text">{focusTotals.turns.toLocaleString()}개</b></span> : null}
+            <span>작업 <b className="font-medium text-text">{focusTotals.requests.toLocaleString()}회</b></span>
+            <span>토큰 <b className="font-medium text-text">{formatTokens(focusTotals.total_tokens)}</b></span>
+            <span>비용 <b className="font-medium text-text">{formatUsd(focusTotals.cost_usd)}</b></span>
+            <span>캐시 비율 <b className="font-medium text-text">{cacheRatioText(focusTotals)}</b></span>
+            <span className={savingsText(focusTotals.cache_savings_usd).cls}>캐시 {savingsText(focusTotals.cache_savings_usd).text}</span>
+            {turn ? <span>소요 <b className="font-medium text-text">{formatDuration(Date.parse(turn.finished_at) - Date.parse(turn.started_at))}</b></span> : null}
+          </p>
+        ) : null}
+        {level === 1 ? (
+          questionBars.length ? (
+            <>
+              <StackedBars bars={questionBars} format={format} onPick={(i) => openTurn(sessionTurns[i])} />
+              <Legend items={barLegend(questionBars)} format={format} />
+              <p className="mt-2 text-[11px] text-muted">막대 하나가 질문 1개이고, 색은 작업 종류입니다. 막대를 누르면 그 질문의 작업 내역으로 들어갑니다.</p>
+            </>
+          ) : (
+            <p className="py-16 text-center text-sm text-muted">이 대화방에는 질문 단위로 기록된 작업이 없습니다.</p>
+          )
+        ) : level === 2 ? (
+          callBars.length ? (
+            <>
+              <StackedBars bars={callBars} format={format} />
+              <Legend items={barLegend(callBars)} format={format} />
+              <p className="mt-2 text-[11px] text-muted">{metric === 'tokens'
+                ? '막대 하나가 작업(AI 호출) 1회입니다. 연한 부분이 캐시에서 읽은 입력, 진한 부분이 새로 보낸 입력, 주황색이 출력입니다.'
+                : '막대 하나가 작업(AI 호출) 1회이고, 색은 작업 종류입니다.'}</p>
+            </>
+          ) : (
+            <p className="py-16 text-center text-sm text-muted">작업 내역이 없습니다.</p>
+          )
+        ) : series.length === 0 ? (
           <p className="py-16 text-center text-sm text-muted">{loading
               ? '불러오는 중…'
               : metric === 'cost' && (totals?.requests ?? 0) > 0
@@ -558,43 +964,51 @@ export function SettingsUsagePage() {
         ) : (
           <>
             <UsageChart dates={dates} series={series} mode={mode} format={format} />
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-              {series.map((s) => (
-                <span key={s.key} className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: s.color }} />
-                  <span className="max-w-56 truncate">{s.key}</span>
-                  <span className="text-text">{format(s.total)}</span>
-                </span>
-              ))}
-            </div>
+            <Legend
+              format={format}
+              items={series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+                total: s.total,
+                onClick: groupBy === 'sessions' && s.key && !s.key.startsWith('\u0000') && sessionTitles.has(s.key) ? () => openSession(s.key) : undefined,
+              }))}
+            />
           </>
         )}
-        {series.length > 0 && dates.length > 1 ? (
+        {level === 0 && series.length > 0 && dates.length > 1 ? (
           <p className="mt-2 text-[11px] text-muted">{mode === 'cumulative'
             ? '맨 위 선이 그날까지 쌓인 합계, 띠의 두께가 각 항목이 쌓은 몫입니다.'
-            : '맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.'}</p>
+            : '맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.'}{groupBy === 'sessions' ? ' 아래 범례의 대화방 이름을 누르면 그 대화방으로 들어갑니다.' : ''}</p>
         ) : null}
       </section>
 
-      {rows.length ? (
+      {level === 0 && rows.length ? (
         <section className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-text">{GROUP_LABEL[groupBy].short} 합계</h3>
+          <div className="mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-text">{GROUP_LABEL[groupBy].short} 합계</h3>
+            {zeroRows.length ? (
+              <button type="button" onClick={() => setShowZero((v) => !v)} className="ml-auto text-xs text-muted hover:text-text">
+                {showZero ? '토큰·비용 0인 항목 숨기기' : `토큰·비용 0인 항목 ${zeroRows.length}개 보기`}
+              </button>
+            ) : null}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs tabular-nums">
               <thead className="text-muted">
                 <tr className="border-b border-line">
                   <th className="py-2 pr-3 font-medium">{GROUP_LABEL[groupBy].column}</th>
-                  <th className="py-2 pr-3 text-right font-medium">요청</th>
+                  <th className="py-2 pr-3 text-right font-medium">작업</th>
                   <th className="py-2 pr-3 text-right font-medium">입력</th>
                   <th className="py-2 pr-3 text-right font-medium">출력</th>
                   <th className="py-2 pr-3 text-right font-medium">캐시 읽기</th>
                   <th className="py-2 pr-3 text-right font-medium" title="입력 토큰 중 캐시에서 읽은 비율">캐시 비율</th>
                   <th className="py-2 pr-3 text-right font-medium">비용</th>
-                  <th className="py-2 text-right font-medium">요청당 평균</th>
+                  <th className="py-2 text-right font-medium">작업당 평균</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {visibleRows.map((r) => (
                   <tr key={r.key} className="border-b border-line/60 last:border-0">
                     <td className="max-w-64 truncate py-2 pr-3 text-text" title={r.key}>{label(r.key)}</td>
                     <td className="py-2 pr-3 text-right">{r.requests.toLocaleString()}</td>
@@ -610,9 +1024,7 @@ export function SettingsUsagePage() {
                       {r.input_tokens > 0 ? formatCacheRatio(r.cached_tokens / r.input_tokens) : '-'}
                     </td>
                     <td className="py-2 pr-3 text-right">
-                      {formatUsd(r.cost_usd)}
-                      {r.billed_cost_usd > 0 ? null : r.estimated_cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
-                      {r.unpriced_requests > 0 ? <span className="ml-1 text-amber-500" title={`청구액도 단가 정보도 없는 요청 ${r.unpriced_requests}건은 비용에서 빠졌습니다`}>*</span> : null}
+                      <CostCell t={r} />
                     </td>
                     <td className="py-2 text-right">{r.requests ? formatUsd(r.cost_usd / r.requests) : '-'}</td>
                   </tr>
@@ -622,18 +1034,67 @@ export function SettingsUsagePage() {
           </div>
           <p className="mt-3 text-[11px] leading-4 text-muted">
             OpenRouter처럼 응답에 청구액을 주는 경우 실제 청구액을, 그 외에는 모델 목록의 단가로 계산한 추정액을 씁니다.
-            날짜는 이 PC의 시간대 기준이며, 재시도한 요청도 각각 1건으로 셉니다.
+            날짜는 이 PC의 시간대 기준이며, 재시도한 작업도 각각 1회로 셉니다.
           </p>
         </section>
       ) : null}
-      {data?.turns?.length ? (
-        <TurnsTable
-          key={`turns-${data.range.from}-${data.range.to}`}
-          items={data.turns}
-          total={data.turns_total ?? data.turns.length}
-          untracked={data.untracked_turn_requests ?? 0}
-          cacheRows={data.cache_requests ?? []}
-        />
+
+      {data && level === 0 && (sessionsList.length || turnsList.length) ? (
+        <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-text">대화방·질문별 사용량</h3>
+            <Segmented
+              label="목록"
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'sessions', label: `대화방별 ${(data.sessions_total ?? sessionsList.length).toLocaleString()}개` },
+                { value: 'turns', label: `전체 질문 ${(data.turns_total ?? turnsList.length).toLocaleString()}개` },
+              ]}
+            />
+            <span className="ml-auto"><Segmented label="정렬" value={sort} onChange={setSort} options={SORT_OPTIONS} /></span>
+          </div>
+          {tab === 'sessions' ? (
+            <SessionsTable key={`s-${data.range.from}-${data.range.to}-${sort}`} items={sortItems(sessionsList, sort, (s) => s.last_at)} onOpen={(s) => openSession(s.session_id)} />
+          ) : (
+            <QuestionsTable key={`t-${data.range.from}-${data.range.to}-${sort}`} items={sortItems(turnsList, sort, (t) => t.started_at)} numbers={turnNumbers} showSession onOpen={openTurn} />
+          )}
+          <p className="mt-3 text-[11px] leading-4 text-muted">
+            대화방 → 질문 → 작업 순으로 눌러 들어가면 위 그래프도 함께 바뀝니다. 작업은 질문 하나에 답하는 동안 부른 AI 호출(에이전트 단계, 승인 판단, 이미지·영상 생성 등) 1회입니다.
+            {tab === 'sessions' && (data.unsessioned_requests ?? 0) > 0 ? ` 대화방 밖에서 부른 작업(연결 테스트 등) ${data.unsessioned_requests!.toLocaleString()}회는 위 합계에만 들어갑니다.` : ''}
+            {tab === 'turns' && (data.untracked_turn_requests ?? 0) > 0 ? ` 질문 정보가 기록되기 전의 작업 ${data.untracked_turn_requests!.toLocaleString()}회는 질문 목록에 나오지 않고, 대화방 합계와 위 합계에만 들어갑니다.` : ''}
+            {tab === 'turns' && (data.turns_total ?? 0) > turnsList.length ? ` 최근 ${turnsList.length.toLocaleString()}개 질문까지 표시합니다.` : ''}
+          </p>
+        </section>
+      ) : null}
+
+      {level === 1 && session ? (
+        <section className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold text-text">이 대화방의 질문 <span className="font-normal text-muted">{sessionTurns.length.toLocaleString()}개</span></h3>
+            <span className="ml-auto"><Segmented label="정렬" value={sort} onChange={setSort} options={SORT_OPTIONS} /></span>
+          </div>
+          {sessionTurns.length ? (
+            <QuestionsTable key={`st-${session.session_id}-${sort}`} items={sortItems(sessionTurns, sort, (t) => t.started_at)} numbers={turnNumbers} showSession={false} onOpen={openTurn} />
+          ) : null}
+          <p className="mt-3 text-[11px] leading-4 text-muted">
+            줄을 누르면 그 질문에서 일어난 작업을 순서대로 봅니다.
+            {session.untracked_requests > 0 ? ` 질문 정보가 기록되기 전의 작업 ${session.untracked_requests.toLocaleString()}회는 질문 목록에 없고 이 대화방 합계에만 들어갑니다.` : ''}
+            {session.turn_count > sessionTurns.length ? ` 최근 질문만 불러와서 ${(session.turn_count - sessionTurns.length).toLocaleString()}개는 목록에 없습니다.` : ''}
+          </p>
+        </section>
+      ) : null}
+
+      {level === 2 && turn ? (
+        <section className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
+          <h3 className="mb-1 text-sm font-semibold text-text">이 질문의 작업 <span className="font-normal text-muted">{(turn.calls_total ?? turn.requests).toLocaleString()}회</span></h3>
+          {turn.question ? <p className="mb-3 line-clamp-3 text-xs text-muted" title={turn.question}>{turn.question}</p> : null}
+          <CallsTable calls={turn.calls ?? []} />
+          <p className="mt-3 text-[11px] leading-4 text-muted">
+            시간순입니다. 캐시 읽기에 마우스를 올리면 캐시 저장량을 볼 수 있습니다.
+            {(turn.calls_total ?? 0) > (turn.calls?.length ?? 0) ? ` 처음 ${(turn.calls?.length ?? 0).toLocaleString()}회까지 표시합니다.` : ''}
+          </p>
+        </section>
       ) : null}
       </>) : null}
     </div>

@@ -48,6 +48,24 @@ export interface LlmUsageGroupRow extends LlmUsageTotals {
   key: string;
 }
 
+/** One AI call (one `finish` row) inside a question — the 3rd level 「작업」. */
+export interface LlmUsageCall {
+  started_at: string;
+  duration_ms: number;
+  model: string;
+  purpose: string;
+  failed: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  /** true = provider-reported charge, false = price-table estimate (or unpriced). */
+  billed: boolean;
+  unpriced: boolean;
+  savings_usd: number;
+}
+
 /**
  * Every AI call made while answering one question (one chat run: agent steps, approvals, images,
  * videos, embeddings), newest first. Rows written before turn ids were recorded are not grouped.
@@ -64,6 +82,24 @@ export interface LlmUsageTurn extends LlmUsageTotals {
   /** Filled by the API from the conversation store (absent when the conversation was deleted). */
   session_title?: string;
   question?: string;
+  /** Calls in start order (capped at MAX_TURN_CALLS); `calls_total` is the uncapped count. */
+  calls: LlmUsageCall[];
+  calls_total: number;
+}
+
+/**
+ * One conversation (chat session): every counted call carrying its session id, including rows
+ * written before question ids existed (`untracked_requests`). Most recent activity first.
+ */
+export interface LlmUsageSession extends LlmUsageTotals {
+  session_id: string;
+  started_at: string;
+  last_at: string;
+  /** Questions with an id in the window (all of them, not only those returned in `turns`). */
+  turn_count: number;
+  untracked_requests: number;
+  models: string[];
+  session_title?: string;
 }
 
 export interface LlmUsageDayPoint {
@@ -72,7 +108,16 @@ export interface LlmUsageDayPoint {
   requests: number;
 }
 
-type DayGroups = { models: Record<string, LlmUsageDayPoint>; providers: Record<string, LlmUsageDayPoint>; purposes: Record<string, LlmUsageDayPoint> };
+type DayGroups = {
+  models: Record<string, LlmUsageDayPoint>;
+  providers: Record<string, LlmUsageDayPoint>;
+  purposes: Record<string, LlmUsageDayPoint>;
+  /** Keyed by session id; calls without one use NO_SESSION_KEY. */
+  sessions: Record<string, LlmUsageDayPoint>;
+};
+
+/** Day-series key for calls outside any conversation (connection tests, model lists…). */
+export const NO_SESSION_KEY = '';
 
 export interface LlmUsageSummary {
   range: { from: string; to: string; days: number; tz_offset_minutes: number };
@@ -97,10 +142,17 @@ export interface LlmUsageSummary {
   turns_total: number;
   /** Counted requests without a question id (written before ids were recorded). */
   untracked_turn_requests: number;
+  /** Per-conversation totals, most recent activity first, capped at MAX_SESSIONS. */
+  sessions: LlmUsageSession[];
+  sessions_total: number;
+  /** Counted requests without a conversation id. */
+  unsessioned_requests: number;
 }
 
 const MAX_CACHE_REQUESTS = 500;
 const MAX_TURNS = 300;
+const MAX_TURN_CALLS = 300;
+const MAX_SESSIONS = 300;
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
 
@@ -289,14 +341,16 @@ export function summarizeLlmUsage(options: {
   const dateKeys: string[] = [];
   for (let i = 0; i < days; i += 1) dateKeys.push(new Date(fromMs + i * DAY_MS).toISOString().slice(0, 10));
   type Bucket = { date: string } & DayGroups;
-  const daily = new Map<string, Bucket>(dateKeys.map((date) => [date, { date, models: {}, providers: {}, purposes: {} }]));
+  const daily = new Map<string, Bucket>(dateKeys.map((date) => [date, { date, models: {}, providers: {}, purposes: {}, sessions: {} }]));
   const totals = emptyTotals();
   const models = new Map<string, LlmUsageGroupRow>();
   const providers = new Map<string, LlmUsageGroupRow>();
   const purposes = new Map<string, LlmUsageGroupRow>();
   const cacheRequests: LlmUsageCacheRequest[] = [];
   const turns = new Map<string, LlmUsageTurn>();
+  const sessions = new Map<string, LlmUsageSession>();
   let untrackedTurnRequests = 0;
+  let unsessionedRequests = 0;
 
   const consume = (row: Record<string, unknown>) => {
     if (!isCountedUsageRow(row)) return;
@@ -321,9 +375,28 @@ export function summarizeLlmUsage(options: {
     addPoint(bucket.purposes, purposeKey, m);
     const turnId = str(row.turn_id);
     const sessionId = str(row.session_id);
+    addPoint(bucket.sessions, sessionId ?? NO_SESSION_KEY, m);
+    const finishedMs = Date.parse(String(row.finished_at ?? ''));
+    const endMs = Number.isFinite(finishedMs) ? Math.max(finishedMs, started) : started;
+    if (sessionId) {
+      let s = sessions.get(sessionId);
+      if (!s) {
+        s = {
+          session_id: sessionId, started_at: new Date(started).toISOString(), last_at: new Date(endMs).toISOString(),
+          turn_count: 0, untracked_requests: 0, models: [], ...emptyTotals(),
+        };
+        sessions.set(sessionId, s);
+      }
+      if (started < Date.parse(s.started_at)) s.started_at = new Date(started).toISOString();
+      if (endMs > Date.parse(s.last_at)) s.last_at = new Date(endMs).toISOString();
+      if (!s.models.includes(modelKey)) s.models.push(modelKey);
+      if (!turnId) s.untracked_requests += 1;
+      addTo(s, m);
+    } else {
+      unsessionedRequests += 1;
+    }
     if (turnId) {
-      const finished = Date.parse(String(row.finished_at ?? ''));
-      const end = Number.isFinite(finished) ? Math.max(finished, started) : started;
+      const end = endMs;
       // Same run id in two conversations is impossible in practice; key by both anyway.
       const turnKey = `${sessionId ?? ''}\u0000${turnId}`;
       let t = turns.get(turnKey);
@@ -331,15 +404,23 @@ export function summarizeLlmUsage(options: {
         t = {
           turn_id: turnId, ...(sessionId ? { session_id: sessionId } : {}),
           started_at: new Date(started).toISOString(), finished_at: new Date(end).toISOString(),
-          models: [], purposes: [], ...emptyTotals(),
+          models: [], purposes: [], calls: [], calls_total: 0, ...emptyTotals(),
         };
         turns.set(turnKey, t);
+        if (sessionId) sessions.get(sessionId)!.turn_count += 1;
       }
       if (started < Date.parse(t.started_at)) t.started_at = new Date(started).toISOString();
       if (end > Date.parse(t.finished_at)) t.finished_at = new Date(end).toISOString();
       if (!t.models.includes(modelKey)) t.models.push(modelKey);
       if (!t.purposes.includes(purposeKey)) t.purposes.push(purposeKey);
       addTo(t, m);
+      t.calls_total += 1;
+      t.calls.push({
+        started_at: new Date(started).toISOString(), duration_ms: end - started, model: modelKey, purpose: purposeKey,
+        failed: m.failed, input_tokens: m.input, output_tokens: m.output, cached_tokens: m.cached, cache_write_tokens: m.write,
+        cost_usd: (m.billed ?? 0) + (m.estimated ?? 0), billed: m.billed !== undefined, unpriced: Boolean(m.unpriced),
+        savings_usd: m.savings,
+      });
     } else {
       untrackedTurnRequests += 1;
     }
@@ -385,6 +466,11 @@ export function summarizeLlmUsage(options: {
   }
   cacheRequests.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   const turnList = [...turns.values()].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
+  for (const t of turnList) {
+    t.calls.sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
+    if (t.calls.length > MAX_TURN_CALLS) t.calls = t.calls.slice(0, MAX_TURN_CALLS);
+  }
+  const sessionList = [...sessions.values()].sort((a, b) => Date.parse(b.last_at) - Date.parse(a.last_at));
 
   const sortRows = (rows: LlmUsageGroupRow[]) => rows.sort((a, b) => b.cost_usd - a.cost_usd || b.total_tokens - a.total_tokens);
   return {
@@ -406,5 +492,8 @@ export function summarizeLlmUsage(options: {
     turns: turnList.slice(0, MAX_TURNS),
     turns_total: turnList.length,
     untracked_turn_requests: untrackedTurnRequests,
+    sessions: sessionList.slice(0, MAX_SESSIONS),
+    sessions_total: sessionList.length,
+    unsessioned_requests: unsessionedRequests,
   };
 }
