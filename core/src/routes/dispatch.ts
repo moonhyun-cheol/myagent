@@ -465,6 +465,7 @@ export async function dispatchApiRequest(
             const label = t.session_id ? labels.get(`${t.session_id}\u0000${t.turn_id}`) : undefined;
             if (label?.title !== undefined) t.session_title = label.title;
             if (label?.question) t.question = label.question;
+            if (label?.no) t.question_no = label.no;
           }
         } catch { /* labels are optional */ }
         try {

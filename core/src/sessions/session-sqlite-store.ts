@@ -400,16 +400,20 @@ export class SessionSqliteStore {
 
   /**
    * Question text (first `maxChars`) of the user messages that started the given runs, read only
-   * inside the listed conversations. Used to label per-question usage rows.
+   * inside the listed conversations, plus each message's position among all user messages of its
+   * conversation (`question_no`, 1 = first). Used to label per-question usage rows.
    */
-  userQuestions(sessionIds: string[], runIds: string[], maxChars = 160): Array<{ session_id: string; run_id: string; content: string }> {
+  userQuestions(sessionIds: string[], runIds: string[], maxChars = 160): Array<{ session_id: string; run_id: string; content: string; question_no: number }> {
     if (!sessionIds.length || !runIds.length) return [];
-    return this.withDbReadOnly((db) => db.prepare(`SELECT session_id, json_extract(body, '$.run_id') AS run_id,
-        substr(json_extract(body, '$.content'), 1, ?) AS content
-      FROM messages
-      WHERE session_id IN (SELECT value FROM json_each(?))
-        AND json_extract(body, '$.role') = 'user'
-        AND json_extract(body, '$.run_id') IN (SELECT value FROM json_each(?))`)
-      .all(maxChars, JSON.stringify(sessionIds), JSON.stringify(runIds)) as unknown as Array<{ session_id: string; run_id: string; content: string }>);
+    return this.withDbReadOnly((db) => db.prepare(`WITH q AS (
+        SELECT session_id, json_extract(body, '$.run_id') AS run_id, json_extract(body, '$.content') AS content,
+          ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY seq) AS question_no
+        FROM messages
+        WHERE session_id IN (SELECT value FROM json_each(?))
+          AND json_extract(body, '$.role') = 'user')
+      SELECT session_id, run_id, substr(content, 1, ?) AS content, question_no
+      FROM q
+      WHERE run_id IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(sessionIds), maxChars, JSON.stringify(runIds)) as unknown as Array<{ session_id: string; run_id: string; content: string; question_no: number }>);
   }
 }

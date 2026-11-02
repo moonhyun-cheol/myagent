@@ -174,6 +174,17 @@ try {
   assert.deepEqual(sessions.userQuestions([], ['turn-live-1']), []);
   pass('question labels: user message of the run, scoped to its conversation, capped');
 
+  // Question number = position among the conversation's user messages, independent of which runs are asked.
+  const only2 = sessions.userQuestions(['sess-live'], ['turn-other']);
+  assert.equal(only2.length, 1);
+  assert.equal(Number(only2[0].question_no), 2, 'second user message is #2 even when asked alone');
+  const both = new Map(sessions.userQuestions(['sess-live', 'sess-other'], ['turn-live-1', 'turn-other'])
+    .map((q) => [`${q.session_id}/${q.run_id}`, Number(q.question_no)]));
+  assert.equal(both.get('sess-live/turn-live-1'), 1);
+  assert.equal(both.get('sess-live/turn-other'), 2);
+  assert.equal(both.get('sess-other/turn-live-1'), 1, 'numbering restarts per conversation');
+  pass('question number: N-th user message of its conversation, stable regardless of the asked set');
+
   // A legacy date that does not reconcile is recorded, not fatal: SQLite is still adopted for good.
   const mmDir = path.join(temp, 'mismatch');
   mkdirSync(mmDir, { recursive: true });

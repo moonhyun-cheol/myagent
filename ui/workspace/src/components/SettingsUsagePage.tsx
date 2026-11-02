@@ -211,10 +211,8 @@ function SessionsTable({ items, onOpen }: { items: LlmUsageSession[]; onOpen: (s
 }
 
 /** 2단계 (or the flat 「전체 질문」 tab): one row per question. */
-function QuestionsTable({ items, numbers, showSession, onOpen }: {
+function QuestionsTable({ items, showSession, onOpen }: {
   items: LlmUsageTurn[];
-  /** Question number inside its conversation (1 = first). */
-  numbers?: Map<string, number>;
   showSession: boolean;
   onOpen: (t: LlmUsageTurn) => void;
 }) {
@@ -238,7 +236,7 @@ function QuestionsTable({ items, numbers, showSession, onOpen }: {
             {items.slice(0, shown).map((t) => {
               const k = turnKeyOf(t);
               const sv = savingsText(t.cache_savings_usd);
-              const no = numbers?.get(k);
+              const no = t.question_no;
               return (
                 <tr key={k} className="cursor-pointer border-b border-line/60 hover:bg-line/20" onClick={() => onOpen(t)}>
                   <td className={`${TD} whitespace-nowrap text-muted`}>{formatStamp(t.started_at)}</td>
@@ -715,21 +713,6 @@ export function SettingsUsagePage() {
   const sessionId = turn ? turn.session_id ?? null : focusSession;
   const session = useMemo(() => (sessionId ? data?.sessions?.find((s) => s.session_id === sessionId) ?? null : null), [data, sessionId]);
   const level: 0 | 1 | 2 = turn ? 2 : session ? 1 : 0;
-  /** Question number inside its conversation, counted in time order over the loaded questions. */
-  const turnNumbers = useMemo(() => {
-    const bySession = new Map<string, LlmUsageTurn[]>();
-    for (const t of data?.turns ?? []) {
-      if (!t.session_id) continue;
-      const list = bySession.get(t.session_id) ?? [];
-      list.push(t);
-      bySession.set(t.session_id, list);
-    }
-    const out = new Map<string, number>();
-    for (const list of bySession.values()) {
-      list.sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at)).forEach((t, i) => out.set(turnKeyOf(t), i + 1));
-    }
-    return out;
-  }, [data]);
   const sessionTurns = useMemo(() => (sessionId
     ? (data?.turns ?? []).filter((t) => t.session_id === sessionId).sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
     : []), [data, sessionId]);
@@ -756,7 +739,7 @@ export function SettingsUsagePage() {
     if (focusSession || focusTurn) chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [focusSession, focusTurn]);
 
-  const questionBars = useMemo<Bar[]>(() => sessionTurns.map((t, i) => {
+  const questionBars = useMemo<Bar[]>(() => sessionTurns.map((t) => {
     const byPurpose = new Map<string, number>();
     const calls = t.calls ?? [];
     if (calls.length) {
@@ -766,7 +749,8 @@ export function SettingsUsagePage() {
     }
     return {
       id: turnKeyOf(t),
-      label: `#${i + 1}`,
+      // Same basis as the table/breadcrumb: N-th message of the conversation (server-provided).
+      label: t.question_no ? `#${t.question_no}` : '–',
       title: t.question || '(질문 내용을 찾을 수 없음)',
       detail: `${formatStamp(t.started_at)} · 작업 ${t.requests.toLocaleString()}회`,
       segments: [...byPurpose].map(([p, v]) => ({ key: p, label: purposeLabel(p), color: purposeColor(p), value: v })),
@@ -798,7 +782,7 @@ export function SettingsUsagePage() {
   };
 
   const focusTotals: (LlmUsageTotals & { turns?: number }) | null = turn ?? (session ? { ...session, turns: session.turn_count } : null);
-  const currentTurnNo = turn ? turnNumbers.get(turnKeyOf(turn)) : undefined;
+  const currentTurnNo = turn?.question_no;
   const sessionsList = data?.sessions ?? [];
   const turnsList = data?.turns ?? [];
 
@@ -1085,7 +1069,7 @@ export function SettingsUsagePage() {
           {tab === 'sessions' ? (
             <SessionsTable key={`s-${data.range.from}-${data.range.to}-${sort}`} items={sortItems(sessionsList, sort, (s) => s.last_at)} onOpen={(s) => openSession(s.session_id)} />
           ) : (
-            <QuestionsTable key={`t-${data.range.from}-${data.range.to}-${sort}`} items={sortItems(turnsList, sort, (t) => t.started_at)} numbers={turnNumbers} showSession onOpen={openTurn} />
+            <QuestionsTable key={`t-${data.range.from}-${data.range.to}-${sort}`} items={sortItems(turnsList, sort, (t) => t.started_at)} showSession onOpen={openTurn} />
           )}
           <p className="mt-3 text-[11px] leading-4 text-muted">
             대화방 → 질문 → 작업 순으로 눌러 들어가면 위 그래프도 함께 바뀝니다. 작업은 질문 하나에 답하는 동안 부른 AI 호출(에이전트 단계, 승인 판단, 이미지·영상 생성 등) 1회입니다.
@@ -1103,7 +1087,7 @@ export function SettingsUsagePage() {
             <span className="ml-auto"><Segmented label="정렬" value={sort} onChange={setSort} options={SORT_OPTIONS} /></span>
           </div>
           {sessionTurns.length ? (
-            <QuestionsTable key={`st-${session.session_id}-${sort}`} items={sortItems(sessionTurns, sort, (t) => t.started_at)} numbers={turnNumbers} showSession={false} onOpen={openTurn} />
+            <QuestionsTable key={`st-${session.session_id}-${sort}`} items={sortItems(sessionTurns, sort, (t) => t.started_at)} showSession={false} onOpen={openTurn} />
           ) : null}
           <p className="mt-3 text-[11px] leading-4 text-muted">
             줄을 누르면 그 질문에서 일어난 작업을 순서대로 봅니다.
