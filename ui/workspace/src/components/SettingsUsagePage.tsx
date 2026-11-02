@@ -36,8 +36,6 @@ function formatStamp(iso: string): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
-const CACHE_SECTION_ID = 'usage-cache-requests';
-
 /** Share of input tokens served from the prompt cache (input already includes cache reads). */
 function formatCacheRatio(ratio: number): string {
   if (!(ratio > 0)) return '0%';
@@ -79,60 +77,6 @@ function trackingMessage(t: LlmUsageTracking | undefined): { title: string; body
     title: '꺼짐',
     body: '스위치를 켠 시점부터 토큰과 비용을 집계합니다. 이전 기록은 포함하지 않습니다.',
   };
-}
-
-const CACHE_PAGE = 20;
-
-function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; total: number }) {
-  const [shown, setShown] = useState(CACHE_PAGE);
-  if (!items.length) return null;
-  const visible = items.slice(0, shown);
-  const anyEstimated = items.some((r) => r.estimated && r.savings_usd !== 0);
-  const th = 'sticky top-0 bg-panel py-2 font-medium';
-  return (
-    <section id={CACHE_SECTION_ID} className="mt-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
-      <h3 className="mb-3 text-sm font-semibold text-text">캐시 할인 내역 <span className="font-normal text-muted">{total.toLocaleString()}건</span></h3>
-      <div className="max-h-[28rem] overflow-auto">
-        <table className="w-full text-left text-xs tabular-nums">
-          <thead className="text-muted">
-            <tr className="border-b border-line">
-              <th className={`${th} pr-3`}>시각</th>
-              <th className={`${th} pr-3`}>모델</th>
-              <th className={`${th} pr-3 text-right`}>캐시 읽기</th>
-              <th className={`${th} pr-3 text-right`}>캐시 저장</th>
-              <th className={`${th} text-right`}>비용 증감{anyEstimated ? ' (추정)' : ''}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((r, i) => (
-              <tr key={`${r.started_at}-${i}`} className="border-b border-line/60 last:border-0">
-                <td className="whitespace-nowrap py-2 pr-3 text-muted">{formatStamp(r.started_at)}</td>
-                <td className="max-w-64 truncate py-2 pr-3 text-text" title={r.model}>{r.model}</td>
-                <td className="py-2 pr-3 text-right">{r.cached_tokens ? formatTokens(r.cached_tokens) : '-'}</td>
-                <td className="py-2 pr-3 text-right">{r.cache_write_tokens ? formatTokens(r.cache_write_tokens) : '-'}</td>
-                <td
-                  className={`whitespace-nowrap py-2 text-right ${r.savings_usd < 0 ? 'text-amber-500' : r.savings_usd > 0 ? 'text-emerald-500' : 'text-muted'}`}
-                  title={r.savings_usd < 0 ? '캐시 저장 추가 비용' : r.savings_usd > 0 ? '캐시 읽기 할인' : undefined}
-                >
-                  {r.savings_usd < 0 ? `+${formatUsd(-r.savings_usd)}` : r.savings_usd > 0 ? `−${formatUsd(r.savings_usd)}` : '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {items.length > shown ? (
-        <button type="button" onClick={() => setShown((n) => n + CACHE_PAGE * 5)} className="mt-3 rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
-          더 보기
-        </button>
-      ) : null}
-      <p className="mt-3 text-[11px] leading-4 text-muted">
-        캐시를 읽거나 저장한 요청만 최신순으로 보여 줍니다. 정가 대비 청구액이 줄어든 할인은 초록색 −, 캐시에 처음 저장할 때 정가보다 더 든 비용은 주황색 +로 표시합니다.
-        {anyEstimated ? ' 금액은 정가와 실제 청구액의 차이로 계산한 추정치입니다.' : ''}
-        {total > items.length ? ` 최근 ${items.length.toLocaleString()}건까지 표시합니다.` : ''}
-      </p>
-    </section>
-  );
 }
 
 type ChartMode = 'daily' | 'cumulative';
@@ -586,10 +530,7 @@ export function SettingsUsagePage() {
           <StatCard
             label={`${totals.cache_savings_usd < 0 ? '캐시 저장 추가 비용' : '캐시로 아낀 금액'}${totals.cache_savings_estimated_requests ? ' (추정)' : ''}`}
             value={formatUsd(Math.abs(totals.cache_savings_usd))}
-            hint={data?.cache_requests_total ? `캐시 적용 ${data.cache_requests_total.toLocaleString()}건 · 내역 보기 ↓` : undefined}
-            onHintClick={data?.cache_requests?.length
-              ? () => document.getElementById(CACHE_SECTION_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              : undefined}
+            hint={data?.cache_requests_total ? `캐시 적용 ${data.cache_requests_total.toLocaleString()}건` : undefined}
           />
         </div>
       ) : null}
@@ -693,9 +634,6 @@ export function SettingsUsagePage() {
           untracked={data.untracked_turn_requests ?? 0}
           cacheRows={data.cache_requests ?? []}
         />
-      ) : null}
-      {data?.cache_requests?.length ? (
-        <CacheRequestsTable key={`${data.range.from}-${data.range.to}`} items={data.cache_requests} total={data.cache_requests_total ?? data.cache_requests.length} />
       ) : null}
       </>) : null}
     </div>
