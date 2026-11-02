@@ -7,7 +7,7 @@ import {
   rememberClientToolProtocol,
   type ToolCompletionResult,
 } from '../providers/openai-compatible.js';
-import { withLlmUsageContext } from '../providers/llm-usage-log.js';
+import { currentLlmUsageTurnId, withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { throwIfAborted } from '../chat/abort.js';
 import { buildToolImageMessage } from './agent-multimodal.js';
 import { wrapUntrustedToolOutput } from './untrusted-content.js';
@@ -290,6 +290,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       verifyWitness: state.verifyWitness,
       lastModelOutput: state.lastModelOutput || state.answerBuf.trim(),
       resumeCount: state.resumeCount,
+      originTurnId: state.originTurnId ?? currentLlmUsageTurnId(),
       pathFingerprints: fingerprintWorkspacePaths(state.opts.workspaceRoot, [
         ...state.mutatedPathsThisRun,
         ...state.successfulReadsThisRun,

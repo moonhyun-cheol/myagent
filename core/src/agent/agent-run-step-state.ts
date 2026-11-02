@@ -41,6 +41,11 @@ export interface AgentRunStepState {
   priorSteps: number;
   /** User 「이어서」 resumes spent on this chain, persisted with each snapshot. */
   resumeCount: number;
+  /**
+   * Turn that started the continuation chain this run resumed (undefined = this run starts its
+   * own chain). Saved into snapshots so later resumes link back to the original question.
+   */
+  originTurnId?: string;
   /** Stored unfinished run the model has neither resumed nor discarded yet. */
   pendingContinuation: import('./agent-session-continuity.js').PendingContinuation | null;
   /**

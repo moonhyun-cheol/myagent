@@ -2,6 +2,34 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "llm-usage-session-table-groupby",
+      "status": "development",
+      "title": "사용량 화면의 대화방·질문별 표를 「대화방별」 묶기에서만 표시",
+      "detail": "「대화방·질문별 사용량」 표가 묶기 기준과 상관없이 항상 나오던 것을, 묶기가 「대화방별」일 때만 보이도록 바꿨습니다. 모델별·프로바이더별·용도별에서는 해당 합계 표만 나옵니다.",
+      "area": "ui",
+      "created_at": "2026-11-02",
+      "source_paths": [
+        "ui/workspace/src/components/SettingsUsagePage.tsx"
+      ],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "llm-usage-continuation-fold",
+      "status": "development",
+      "title": "사용량 화면에서 이어서 한 작업을 원래 질문에 묶어 표시",
+      "detail": "AI가 이전에 멈춘 작업을 이어서 진행한 질문(active_task resume_run)은 따로 한 줄로 나오지 않고, 그 작업을 처음 시작한 질문 줄에 호출·토큰·비용이 합쳐집니다. 해당 줄에는 「이어서 N회」 표시가 붙습니다. 이 연결은 이번 변경 이후 기록부터 적용되며, 원래 질문이 고른 기간 밖이면 이어서 한 작업만 원래 질문 이름으로 보여 줍니다.",
+      "area": "core",
+      "created_at": "2026-11-02",
+      "source_paths": [
+        "core/src/providers/llm-usage-log.ts",
+        "core/src/providers/llm-usage-summary.ts",
+        "core/src/agent/agent-run-loop.ts",
+        "core/src/agent/agent-continuation-snapshot.ts",
+        "ui/workspace/src/components/SettingsUsagePage.tsx"
+      ],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "llm-usage-question-number-basis",
       "status": "development",
       "title": "사용량 화면의 질문 번호 기준 통일",

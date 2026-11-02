@@ -154,6 +154,49 @@ try {
   assert.equal(daySessions, withLive.totals.requests, 'daily session series covers every call');
   pass('sessions + calls: conversation totals add up, calls listed per question');
 
+  // 「이어서」: a later run that resumed this question's stored work is folded into the original row.
+  // The mark happens mid-run; contexts created before it (agent steps) share the same turn holder.
+  const usageLog = await load('providers/llm-usage-log');
+  const callOnce = async () => { await (await fetchWithUsage(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: [] }) })).text(); };
+  const run2 = chatRuns.beginChatRun('sess-live', 'turn-live-2');
+  await chatRuns.executeChatRun(run2, undefined, async () => {
+    await usageLog.withLlmUsageContext({ purpose: 'chat' }, async () => {
+      await callOnce();
+      assert.equal(usageLog.currentLlmUsageTurnId(), 'turn-live-2');
+      usageLog.markLlmUsageTurnContinues('turn-live-1');
+      await callOnce();
+    });
+  }, () => {});
+  const run3 = chatRuns.beginChatRun('sess-live', 'turn-live-3');
+  await chatRuns.executeChatRun(run3, undefined, async () => {
+    usageLog.markLlmUsageTurnContinues('turn-live-3'); // own id: no-op
+    await callOnce();
+  }, () => {});
+  const folded = summary();
+  assert.equal(folded.turns_total, 2, 'continuation folded; unrelated run stays separate');
+  const orig = folded.turns.find((t) => t.turn_id === 'turn-live-1');
+  assert.ok(orig, 'original question kept');
+  assert.equal(orig.requests, 4);
+  assert.equal(orig.calls_total, 4);
+  assert.equal(orig.continued_runs, 1);
+  assert.ok(Math.abs(orig.cost_usd - 0.016) < 1e-12, `folded cost ${orig.cost_usd}`);
+  assert.equal(folded.turns.find((t) => t.turn_id === 'turn-live-3')?.continued_runs, undefined);
+  assert.ok(!folded.turns.some((t) => t.turn_id === 'turn-live-2'));
+  assert.equal(folded.sessions.find((s) => s.session_id === 'sess-live').turn_count, 2);
+  assert.ok(folded.cache_requests.every((r) => r.turn_id !== 'turn-live-2'), 'cache rows relabelled to the original question');
+  const run4 = chatRuns.beginChatRun('sess-live', 'turn-live-4');
+  await chatRuns.executeChatRun(run4, undefined, async () => {
+    usageLog.markLlmUsageTurnContinues('turn-gone');
+    await callOnce();
+  }, () => {});
+  const orphan = summary().turns.find((t) => t.turn_id === 'turn-gone');
+  assert.ok(orphan && orphan.continued_runs === 1 && orphan.requests === 1, 'origin outside the window: labelled as the original question');
+  const snapMod = await load('agent/agent-continuation-snapshot');
+  const snap = snapMod.buildAgentContinuationSnapshot({ step: 1, elapsedMs: 0, payloadChars: 0, evidenceRefs: [], readPaths: [], mutatedPaths: [], originTurnId: 'turn-live-1' });
+  assert.equal(snap.originTurnId, 'turn-live-1');
+  assert.equal(snapMod.buildAgentContinuationSnapshot({ step: 1, elapsedMs: 0, payloadChars: 0, evidenceRefs: [], readPaths: [], mutatedPaths: [], originTurnId: 'bad id!' }).originTurnId, undefined);
+  pass('continuation runs fold into the question that started the chain');
+
   // Question labels come from the conversation store (only the listed conversations are read).
   const { SessionSqliteStore } = await load('sessions/session-sqlite-store');
   const sessDir = path.join(temp, 'sessions');

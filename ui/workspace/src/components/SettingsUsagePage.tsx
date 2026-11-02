@@ -244,6 +244,14 @@ function QuestionsTable({ items, showSession, onOpen }: {
                     <div className="flex items-center gap-1">
                       {no ? <span className="shrink-0 rounded bg-line/50 px-1 text-[10px] text-muted">#{no}</span> : null}
                       <span className="truncate text-text" title={t.question}>{t.question || <span className="text-muted">(질문 내용을 찾을 수 없음)</span>}</span>
+                      {t.continued_runs ? (
+                        <span
+                          className="shrink-0 rounded bg-accent/15 px-1 text-[10px] text-accent"
+                          title={`이 질문의 작업을 이어서 진행한 질문 ${t.continued_runs}개의 사용량이 함께 들어 있습니다.`}
+                        >
+                          이어서 {t.continued_runs}회
+                        </span>
+                      ) : null}
                       <CaretRight size={11} className="shrink-0 text-muted" />
                     </div>
                     {showSession ? (
@@ -1051,7 +1059,7 @@ export function SettingsUsagePage() {
         </section>
       ) : null}
 
-      {data && level === 0 && (sessionsList.length || turnsList.length) ? (
+      {data && level === 0 && groupBy === 'sessions' && (sessionsList.length || turnsList.length) ? (
         <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-semibold text-text">대화방·질문별 사용량</h3>

@@ -89,6 +89,11 @@ export interface LlmUsageTurn extends LlmUsageTotals {
    * conversation or the message no longer exists.
    */
   question_no?: number;
+  /**
+   * Later questions that resumed this question's stored run (active_task resume_run) and were
+   * folded into this row: their calls and costs are included above. Absent when none.
+   */
+  continued_runs?: number;
   /** Calls in start order (capped at MAX_TURN_CALLS); `calls_total` is the uncapped count. */
   calls: LlmUsageCall[];
   calls_total: number;
@@ -307,6 +312,68 @@ function addPoint(map: Record<string, LlmUsageDayPoint>, key: string, m: RowMetr
   p.requests += 1;
 }
 
+function addTotals(t: LlmUsageTotals, o: LlmUsageTotals): void {
+  for (const k of Object.keys(emptyTotals()) as Array<keyof LlmUsageTotals>) t[k] += o[k];
+}
+
+/**
+ * Folds continuation runs into the question that started their chain (rows carrying
+ * `continues_turn_id`). When that question is outside the window, the first continuation takes
+ * its id so it is still labelled as the original question.
+ */
+function foldContinuationTurns(
+  turns: Map<string, LlmUsageTurn>,
+  links: Map<string, string>,
+  sessions: Map<string, LlmUsageSession>,
+  cacheRequests: LlmUsageCacheRequest[],
+): void {
+  const keyOf = (sessionId: string | undefined, turnId: string) => `${sessionId ?? ''}\u0000${turnId}`;
+  const rootOf = (key: string): string => {
+    let cur = key;
+    for (let i = 0; i < 16; i += 1) {
+      const origin = links.get(cur);
+      if (!origin) break;
+      const next = keyOf(cur.split('\u0000')[0] || undefined, origin);
+      if (next === key) break;
+      cur = next;
+    }
+    return cur;
+  };
+  const renamed = new Map<string, string>();
+  for (const key of links.keys()) {
+    const t = turns.get(key);
+    if (!t) continue;
+    const rootKey = rootOf(key);
+    if (rootKey === key) continue;
+    const rootTurnId = rootKey.split('\u0000')[1];
+    turns.delete(key);
+    renamed.set(key, rootTurnId);
+    const o = turns.get(rootKey);
+    if (!o) {
+      t.turn_id = rootTurnId;
+      t.continued_runs = (t.continued_runs ?? 0) + 1;
+      turns.set(rootKey, t);
+      continue;
+    }
+    addTotals(o, t);
+    if (Date.parse(t.started_at) < Date.parse(o.started_at)) o.started_at = t.started_at;
+    if (Date.parse(t.finished_at) > Date.parse(o.finished_at)) o.finished_at = t.finished_at;
+    for (const m of t.models) if (!o.models.includes(m)) o.models.push(m);
+    for (const p of t.purposes) if (!o.purposes.includes(p)) o.purposes.push(p);
+    o.calls.push(...t.calls);
+    o.calls_total += t.calls_total;
+    o.continued_runs = (o.continued_runs ?? 0) + 1 + (t.continued_runs ?? 0);
+    const s = t.session_id ? sessions.get(t.session_id) : undefined;
+    if (s) s.turn_count = Math.max(0, s.turn_count - 1);
+  }
+  if (!renamed.size) return;
+  for (const c of cacheRequests) {
+    if (!c.turn_id) continue;
+    const to = renamed.get(keyOf(c.session_id, c.turn_id));
+    if (to) c.turn_id = to;
+  }
+}
+
 export function summarizeLlmUsage(options: {
   cqrRoot: string;
   /** Number of local days ending today, or 'all' = from the first tracking day through today. */
@@ -355,6 +422,8 @@ export function summarizeLlmUsage(options: {
   const purposes = new Map<string, LlmUsageGroupRow>();
   const cacheRequests: LlmUsageCacheRequest[] = [];
   const turns = new Map<string, LlmUsageTurn>();
+  /** turn key → id of the question whose stored run it resumed. */
+  const continuationLinks = new Map<string, string>();
   const sessions = new Map<string, LlmUsageSession>();
   let untrackedTurnRequests = 0;
   let unsessionedRequests = 0;
@@ -416,6 +485,8 @@ export function summarizeLlmUsage(options: {
         turns.set(turnKey, t);
         if (sessionId) sessions.get(sessionId)!.turn_count += 1;
       }
+      const continues = str(row.continues_turn_id);
+      if (continues && continues !== turnId) continuationLinks.set(turnKey, continues);
       if (started < Date.parse(t.started_at)) t.started_at = new Date(started).toISOString();
       if (end > Date.parse(t.finished_at)) t.finished_at = new Date(end).toISOString();
       if (!t.models.includes(modelKey)) t.models.push(modelKey);
@@ -471,6 +542,7 @@ export function summarizeLlmUsage(options: {
       consume(row);
     }
   }
+  foldContinuationTurns(turns, continuationLinks, sessions, cacheRequests);
   cacheRequests.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   const turnList = [...turns.values()].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
   for (const t of turnList) {
