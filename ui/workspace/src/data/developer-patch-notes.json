@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "llm-usage-remove-cache-request-table",
+      "status": "development",
+      "title": "사용량 화면의 요청별 캐시 할인 내역 표 제거",
+      "detail": "요청 단위로 섞여 보이던 「캐시 할인 내역」 표를 지웠습니다. 캐시 내역은 질문별 사용량 표에서 줄을 눌러 보고, 모델별 효율은 합계 표의 「캐시 비율」로 봅니다. 캐시 카드의 「내역 보기 ↓」 링크도 함께 뺐습니다.",
+      "area": "ui",
+      "created_at": "2026-11-02",
+      "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "llm-usage-group-cache-ratio",
       "status": "development",
       "title": "사용량 합계 표에 캐시 비율 추가",
