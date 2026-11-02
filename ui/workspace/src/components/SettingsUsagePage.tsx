@@ -1,6 +1,6 @@
 import { ChartLine } from '@phosphor-icons/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchLlmUsageSummary, setLlmUsageTracking, type LlmUsageCacheRequest, type LlmUsageRangeQuery, type LlmUsageSummary, type LlmUsageTracking } from '../api/myAgentClient';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchLlmUsageSummary, setLlmUsageTracking, type LlmUsageCacheRequest, type LlmUsageRangeQuery, type LlmUsageSummary, type LlmUsageTracking, type LlmUsageTurn } from '../api/myAgentClient';
 
 type Metric = 'tokens' | 'cost';
 type GroupBy = 'models' | 'providers' | 'purposes';
@@ -129,6 +129,121 @@ function CacheRequestsTable({ items, total }: { items: LlmUsageCacheRequest[]; t
 }
 
 type ChartMode = 'line' | 'stacked' | 'cumulative';
+
+const TURN_PAGE = 20;
+
+function savingsText(v: number): { text: string; cls: string } {
+  if (v < 0) return { text: `+${formatUsd(-v)}`, cls: 'text-amber-500' };
+  if (v > 0) return { text: `−${formatUsd(v)}`, cls: 'text-emerald-500' };
+  return { text: '-', cls: 'text-muted' };
+}
+
+/** One row per question: every AI call made while answering it (agent steps, approvals, images…). */
+function TurnsTable({ items, total, untracked, cacheRows }: {
+  items: LlmUsageTurn[]; total: number; untracked: number; cacheRows: LlmUsageCacheRequest[];
+}) {
+  const [shown, setShown] = useState(TURN_PAGE);
+  const [open, setOpen] = useState<string | null>(null);
+  if (!items.length) return null;
+  const keyOf = (t: LlmUsageTurn) => `${t.session_id ?? ''}:${t.turn_id}`;
+  const th = 'sticky top-0 bg-panel py-2 font-medium';
+  return (
+    <section className="mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      <h3 className="mb-3 text-sm font-semibold text-text">질문별 사용량 <span className="font-normal text-muted">{total.toLocaleString()}개</span></h3>
+      <div className="max-h-[32rem] overflow-auto">
+        <table className="w-full text-left text-xs tabular-nums">
+          <thead className="text-muted">
+            <tr className="border-b border-line">
+              <th className={`${th} pr-3`}>시각</th>
+              <th className={`${th} pr-3`}>질문</th>
+              <th className={`${th} pr-3 text-right`}>AI 호출</th>
+              <th className={`${th} pr-3 text-right`}>토큰</th>
+              <th className={`${th} pr-3 text-right`}>캐시 읽기</th>
+              <th className={`${th} pr-3 text-right`}>비용</th>
+              <th className={`${th} text-right`}>캐시 증감</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.slice(0, shown).map((t) => {
+              const k = keyOf(t);
+              const expanded = open === k;
+              const s = savingsText(t.cache_savings_usd);
+              const cache = expanded ? cacheRows.filter((r) => r.turn_id === t.turn_id && (r.session_id ?? '') === (t.session_id ?? '')) : [];
+              return (
+                <Fragment key={k}>
+                  <tr
+                    className="cursor-pointer border-b border-line/60 hover:bg-line/20"
+                    onClick={() => setOpen(expanded ? null : k)}
+                    aria-expanded={expanded}
+                  >
+                    <td className="whitespace-nowrap py-2 pr-3 align-top text-muted">{formatStamp(t.started_at)}</td>
+                    <td className="max-w-80 py-2 pr-3 align-top">
+                      <div className="truncate text-text" title={t.question}>{t.question || <span className="text-muted">(질문 내용을 찾을 수 없음)</span>}</div>
+                      {t.session_title ? <div className="truncate text-[11px] text-muted" title={t.session_title}>{t.session_title}</div> : null}
+                    </td>
+                    <td className="py-2 pr-3 text-right align-top">
+                      {t.requests.toLocaleString()}
+                      {t.failed_requests ? <span className="ml-1 text-muted" title="실패·중단 포함">({t.failed_requests} 실패)</span> : null}
+                    </td>
+                    <td className="py-2 pr-3 text-right align-top">{formatTokens(t.total_tokens)}</td>
+                    <td className="py-2 pr-3 text-right align-top">{t.cached_tokens ? formatTokens(t.cached_tokens) : '-'}</td>
+                    <td className="whitespace-nowrap py-2 pr-3 text-right align-top">
+                      {formatUsd(t.cost_usd)}
+                      {t.billed_cost_usd > 0 ? null : t.estimated_cost_usd > 0 ? <span className="ml-1 text-muted">추정</span> : null}
+                      {t.unpriced_requests > 0 ? <span className="ml-1 text-amber-500" title={`청구액도 단가 정보도 없는 호출 ${t.unpriced_requests}건은 비용에서 빠졌습니다`}>*</span> : null}
+                    </td>
+                    <td className={`whitespace-nowrap py-2 text-right align-top ${s.cls}`}>{s.text}</td>
+                  </tr>
+                  {expanded ? (
+                    <tr className="border-b border-line/60 bg-line/10">
+                      <td colSpan={7} className="px-3 py-3 text-[11px] leading-5 text-muted">
+                        <div>
+                          소요 {Math.max(0, Math.round((Date.parse(t.finished_at) - Date.parse(t.started_at)) / 1000)).toLocaleString()}초 ·
+                          입력 {formatTokens(t.input_tokens)} · 출력 {formatTokens(t.output_tokens)}
+                          {t.cache_write_tokens ? ` · 캐시 저장 ${formatTokens(t.cache_write_tokens)}` : ''}
+                        </div>
+                        <div>용도: {t.purposes.map((p) => PURPOSE_LABEL[p] ?? p).join(', ')}</div>
+                        <div className="truncate" title={t.models.join(', ')}>모델: {t.models.join(', ')}</div>
+                        {cache.length ? (
+                          <table className="mt-2 w-full tabular-nums">
+                            <tbody>
+                              {cache.map((r, i) => {
+                                const cs = savingsText(r.savings_usd);
+                                return (
+                                  <tr key={`${r.started_at}-${i}`}>
+                                    <td className="whitespace-nowrap pr-3">{formatStamp(r.started_at)}</td>
+                                    <td className="max-w-64 truncate pr-3" title={r.model}>{r.model}</td>
+                                    <td className="pr-3 text-right">읽기 {r.cached_tokens ? formatTokens(r.cached_tokens) : '-'}</td>
+                                    <td className="pr-3 text-right">저장 {r.cache_write_tokens ? formatTokens(r.cache_write_tokens) : '-'}</td>
+                                    <td className={`text-right ${cs.cls}`}>{cs.text}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {items.length > shown ? (
+        <button type="button" onClick={() => setShown((n) => n + TURN_PAGE * 5)} className="mt-3 rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
+          더 보기
+        </button>
+      ) : null}
+      <p className="mt-3 text-[11px] leading-4 text-muted">
+        질문 하나에 답하는 동안 부른 AI 호출(에이전트 단계, 승인 판단, 이미지·영상 생성 등)을 모두 합친 값입니다. 줄을 누르면 용도·모델과 캐시 내역을 볼 수 있습니다.
+        {total > items.length ? ` 최근 ${items.length.toLocaleString()}개까지 표시합니다.` : ''}
+        {untracked > 0 ? ` 질문 정보가 기록되기 전의 호출 ${untracked.toLocaleString()}건은 여기에 나오지 않고 위 합계에만 들어갑니다.` : ''}
+      </p>
+    </section>
+  );
+}
 
 const RANGE_OPTIONS: Array<{ value: Range; label: string }> = [
   { value: 7, label: '7일' },
@@ -574,6 +689,15 @@ export function SettingsUsagePage() {
             날짜는 이 PC의 시간대 기준이며, 재시도한 요청도 각각 1건으로 셉니다.
           </p>
         </section>
+      ) : null}
+      {data?.turns?.length ? (
+        <TurnsTable
+          key={`turns-${data.range.from}-${data.range.to}`}
+          items={data.turns}
+          total={data.turns_total ?? data.turns.length}
+          untracked={data.untracked_turn_requests ?? 0}
+          cacheRows={data.cache_requests ?? []}
+        />
       ) : null}
       {data?.cache_requests?.length ? (
         <CacheRequestsTable key={`${data.range.from}-${data.range.to}`} items={data.cache_requests} total={data.cache_requests_total ?? data.cache_requests.length} />

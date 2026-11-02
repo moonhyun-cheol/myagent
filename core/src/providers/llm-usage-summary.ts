@@ -48,6 +48,24 @@ export interface LlmUsageGroupRow extends LlmUsageTotals {
   key: string;
 }
 
+/**
+ * Every AI call made while answering one question (one chat run: agent steps, approvals, images,
+ * videos, embeddings), newest first. Rows written before turn ids were recorded are not grouped.
+ */
+export interface LlmUsageTurn extends LlmUsageTotals {
+  turn_id: string;
+  session_id?: string;
+  /** First request start / last request end in this question. */
+  started_at: string;
+  finished_at: string;
+  /** Distinct models / purposes used, in first-use order. */
+  models: string[];
+  purposes: string[];
+  /** Filled by the API from the conversation store (absent when the conversation was deleted). */
+  session_title?: string;
+  question?: string;
+}
+
 export interface LlmUsageDayPoint {
   tokens: number;
   cost_usd: number;
@@ -74,9 +92,15 @@ export interface LlmUsageSummary {
   /** Cache-using requests in the window, newest first, capped at MAX_CACHE_REQUESTS. */
   cache_requests: LlmUsageCacheRequest[];
   cache_requests_total: number;
+  /** Per-question totals, newest first, capped at MAX_TURNS. */
+  turns: LlmUsageTurn[];
+  turns_total: number;
+  /** Counted requests without a question id (written before ids were recorded). */
+  untracked_turn_requests: number;
 }
 
 const MAX_CACHE_REQUESTS = 500;
+const MAX_TURNS = 300;
 const DAY_MS = 86_400_000;
 const MAX_DAYS = 366;
 
@@ -271,6 +295,8 @@ export function summarizeLlmUsage(options: {
   const providers = new Map<string, LlmUsageGroupRow>();
   const purposes = new Map<string, LlmUsageGroupRow>();
   const cacheRequests: LlmUsageCacheRequest[] = [];
+  const turns = new Map<string, LlmUsageTurn>();
+  let untrackedTurnRequests = 0;
 
   const consume = (row: Record<string, unknown>) => {
     if (!isCountedUsageRow(row)) return;
@@ -293,9 +319,31 @@ export function summarizeLlmUsage(options: {
     addPoint(bucket.models, modelGroupKey, m);
     addPoint(bucket.providers, providerKey, m);
     addPoint(bucket.purposes, purposeKey, m);
+    const turnId = str(row.turn_id);
+    const sessionId = str(row.session_id);
+    if (turnId) {
+      const finished = Date.parse(String(row.finished_at ?? ''));
+      const end = Number.isFinite(finished) ? Math.max(finished, started) : started;
+      // Same run id in two conversations is impossible in practice; key by both anyway.
+      const turnKey = `${sessionId ?? ''}\u0000${turnId}`;
+      let t = turns.get(turnKey);
+      if (!t) {
+        t = {
+          turn_id: turnId, ...(sessionId ? { session_id: sessionId } : {}),
+          started_at: new Date(started).toISOString(), finished_at: new Date(end).toISOString(),
+          models: [], purposes: [], ...emptyTotals(),
+        };
+        turns.set(turnKey, t);
+      }
+      if (started < Date.parse(t.started_at)) t.started_at = new Date(started).toISOString();
+      if (end > Date.parse(t.finished_at)) t.finished_at = new Date(end).toISOString();
+      if (!t.models.includes(modelKey)) t.models.push(modelKey);
+      if (!t.purposes.includes(purposeKey)) t.purposes.push(purposeKey);
+      addTo(t, m);
+    } else {
+      untrackedTurnRequests += 1;
+    }
     if (m.cached + m.write > 0) {
-      const sessionId = str(row.session_id);
-      const turnId = str(row.turn_id);
       cacheRequests.push({
         started_at: new Date(started).toISOString(), model: modelKey, purpose: purposeKey,
         ...(sessionId ? { session_id: sessionId } : {}), ...(turnId ? { turn_id: turnId } : {}),
@@ -336,6 +384,7 @@ export function summarizeLlmUsage(options: {
     }
   }
   cacheRequests.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
+  const turnList = [...turns.values()].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at));
 
   const sortRows = (rows: LlmUsageGroupRow[]) => rows.sort((a, b) => b.cost_usd - a.cost_usd || b.total_tokens - a.total_tokens);
   return {
@@ -354,5 +403,8 @@ export function summarizeLlmUsage(options: {
     daily: dateKeys.map((date) => daily.get(date)!),
     cache_requests: cacheRequests.slice(0, MAX_CACHE_REQUESTS),
     cache_requests_total: cacheRequests.length,
+    turns: turnList.slice(0, MAX_TURNS),
+    turns_total: turnList.length,
+    untracked_turn_requests: untrackedTurnRequests,
   };
 }

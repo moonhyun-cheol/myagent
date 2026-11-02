@@ -617,6 +617,26 @@ export class SessionStore {
     return safe ? this.database.page(safe, limit, before) : null;
   }
 
+  /** Title and question text for usage rows keyed by (conversation, run id). Missing ones are skipped. */
+  questionLabels(pairs: Array<{ sessionId: string; runId: string }>): Map<string, { title?: string; question?: string }> {
+    const out = new Map<string, { title?: string; question?: string }>();
+    const sessionIds = [...new Set(pairs.map((p) => sanitizeId(p.sessionId)).filter((id): id is string => Boolean(id)))];
+    if (!sessionIds.length) return out;
+    const titles = new Map(this.database.list().map((s) => [s.id, s.title]));
+    const runIds = [...new Set(pairs.map((p) => p.runId))];
+    const questions = new Map(this.database.userQuestions(sessionIds, runIds)
+      .map((q) => [`${q.session_id}\u0000${q.run_id}`, q.content]));
+    for (const { sessionId, runId } of pairs) {
+      const key = `${sessionId}\u0000${runId}`;
+      const title = titles.get(sessionId);
+      const question = questions.get(key);
+      if (title !== undefined || question !== undefined) {
+        out.set(key, { ...(title !== undefined ? { title } : {}), ...(question ? { question } : {}) });
+      }
+    }
+    return out;
+  }
+
   setWorkspaceProject(id: string, workspaceProjectId: string | null): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;

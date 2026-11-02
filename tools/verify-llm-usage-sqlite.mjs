@@ -71,6 +71,8 @@ try {
   assert.equal(handle.report.files, 2);
   assert.equal(handle.report.rows, 7, 'finish rows only (start/backfill/detail rows are merged, not stored)');
   assert.equal(handle.migratedNow, true);
+  const wal = path.join(usageDir, 'llm-usage.sqlite-wal');
+  assert.equal(statSync(wal, { throwIfNoEntry: false })?.size ?? 0, 0, 'import WAL folded into the DB right after migration');
   pass('JSONL import: every date reconciled, store switched to SQLite');
 
   const migrated = summary();
@@ -123,6 +125,39 @@ try {
   assert.equal(liveCache.length, 2);
   assert.ok(liveCache.every((r) => r.session_id === 'sess-live' && r.cached_tokens === 700));
   pass('summary includes live rows with session/turn on cache rows');
+
+  // Per-question rows: both calls of the run collapse into one turn; legacy rows are counted as untracked.
+  assert.equal(withLive.turns_total, 1);
+  const [turn] = withLive.turns;
+  assert.equal(turn.turn_id, 'turn-live-1');
+  assert.equal(turn.session_id, 'sess-live');
+  assert.equal(turn.requests, 2);
+  assert.equal(turn.cached_tokens, 1400);
+  assert.ok(Math.abs(turn.cost_usd - 0.008) < 1e-12, `turn cost ${turn.cost_usd}`);
+  assert.deepEqual(turn.purposes, ['chat']);
+  assert.ok(Date.parse(turn.finished_at) >= Date.parse(turn.started_at));
+  assert.equal(withLive.untracked_turn_requests, legacy.totals.requests, 'pre-turn-id rows are not grouped');
+  pass('per-question totals: one row per run, untracked legacy rows counted separately');
+
+  // Question labels come from the conversation store (only the listed conversations are read).
+  const { SessionSqliteStore } = await load('sessions/session-sqlite-store');
+  const sessDir = path.join(temp, 'sessions');
+  const sessions = new SessionSqliteStore(sessDir, temp);
+  const at = iso(now);
+  sessions.save({ id: 'sess-live', title: '테스트 대화', created_at: at, updated_at: at, messages: [
+    { role: 'user', run_id: 'turn-live-1', content: '질문 하나'.repeat(50), at },
+    { role: 'assistant', run_id: 'turn-live-1', reply_to_run_id: 'turn-live-1', content: '답', at },
+    { role: 'user', run_id: 'turn-other', content: '다른 질문', at },
+  ] });
+  sessions.save({ id: 'sess-other', title: '다른 대화', created_at: at, updated_at: at, messages: [
+    { role: 'user', run_id: 'turn-live-1', content: '섞이면 안 됨', at },
+  ] });
+  const qs = sessions.userQuestions(['sess-live'], ['turn-live-1'], 20);
+  assert.equal(qs.length, 1);
+  assert.equal(qs[0].session_id, 'sess-live');
+  assert.equal(qs[0].content.length, 20, 'question text capped');
+  assert.deepEqual(sessions.userQuestions([], ['turn-live-1']), []);
+  pass('question labels: user message of the run, scoped to its conversation, capped');
 
   // A legacy date that does not reconcile is recorded, not fatal: SQLite is still adopted for good.
   const mmDir = path.join(temp, 'mismatch');
