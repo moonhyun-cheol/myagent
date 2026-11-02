@@ -82,6 +82,13 @@ export interface LlmUsageTurn extends LlmUsageTotals {
   /** Filled by the API from the conversation store (absent when the conversation was deleted). */
   session_title?: string;
   question?: string;
+  /**
+   * Position of this question's user message among all user messages of its conversation
+   * (1 = first message ever sent there). Filled by the API from the conversation store, so it does
+   * not depend on the selected period, the tracking switch or the MAX_TURNS cap. Absent when the
+   * conversation or the message no longer exists.
+   */
+  question_no?: number;
   /** Calls in start order (capped at MAX_TURN_CALLS); `calls_total` is the uncapped count. */
   calls: LlmUsageCall[];
   calls_total: number;

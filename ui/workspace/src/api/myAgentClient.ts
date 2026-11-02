@@ -1236,6 +1236,8 @@ export interface LlmUsageTurn extends LlmUsageTotals {
   purposes: string[];
   session_title?: string;
   question?: string;
+  /** N-th user message of its conversation (same basis everywhere; absent when not found). */
+  question_no?: number;
   calls?: LlmUsageCall[];
   calls_total?: number;
 }

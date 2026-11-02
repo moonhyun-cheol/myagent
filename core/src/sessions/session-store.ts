@@ -617,21 +617,30 @@ export class SessionStore {
     return safe ? this.database.page(safe, limit, before) : null;
   }
 
-  /** Title and question text for usage rows keyed by (conversation, run id). Missing ones are skipped. */
-  questionLabels(pairs: Array<{ sessionId: string; runId: string }>): Map<string, { title?: string; question?: string }> {
-    const out = new Map<string, { title?: string; question?: string }>();
+  /**
+   * Title, question text and question number (position among the conversation's user messages)
+   * for usage rows keyed by (conversation, run id). Missing ones are skipped.
+   */
+  questionLabels(pairs: Array<{ sessionId: string; runId: string }>): Map<string, { title?: string; question?: string; no?: number }> {
+    const out = new Map<string, { title?: string; question?: string; no?: number }>();
     const sessionIds = [...new Set(pairs.map((p) => sanitizeId(p.sessionId)).filter((id): id is string => Boolean(id)))];
     if (!sessionIds.length) return out;
     const titles = new Map(this.database.list().map((s) => [s.id, s.title]));
     const runIds = [...new Set(pairs.map((p) => p.runId))];
     const questions = new Map(this.database.userQuestions(sessionIds, runIds)
-      .map((q) => [`${q.session_id}\u0000${q.run_id}`, q.content]));
+      .map((q) => [`${q.session_id}\u0000${q.run_id}`, q]));
     for (const { sessionId, runId } of pairs) {
       const key = `${sessionId}\u0000${runId}`;
       const title = titles.get(sessionId);
-      const question = questions.get(key);
-      if (title !== undefined || question !== undefined) {
-        out.set(key, { ...(title !== undefined ? { title } : {}), ...(question ? { question } : {}) });
+      const q = questions.get(key);
+      const question = q?.content;
+      const no = Number(q?.question_no);
+      if (title !== undefined || q !== undefined) {
+        out.set(key, {
+          ...(title !== undefined ? { title } : {}),
+          ...(question ? { question } : {}),
+          ...(Number.isInteger(no) && no > 0 ? { no } : {}),
+        });
       }
     }
     return out;
