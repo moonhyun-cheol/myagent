@@ -210,28 +210,32 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
           {' '}· 응답 {responseCount} · 작업 {toolGroupCount}{live ? ' · 진행 중' : ' · 완료'}
         </span>
       </summary>
+      {/* Folded logs render no body: long conversations kept tens of thousands of hidden nodes. */}
+      {outerOpen ? (
       <div className="min-w-0 px-3 pt-2 pb-1" aria-label="모델 응답과 실제 작업의 시간순 흐름">
         {displayItems.map((item) => {
           if (item.kind === 'response') {
             responseNumber += 1;
             const itemId = `response:${item.id}`;
+            const itemOpen = !collapsedItems[itemId];
             return (
               <details
                 key={item.id}
                 className="mb-3 min-w-0"
                 data-timeline-kind="response"
-                open={!collapsedItems[itemId]}
+                open={itemOpen}
                 onToggle={itemToggle(itemId)}
               >
                 <summary className="cursor-pointer select-none font-medium text-text marker:text-muted">
                   응답 {responseNumber}{item.id === 'stream-preview' && live ? ' · 생성 중' : ''}
                 </summary>
-                <div className="mt-1 whitespace-pre-wrap break-words border-l border-line/70 pl-3 text-text/80">{item.text}</div>
+                {itemOpen ? <div className="mt-1 whitespace-pre-wrap break-words border-l border-line/70 pl-3 text-text/80">{item.text}</div> : null}
               </details>
             );
           }
           toolGroupNumber += 1;
           const itemId = `tool-group:${item.id}`;
+          const groupOpen = !(collapsedItems[itemId] ?? true);
           const state = groupState(item.rows);
           const stateLabel = state === 'running'
             ? live ? '실행 중' : '연결 종료 · 완료 상태 미수신'
@@ -245,7 +249,7 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
               data-timeline-kind="tool-group"
               data-activity-group-id={item.id}
               data-tool-state={state}
-              open={!(collapsedItems[itemId] ?? true)}
+              open={groupOpen}
               onToggle={itemToggle(itemId)}
             >
               <summary className={`mb-1 cursor-pointer select-none marker:text-muted ${state === 'failed' ? 'text-danger' : 'text-text'}`}>
@@ -256,6 +260,7 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
                 {cancelGroupButton(toolGroupNumber, item.rows)}
                 </span>
               </summary>
+              {groupOpen ? (
               <div className="space-y-2 border-l border-line/70 pl-3">
                 {item.rows.map((row) => (
                   <div key={row.id} className="min-w-0" data-timeline-kind="tool" data-tool-state={row.state}>
@@ -273,10 +278,12 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
                   </div>
                 ))}
               </div>
+              ) : null}
             </details>
           );
         })}
       </div>
+      ) : null}
     </details>
   );
 }

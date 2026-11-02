@@ -288,10 +288,8 @@ export class SessionStore {
       model_exclude: false,
       ...(carried.length ? { image_urls: carried } : {}),
     }];
-    delete rec.responses_state;
-    delete rec.responses_states;
     rec.updated_at = now;
-    this.save(rec);
+    this.save(rec, { clearResponsesStates: true });
     return rec;
   }
 
@@ -571,10 +569,8 @@ export class SessionStore {
         ...(videoJob ? { video_job: { ...videoJob, status: 'pending' as const, updated_at: new Date().toISOString() } } : {}),
       });
     }
-    delete rec.responses_state;
-    delete rec.responses_states;
     rec.updated_at = new Date().toISOString();
-    this.save(rec);
+    this.save(rec, { clearResponsesStates: true });
     this.pendingAssistantThought.delete(rec.id);
     this.pendingToolActivity.delete(rec.id);
     this.pendingWorkTimeline.delete(rec.id);
@@ -683,17 +679,11 @@ export class SessionStore {
   setLastAssistantUsage(
     id: string,
     usage: { input_tokens?: number; output_tokens?: number },
-  ): SessionRecord | null {
-    const rec = this.load(id);
-    if (!rec) return null;
-    for (let i = rec.messages.length - 1; i >= 0; i--) {
-      if (rec.messages[i].role === 'assistant') {
-        rec.messages[i].usage = usage;
-        this.save(rec);
-        return rec;
-      }
-    }
-    return null;
+  ): boolean {
+    const safe = sanitizeId(id);
+    if (!safe) return false;
+    assertChatRunWritable(safe);
+    return this.database.setLastAssistantUsage(safe, usage);
   }
 
   responsesState(
@@ -703,8 +693,8 @@ export class SessionStore {
     mode: ResponsesStateMode,
     lane = 'chat',
   ): ResponsesContinuationState {
-    const rec = this.load(id);
-    const current = rec?.responses_states?.[lane] ?? (lane === 'chat' ? rec?.responses_state : undefined);
+    const safe = sanitizeId(id);
+    const current = safe ? this.database.responsesState(safe, lane) : null;
     if (
       current?.version === 1
       && current.provider_id === providerId
@@ -724,26 +714,26 @@ export class SessionStore {
   }
 
   saveResponsesState(id: string, state: ResponsesContinuationState, lane = 'chat'): void {
+    // Called after every model round trip: write one state row, never the transcript.
+    const now = new Date().toISOString();
+    const safe = sanitizeId(id);
+    assertChatRunWritable(safe ?? id);
+    if (safe && this.database.saveResponsesState(safe, lane, state, now)) return;
     const rec = this.ensure(id);
-    rec.responses_states = rec.responses_states ?? {};
-    rec.responses_states[lane] = structuredClone(state);
-    if (lane === 'chat') rec.responses_state = structuredClone(state);
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
+    this.database.saveResponsesState(rec.id, lane, state, now);
+  }
+
+  /** All continuation lanes of a session (Core-internal; never part of the public record). */
+  responsesStates(id: string): Record<string, ResponsesContinuationState> {
+    const safe = sanitizeId(id);
+    return safe ? this.database.responsesStates(safe) : {};
   }
 
   clearResponsesState(id: string, lane?: string): void {
-    const rec = this.load(id);
-    if (!rec) return;
-    if (lane) {
-      if (rec.responses_states) delete rec.responses_states[lane];
-      if (lane === 'chat') delete rec.responses_state;
-    } else {
-      delete rec.responses_state;
-      delete rec.responses_states;
-    }
-    rec.updated_at = new Date().toISOString();
-    this.save(rec);
+    const safe = sanitizeId(id);
+    if (!safe) return;
+    assertChatRunWritable(safe);
+    this.database.clearResponsesStates(safe, lane, new Date().toISOString());
   }
 
   /** Public API projection: provider continuation/reasoning items stay inside Core. */
@@ -776,10 +766,8 @@ export class SessionStore {
     }
     if (!removed) return null;
     // Undo creates a branch. A provider-side response chain cannot be rewound safely.
-    delete rec.responses_state;
-    delete rec.responses_states;
     rec.updated_at = new Date().toISOString();
-    this.save(rec);
+    this.save(rec, { clearResponsesStates: true });
     return { userText, removed };
   }
 
@@ -798,9 +786,9 @@ export class SessionStore {
     };
   }
 
-  private save(rec: SessionRecord): void {
+  private save(rec: SessionRecord, opts?: { clearResponsesStates?: boolean }): void {
     assertChatRunWritable(rec.id);
-    this.database.save(rec);
+    this.database.save(rec, opts);
   }
 }
 

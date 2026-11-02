@@ -77,6 +77,9 @@ import { useAnchoredOverlay } from '../lib/useAnchoredOverlay';
 
 const CHAT_SCROLL_KEY_PREFIX = 'my-agent-chat-scroll:';
 
+/** Newest turns mounted when a conversation opens; each "더 보기" mounts this many more. */
+const CHAT_RENDER_WINDOW = 40;
+
 function readChatScrollPosition(sessionId: string): number | null {
   try {
     const value = Number(localStorage.getItem(`${CHAT_SCROLL_KEY_PREFIX}${sessionId}`));
@@ -683,17 +686,7 @@ export function ChatPane() {
   const historyFocusNonce = useWorkspaceStore((s) => s.historyFocusNonce);
   const chatScrollTurnId = useWorkspaceStore((s) => s.chatScrollTurnId);
   const chatScrollNonce = useWorkspaceStore((s) => s.chatScrollNonce);
-  useEffect(() => {
-    if (!chatScrollNonce || !chatScrollTurnId) return;
-    const target = turnAnchorRefs.current.get(chatScrollTurnId);
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.classList.add('ring-2', 'ring-accent/60', 'rounded-xl');
-    const timer = window.setTimeout(() => {
-      target.classList.remove('ring-2', 'ring-accent/60', 'rounded-xl');
-    }, 1800);
-    return () => window.clearTimeout(timer);
-  }, [chatScrollNonce, chatScrollTurnId]);
+  const handledScrollNonceRef = useRef(0);
   // After a session loads (including re-selecting the same one), move keyboard focus onto
   // the conversation history on the next frame so arrow/Page keys work and Tab reaches the composer.
   useEffect(() => {
@@ -712,6 +705,57 @@ export function ChatPane() {
   const { menu, openAt, close } = useContextMenu();
 
   const visibleChat = useMemo(() => chat.filter((turn) => !isChatTurnUiHidden(turn, chat)), [chat]);
+  // Long conversations render only their newest turns; older ones mount on demand
+  // (button or scrolling to the top). Mounting every turn froze the view for seconds.
+  const [renderWindow, setRenderWindow] = useState({ sessionId: activeSessionId, limit: CHAT_RENDER_WINDOW });
+  const renderLimit = renderWindow.sessionId === activeSessionId ? renderWindow.limit : CHAT_RENDER_WINDOW;
+  const hiddenTurnCount = Math.max(0, visibleChat.length - renderLimit);
+  const renderedChat = useMemo(
+    () => (hiddenTurnCount ? visibleChat.slice(hiddenTurnCount) : visibleChat),
+    [visibleChat, hiddenTurnCount],
+  );
+  const expandAnchorRef = useRef<{ height: number; top: number } | null>(null);
+  const showOlderTurns = useCallback(() => {
+    if (!hiddenTurnCount) return;
+    const scroller = scrollRef.current;
+    expandAnchorRef.current = scroller ? { height: scroller.scrollHeight, top: scroller.scrollTop } : null;
+    setRenderWindow({ sessionId: activeSessionId, limit: renderLimit + CHAT_RENDER_WINDOW });
+  }, [activeSessionId, hiddenTurnCount, renderLimit]);
+  // Keep the turn the user was reading in place when older turns are mounted above it.
+  useLayoutEffect(() => {
+    const anchor = expandAnchorRef.current;
+    const scroller = scrollRef.current;
+    if (!anchor || !scroller) return;
+    expandAnchorRef.current = null;
+    scroller.scrollTop = anchor.top + (scroller.scrollHeight - anchor.height);
+  }, [renderLimit]);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || !hiddenTurnCount) return;
+    const onScroll = () => {
+      if (scroller.scrollTop < 240 && !expandAnchorRef.current) showOlderTurns();
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [hiddenTurnCount, showOlderTurns]);
+  // Jump-to-turn: mount an older target first, then scroll once it exists.
+  useEffect(() => {
+    if (!chatScrollNonce || !chatScrollTurnId || handledScrollNonceRef.current === chatScrollNonce) return;
+    const target = turnAnchorRefs.current.get(chatScrollTurnId);
+    if (!target) {
+      const position = visibleChat.findIndex((turn) => turn.id === chatScrollTurnId);
+      if (position >= 0 && position < hiddenTurnCount) {
+        setRenderWindow({ sessionId: activeSessionId, limit: visibleChat.length - position + 2 });
+      }
+      return;
+    }
+    handledScrollNonceRef.current = chatScrollNonce;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('ring-2', 'ring-accent/60', 'rounded-xl');
+    window.setTimeout(() => {
+      target.classList.remove('ring-2', 'ring-accent/60', 'rounded-xl');
+    }, 1800);
+  }, [chatScrollNonce, chatScrollTurnId, visibleChat, hiddenTurnCount, activeSessionId]);
   const videoModelIds = useMemo(() => videoIdsFromPicker(modelOptions), [modelOptions]);
   const modelLabels = useMemo(() => new Map(modelOptions.map((option) => [option.id, option.label])), [modelOptions]);
   const hasChatTurns = visibleChat.length > 0;
@@ -1671,8 +1715,19 @@ export function ChatPane() {
               <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
             </div>
           ) : null}
-          {visibleChat.map((turn, index) => {
-            const switched = modelSwitchBefore(visibleChat, index, videoModelIds);
+          {hiddenTurnCount ? (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                className="rounded-lg border border-line/80 px-3 py-1.5 text-xs text-muted hover:text-text"
+                onClick={showOlderTurns}
+              >
+                이전 메시지 {Math.min(hiddenTurnCount, CHAT_RENDER_WINDOW)}개 더 보기 · 남은 {hiddenTurnCount}개
+              </button>
+            </div>
+          ) : null}
+          {renderedChat.map((turn, renderedIndex) => {
+            const switched = modelSwitchBefore(visibleChat, renderedIndex + hiddenTurnCount, videoModelIds);
             const modelName = (ref: string) => String(modelLabels.get(ref) ?? ref)
               .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter');
             return (

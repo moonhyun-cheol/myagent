@@ -957,6 +957,17 @@ export async function fetchSession(id: string): Promise<SessionRecord> {
   return (await res.json()) as SessionRecord;
 }
 
+/** Newest committed messages plus the live run (if any) — a cheap poll for long conversations. */
+export async function fetchSessionTail(
+  id: string,
+  limit = 1,
+): Promise<{ messages: SessionMessage[]; active_run?: SessionRecord['active_run'] }> {
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}/messages?limit=${limit}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`세션 로드 실패 (${res.status})`);
+  const data = await res.json();
+  return { messages: Array.isArray(data.messages) ? data.messages : [], ...(data.active_run ? { active_run: data.active_run } : {}) };
+}
+
 export interface VideoJobRef {
   jobId: string;
   status: 'pending' | 'failed' | 'completed';

@@ -2,6 +2,26 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "chat-long-session-render",
+      "status": "development",
+      "title": "긴 대화를 열 때 화면이 멈추던 문제 개선",
+      "detail": "메시지가 많은 대화는 열 때 모든 메시지와 작업 기록을 한 번에 그려 화면이 1~2초 멈췄습니다. 이제 최근 40개 턴만 먼저 그리고, 위로 스크롤하거나 「이전 메시지 더 보기」를 누르면 더 불러옵니다. 접힌 작업 기록은 펼칠 때만 그립니다.",
+      "area": "ui",
+      "created_at": "2026-10-30",
+      "source_paths": ["ui/workspace/src/components/ChatPane.tsx", "ui/workspace/src/components/ToolActivityLog.tsx"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
+      "id": "session-save-without-full-rewrite",
+      "status": "development",
+      "title": "AI 호출마다 큰 대화 전체를 다시 저장하던 문제 개선",
+      "detail": "이어 쓰기 상태와 토큰 사용량을 저장할 때 대화 전체를 다시 쓰던 것을, 바뀐 부분만 저장하도록 바꿨습니다. 다른 화면에서 진행 중인 답변을 확인할 때도 대화 전체 대신 마지막 메시지와 중간본만 받습니다.",
+      "area": "core",
+      "created_at": "2026-10-30",
+      "source_paths": ["core/src/sessions/session-sqlite-store.ts", "core/src/sessions/session-store.ts", "ui/workspace/src/store/workspaceStore.ts"],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "chat-media-bubble-cost",
       "status": "released",
       "title": "이미지·영상 답변 아래에 청구 비용 표시",

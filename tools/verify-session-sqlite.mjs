@@ -32,7 +32,9 @@ writeFileSync(path.join(attachmentDir, `${attachmentId}_original.png`), 'attachm
 try {
   let store = new SessionStore(dir, root);
   assert.deepEqual(store.load('legacy').messages, legacy.messages);
-  assert.deepEqual(store.load('legacy').responses_state, legacy.responses_state);
+  // Continuation state moves to its own table: same value, not part of the loaded record.
+  assert.deepEqual(store.responsesState('legacy', 'p', 'm', 'client_replay'), legacy.responses_state);
+  assert.equal(store.load('legacy').responses_state, undefined);
   assert.equal(readFileSync(path.join(dir, 'legacy.json'), 'utf8'), original);
   for (let i = 120; i < 282; i++) store.append('legacy', msg(i));
   store = new SessionStore(dir, root);
@@ -102,11 +104,31 @@ try {
     workspace_behavior: 'agent',
   });
   assert.deepEqual(policyReload.responsesState('policy', 'p', 'm', 'client_replay'), legacy.responses_state);
-  assert.equal(policyReload.load('policy').responses_states.agent.model_id, 'agent-model');
+  assert.equal(policyReload.responsesStates('policy').agent.model_id, 'agent-model');
   assert.equal(policyReload.publicRecord(policyReload.load('policy')).responses_states, undefined);
   policyReload.clearResponsesState('policy', 'agent');
-  assert.equal(policyReload.load('policy').responses_states.agent, undefined);
-  assert.deepEqual(policyReload.load('policy').responses_state, legacy.responses_state);
+  assert.equal(policyReload.responsesStates('policy').agent, undefined);
+  assert.deepEqual(policyReload.responsesStates('policy').chat, legacy.responses_state);
+  // An older build may still write state into the metadata body: the next open moves it out.
+  {
+    const raw = new DatabaseSync(path.join(dir, 'sessions.sqlite'));
+    raw.prepare(`UPDATE sessions SET body = json_set(body, '$.responses_states', json(?)) WHERE id = 'policy'`)
+      .run(JSON.stringify({ agent: { ...legacy.responses_state, model_id: 'old-build' } }));
+    raw.close();
+    const split = new SessionStore(dir, root);
+    assert.equal(split.responsesStates('policy').agent.model_id, 'old-build');
+    const check = new DatabaseSync(path.join(dir, 'sessions.sqlite'), { readOnly: true });
+    assert.equal(check.prepare(`SELECT json_type(body, '$.responses_states') AS t FROM sessions WHERE id = 'policy'`).get().t, null);
+    check.close();
+  }
+  // Usage patch touches only the newest assistant row.
+  store.append('policy', { role: 'user', content: '질문', at });
+  store.append('policy', { role: 'assistant', content: '답', at });
+  assert.equal(store.setLastAssistantUsage('policy', { input_tokens: 7, output_tokens: 3 }), true);
+  assert.deepEqual(store.load('policy').messages.at(-1).usage, { input_tokens: 7, output_tokens: 3 });
+  assert.equal(store.load('policy').messages.at(-2).usage, undefined);
+  store.popLastTurn('policy');
+  assert.deepEqual(store.responsesStates('policy'), {});
   console.log('PASS: execution policy and private continuation lanes persist independently');
 
   const imported = store.importPortable({ conversation: { title: '긴 기록', messages: Array.from({ length: 3000 }, (_, i) => msg(i)) } });
@@ -143,7 +165,8 @@ try {
   const branch = source.slice(source.indexOf('      const messagePageMatch ='), source.indexOf('      const sessionMatch ='));
   assert.ok(branch.includes('messagePage('));
   const js = ts.transpileModule(branch, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const run = new Function('url', 'method', 'sessionStore', 'res', 'sendJson', js);
+  const fn = new Function('url', 'method', 'sessionStore', 'res', 'sendJson', 'liveRunView', js);
+  const run = (url, method, s, res, send) => fn(url, method, s, res, send, () => null);
   const query = (suffix) => run(new URL(`http://test/sessions/${imported.id}/messages${suffix}`), 'GET', store, {}, (_, status, body) => ({ status, body }));
   assert.equal(query('?limit=1').status, 200);
   assert.equal(query('?limit=1').body.messages.length, 1);
