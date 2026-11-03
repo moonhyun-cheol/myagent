@@ -75,6 +75,29 @@ const providerName = (v: unknown): string | undefined => typeof v === 'string' &
 /** Safe identifier names only; values are never read here. */
 const fieldNames = (names: string[]): string[] => [...new Set(names.filter((n) => /^[$a-zA-Z0-9_.-]{1,60}$/.test(n)))].sort().slice(0, 60);
 const money = (v: unknown): number | undefined => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+/**
+ * First streamed event that carries model output (text, reasoning or tool-call delta). OpenRouter's
+ * `: PROCESSING` keep-alive comments and `response.created` do not count, so this is the real TTFT.
+ */
+function isOutputEvent(doc: Record<string, unknown>): boolean {
+  const type = typeof doc.type === 'string' ? doc.type : '';
+  if (type) return (type.startsWith('response.') && type.endsWith('.delta')) || type === 'content_block_delta';
+  const choices = Array.isArray(doc.choices) ? doc.choices : [];
+  return choices.some((c) => {
+    const delta = record(record(c).delta);
+    return (typeof delta.content === 'string' && delta.content.length > 0)
+      || (typeof delta.reasoning === 'string' && delta.reasoning.length > 0)
+      || (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0)
+      || (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0);
+  });
+}
+const shortHash = (v: unknown): string => {
+  const text = typeof v === 'string' ? v : JSON.stringify(v) ?? '';
+  const r = record(v);
+  const kind = typeof r.role === 'string' ? r.role : typeof r.type === 'string' ? r.type : '';
+  const label = /^[a-z_]{1,24}$/.test(kind) ? `${kind}:` : '';
+  return `${label}${createHash('sha256').update(text).digest('hex').slice(0, 10)}:${text.length}`;
+};
 type CostFields = { cost?: number; cache_discount?: number; upstream_input_cost?: number };
 /**
  * OpenRouter usage accounting: billed USD, cache discount (positive = saved, negative = write premium) and
@@ -413,6 +436,13 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     max_tokens: token(body.max_tokens) ?? null,
     input_items: items.length, tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
     instructions_chars: typeof body.instructions === 'string' ? body.instructions.length : 0,
+    // Content hashes only (never content): diffs consecutive requests to find the item that
+    // broke the cached prompt prefix.
+    prefix_hashes: {
+      instr: shortHash(body.instructions ?? body.system ?? ''),
+      tools: shortHash(body.tools ?? []),
+      items: items.slice(0, 40).map((item) => shortHash(item)),
+    },
     previous_response: typeof body.previous_response_id === 'string',
     // Presence only — the pin value itself is never logged.
     session_pinned: new Headers(init.headers).has('x-session-id') || typeof body.session_id === 'string',
@@ -435,6 +465,10 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   let costs: CostFields = {};
   let errorDiagnostics: ReturnType<typeof providerErrorDiagnostics> | undefined;
   let responseHeaders: Headers | undefined;
+  /** Latency marks (ms after request start): response headers, first body chunk, first model output. */
+  let headersMs: number | undefined;
+  let firstByteMs: number | undefined;
+  let firstOutputMs: number | undefined;
   let removeAbort = () => {};
   const finish = (outcome: string) => {
     if (finished) return;
@@ -450,6 +484,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
       : input ?? null;
     write({
       event: 'finish', finished_at: new Date().toISOString(), duration_ms: Date.now() - started,
+      headers_ms: headersMs ?? null, first_byte_ms: firstByteMs ?? null, ttft_ms: firstOutputMs ?? null,
       http_status: status ?? null, outcome, response_model: responseModel,
       usage_status: usage.input_tokens !== undefined && usage.output_tokens !== undefined ? 'reported' : Object.keys(usage).length ? 'partial' : 'unavailable',
       input_tokens: input ?? null, output_tokens: usage.output_tokens ?? null,
@@ -479,6 +514,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
     const response = record(doc.response);
     const message = record(doc.message);
     const raw = doc.usage ?? response.usage ?? message.usage;
+    if (firstOutputMs === undefined && stream && isOutputEvent(doc)) firstOutputMs = Date.now() - started;
     // Providers send cumulative snapshots, not increments. Never add snapshots.
     usage = { ...usage, ...normalize(raw) };
     costs = { ...costs, ...costFields(raw) };
@@ -501,6 +537,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
   }
   status = response.status;
   responseHeaders = response.headers;
+  headersMs = Date.now() - started;
   // Retryable HTTP errors may never be consumed. Record them now, with unknown usage.
   if (!response.ok) {
     errorDiagnostics = providerErrorDiagnostics(undefined, response);
@@ -634,6 +671,7 @@ export async function fetchWithUsage(url: string, init: RequestInit, attempt = 1
           reader.releaseLock();
           controller.close();
         } else {
+          if (firstByteMs === undefined) firstByteMs = Date.now() - started;
           // Observation is diagnostic-only; parsing must not change byte delivery.
           try { feed(decoder.decode(value, { stream: true })); } catch { truncated = true; }
           controller.enqueue(value);

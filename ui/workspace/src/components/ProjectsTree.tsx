@@ -19,6 +19,7 @@ import {
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { durableSetItem } from '../lib/durableUiState';
 import {
   archiveSession,
   createProject,
@@ -293,7 +294,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
   const toggleNodePin = (id: string) => {
     setPinnedNodes((current) => {
       const next = current.includes(id) ? current.filter((item) => item !== id) : [id, ...current];
-      localStorage.setItem(PINNED_NODES_KEY, JSON.stringify(next));
+      durableSetItem(PINNED_NODES_KEY, JSON.stringify(next));
       return next;
     });
   };

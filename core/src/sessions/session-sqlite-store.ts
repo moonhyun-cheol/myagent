@@ -399,6 +399,27 @@ export class SessionSqliteStore {
   }
 
   /**
+   * Latest messages with a window start aligned to `step` positions, so the first
+   * history message stays the same for several turns instead of sliding every turn
+   * (a sliding start rewrites the provider prompt-cache prefix). Returns between
+   * `limit - step + 1` and `limit` messages once the session exceeds `limit`.
+   */
+  recentAligned(id: string, limit: number, step: number): SessionMessage[] {
+    if (!Number.isSafeInteger(limit) || limit <= 0) return [];
+    const safeStep = Number.isSafeInteger(step) && step > 1 && step < limit ? step : 1;
+    return this.withDbReadOnly((db) => {
+      const row = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE session_id = ?').get(id) as { n?: number } | undefined;
+      const total = Number(row?.n ?? 0);
+      if (total <= 0) return [];
+      const start = Math.max(0, total - limit);
+      const aligned = Math.min(total - 1, Math.ceil(start / safeStep) * safeStep);
+      const rows = db.prepare('SELECT body FROM messages WHERE session_id = ? ORDER BY seq ASC LIMIT ? OFFSET ?')
+        .all(id, total - aligned, aligned) as unknown as Row[];
+      return rows.map((r) => JSON.parse(r.body) as SessionMessage);
+    });
+  }
+
+  /**
    * Question text (first `maxChars`) of the user messages that started the given runs, read only
    * inside the listed conversations, plus each message's position among all user messages of its
    * conversation (`question_no`, 1 = first). Used to label per-question usage rows.

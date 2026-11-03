@@ -19,17 +19,13 @@ import { hasNasWriteConsent } from '../../security/nas-write-consent.js';
 import { appendAssistantReply } from '../assistant-reply.js';
 import { composerSelectionRef } from '../model-switch.js';
 import { sanitizeHistoryForModel } from '../chat-filters.js';
-import { applyHistoryContentBudget, getHistoryTurns } from '../history-budget.js';
-import {
-  buildSessionHistoryBudgetOpts,
-  rememberMessagePins,
-} from '../session-history-budget.js';
-import { loadAgentRunMeta } from '../../agent/agent-run-meta.js';
+import { getHistoryTurns, HISTORY_FOLD_STEP } from '../history-budget.js';
+import { rememberMessagePins } from '../session-history-budget.js';
 import {
   resolveMemoryProjectId,
   resolveWorkspaceRootForSession,
   resolveWorkspaceRootsForSession,
-  buildWorkspaceContext,
+  buildWorkspaceContextParts,
   buildUserMemoryContext,
   buildPinnedInstructionsContext,
 } from '../session-context.js';
@@ -253,19 +249,21 @@ export async function runWorkspaceCodeAgent(opts: {
   );
   // Always-on agent-tier index (tree + repo-map); query hits added inside code-agent.
   const editorSnippet = buildEditorContextSnippet(req?.editor_context);
-  const workspaceContext = workspaceLock.narrowed
-    ? [
-        buildPinnedInstructionsContext(req),
-        editorSnippet,
-        buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
-        buildDevWorkspaceContext(workspaceRoot, {}, {
-          tier: 'agent',
-          includeRepoMap: true,
-          repoMapMaxChars: 6_000,
-          focusMessage: message,
-        }),
-      ].filter((p) => p.trim()).join('\n\n')
-    : buildWorkspaceContext(
+  // Split for prompt caching: the stable part (memory, tree, unfocused repo map, location)
+  // is sent once before history; only the request-scoped part rides in the turn context.
+  const workspaceParts = workspaceLock.narrowed
+    ? {
+        turn: [buildPinnedInstructionsContext(req), editorSnippet].filter((p) => p.trim()).join('\n\n'),
+        stable: [
+          buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
+          buildDevWorkspaceContext(workspaceRoot, {}, {
+            tier: 'agent',
+            includeRepoMap: true,
+            repoMapMaxChars: 6_000,
+          }),
+        ].filter((p) => p.trim()).join('\n\n'),
+      }
+    : buildWorkspaceContextParts(
         configPath,
         sessionStore,
         projectStore,
@@ -273,20 +271,16 @@ export async function runWorkspaceCodeAgent(opts: {
         sessionId,
         routing.mode,
       );
-  const mergedWorkspaceContext = workspaceContext;
   rememberMessagePins(cqrRoot, sessionId, message);
-  const runMeta = loadAgentRunMeta(cqrRoot, sessionId);
-  const history = applyHistoryContentBudget(
-    sanitizeHistoryForModel(
-      sessionStore.recentMessages(sessionId, getHistoryTurns(process.env, { modelId: provider.modelId })).slice(0, -1),
-    ),
-    process.env,
-    buildSessionHistoryBudgetOpts({
-      cqrRoot,
+  // Raw aligned window only; buildAgentMessages applies the single history budget/compress
+  // pass (with replayed turn contexts counted), so on/off cannot flip between two passes.
+  const history = sanitizeHistoryForModel(
+    // Aligned window: a start that slid every turn changed the cached prompt prefix.
+    sessionStore.recentMessagesAligned(
       sessionId,
-      modelId: provider.modelId,
-      extraPins: runMeta.mutatedPaths?.slice(0, 8).map((p) => `mutated:${p}`),
-    }),
+      getHistoryTurns(process.env, { modelId: provider.modelId }),
+      HISTORY_FOLD_STEP,
+    ).slice(0, -1),
   );
   const overrides = loadUserOverrides(configPath);
   const requestedPolicy = normalizeExecutionPolicy(
@@ -325,7 +319,8 @@ export async function runWorkspaceCodeAgent(opts: {
     workspaceRoot,
     userMessage: message,
     systemPrompt,
-    workspaceContext: mergedWorkspaceContext,
+    workspaceContext: workspaceParts.turn,
+    stableWorkspaceContext: workspaceParts.stable,
     attachmentContext: opts.attachmentContext,
     history,
     providerId: provider.providerId,

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { durableSetItem } from './durableUiState';
 
 /**
  * PC-local conversation display preferences (token usage / time info).
@@ -49,7 +50,7 @@ export function setConversationDisplayPreference(
   const next = { ...read(), [key]: value };
   cached = next;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    durableSetItem(STORAGE_KEY, JSON.stringify(next));
   } catch {
     /* storage unavailable — keep in-memory value */
   }

@@ -75,6 +75,11 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   /** Optional write roots inherited by the exact conversation scope. */
   allowedWriteRoots?: string[];
   workspaceContext?: string;
+  /**
+   * Question-independent workspace overview (memory, tree, repo map). Sent once as the
+   * "## Workspace context" message before history so earlier turns do not replay it.
+   */
+  stableWorkspaceContext?: string;
   /** Text extracted from attachments (logs, code, docs). */
   attachmentContext?: string;
   cqrRoot: string;

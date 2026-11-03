@@ -2,6 +2,7 @@
 
 import { confirmDialog } from '../lib/confirmDialog';
 import { dismissUserNotification, showUserNotification } from '../lib/userNotifications';
+import { durableRemoveItem, durableSetItem } from '../lib/durableUiState';
 
 const SESSION_KEY = 'my-agent-workspace-session';
 const LEGACY_SESSION_KEY = 'cqr-workspace-session';
@@ -377,17 +378,17 @@ export function getStoredSessionId(): string | null {
   const stored = localStorage.getItem(SESSION_KEY);
   if (stored) return stored;
   const legacy = localStorage.getItem(LEGACY_SESSION_KEY);
-  if (legacy) localStorage.setItem(SESSION_KEY, legacy);
+  if (legacy) durableSetItem(SESSION_KEY, legacy);
   return legacy;
 }
 
 export function setStoredSessionId(id: string): void {
-  localStorage.setItem(SESSION_KEY, id);
+  durableSetItem(SESSION_KEY, id);
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 
 export function clearStoredSessionId(): void {
-  localStorage.removeItem(SESSION_KEY);
+  durableRemoveItem(SESSION_KEY);
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 
@@ -395,7 +396,7 @@ export function getPinnedSessionIds(): string[] {
   try {
     const stored = localStorage.getItem(PINNED_KEY);
     const legacy = stored === null ? localStorage.getItem(LEGACY_PINNED_KEY) : null;
-    if (legacy !== null) localStorage.setItem(PINNED_KEY, legacy);
+    if (legacy !== null) durableSetItem(PINNED_KEY, legacy);
     const raw = JSON.parse(stored ?? legacy ?? '[]');
     return Array.isArray(raw) ? raw.map(String) : [];
   } catch {
@@ -404,7 +405,7 @@ export function getPinnedSessionIds(): string[] {
 }
 
 export function setPinnedSessionIds(ids: string[]): void {
-  localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  durableSetItem(PINNED_KEY, JSON.stringify(ids));
   localStorage.removeItem(LEGACY_PINNED_KEY);
 }
 
@@ -626,7 +627,7 @@ export async function ensureSession(): Promise<string> {
   if (existing) {
     const check = await fetch(`/sessions/${encodeURIComponent(existing)}`);
     if (check.ok) return existing;
-    localStorage.removeItem(SESSION_KEY);
+    durableRemoveItem(SESSION_KEY);
   }
   return createSession();
 }
@@ -652,7 +653,7 @@ export async function createSessionRecord(
   if (!res.ok || !data.id) {
     throw new Error(data.message || data.error || '세션 실패 · API 확인');
   }
-  localStorage.setItem(SESSION_KEY, data.id);
+  durableSetItem(SESSION_KEY, data.id);
   const { workspace_root_project_id: rootId, ...rec } = data as SessionRecord & { workspace_root_project_id?: string | null };
   // Older cores omit the field: fall back to the tree lookup.
   const workspaceRootProjectId = rootId === undefined ? await resolveWorkspaceRootProjectId(projectId) : rootId;
@@ -667,7 +668,7 @@ export async function importSession(session: unknown, projectId: string | null =
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) throw new Error(data.message || data.error || '세션 가져오기 실패');
-  localStorage.setItem(SESSION_KEY, data.id);
+  durableSetItem(SESSION_KEY, data.id);
   return data as SessionSummary;
 }
 
@@ -1086,7 +1087,7 @@ export async function saveDefaultModelOverride(value: string): Promise<void> {
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`세션 삭제 실패 (${res.status})`);
-  if (localStorage.getItem(SESSION_KEY) === id) localStorage.removeItem(SESSION_KEY);
+  if (localStorage.getItem(SESSION_KEY) === id) durableRemoveItem(SESSION_KEY);
 }
 
 export async function archiveSession(id: string, archived: boolean): Promise<SessionSummary> {

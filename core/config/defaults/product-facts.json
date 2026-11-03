@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-30T08:01:22.725Z",
+  "generated_at": "2026-11-03T00:18:19.698Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 123,
+    "route_count": 125,
     "routes": [
       {
         "method": "GET",
@@ -244,6 +244,16 @@
       {
         "method": "PUT",
         "path": "/config/nas-consent",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/ui-state",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/ui-state",
         "match": "exact"
       },
       {
@@ -643,16 +653,6 @@
       },
       {
         "method": "GET",
-        "path": "/workspace/documents",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/workspace/documents",
-        "match": "exact"
-      },
-      {
-        "method": "PUT",
         "path": "/workspace/documents",
         "match": "exact"
       }

@@ -35,7 +35,9 @@ import type { EvidenceRecord } from './agent-evidence-types.js';
 import { formatEvidenceEnvelope } from './agent-evidence-store.js';
 import { TOKEN_EFFICIENCY_PRINCIPLES } from './agent-token-efficiency.js';
 import { UNTRUSTED_CONTENT_SYSTEM_RULE } from './untrusted-content.js';
-import { formatTurnContextMessage } from './agent-context-assembler.js';
+import { formatTurnContextMessage, formatWorkspaceContextMessage } from './agent-context-assembler.js';
+import { loadTurnContextRecords, turnContextKey } from './agent-turn-context-store.js';
+import type { SessionMessage } from '../sessions/types.js';
 
 const CODE_SNIPPET_MAX = 1200;
 
@@ -118,10 +120,12 @@ export function workspaceSnapshot(
   fullContext?: string,
   focusMessage?: string,
   cqrRoot?: string,
+  /** Stable overview sent in the Workspace context message (tree/repo map not repeated). */
+  presentContext?: string,
 ): string {
   const focus = focusMessage?.trim() ?? '';
   try {
-    return enrichWorkspaceIndexContext(
+    const enriched = enrichWorkspaceIndexContext(
       workspaceRoot,
       fullContext,
       focus,
@@ -129,8 +133,11 @@ export function workspaceSnapshot(
         repoMapMaxChars: 6_000,
         queryMaxChars: 3_500,
         cqrRoot,
+        presentContext,
       },
-    ) || buildDevWorkspaceContext(workspaceRoot, {}, {
+    );
+    if (presentContext?.trim()) return enriched;
+    return enriched || buildDevWorkspaceContext(workspaceRoot, {}, {
       tier: 'agent',
       focusMessage: focus || undefined,
       includeRepoMap: true,
@@ -219,24 +226,40 @@ export function buildAgentMessages(
         formatPatchFormatConstraints(),
         injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
-        injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace) : '',
-        formatMultimodalSystemNote(hasImages, hasAttach, false),
-        formatConversationImageCatalogNote(buildConversationImageCatalog(opts.history)),
+        // Message-dependent notes (UI path hints, multimodal, image catalog) live in the
+        // turn context below; in the system prefix they broke cross-question caching.
         '',
         useClientToolProtocol
           ? 'Protocol: TOOL_CALL JSON first line (see TOOL_CALL protocol note). No XML/<invoke>.'
           : '',
         // The query-dependent workspace snapshot is in the turn context message, keeping
         // this system prefix byte-identical across turns for provider prompt caching.
-        'Per-request workspace files, retrieval hits, active task and TODO ledger arrive in the "## Turn context" message before the latest user request.',
+        'The stable workspace overview (memory, folder tree, repository map) is in the "## Workspace context" message before the conversation history. Per-request retrieval hits, active task and TODO ledger arrive in the "## Turn context" message before the latest user request.',
       ]
         .filter(Boolean)
         .join('\n'),
     },
   ];
 
+  // Stable overview once, before history: replaying it with every earlier turn grew the
+  // history ~19k chars per question and kept tripping the compress threshold.
+  const stableWorkspace = opts.stableWorkspaceContext?.trim() ?? '';
+  if (stableWorkspace) {
+    messages.push({ role: 'user', content: formatWorkspaceContextMessage(stableWorkspace) });
+  }
+  // Replay each earlier turn's exact turn context + user content so a new question's
+  // prompt extends the previous request byte-for-byte (provider prompt cache prefix).
+  const sanitizedHistory = sanitizeHistoryForModel(opts.history ?? []);
+  const turnContexts = loadTurnContextRecords(opts.cqrRoot, opts.sessionId);
+  const historyWithReplay = turnContexts.size
+    ? sanitizedHistory.map((m, i) => {
+        if (m.role !== 'user') return m;
+        const rec = turnContexts.get(turnContextKey(sanitizedHistory[i - 1]?.at, m.content ?? ''));
+        return rec ? { ...m, model_context: rec.context, model_user: rec.user } : m;
+      })
+    : sanitizedHistory;
   for (const m of applyHistoryContentBudget(
-    sanitizeHistoryForModel(opts.history ?? []),
+    historyWithReplay as Array<SessionMessage & { model_context?: string; model_user?: string }>,
     process.env,
     buildSessionHistoryBudgetOpts({
       cqrRoot: opts.cqrRoot,
@@ -251,16 +274,33 @@ export function buildAgentMessages(
       },
     }),
   )) {
-    if (m.role === 'user' || m.role === 'assistant') {
+    if (m.role === 'user' && typeof m.model_context === 'string') {
+      messages.push({ role: 'user', content: m.model_context });
+      messages.push({ role: 'user', content: typeof m.model_user === 'string' ? m.model_user : m.content });
+    } else if (m.role === 'user' || m.role === 'assistant') {
       messages.push({ role: m.role, content: m.content });
     }
   }
+  const turnSnapshot = workspaceSnapshot(
+    opts.workspaceRoot,
+    opts.workspaceContext,
+    opts.userMessage,
+    opts.cqrRoot,
+    stableWorkspace || undefined,
+  ).trim();
   const turnContext = formatTurnContextMessage([
     AGENT_REPLY_LANGUAGE_REMINDER,
-    [
-      '### Workspace files (discovery context only; read concrete files before file-content claims)',
-      workspaceSnapshot(opts.workspaceRoot, opts.workspaceContext, opts.userMessage, opts.cqrRoot),
-    ].join('\n'),
+    injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace).trim() : '',
+    formatMultimodalSystemNote(hasImages, hasAttach, false),
+    formatConversationImageCatalogNote(buildConversationImageCatalog(opts.history)),
+    turnSnapshot
+      ? [
+          stableWorkspace
+            ? '### Request-scoped workspace hints (discovery context only; read concrete files before file-content claims)'
+            : '### Workspace files (discovery context only; read concrete files before file-content claims)',
+          turnSnapshot,
+        ].join('\n')
+      : '',
   ]);
   if (turnContext) messages.push(turnContext);
   messages.push({

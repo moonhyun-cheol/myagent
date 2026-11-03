@@ -290,12 +290,37 @@ export function buildWorkspaceContext(
   sessionId: string,
   mode: ChatMode,
 ): string {
-  const editor = buildEditorContextSnippet(req?.editor_context);
-  const parts: string[] = [];
-  const pinned = buildPinnedInstructionsContext(req);
-  if (pinned) parts.push(pinned);
-  if (editor) parts.push(editor);
   const focusMessage = typeof req?.message === 'string' ? req.message : undefined;
+  const { turn, stable } = buildWorkspaceContextParts(
+    configPath, sessionStore, projectStore, req, sessionId, mode, { focusMessage },
+  );
+  return [turn, stable].filter((p) => p).join('\n\n');
+}
+
+/**
+ * Same content as buildWorkspaceContext, split for prompt caching:
+ * - turn: request-scoped (pinned instructions, active editor file)
+ * - stable: memory, document note, folder tree, repo map, conversation location —
+ *   unchanged between questions, so the agent sends it once before history instead of
+ *   replaying it with every earlier turn. Omit focusMessage to keep the repo map stable.
+ */
+export function buildWorkspaceContextParts(
+  configPath: string,
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  req: ChatRequest | undefined,
+  sessionId: string,
+  mode: ChatMode,
+  opts: { focusMessage?: string } = {},
+): { turn: string; stable: string } {
+  const editor = buildEditorContextSnippet(req?.editor_context);
+  const turnParts: string[] = [];
+  const pinned = buildPinnedInstructionsContext(req);
+  if (pinned) turnParts.push(pinned);
+  if (editor) turnParts.push(editor);
+  const turn = turnParts.join('\n\n');
+  const parts: string[] = [];
+  const focusMessage = opts.focusMessage;
 
   // User memory (알잘딱): always attach when present, regardless of workspace scope.
   const memoryCtx = buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId);
@@ -304,7 +329,7 @@ export function buildWorkspaceContext(
   if (documentCtx) parts.push(documentCtx);
 
   if (!shouldAttachWorkspaceContext(configPath, sessionStore, projectStore, sessionId, mode)) {
-    return parts.join('\n\n');
+    return { turn, stable: parts.join('\n\n') };
   }
 
   const scope = resolveSessionContextScope(sessionStore, projectStore, sessionId);
@@ -332,5 +357,5 @@ export function buildWorkspaceContext(
     if (base.trim()) parts.push(base);
   }
 
-  return parts.join('\n\n');
+  return { turn, stable: parts.join('\n\n') };
 }

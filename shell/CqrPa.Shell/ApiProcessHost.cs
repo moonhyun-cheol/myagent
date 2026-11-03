@@ -25,6 +25,12 @@ public sealed class ApiProcessHost : IDisposable
 
     public int Port { get; private set; } = DefaultPort;
 
+    /// <summary>Why <see cref="Start"/> returned false (shown to the user and logged).</summary>
+    public string? LastStartFailure { get; private set; }
+
+    private StreamWriter? _stderrLog;
+    private readonly object _stderrGate = new();
+
     public ApiProcessHost(string root)
     {
         _root = root;
@@ -37,14 +43,20 @@ public sealed class ApiProcessHost : IDisposable
     {
         var script = Path.Combine(_root, "core", "dist", "main.js");
         if (!File.Exists(script))
+        {
+            LastStartFailure = $"파일 없음: {script}";
             return false;
+        }
 
         var decision = ResolveOwnedPort(script);
         Port = decision.Port;
         PersistRuntimePort(Port);
 
         if (decision.ReuseExisting)
+        {
+            ShellStartupLog.Write($"api: reusing running API on port {Port}");
             return true;
+        }
 
         if (decision.KillExisting)
         {
@@ -56,7 +68,10 @@ public sealed class ApiProcessHost : IDisposable
 
         var nodePath = Path.Combine(_root, "runtime", "node", "node.exe");
         if (!File.Exists(nodePath))
+        {
+            LastStartFailure = $"파일 없음: {nodePath}";
             return false;
+        }
 
         var psi = new ProcessStartInfo
         {
@@ -71,16 +86,72 @@ public sealed class ApiProcessHost : IDisposable
         psi.Environment["MY_AGENT_ROOT"] = _root;
         psi.Environment["CQR_API_PORT"] = Port.ToString();
 
-        _process = Process.Start(psi);
+        try
+        {
+            _process = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            LastStartFailure = $"Node 실행 실패: {ex.Message}";
+            ShellStartupLog.WriteException("api: node start failed", ex);
+            return false;
+        }
         _startedByShell = _process != null;
         if (_startedByShell && _process != null)
         {
+            OpenStderrLog();
+            var started = _process;
+            ShellStartupLog.Write($"api: started node pid={started.Id} port={Port}");
             _process.OutputDataReceived += (_, e) => { _ = e.Data; };
-            _process.ErrorDataReceived += (_, e) => { _ = e.Data; };
+            _process.ErrorDataReceived += (_, e) => AppendStderr(e.Data);
+            _process.EnableRaisingEvents = true;
+            _process.Exited += (_, _) =>
+            {
+                int? code = null;
+                try { code = started.ExitCode; } catch { /* unavailable */ }
+                ShellStartupLog.Write($"api: node pid={started.Id} exited code={code?.ToString() ?? "?"}");
+                AppendStderr($"[shell] node exited code={code?.ToString() ?? "?"}");
+            };
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
         }
+        else
+        {
+            LastStartFailure = "Node 프로세스를 만들지 못했습니다.";
+        }
         return _startedByShell;
+    }
+
+    /// <summary>
+    /// Node stderr used to be discarded, so a crashing API left nothing behind. Keep it in
+    /// <c>logs\api-stderr.log</c> (rotated at 1 MB) for support.
+    /// </summary>
+    private void OpenStderrLog()
+    {
+        try
+        {
+            var directory = Path.Combine(_root, "logs");
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "api-stderr.log");
+            ShellStartupLog.RotateIfLarge(path);
+            var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+            _stderrLog = new StreamWriter(stream, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
+            _stderrLog.WriteLine($"[shell] {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} api start port={Port}");
+        }
+        catch
+        {
+            _stderrLog = null;
+        }
+    }
+
+    private void AppendStderr(string? line)
+    {
+        if (line is null) return;
+        lock (_stderrGate)
+        {
+            try { _stderrLog?.WriteLine(line); }
+            catch { /* diagnostics are best effort */ }
+        }
     }
 
     public bool WaitForHealth(TimeSpan timeout)
@@ -138,6 +209,25 @@ public sealed class ApiProcessHost : IDisposable
             if (port > 65535) break;
             if (TryOwnPort(port, listening, distMtimeMs, out owned))
                 return owned;
+        }
+
+        // Sticky origin: the workspace UI runs at http://127.0.0.1:{port}/ and WebView2
+        // scopes localStorage (pinned chats, active chat, composer prefs) per origin.
+        // Right after an update the previous node listener may still be releasing its
+        // socket; hopping to the next free port then silently "resets" those settings.
+        // Prefer the last-used port, then the manifest port, and wait for a dying
+        // node listener to release it before searching for another port.
+        var sticky = new List<int>();
+        if (recorded is int lastPort) sticky.Add(lastPort);
+        if (!sticky.Contains(preferred)) sticky.Add(preferred);
+        foreach (var port in sticky)
+        {
+            if (port != preferred && port == ActivationServerDefaultPort)
+                continue;
+            if (listening.Contains(port) && !WaitForNodeListenerRelease(port, TimeSpan.FromSeconds(10)))
+                continue;
+            if (CanBindLoopback(port))
+                return new PortDecision(port, ReuseExisting: false, KillExisting: false, VersionMismatch: false);
         }
 
         for (var offset = 0; offset < SearchWindow; offset++)
@@ -384,6 +474,40 @@ public sealed class ApiProcessHost : IDisposable
         Thread.Sleep(400);
     }
 
+    /// <summary>
+    /// Waits only while the port is held by node processes (e.g. the previous API that is
+    /// shutting down). A foreign non-node listener returns false immediately.
+    /// </summary>
+    private static bool WaitForNodeListenerRelease(int port, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            var pids = FindListeningPids(port);
+            if (pids.Count == 0)
+                return true;
+            if (!pids.All(IsNodeProcess))
+                return false;
+            if (DateTime.UtcNow >= deadline)
+                return false;
+            Thread.Sleep(250);
+        }
+    }
+
+    private static bool IsNodeProcess(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return process.ProcessName.Equals("node", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Already exited: treat as releasing.
+            return true;
+        }
+    }
+
     private static bool WaitForPortFree(int port, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
@@ -436,5 +560,10 @@ public sealed class ApiProcessHost : IDisposable
             try { _process.Kill(entireProcessTree: true); } catch { /* ignore */ }
         }
         _process?.Dispose();
+        lock (_stderrGate)
+        {
+            try { _stderrLog?.Dispose(); } catch { /* ignore */ }
+            _stderrLog = null;
+        }
     }
 }

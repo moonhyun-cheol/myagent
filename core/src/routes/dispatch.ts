@@ -29,6 +29,13 @@ import {
   type UserMcpServerConfig,
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
+import {
+  applyUiStatePatch,
+  loadUiState,
+  uiStatePath,
+  UiStateError,
+  validateUiStatePatch,
+} from '../config/ui-state-store.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import {
   AgentProfileError,
@@ -1525,6 +1532,25 @@ export async function dispatchApiRequest(
           cqrRoot,
         });
         return sendJson(res, 200, payload);
+      }
+
+      // WebView preferences mirrored to data/ so a changed API port (new localStorage origin)
+      // does not reset pins, the active chat, or app preferences.
+      if (method === 'GET' && url.pathname === '/config/ui-state') {
+        const doc = loadUiState(uiStatePath(userConfigPath));
+        return sendJson(res, 200, { entries: doc.entries, removed: doc.removed, updated_at: doc.updated_at ?? null });
+      }
+
+      if (method === 'PUT' && url.pathname === '/config/ui-state') {
+        let patch;
+        try {
+          patch = validateUiStatePatch(JSON.parse(await readBody(req)));
+        } catch (err) {
+          if (err instanceof UiStateError) return sendJson(res, 400, { error: err.code, message: err.message });
+          return sendJson(res, 400, { error: 'UI_STATE_BODY_INVALID', message: 'JSON body required.' });
+        }
+        const doc = applyUiStatePatch(uiStatePath(userConfigPath), patch, cqrRoot);
+        return sendJson(res, 200, { ok: true, updated_at: doc.updated_at ?? null });
       }
 
       if (method === 'PUT' && url.pathname === '/models/company-selection') {

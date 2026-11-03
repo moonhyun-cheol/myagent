@@ -468,6 +468,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            ShellStartupLog.WriteException("workspace: load failed", ex);
             StartupProgress.Visibility = Visibility.Collapsed;
             StartupRetryButton.Visibility = Visibility.Visible;
             StartupStatusText.Text = $"시작하지 못했습니다. {ex.Message}";

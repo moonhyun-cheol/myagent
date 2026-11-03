@@ -1,3 +1,5 @@
+import { durableSetItem } from './durableUiState';
+
 export const MINIMIZE_TO_TRAY_STORAGE_KEY = 'myagent.minimize-to-tray-on-close';
 export const UPDATE_AUTO_CHECK_STORAGE_KEY = 'myagent.update-auto-check';
 export const UPDATE_POLL_INTERVAL_STORAGE_KEY = 'myagent.update-poll-interval-ms';
@@ -51,19 +53,19 @@ export function syncUpdateSettings(
 }
 
 export function saveMinimizeToTrayOnClose(enabled: boolean): void {
-  window.localStorage.setItem(MINIMIZE_TO_TRAY_STORAGE_KEY, String(enabled));
+  durableSetItem(MINIMIZE_TO_TRAY_STORAGE_KEY, String(enabled));
   syncMinimizeToTrayOnClose(enabled);
   window.dispatchEvent(new CustomEvent(APP_PREFERENCES_CHANGED_EVENT));
 }
 
 export function saveUpdateAutoCheckEnabled(enabled: boolean): void {
-  window.localStorage.setItem(UPDATE_AUTO_CHECK_STORAGE_KEY, String(enabled));
+  durableSetItem(UPDATE_AUTO_CHECK_STORAGE_KEY, String(enabled));
   syncUpdateSettings(enabled, loadUpdatePollIntervalMs());
   window.dispatchEvent(new CustomEvent(APP_PREFERENCES_CHANGED_EVENT));
 }
 
 export function saveUpdatePollIntervalMs(ms: number): void {
-  window.localStorage.setItem(UPDATE_POLL_INTERVAL_STORAGE_KEY, String(ms));
+  durableSetItem(UPDATE_POLL_INTERVAL_STORAGE_KEY, String(ms));
   syncUpdateSettings(loadUpdateAutoCheckEnabled(), ms);
   window.dispatchEvent(new CustomEvent(APP_PREFERENCES_CHANGED_EVENT));
 }

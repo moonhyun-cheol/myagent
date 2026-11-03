@@ -19,6 +19,38 @@ internal static class ProductProcessStop
             StopNodeListeners(root, log);
             WaitForExit(root, TimeSpan.FromSeconds(10), log);
         }
+        WaitForApiPortRelease(root, TimeSpan.FromSeconds(10), log);
+    }
+
+    /// <summary>
+    /// The restarted shell must get the same API port: the WebView origin
+    /// (http://127.0.0.1:{port}) owns localStorage such as pinned chats and the active chat.
+    /// </summary>
+    private static void WaitForApiPortRelease(string root, TimeSpan timeout, Action<string> log)
+    {
+        var port = ReadListeningPort(root);
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var holders = FindListeningPids(port);
+            if (holders.Count == 0) return;
+            if (!holders.All(IsNodeProcess)) return;
+            Thread.Sleep(200);
+        }
+        log($"API port {port} was still held by node after {timeout.TotalSeconds:0}s.");
+    }
+
+    private static bool IsNodeProcess(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return process.ProcessName.Equals("node", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     private static void WaitForParentGracefully(int? parentPid, Action<string> log)

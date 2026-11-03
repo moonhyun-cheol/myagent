@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { loadHarnessPolicy } from '../providers/harness-policy.js';
 import {
   buildContextBudgetSnapshot,
@@ -19,10 +20,23 @@ export type CompressTelemetry = {
   pinnedFactCount: number;
 };
 
+export type FoldNoteStore = {
+  load(key: string): { sig: string; content: string } | null;
+  save(key: string, sig: string, content: string): void;
+};
+
 export type HistoryBudgetOpts = {
   modelId?: string | null;
   pinnedFacts?: string[];
   debit?: BudgetDebitOpts;
+  /**
+   * Conversation key (session id). While the fold boundary and folded messages are
+   * unchanged, the same fold note is reused even if pinned facts changed meanwhile,
+   * so the history head stays byte-identical for provider prompt caching.
+   */
+  foldNoteKey?: string;
+  /** Durable fold-note store so the reused note survives an app restart. */
+  foldNoteStore?: FoldNoteStore;
   onCompress?: (t: CompressTelemetry) => void;
   onSnapshot?: (s: ContextBudgetSnapshot) => void;
 };
@@ -48,8 +62,45 @@ export function getHistoryAssistantMaxChars(
 
 function totalHistoryChars(messages: Array<{ content?: string }>): number {
   let n = 0;
-  for (const m of messages) n += String(m.content ?? '').length;
+  for (const m of messages) {
+    n += String(m.content ?? '').length;
+    // Replayed per-turn context (agent-turn-context-store) also occupies the window.
+    const replay = (m as { model_context?: unknown }).model_context;
+    if (typeof replay === 'string') n += replay.length;
+  }
   return n;
+}
+
+/**
+ * Fold boundary granularity. The fold note heads the history, so a boundary that
+ * moved on every turn rewrote the whole cached prefix. Folding in fixed steps keeps
+ * the note byte-identical for several turns so provider prompt caches can hit.
+ */
+export const HISTORY_FOLD_STEP = 20;
+
+const FOLD_NOTE_CACHE_MAX = 200;
+const foldNoteCache = new Map<string, { sig: string; content: string }>();
+
+function foldSignature(head: Array<{ role: string; content: string }>): string {
+  const h = createHash('sha256');
+  h.update(String(head.length));
+  for (const m of head) {
+    h.update('\u0000');
+    h.update(m.role);
+    h.update('\u0001');
+    h.update(String(m.content ?? ''));
+  }
+  return h.digest('hex');
+}
+
+function rememberFoldNote(key: string, sig: string, content: string): void {
+  foldNoteCache.delete(key);
+  foldNoteCache.set(key, { sig, content });
+  while (foldNoteCache.size > FOLD_NOTE_CACHE_MAX) {
+    const oldest = foldNoteCache.keys().next().value;
+    if (oldest === undefined) break;
+    foldNoteCache.delete(oldest);
+  }
 }
 
 function excerptForRole(role: string, content: string): string {
@@ -123,8 +174,32 @@ export function applyHistoryContextCompress<T extends { role: string; content: s
     return messages;
   }
 
-  const head = messages.slice(0, -keepRecent);
-  const tail = messages.slice(-keepRecent);
+  const rawFold = messages.length - keepRecent;
+  // Fixed steps only; before the first full step fold one fixed step (keeping at least
+  // two recent messages) instead of a boundary that moves on every turn.
+  const foldCount = rawFold >= HISTORY_FOLD_STEP
+    ? Math.floor(rawFold / HISTORY_FOLD_STEP) * HISTORY_FOLD_STEP
+    : Math.max(rawFold, Math.min(HISTORY_FOLD_STEP, messages.length - 2));
+  const head = messages.slice(0, foldCount);
+  const tail = messages.slice(foldCount);
+  const sig = opts?.foldNoteKey ? foldSignature(head) : '';
+  let cachedNote = opts?.foldNoteKey ? foldNoteCache.get(opts.foldNoteKey) : undefined;
+  if (opts?.foldNoteKey && (!cachedNote || cachedNote.sig !== sig) && opts.foldNoteStore) {
+    try {
+      const stored = opts.foldNoteStore.load(opts.foldNoteKey);
+      if (stored && stored.sig === sig) {
+        cachedNote = stored;
+        rememberFoldNote(opts.foldNoteKey, stored.sig, stored.content);
+      }
+    } catch {
+      /* store is best-effort */
+    }
+  }
+  if (cachedNote && cachedNote.sig === sig) {
+    const out = [{ role: 'user', content: cachedNote.content } as T, ...tail];
+    emit(true, head.length, out);
+    return out;
+  }
   const lines: string[] = [
     `[history compress · ${head.length} earlier turns folded]`,
   ];
@@ -147,6 +222,14 @@ export function applyHistoryContextCompress<T extends { role: string; content: s
     role: 'user',
     content: lines.join('\n'),
   } as T;
+  if (opts?.foldNoteKey) {
+    rememberFoldNote(opts.foldNoteKey, sig, note.content);
+    try {
+      opts.foldNoteStore?.save(opts.foldNoteKey, sig, note.content);
+    } catch {
+      /* store is best-effort */
+    }
+  }
   const out = [note, ...tail];
   emit(true, head.length, out);
   return out;

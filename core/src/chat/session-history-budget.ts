@@ -6,7 +6,33 @@ import {
   recordSessionContextBudget,
   appendSessionPinnedFacts,
 } from '../agent/agent-run-meta.js';
-import type { BudgetDebitOpts, HistoryBudgetOpts } from './history-budget.js';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import type { BudgetDebitOpts, FoldNoteStore, HistoryBudgetOpts } from './history-budget.js';
+
+/** data/agent-run-meta/<session>.fold-note.json — keeps the fold note byte-stable across restarts. */
+function fileFoldNoteStore(cqrRoot: string): FoldNoteStore {
+  const dir = path.join(cqrRoot, 'data', 'agent-run-meta');
+  const fileFor = (key: string) =>
+    path.join(dir, `${key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'default'}.fold-note.json`);
+  return {
+    load(key) {
+      const fp = fileFor(key);
+      if (!existsSync(fp)) return null;
+      const raw = JSON.parse(readFileSync(fp, 'utf8')) as { sig?: unknown; content?: unknown };
+      return typeof raw.sig === 'string' && typeof raw.content === 'string'
+        ? { sig: raw.sig, content: raw.content }
+        : null;
+    },
+    save(key, sig, content) {
+      mkdirSync(dir, { recursive: true });
+      const fp = fileFor(key);
+      const tmp = `${fp}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ sig, content }), 'utf8');
+      renameSync(tmp, fp);
+    },
+  };
+}
 
 /** Extract short pin candidates from a user message (paths / explicit markers). */
 export function extractPinCandidatesFromMessage(message: string): string[] {
@@ -39,6 +65,8 @@ export function buildSessionHistoryBudgetOpts(input: {
     modelId: input.modelId,
     pinnedFacts: pins,
     debit: input.debit,
+    foldNoteKey: input.sessionId,
+    foldNoteStore: input.sessionId ? fileFoldNoteStore(input.cqrRoot) : undefined,
     onSnapshot: (s) => {
       recordSessionContextBudget(input.cqrRoot, input.sessionId, {
         at: new Date().toISOString(),

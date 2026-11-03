@@ -109,6 +109,8 @@ import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
+import { lastTurnContextIndex } from './agent-context-assembler.js';
+import { saveTurnContextRecord, turnContextKey } from './agent-turn-context-store.js';
 import {
   detectModelSwitch,
   formatModelSwitchTurnNote,
@@ -692,6 +694,20 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
         content: note,
       });
       sysInsertAt += 1;
+    }
+  }
+  // Record the exact first-request turn context + user content so the next question can
+  // replay them and extend this request's prefix (provider prompt cache hit).
+  {
+    const ctxAt = lastTurnContextIndex(messages);
+    const ctx = ctxAt >= 0 ? messages[ctxAt] : undefined;
+    const lastUser = messages[messages.length - 1];
+    if (ctx && typeof ctx.content === 'string' && lastUser?.role === 'user') {
+      saveTurnContextRecord(opts.cqrRoot, opts.sessionId, {
+        key: turnContextKey(opts.history?.[opts.history.length - 1]?.at, opts.userMessage ?? ''),
+        context: ctx.content,
+        ...(typeof lastUser.content === 'string' ? { user: lastUser.content } : {}),
+      });
     }
   }
   const toolsUsedThisRun = new Set<string>();
