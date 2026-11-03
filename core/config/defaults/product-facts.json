@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-11-03T03:29:27.156Z",
+  "generated_at": "2026-11-03T05:44:38.454Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 126,
+    "route_count": 127,
     "routes": [
       {
         "method": "GET",
@@ -568,6 +568,11 @@
       },
       {
         "method": "GET",
+        "path": "/runtime/problem-history",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
         "path": "/sessions",
         "match": "exact"
       },
@@ -649,11 +654,6 @@
       {
         "method": "GET",
         "path": "/workspace/checkpoint/preview",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/workspace/checkpoint/rollback",
         "match": "exact"
       }
     ]
