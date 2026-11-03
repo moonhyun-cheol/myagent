@@ -224,12 +224,11 @@ function formatOpenClawResult(
       ? String(adapterBody.reason_code).trim()
       : '';
     const lines = [
-      '**OpenClaw Adapter 실행 실패**',
-      '',
-      `- tool: \`${toolId}\``,
-      `- status: **${status}**`,
-      ...(reason ? [`- reason: \`${reason}\``] : []),
-      `- detail: ${detail}`,
+      '- 실행 경로: OpenClaw Adapter',
+      `- 명령 ID: \`${toolId}\``,
+      `- 상태: ${status}`,
+      ...(reason ? [`- 사유 코드: \`${reason}\``] : []),
+      `- 상세: ${detail}`,
     ];
     if (reason === 'INGRESS_LANE_NOT_ALLOWED') {
       lines.push(
@@ -392,7 +391,7 @@ export async function dispatchAutomatonToolRemote(
         'OpenClaw Adapter token missing and bootstrap root/vault unavailable',
       );
     }
-    options?.onStatus?.('OpenClaw 장치 토큰 bootstrap 중…');
+    options?.onStatus?.('상태: 장치 인증 중');
     const boot = await ensureOpenClawDeviceToken({
       cqrRoot,
       vaultDir,
@@ -457,7 +456,7 @@ export async function dispatchAutomatonToolRemote(
       token_refs: [],
       gate_command_context: signGateCommandContext(gatePayload, activeCfg.signingPrivateKeyHex),
     };
-    options?.onStatus?.('OpenClaw Adapter (:8790) 요청 중…');
+    options?.onStatus?.('상태: 요청 전송 중');
   }
 
   options?.onThought?.(`request_id=${built.requestId} tool=${matchedTool} url=${url}`);

@@ -231,7 +231,46 @@ function collectUserArtifacts(
   return candidates;
 }
 
-/** Generic manifest-driven response renderer shared by every Automation command. */
+function fieldLabel(contract: AutomatonResponseContract, fieldPath: string): string {
+  const explicit = contract.field_labels?.[fieldPath]?.trim();
+  if (explicit) return explicit;
+  const segments = fieldPath.split('.').filter(Boolean);
+  return segments[segments.length - 1] || fieldPath;
+}
+
+function formatContractFieldLines(
+  envelope: Record<string, unknown>,
+  deep: Record<string, unknown>,
+  contract: AutomatonResponseContract,
+): string[] {
+  const lines: string[] = [];
+  for (const field of contract.fields ?? []) {
+    const value = responseField(envelope, deep, field);
+    if (value == null || typeof value === 'object') continue;
+    const text = String(value).trim();
+    if (!text) continue;
+    lines.push(`- ${fieldLabel(contract, field)}: ${text}`);
+  }
+  return lines;
+}
+
+function formatFileSection(artifacts: UserArtifact[]): string[] {
+  if (!artifacts.length) return [];
+  return ['결과 파일', ...artifacts.map((artifact) => `- [${artifact.name}](${artifact.location})`)];
+}
+
+function joinSections(...sections: string[][]): string {
+  return sections
+    .filter((section) => section.length > 0)
+    .map((section) => section.join('\n'))
+    .join('\n\n');
+}
+
+/**
+ * Generic manifest-driven response renderer shared by every Automation command.
+ * Output is data only (fields, files, script/adapter message verbatim); the chat
+ * frame adds the fixed "<label> 완료" header. No summarising or interpretation.
+ */
 export function formatAutomatonEnvelopeWithContract(
   toolId: string,
   envelope: Record<string, unknown>,
@@ -239,7 +278,6 @@ export function formatAutomatonEnvelopeWithContract(
   descriptionKo = toolId,
 ): string | null {
   const deep = pickAutomatonDeepResult(envelope);
-  const label = contract.label_ko?.trim() || descriptionKo.trim() || toolId;
 
   if (contract.profile === 'auto') return null;
   if (contract.profile === 'discord') {
@@ -254,34 +292,34 @@ export function formatAutomatonEnvelopeWithContract(
       descriptionKo,
     );
   }
-  if (contract.profile === 'status') return `${label} 작업을 완료했습니다.`;
+
+  const fieldLines = formatContractFieldLines(envelope, deep, contract);
+  const fileLines = formatFileSection(collectUserArtifacts(envelope, contract.allowed_extensions));
+
+  if (contract.profile === 'status') {
+    return joinSections(fieldLines.length ? fieldLines : ['- 상태: 완료'], fileLines);
+  }
 
   if (contract.profile === 'files') {
-    const artifacts = collectUserArtifacts(envelope, contract.allowed_extensions);
-    if (!artifacts.length) return `${label} 작업은 끝났지만 전달할 최종 파일을 확인하지 못했습니다.`;
-    return [
-      `${label} 작업을 완료했습니다.`,
-      '',
-      '첨부 파일:',
-      ...artifacts.map((artifact) => `- [${artifact.name}](${artifact.location})`),
-    ].join('\n');
+    return joinSections(fieldLines, fileLines.length ? fileLines : ['- 결과 파일: 확인되지 않음']);
   }
 
   if (contract.profile === 'quantity') {
     const qtyPath = contract.fields?.[0] || 'qty';
     const qty = responseField(envelope, deep, qtyPath);
-    if (qty == null || String(qty).trim() === '') return `${label} 수량을 확인하지 못했습니다.`;
-    return `${label}는 ${String(qty).trim()}개입니다.`;
+    const qtyLabel = contract.field_labels?.[qtyPath]?.trim() || '수량';
+    if (qty == null || String(qty).trim() === '') return `- ${qtyLabel}: 확인되지 않음`;
+    return `- ${qtyLabel}: ${String(qty).trim()}개`;
   }
 
+  // text: declared fields first; otherwise the script/adapter message verbatim.
+  if (fieldLines.length) return joinSections(fieldLines, fileLines);
   const narrative = pickAutomatonUserFacingText(envelope);
-  if (narrative) return narrative;
-  const values = (contract.fields ?? [])
-    .map((field) => [field, responseField(envelope, deep, field)] as const)
-    .filter(([, value]) => value != null && String(value).trim() !== '');
-  if (values.length) return values.map(([field, value]) => `${field}: ${String(value).trim()}`).join('\n');
-  return `${label} 작업은 끝났지만 전달할 결과 본문을 확인하지 못했습니다.`;
+  if (narrative) return joinSections([narrative], fileLines);
+  return joinSections(['- 결과 본문: 확인되지 않음'], fileLines);
 }
+
+const AUTOMATON_FAILED_STATUSES = new Set(['failed', 'error', 'denied']);
 
 export function formatAutomatonEnvelope(
   toolId: string,
@@ -316,7 +354,8 @@ export function formatAutomatonEnvelope(
   }
 
   const tool = getAutomatonToolEntry(toolId, cqrRoot);
-  if (tool?.response) {
+  const failedStatus = AUTOMATON_FAILED_STATUSES.has(status.trim().toLowerCase());
+  if (tool?.response && !failedStatus) {
     const contracted = formatAutomatonEnvelopeWithContract(
       toolId,
       envelope,
@@ -347,7 +386,7 @@ export function formatAutomatonEnvelope(
         : status;
 
   const lines = [
-    `**my_live_automaton 실행 완료** (\`${toolId}\`)`,
+    `**my_live_automaton 실행 ${failedStatus ? '실패' : '완료'}** (\`${toolId}\`)`,
     '',
     `- status: **${titleStatus}**`,
   ];

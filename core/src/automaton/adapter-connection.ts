@@ -146,15 +146,11 @@ export function formatAdapterProgressMessage(
           : status === 'failed' || status === 'denied' || status === 'error'
             ? (progress.failed_text || '실패')
             : (progress.running_text || '진행 중');
-  // Progress status only — no hub/delivery explainer copy.
-  const lines = [
-    `접수: \`${opts.commandText.trim() || '(명령)'}\``,
-    '',
-    `상태: **${label}**`,
-  ];
+  // Status lines only; the chat frame already shows the label + command text.
+  const lines = [`상태: ${label}`];
   const stage = opts.stageMessage?.trim();
-  if (stage && stage !== label) lines.push(stage);
-  if (opts.errorMessage?.trim()) lines.push(opts.errorMessage.trim());
+  if (stage && stage !== label) lines.push(`단계: ${stage}`);
+  if (opts.errorMessage?.trim()) lines.push(`오류: ${opts.errorMessage.trim()}`);
   return lines.join('\n');
 }
 

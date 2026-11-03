@@ -27,26 +27,88 @@ export function buildAutomatonAckContent(
     nopsUserId?: string;
     requestId?: string;
     response?: AutomatonResponseContract;
+    /** Korean task label (manifest response.label_ko → description_ko). */
+    label?: string;
   },
 ): string {
-  const commandId = opts?.response?.ack?.command_id?.trim() || toolId?.trim() || 'unknown';
   const requestId = opts?.requestId?.trim() || 'unknown';
-  const lines = [
-    '처리 접수 완료',
-    `- command: ${commandId}`,
-  ];
+  const info: AutomatonFrameInfo = {
+    label: resolveAutomatonLabel(toolId, opts?.response, opts?.label),
+    commandText,
+    requestId,
+  };
+  const lines = [frameHeader(info, '접수')];
   const batch = opts?.response?.batch;
   const count = batch?.supported ? commaBatchCount(commandText) : 1;
   if (batch?.supported && count > 1) {
     const cap = batch.cap == null ? '무제한' : `${batch.cap}건`;
-    lines.push(`- batch: ${count}건 (한 번에 실행, 상한 ${cap})`);
+    lines.push(`- 처리 건수: ${count}건 일괄 실행 (상한 ${cap})`);
     const hint = opts?.response?.ack?.batch_time_hint?.trim();
-    if (hint) lines.push(`- ${count}건 배치 접수 · 완료까지 ${hint} 소요될 수 있습니다.`);
+    if (hint) lines.push(`- 예상 소요: ${hint}`);
   }
   lines.push(
-    `- request_id: \`${requestId}\``,
-    '작업이 길어질 수 있어 백그라운드에서 실행합니다.',
-    '결과가 준비되면 이 채널로 안내됩니다.',
+    `- 요청 번호: \`${requestId}\``,
+    '',
+    '백그라운드에서 실행합니다. 진행 상황과 결과는 이 대화에 표시됩니다.',
   );
   return lines.join('\n');
+}
+
+/** Fixed identity shown on every message of one background command (no model wording). */
+export interface AutomatonFrameInfo {
+  label: string;
+  commandText: string;
+  requestId: string;
+}
+
+export function resolveAutomatonLabel(
+  toolId: string | undefined,
+  response?: AutomatonResponseContract,
+  descriptionKo?: string,
+): string {
+  return response?.label_ko?.trim() || descriptionKo?.trim() || toolId?.trim() || '업무 명령';
+}
+
+function frameHeader(info: AutomatonFrameInfo, state: string): string {
+  const command = info.commandText.trim().replace(/`/g, "'") || '(명령)';
+  return `**${info.label} ${state}** (\`${command}\`)`;
+}
+
+function asBullets(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => (line.startsWith('- ') ? line : `- ${line}`));
+}
+
+/** Progress update: replaces the ACK in place. statusText lines become bullets. */
+export function formatAutomatonProgressFrame(info: AutomatonFrameInfo, statusText: string): string {
+  return [
+    frameHeader(info, '진행 중'),
+    ...asBullets(statusText),
+    `- 요청 번호: \`${info.requestId}\``,
+  ].join('\n');
+}
+
+/** Final success message. body comes verbatim from the manifest response renderer. */
+export function formatAutomatonCompletedFrame(info: AutomatonFrameInfo, body: string): string {
+  return [
+    frameHeader(info, '완료'),
+    '',
+    body.trim() || '- 상태: 완료',
+    '',
+    `요청 번호: \`${info.requestId}\``,
+  ].join('\n');
+}
+
+/** Final failure message. body is the deterministic error renderer output. */
+export function formatAutomatonFailedFrame(info: AutomatonFrameInfo, body: string): string {
+  return [
+    frameHeader(info, '실패'),
+    '',
+    body.trim() || '- 상태: 실패',
+    '',
+    `요청 번호: \`${info.requestId}\``,
+  ].join('\n');
 }

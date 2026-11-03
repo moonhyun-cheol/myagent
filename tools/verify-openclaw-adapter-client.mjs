@@ -140,8 +140,36 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     { profile: 'quantity', fields: ['qty'] },
     '미국 샘플 재고',
   );
-  assert.equal(quantity, '미국 샘플 재고는 12개입니다.');
+  assert.equal(quantity, '- 수량: 12개');
   assert.doesNotMatch(quantity, /json|internal|artifact/i);
+
+  const labeledFields = formatAutomatonEnvelopeWithContract(
+    'us_sample_stock_lookup',
+    {
+      status: 'ok',
+      result: {
+        output: {
+          summary: '스크립트 요약 본문',
+          result: { qty: 4, stock_label: 'A스탁', form_fields: { SKU: 'KR05091' } },
+        },
+      },
+    },
+    {
+      profile: 'text',
+      fields: ['stock_label', 'form_fields.SKU', 'qty', 'matched_date'],
+      field_labels: { stock_label: '스탁', 'form_fields.SKU': 'SKU', qty: '수량' },
+    },
+    '미국샘플재고',
+  );
+  assert.equal(labeledFields, ['- 스탁: A스탁', '- SKU: KR05091', '- 수량: 4'].join('\n'));
+
+  const narrativeOnly = formatAutomatonEnvelopeWithContract(
+    'model_genealogy',
+    { status: 'ok', result: { output: { summary: 'TXP441 -> TXP442' } } },
+    { profile: 'text' },
+    '모델가계도',
+  );
+  assert.equal(narrativeOnly, 'TXP441 -> TXP442');
 
   const files = formatAutomatonEnvelopeWithContract(
     'downloadtable_po_review',
@@ -158,8 +186,7 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     { profile: 'files', allowed_extensions: ['.xlsx'] },
     '발주검토자료',
   );
-  assert.match(files, /작업을 완료했습니다/);
-  assert.match(files, /review\.xlsx/);
+  assert.equal(files, ['결과 파일', '- [최종 발주검토](C:/output/review.xlsx)'].join('\n'));
   assert.doesNotMatch(files, /debug\.json|run\.xlsx/);
 
   const missingFile = formatAutomatonEnvelopeWithContract(
@@ -168,8 +195,15 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     { profile: 'files', allowed_extensions: ['.xlsx'] },
     '발주검토자료',
   );
-  assert.match(missingFile, /최종 파일을 확인하지 못했습니다/);
-  assert.doesNotMatch(missingFile, /작업을 완료했습니다/);
+  assert.equal(missingFile, '- 결과 파일: 확인되지 않음');
+
+  const failedWithContract = formatAutomatonEnvelope('organization-tool', {
+    status: 'failed',
+    reason_code: 'X_FAIL',
+    result: { status: 'failed' },
+  });
+  assert.match(failedWithContract, /실행 실패/);
+  assert.match(failedWithContract, /X_FAIL/);
 }
 
 {
@@ -178,7 +212,9 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
     'utf8',
   );
   assert.match(orchestratorSource, /responseProfile\s*!==\s*'auto'/);
-  assert.match(orchestratorSource, /publishStatus\(result\.content\)/);
+  assert.match(orchestratorSource, /formatAutomatonCompletedFrame\(frame/);
+  assert.match(orchestratorSource, /formatAutomatonFailedFrame\(frame/);
+  assert.match(orchestratorSource, /onStatus:\s*publishProgress/);
 }
 
 {
@@ -226,6 +262,9 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
   } = await import('../core/dist/automaton/adapter-connection.js');
   const {
     buildAutomatonAckContent,
+    formatAutomatonCompletedFrame,
+    formatAutomatonFailedFrame,
+    formatAutomatonProgressFrame,
     formatUnsupportedAutomatonBatch,
   } = await import('../core/dist/automaton/automaton-ack.js');
 
@@ -242,14 +281,22 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
       commandText: '/발주검토자료 CRGO_PT',
       status: 'queued',
     });
-    assert.match(progress, /명령어 접수|접수:/);
-    assert.match(progress, /상태:/);
+    assert.equal(progress, '상태: 명령어 접수');
+    assert.equal(
+      formatAdapterProgressMessage(conn, {
+        commandText: '/발주검토자료 CRGO_PT',
+        status: 'running',
+        stageMessage: '데이터 추출',
+      }),
+      '상태: 진행 중\n단계: 데이터 추출',
+    );
     assert.doesNotMatch(progress, /중앙 허브/);
     assert.doesNotMatch(progress, /전달 경로/);
     assert.doesNotMatch(progress, /쪽지 수신자/);
     const requestId = '7d722b55-3788-4514-b50e-9fc4ef6878ac';
     const ack = buildAutomatonAckContent('/발주검토자료 CRGO_PT, TAC_BOONIE', 'downloadtable_po_review', {
       requestId,
+      label: '발주검토자료',
       response: {
         profile: 'discord',
         template_id: 'po-review',
@@ -263,15 +310,46 @@ const { writeOpenClawAdapterVault } = await import('../core/dist/automaton/openc
       },
     });
     assert.equal(ack, [
-      '처리 접수 완료',
-      '- command: downloadtable_po_review',
-      '- batch: 2건 (한 번에 실행, 상한 무제한)',
-      '- 2건 배치 접수 · 완료까지 수 분 이상 (데이터 범위에 따라 달라질 수 있음) 소요될 수 있습니다.',
-      `- request_id: \`${requestId}\``,
-      '작업이 길어질 수 있어 백그라운드에서 실행합니다.',
-      '결과가 준비되면 이 채널로 안내됩니다.',
+      '**발주검토자료 접수** (`/발주검토자료 CRGO_PT, TAC_BOONIE`)',
+      '- 처리 건수: 2건 일괄 실행 (상한 무제한)',
+      '- 예상 소요: 수 분 이상 (데이터 범위에 따라 달라질 수 있음)',
+      `- 요청 번호: \`${requestId}\``,
+      '',
+      '백그라운드에서 실행합니다. 진행 상황과 결과는 이 대화에 표시됩니다.',
     ].join('\n'));
     assert.doesNotMatch(ack, /중앙 허브|전달 경로|쪽지 수신자|상태:/);
+
+    const info = { label: '발주검토자료', commandText: '/발주검토자료 CRGO_PT', requestId };
+    assert.equal(
+      formatAutomatonProgressFrame(info, '상태: 진행 중\n단계: 데이터 추출'),
+      [
+        '**발주검토자료 진행 중** (`/발주검토자료 CRGO_PT`)',
+        '- 상태: 진행 중',
+        '- 단계: 데이터 추출',
+        `- 요청 번호: \`${requestId}\``,
+      ].join('\n'),
+    );
+    assert.equal(
+      formatAutomatonCompletedFrame(info, '결과 파일\n- [a.xlsx](C:/a.xlsx)'),
+      [
+        '**발주검토자료 완료** (`/발주검토자료 CRGO_PT`)',
+        '',
+        '결과 파일',
+        '- [a.xlsx](C:/a.xlsx)',
+        '',
+        `요청 번호: \`${requestId}\``,
+      ].join('\n'),
+    );
+    assert.match(formatAutomatonCompletedFrame(info, ''), /- 상태: 완료/);
+    assert.match(formatAutomatonFailedFrame(info, '- 오류: x'), /^\*\*발주검토자료 실패\*\*/);
+    // No emoji in any fixed frame text.
+    const emoji = /\p{Extended_Pictographic}/u;
+    for (const text of [
+      ack,
+      formatAutomatonProgressFrame(info, '상태: 진행 중'),
+      formatAutomatonCompletedFrame(info, ''),
+      formatAutomatonFailedFrame(info, ''),
+    ]) assert.doesNotMatch(text, emoji);
     assert.equal(
       formatUnsupportedAutomatonBatch('/모델가계도 TAC, CRGO', {
         profile: 'discord',
