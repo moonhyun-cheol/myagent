@@ -4,11 +4,14 @@ import {
   addUserMemory,
   approveUserMemory,
   batchUserMemory,
+  fetchWorkspaceTree,
   listUserMemory,
   rejectUserMemory,
   updateUserMemory,
   type UserMemoryEntry,
   type UserMemoryScope,
+  type WorkspaceNode,
+  type WorkspaceTreePayload,
 } from '../api/myAgentClient';
 import { confirmDialog, getConfirmDialogPending } from '../lib/confirmDialog';
 
@@ -17,6 +20,19 @@ const PAGE_SIZE = 30;
 const labels: Record<UserMemoryScope, string> = { global: '전역', project: '프로젝트 / 작업폴더', session: '현재 챗' };
 const control = 'rounded border border-line bg-ink px-2 py-1.5 text-[12px] text-text disabled:opacity-40';
 const normalize = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** Folder/project display name for an id; ids are internal and not meaningful to users. */
+function findProjectTitle(tree: WorkspaceTreePayload, id: string): string | null {
+  const walk = (nodes: WorkspaceNode[]): string | null => {
+    for (const node of nodes) {
+      if (node.id === id) return node.title || null;
+      const hit = walk(node.children ?? []);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return walk(tree.workspace_trees ?? []) ?? tree.projects?.find((p) => p.id === id)?.title ?? null;
+}
 
 export interface UserMemoryPanelDetail {
   projectId?: string | null;
@@ -69,6 +85,19 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
     .filter((s) => s === 'global' || (s === 'session' ? detail.sessionId : detail.projectId)), [detail]);
   const dirty = editing === 'new' ? !!text.trim() : !!editing && text !== editing.text;
   const locked = loading || busy;
+  // Opened from a folder/project row, `title` is that folder; from a chat row it is the chat title.
+  const [projectTitle, setProjectTitle] = useState<string | null>(detail.sessionId ? null : detail.title ?? null);
+  useEffect(() => {
+    const id = detail.projectId;
+    if (!id) return;
+    let cancelled = false;
+    fetchWorkspaceTree()
+      .then((tree) => { const name = findProjectTitle(tree, id); if (!cancelled && name) setProjectTitle(name); })
+      .catch(() => { /* keep fallback label */ });
+    return () => { cancelled = true; };
+  }, [detail.projectId]);
+  const projectLabel = projectTitle || '이름을 찾을 수 없는 작업폴더';
+  const sessionLabel = detail.title || '제목 없음';
 
   const reload = useCallback(async () => {
     const seq = ++request.current;
@@ -133,6 +162,8 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
   const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const rows = visible.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  // Pending proposals are approve/reject only; the row checkbox is disabled, so select-all must skip them too.
+  const selectableRows = rows.filter((e) => e.status !== 'pending');
   const filterChanged = () => { setPage(0); setSelected(new Set()); };
   const duplicate = editing && entries.some((e) => e.id !== (editing === 'new' ? '' : editing.id)
     && e.scope === (editing === 'new' ? addScope : editing.scope) && normalize(e.text) === normalize(text));
@@ -196,10 +227,10 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav aria-label="메모리 범위" className="flex shrink-0 gap-1 overflow-x-auto border-b border-line p-2 md:w-44 md:flex-col md:border-b-0 md:border-r">
           {(['all', ...scopes] as const).map((s) => <button key={s} aria-pressed={scope === s} className={`${control} shrink-0 text-left ${scope === s ? 'ring-1 ring-current' : ''}`} onClick={() => { setScope(s); filterChanged(); }}>{s === 'all' ? '전체' : labels[s]} ({s === 'all' ? entries.length : entries.filter((e) => e.scope === s).length})</button>)}
-          <p className="hidden break-all pt-2 text-[10px] text-muted md:block">현재 소속만 표시합니다.<br />{detail.projectId ? `소속: ${detail.projectId}` : '소속 없음'}<br />{detail.sessionId ? `챗: ${detail.sessionId}` : '챗 선택 없음'}</p>
+          <p className="hidden break-words pt-2 text-[10px] text-muted md:block">현재 소속만 표시합니다.<br /><span title={detail.projectId ?? undefined}>{detail.projectId ? `소속: ${projectLabel}` : '소속 없음'}</span><br /><span title={detail.sessionId ?? undefined}>{detail.sessionId ? `챗: ${sessionLabel}` : '챗 선택 없음'}</span></p>
         </nav>
         <section aria-label="메모리 목록" className={`min-h-0 min-w-0 flex-1 flex-col ${editing ? 'hidden md:flex' : 'flex'}`}>
-          <div className="flex items-center gap-2 border-b border-line p-2 text-xs"><input type="checkbox" aria-label="현재 페이지 전체 선택" disabled={locked || !rows.length} checked={!!rows.length && rows.every((e) => selected.has(e.id))} onChange={(e) => setSelected((old) => { const next = new Set(old); rows.forEach((row) => e.target.checked ? next.add(row.id) : next.delete(row.id)); return next; })} /><span>{loading ? '불러오는 중…' : `${visible.length}개 검색됨`}</span></div>
+          <div className="flex items-center gap-2 border-b border-line p-2 text-xs"><input type="checkbox" aria-label="현재 페이지 전체 선택" disabled={locked || !selectableRows.length} checked={!!selectableRows.length && selectableRows.every((e) => selected.has(e.id))} onChange={(e) => setSelected((old) => { const next = new Set(old); selectableRows.forEach((row) => e.target.checked ? next.add(row.id) : next.delete(row.id)); return next; })} /><span>{loading ? '불러오는 중…' : `${visible.length}개 검색됨`}</span></div>
           <ul className="min-h-0 flex-1 overflow-y-auto p-2">
             {!loading && !rows.length && <li className="p-5 text-sm text-muted">{error ? '목록을 불러오지 못했습니다. 새로고침으로 다시 시도하세요.' : entries.length ? '조건에 맞는 메모리가 없습니다.' : '저장된 메모리가 없습니다.'}</li>}
             {rows.map((entry) => <li key={entry.id} className={`mb-1 flex items-start gap-2 rounded border border-line p-2 ${editing && editing !== 'new' && editing.id === entry.id ? 'bg-ink' : ''}`}>
@@ -214,7 +245,7 @@ function MemoryManager({ detail, onClose }: { detail: UserMemoryPanelDetail; onC
           <div className="flex items-center justify-center gap-3 border-t border-line p-2 text-xs"><button className={control} disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>이전</button><span>{currentPage + 1} / {pages}</span><button className={control} disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>다음</button></div>
         </section>
         <section aria-label="메모리 상세" className={`${editing ? 'flex' : 'hidden md:flex'} min-h-0 flex-1 flex-col overflow-y-auto border-line p-3 md:max-w-sm md:border-l`}>
-          {!editing ? <p className="text-sm text-muted">목록에서 항목을 선택해 내용을 확인하거나 편집하세요. 체크박스는 일괄 작업 선택입니다.</p> : <>
+          {!editing ? <p className="break-keep text-sm text-muted">목록에서 항목을 선택해 내용을 확인하거나 편집하세요. 체크박스는 일괄 작업 선택입니다.</p> : <>
             <h3 className="mb-3 text-sm font-semibold">{editing === 'new' ? '메모리 추가' : '메모리 상세 / 편집'}</h3>
             {editing === 'new' ? <label className="mb-2 text-xs">저장 위치 <select aria-label="추가 저장 위치" className={control} disabled={busy} value={addScope} onChange={(e) => setAddScope(e.target.value as UserMemoryScope)}>{scopes.map((s) => <option key={s} value={s}>{labels[s]}</option>)}</select></label> : <div className="mb-3 break-all text-xs text-muted"><p>저장 위치: {labels[editing.scope]}</p><p>상태: {editing.status === 'pending' ? '승인 대기' : editing.enabled ? '활성' : '비활성'}</p><p>등록 방식: {editing.source === 'auto' ? '모델 제안' : '직접 입력 / 편집'}</p>{editing.reason ? <p>제안 이유: {editing.reason}</p> : null}<p>생성: {new Date(editing.created_at).toLocaleString()}</p><p>수정: {new Date(editing.updated_at).toLocaleString()}</p>{editing.status === 'pending' ? <div className="mt-3 flex gap-2"><button className={control} disabled={locked} onClick={() => void run(() => approveUserMemory(editing.id, { text: text.trim() || undefined }), '제안을 승인했습니다.')}>승인</button><button className={`${control} text-red-300`} disabled={locked} onClick={() => void run(() => rejectUserMemory(editing.id), '제안을 거절했습니다.')}>거절</button></div> : null}</div>}
             <label htmlFor="memory-text" className="mb-1 text-xs">메모리 본문</label><textarea id="memory-text" className={`${control} min-h-40 resize-y`} disabled={busy} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
