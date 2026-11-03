@@ -12,6 +12,7 @@ const {
   formatAutomatonEnvelopeWithContract,
   pickAutomatonUserFacingText,
   automatonBackgroundNeedsChatFollowUp,
+  replaceAutomatonStatusEmoji,
 } = await import(pathToFileURL(path.join(root, 'core/dist/automaton/format-result.js')).href);
 
 const samplePayload = {
@@ -98,6 +99,33 @@ assert.ok(body.length > 120, 'body has business content');
 }
 
 assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'ok' }, 'JEWEL9505'), false);
+
+// Discord batch marks (DISCORD_RESPONSE_FORMATS.md §2) → text tags in MY Agent chat.
+{
+  const discordMsg = [
+    '샘플 재고 (3건)',
+    '✅ KR001 — 4개',
+    '⚠️ KR002 조회 오류',
+    '⏭ KR003 중복',
+    '— KR004 재고없음',
+    'Brand™ 🎉 끝',
+  ].join('\n');
+  const rendered = formatAutomatonEnvelopeWithContract(
+    'us_sample_stock_lookup',
+    { status: 'ok', message: discordMsg },
+    { profile: 'discord', fallback_profile: 'text' },
+  );
+  assert.equal(rendered, [
+    '샘플 재고 (3건)',
+    '[성공] KR001 — 4개',
+    '[오류] KR002 조회 오류',
+    '[건너뜀] KR003 중복',
+    '— KR004 재고없음',
+    'Brand™ 끝',
+  ].join('\n'));
+  assert.doesNotMatch(rendered.replace('™', ''), /\p{Extended_Pictographic}/u);
+  assert.equal(replaceAutomatonStatusEmoji('plain'), 'plain');
+}
 assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'ok' }, ''), true);
 assert.equal(automatonBackgroundNeedsChatFollowUp({ status: 'denied' }, 'JEWEL9505'), true);
 

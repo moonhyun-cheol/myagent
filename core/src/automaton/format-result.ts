@@ -59,6 +59,27 @@ function nonEmptyString(v: unknown, max = 4_000): string {
 const ENGINE_STATUS_PREFIX =
   /^(?:작업 실행 결과\s*)?(?:[A-Za-z0-9_]+ completed successfully\.\s*\|\s*status=\S+\s*\|\s*message=?)/i;
 
+/**
+ * Discord batch marks (DISCORD_RESPONSE_FORMATS.md §2) → plain text tags for the
+ * MY Agent chat. Remaining pictographs are dropped so chat output stays emoji-free.
+ * The Discord-side message contract itself is untouched.
+ */
+const STATUS_EMOJI_TAGS: Array<[RegExp, string]> = [
+  [/\u2705\uFE0F?/gu, '[성공]'],
+  [/\u2714\uFE0F?/gu, '[성공]'],
+  [/\u26A0\uFE0F?/gu, '[오류]'],
+  [/\u274C\uFE0F?/gu, '[실패]'],
+  [/\u23ED\uFE0F?/gu, '[건너뜀]'],
+];
+
+export function replaceAutomatonStatusEmoji(text: string): string {
+  let s = String(text ?? '');
+  if (!s) return s;
+  for (const [re, tag] of STATUS_EMOJI_TAGS) s = s.replace(re, tag);
+  s = s.replace(/(?![\u00A9\u00AE\u2122])[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}]\uFE0F?(?:\u200D[\p{Extended_Pictographic}]\uFE0F?)* ?/gu, '');
+  return s.replace(/[\uFE0F\u20E3]/gu, '');
+}
+
 /** Drop engine `cmd completed successfully. | status=ok | message=` so only the 작업 완료 body remains. */
 export function stripAutomatonEngineStatus(text: string): string {
   let s = String(text ?? '').trim();
@@ -282,7 +303,7 @@ export function formatAutomatonEnvelopeWithContract(
   if (contract.profile === 'auto') return null;
   if (contract.profile === 'discord') {
     const authoritative = pickAutomatonAuthoritativeMessage(envelope);
-    if (authoritative) return authoritative;
+    if (authoritative) return replaceAutomatonStatusEmoji(authoritative);
     const fallback = contract.fallback_profile ?? 'text';
     if (fallback === 'auto') return null;
     return formatAutomatonEnvelopeWithContract(
@@ -314,7 +335,7 @@ export function formatAutomatonEnvelopeWithContract(
 
   // text: declared fields first; otherwise the script/adapter message verbatim.
   if (fieldLines.length) return joinSections(fieldLines, fileLines);
-  const narrative = pickAutomatonUserFacingText(envelope);
+  const narrative = replaceAutomatonStatusEmoji(pickAutomatonUserFacingText(envelope));
   if (narrative) return joinSections([narrative], fileLines);
   return joinSections(['- 결과 본문: 확인되지 않음'], fileLines);
 }
@@ -368,7 +389,7 @@ export function formatAutomatonEnvelope(
   const result = asRecord(envelope.result) ?? {};
   const nested = asRecord(result.result) ?? result;
   const deep = pickAutomatonDeepResult(envelope);
-  const narrative = pickAutomatonUserFacingText(envelope);
+  const narrative = replaceAutomatonStatusEmoji(pickAutomatonUserFacingText(envelope));
 
   const excel = nested.excel_file ?? result.excel_file ?? deep.excel_file;
   const outputPath =
