@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { isNasPath } from './path-guard.js';
 import { assertNasWriteAllowed } from './nas-write-consent.js';
 import { SecurityError } from './errors.js';
@@ -57,6 +57,59 @@ export function assertDevWorkspaceRoot(root: string, opts: WorkspaceGuardOptions
  * - Relative → under workspace (no `..` escape)
  * - Absolute / UNC → allowed as-is (workspace is context, not a cage)
  */
+/**
+ * Credential files the agent's file tools must never read or overwrite, even when the
+ * workspace is the MY Agent install itself. Tokens are shown masked by the settings API only.
+ */
+const SECRET_FILE_RE = /(?:^|[\\/])data[\\/]config[\\/]user-mcp-servers\.json(?:\.tmp)?$/i;
+
+export function isAgentSecretFilePath(target: string): boolean {
+  return SECRET_FILE_RE.test(String(target ?? '').trim());
+}
+
+function assertNotSecretFile(target: string, relPath: string): void {
+  if (isAgentSecretFilePath(target)) {
+    throw new SecurityError(
+      'OUTSIDE_MY_AGENT_ROOT',
+      `This file holds MY Agent credentials and is not available to agent tools: ${relPath}. Use the settings screen instead.`,
+    );
+  }
+}
+
+/**
+ * Write targets must not escape the workspace through a symlink/junction. Checks the
+ * nearest existing ancestor's real path (the target itself may not exist yet). Skipped for
+ * network-share roots (realpath over SMB is slow and junctions there are not ours).
+ */
+function assertRealPathInsideRoot(root: string, target: string, relPath: string): void {
+  if (isNasPath(root)) return;
+  let realRoot: string;
+  try {
+    realRoot = realpathSync.native(root);
+  } catch {
+    return;
+  }
+  let probe = target;
+  while (!existsSync(probe)) {
+    const parent = path.dirname(probe);
+    if (parent === probe) return;
+    probe = parent;
+  }
+  let realProbe: string;
+  try {
+    realProbe = realpathSync.native(probe);
+  } catch {
+    return;
+  }
+  const rel = path.relative(realRoot.toLowerCase(), realProbe.toLowerCase());
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new SecurityError(
+      'OUTSIDE_MY_AGENT_ROOT',
+      `Path resolves outside dev workspace through a link: ${relPath} -> ${realProbe}`,
+    );
+  }
+}
+
 export function resolveDevWorkspaceReadPath(
   workspaceRoot: string,
   relPath: string,
@@ -64,7 +117,9 @@ export function resolveDevWorkspaceReadPath(
   assertDevWorkspaceRootReadable(workspaceRoot);
   const trimmed = (relPath || '.').trim() || '.';
   if (isAbsoluteUserPath(trimmed)) {
-    return normalizeWorkspacePath(trimmed);
+    const target = normalizeWorkspacePath(trimmed);
+    assertNotSecretFile(target, relPath);
+    return target;
   }
   const root = normalizeWorkspacePath(workspaceRoot);
   const target = path.resolve(root, trimmed);
@@ -72,6 +127,7 @@ export function resolveDevWorkspaceReadPath(
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new SecurityError('OUTSIDE_MY_AGENT_ROOT', `Path outside dev workspace: ${relPath}`);
   }
+  assertNotSecretFile(target, relPath);
   return target;
 }
 
@@ -89,6 +145,7 @@ export function resolveDevWorkspaceRelPath(
   if (isAbsoluteUserPath(trimmed)) {
     const target = normalizeWorkspacePath(trimmed);
     assertNasWriteAllowed(target, opts.allowNas === true);
+    assertNotSecretFile(target, relPath);
     return target;
   }
   const root = normalizeWorkspacePath(workspaceRoot);
@@ -98,6 +155,8 @@ export function resolveDevWorkspaceRelPath(
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new SecurityError('OUTSIDE_MY_AGENT_ROOT', `Path outside dev workspace: ${relPath}`);
   }
+  assertNotSecretFile(target, relPath);
+  assertRealPathInsideRoot(root, target, relPath);
   return target;
 }
 

@@ -98,6 +98,8 @@ export interface AgentRunStepState {
   approvedExternalReadRoots: Set<string>;
   /** Network destinations (`host:` / `mcp:` keys) approved for this run only. Never persisted. */
   approvedNetworkGrants: Set<string>;
+  /** Untrusted content origins (web/mcp/download/remote_repo) the model has seen this run. */
+  untrustedSourcesSeen: Set<string>;
   llmUsage: NonNullable<import('./agent-perf-metrics.js').AgentPerfSnapshot['usage']>;
   browserSession: PlaywrightSession | null;
   toolCtx: AgentToolContext;

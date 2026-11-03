@@ -107,6 +107,7 @@ import { attachAgentUsage } from './agent-usage-carry.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
+import { untrustedSourceForCall } from './untrusted-content.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
 import { lastTurnContextIndex } from './agent-context-assembler.js';
@@ -901,6 +902,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     approvalTrace,
     approvedExternalReadRoots,
     approvedNetworkGrants,
+    // Evidence from earlier turns is re-projected into context, so its origins count too.
+    untrustedSourcesSeen: new Set(
+      evidenceStore.list()
+        .map((record) => untrustedSourceForCall(record.tool, record.args))
+        .filter((source): source is NonNullable<typeof source> => source !== null),
+    ),
     llmUsage,
     browserSession,
     toolCtx,

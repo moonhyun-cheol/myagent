@@ -21,7 +21,7 @@ export function assertNasWriteAllowed(target: string, allowNas: boolean): void {
   if (!allowNas) {
     throw new SecurityError(
       'NAS_CONSENT_REQUIRED',
-      'NAS 경로(\\\\nas, \\\\nas3)에 쓰려면 먼저 사용 허가가 필요합니다.',
+      'NAS·네트워크 공유 경로(\\\\서버\\공유)에 쓰려면 먼저 사용 허가가 필요합니다.',
     );
   }
 }

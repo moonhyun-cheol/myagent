@@ -7,9 +7,17 @@ function normalize(target: string): string {
   return target.replace(/\//g, '\\').toLowerCase();
 }
 
+/**
+ * Any UNC / network share (`\\server\share`, `//server/share`, `\\?\UNC\...`).
+ * Single source for NAS decisions: write guards, consent, approval and read cache all use it,
+ * so `\\192.168.0.10\share` or `\\fileserver\x` cannot slip past a `\\nas`-only prefix check.
+ */
+export function isNetworkSharePath(target: string): boolean {
+  return normalize(String(target ?? '').trim()).startsWith('\\\\');
+}
+
 export function isNasPath(target: string): boolean {
-  const n = normalize(target);
-  return n.startsWith('\\\\nas') || n.startsWith('\\\\nas3');
+  return isNetworkSharePath(target);
 }
 
 export function getCqrRoot(): string {
