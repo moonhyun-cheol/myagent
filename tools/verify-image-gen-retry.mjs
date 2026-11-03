@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Golden: chat-based image models sometimes answer a terse prompt with prose instead of
-// drawing. image_gen must retry once with an explicit draw directive, and must not report
-// a config problem when the model simply replied with text.
+// drawing. image_gen sends the explicit draw directive on the single request and makes no
+// automatic (paid) second request (4359f1f, docs/media-output-persistence-plan.md P1-5).
+// It must not report a config problem when the model simply replied with text.
 import path from 'node:path';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -74,18 +75,17 @@ function check(name, ok, detail) {
   console.error(`  FAIL ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
-// Case 1: text first, image on the retry.
+// Case 1: text reply — no automatic paid retry.
 {
   const { deps, calls, imageOut } = makeDeps([TEXT_REPLY, `![img](${PNG_DATA_URL})`]);
   const res = await handleImageGenMode(deps);
-  check('text-then-image retries once', calls.length === 2, `calls=${calls.length}`);
+  check('text reply does not auto-retry', calls.length === 1, `calls=${calls.length}`);
   check(
-    'retry carries the explicit draw directive',
-    calls.length === 2 && /Generate the image now/i.test(calls[1].systemPrompt ?? ''),
-    `systemPrompt=${calls[1]?.systemPrompt}`,
+    'single request carries the explicit draw directive',
+    /Generate the image now/i.test(calls[0]?.systemPrompt ?? ''),
+    `systemPrompt=${calls[0]?.systemPrompt}`,
   );
-  check('first attempt sends no directive', calls[0]?.systemPrompt === null);
-  check('retry image is returned', Boolean(res.image?.url), JSON.stringify(res.image ?? null));
+  check('no image is claimed after a text reply', !res.image, JSON.stringify(res.image ?? null));
   rmSync(imageOut, { recursive: true, force: true });
 }
 
@@ -98,11 +98,11 @@ function check(name, ok, detail) {
   rmSync(imageOut, { recursive: true, force: true });
 }
 
-// Case 3: text both times — report the model reply, not a config checklist.
+// Case 3: text reply — report the model reply, not a config checklist.
 {
   const { deps, calls, imageOut } = makeDeps([TEXT_REPLY, TEXT_REPLY]);
   const res = await handleImageGenMode(deps);
-  check('text twice stops after the retry', calls.length === 2, `calls=${calls.length}`);
+  check('text reply stops after one request', calls.length === 1, `calls=${calls.length}`);
   check('no image is claimed', !res.image);
   check(
     'failure names the text reply',

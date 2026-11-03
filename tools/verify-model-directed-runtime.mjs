@@ -90,12 +90,13 @@ assert.doesNotMatch(multimodal, /runWorkspaceDiagnostics|seedDiagnosticsContext|
 assert.match(mar, /return runCodeAgent\(opts\)/);
 assert.doesNotMatch(mar, /reviewer|critic|VERDICT|openGate/i);
 
-assert.match(approval, /APPROVAL_REVIEW_MODEL_ID = 'openai\/gpt-5\.6-luna'/);
+assert.match(approval, /APPROVAL_REVIEW_MODEL_ID = '~openai\/gpt-sol-latest'/);
 assert.doesNotMatch(approval, /confidence\s*>?=\s*0\.9/);
 assert.match(toolApproval, /external_write/);
 assert.match(toolApproval, /toolName === 'delete_file'/);
 // Delegation for run_terminal only when the command touches no out-of-workspace path (CQR_PA 42d9657).
-assert.match(toolApproval, /toolName === 'run_terminal'\) \{\s*return externalTerminalPaths\(/);
+// UNC commands are refused before the path check (98d448f).
+assert.match(toolApproval, /toolName === 'run_terminal'\) \{[\s\S]{0,240}?return externalTerminalPaths\(/);
 
 assert.doesNotMatch(orchestrator, /RouterService|evaluateSpecializedModeFit|messagePrefersBrandSkillOverCode|isCasualChatBypass|TOOL_PLANE_MUTATE_REFUSAL/);
 assert.doesNotMatch(orchestrator, /preserveRecentToolFailureContext/);
