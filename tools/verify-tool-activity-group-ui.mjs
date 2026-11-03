@@ -80,7 +80,9 @@ try {
   assert.equal(await details.getAttribute('open'), '');
   assert.match(await details.locator(':scope > summary').innerText(), /응답 1 · 작업 2 · 진행 중/);
   assert.equal(await details.locator('[data-timeline-kind="tool-group"]').count(), 2);
-  assert.equal(await details.locator('[data-activity-group-id="batch-1"] [data-timeline-kind="tool"]').count(), 2);
+  // Collapsed work groups render no body (lazy tool logs); the summary still reports the tool count.
+  assert.match(await details.locator('[data-activity-group-id="batch-1"] > summary').innerText(), /2개 도구/);
+  assert.equal(await details.locator('[data-activity-group-id="batch-1"] [data-timeline-kind="tool"]').count(), 0);
   const responseItem = details.locator('[data-timeline-kind="response"]').first();
   const firstWorkItem = details.locator('[data-timeline-kind="tool-group"]').first();
   // Session UI contract: responses default expanded; work groups default collapsed.
@@ -90,6 +92,7 @@ try {
   await firstWorkItem.locator(':scope > summary').click();
   assert.equal(await responseItem.evaluate((element) => element.open), false, 'a live response can be folded independently');
   assert.equal(await firstWorkItem.evaluate((element) => element.open), true, 'a live work group can be expanded independently');
+  assert.equal(await details.locator('[data-activity-group-id="batch-1"] [data-timeline-kind="tool"]').count(), 2);
   const groupCancel = details.getByRole('button', { name: '작업 1 중단 후 이어가기' });
   await groupCancel.click();
   await page.waitForFunction(() => document.body.innerText.includes('중단 요청 중'));
