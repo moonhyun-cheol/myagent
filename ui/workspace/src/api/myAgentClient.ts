@@ -1309,6 +1309,40 @@ export async function setLlmUsageTracking(enabled: boolean): Promise<LlmUsageTra
   return data.tracking as LlmUsageTracking;
 }
 
+export type ProblemSeverity = 'recovered' | 'warn' | 'error';
+
+export interface ProblemHistoryGroup {
+  kind: string;
+  title: string;
+  severity: ProblemSeverity;
+  count: number;
+  first_at: string;
+  last_at: string;
+  /** Cause of the latest occurrence, when known. */
+  cause?: string;
+  advice: string;
+  /** Installer download page, when reinstalling is the fix. */
+  download_url?: string;
+}
+
+export interface ProblemHistory {
+  days: number;
+  generated_at: string;
+  status: 'ok' | 'recovered' | 'attention';
+  headline: string;
+  groups: ProblemHistoryGroup[];
+  recent: Array<{ at: string; kind: string; title: string; severity: ProblemSeverity; detail?: string; cause?: string }>;
+  sources_found: number;
+}
+
+/** 「문제 해결」: local crash/hang/restart logs summarized by the core. */
+export async function fetchProblemHistory(days = 14): Promise<ProblemHistory> {
+  const res = await fetch(`/runtime/problem-history?days=${encodeURIComponent(String(days))}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `문제 기록 조회 실패 (${res.status})`);
+  return data as ProblemHistory;
+}
+
 export type LlmUsageRangeQuery = { days: number | 'all' } | { from: string; to: string };
 
 /** Local llm-usage log aggregation, bucketed by the PC's local date. */
@@ -2565,7 +2599,7 @@ export async function testUserMcpServer(
 }
 
 export async function importSkillPackage(zipPath: string): Promise<SkillListItem> {
-  const res = await fetch('/skills/import', {
+  const res = await fetch('/skills/package', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ zip_path: zipPath }),

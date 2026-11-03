@@ -126,6 +126,7 @@ import {
 } from '../updates/work-kit-catalog-feed.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
+import { loadProblemHistory } from '../runtime/problem-history.js';
 import type { ApiContext } from '../http/api-context.js';
 import { listContextLimitMismatches } from '../providers/model-context-limits.js';
 import { listRecentSoftCostWarns } from '../agent/agent-perf-metrics.js';
@@ -498,6 +499,12 @@ export async function dispatchApiRequest(
           return sendJson(res, 400, { error: 'INVALID_TRACKING', message: 'enabled(true/false)만 받습니다.' });
         }
         return sendJson(res, 200, { tracking: setLlmUsageTracking(cqrRoot, body.enabled) });
+      }
+
+      // 「문제 해결」: shell/API crash·hang·restart logs summarized in plain language (local files only).
+      if (method === 'GET' && url.pathname === '/runtime/problem-history') {
+        const days = Number(url.searchParams.get('days') ?? '14');
+        return sendJson(res, 200, loadProblemHistory(cqrRoot, { days: Number.isFinite(days) ? days : 14 }));
       }
 
       if (method === 'GET' && url.pathname === '/license/status') {

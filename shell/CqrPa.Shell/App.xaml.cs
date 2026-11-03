@@ -13,6 +13,8 @@ public partial class App : Application
     private UpdatePollingService? _updatePolling;
     private ShellHealthMonitor? _healthMonitor;
     private bool _sessionStarted;
+    private string? _root;
+    private bool _startupErrorShown;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -45,11 +47,13 @@ public partial class App : Application
                 null,
                 "MY Agent 설치 폴더를 찾지 못했습니다",
                 "프로그램 파일이 다른 곳으로 옮겨졌거나 일부가 지워졌을 수 있습니다.",
-                "MY Agent를 다시 설치해 주세요.");
+                "「설치 파일 받기」를 눌러 최신 설치 파일을 받은 뒤 MY Agent를 다시 설치해 주세요.",
+                ShellProblems.ReinstallAction());
             Shutdown(1);
             return;
         }
         ShellStartupLog.SetRoot(root);
+        _root = root;
         // NOTE: The former CleanupLegacyWorkKitLauncher() startup sweep was removed.
         // The operator admin program is now reinstalled into this same install folder
         // as WorkKitLauncher.exe with a "MY Agent 관리자.lnk" desktop shortcut, so the
@@ -139,7 +143,7 @@ public partial class App : Application
             title,
             cause,
             advice,
-            kind == ApiStartFailureKind.FilesMissing ? ShellProblems.OpenFolderAction("설치 폴더 열기", root) : null);
+            kind == ApiStartFailureKind.FilesMissing ? ShellProblems.ReinstallAction() : null);
     }
 
     private static readonly TimeSpan StillStartingAge = TimeSpan.FromSeconds(20);
@@ -323,18 +327,16 @@ public partial class App : Application
     {
         ShellStartupLog.WriteException("dispatcher unhandled exception", args.Exception);
         if (MainWindow is not null && MainWindow.IsLoaded) return; // keep existing crash semantics after startup
-        try
-        {
-            MessageBox.Show(
-                $"MY Agent를 시작하는 중 오류가 발생했습니다.\n\n{args.Exception.Message}\n\n기록: {ShellStartupLog.CurrentPath}",
-                "MY Agent",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-        }
-        catch
-        {
-            // The process is terminating anyway.
-        }
+        if (_startupErrorShown) return;
+        _startupErrorShown = true;
+        // Same plain-language dialog as other failures; the exception text stays in the log only.
+        // ShowDialog falls back to a MessageBox itself and never throws.
+        ShellProblems.ShowDialog(
+            null,
+            _root,
+            "MY Agent를 시작하지 못했습니다",
+            "시작하는 중 프로그램 내부 오류가 발생했습니다.",
+            "MY Agent를 다시 실행해 주세요. 계속되면 「담당자에게 보낼 기록 저장」으로 기록을 저장해 담당자에게 보내 주세요.");
     }
 
     private static int VerifyUpdateFeedCommand(string[] args)

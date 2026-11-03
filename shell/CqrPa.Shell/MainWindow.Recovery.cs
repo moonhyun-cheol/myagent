@@ -57,8 +57,8 @@ public partial class MainWindow
 
     private void ShowApiStartupProblem(string title)
     {
-        var (cause, advice, diskLow) = _api.DescribeStartupFailure();
-        ShowStartupProblem(title, cause, advice, diskLow ? ShellProblems.DiskCleanupAction() : null);
+        var (cause, advice, fix) = _api.DescribeStartupFailure();
+        ShowStartupProblem(title, cause, advice, fix);
     }
 
     private void OnStartupFixClick(object sender, RoutedEventArgs e)

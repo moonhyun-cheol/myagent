@@ -154,11 +154,11 @@ public sealed class ApiProcessHost : IDisposable
         ApiStartFailureKind.FilesMissing => (
             "프로그램 파일 일부가 없습니다",
             "백신 프로그램이 파일을 격리했거나, 설치·업데이트가 중간에 멈췄을 수 있습니다.",
-            "MY Agent를 다시 설치해 주세요. 백신이 격리했다면 격리 목록에서 복원해도 됩니다."),
+            "「설치 파일 받기」를 눌러 최신 설치 파일을 받은 뒤 다시 설치해 주세요. 백신이 격리했다면 격리 목록에서 복원해도 됩니다."),
         ApiStartFailureKind.Blocked => (
             "Windows가 MY Agent 실행을 막았습니다",
             "백신 프로그램, 스마트 앱 컨트롤 또는 회사 보안 정책이 로컬 서비스(node.exe) 실행을 차단했습니다.",
-            "회사 PC라면 담당자에게 아래 버튼으로 저장한 기록을 보내 주세요."),
+            "회사 PC라면 「담당자에게 보낼 기록 저장」을 눌러 저장한 기록을 담당자에게 보내 주세요."),
         _ => (
             "MY Agent를 시작하지 못했습니다",
             "로컬 서비스를 실행하지 못했습니다.",
@@ -213,31 +213,37 @@ public sealed class ApiProcessHost : IDisposable
     /// Plain-language cause and advice when <c>/health</c> never became ready, based on the
     /// node exit state, the tail of <c>logs\api-stderr.log</c> and free disk space.
     /// </summary>
-    public (string Cause, string Advice, bool DiskLow) DescribeStartupFailure()
+    internal (string Cause, string Advice, ShellProblemAction? Fix) DescribeStartupFailure()
     {
         if (ShellProblems.IsDiskLow(_root))
         {
             return (
                 $"디스크 여유 공간이 부족합니다 (남은 공간 약 {ShellProblems.FreeDiskMb(_root)}MB).",
                 "필요 없는 파일을 지운 뒤 다시 시도해 주세요.",
-                true);
+                ShellProblems.DiskCleanupAction());
         }
 
         if (LastStartFailureKind != ApiStartFailureKind.None)
         {
             var described = DescribeStartFailure(LastStartFailureKind);
-            return ($"{described.Title}. {described.Cause}", described.Advice, false);
+            return (
+                $"{described.Title}. {described.Cause}",
+                described.Advice,
+                LastStartFailureKind == ApiStartFailureKind.FilesMissing ? ShellProblems.ReinstallAction() : null);
         }
 
         var tail = ReadStderrTail();
         if (tail.Contains("EADDRINUSE", StringComparison.Ordinal))
-            return ("다른 프로그램이 MY Agent가 쓰는 연결 통로(포트)를 쓰고 있습니다.", "PC를 다시 시작한 뒤 실행해 주세요.", false);
+            return ("다른 프로그램이 MY Agent가 쓰는 연결 통로(포트)를 쓰고 있습니다.", "PC를 다시 시작한 뒤 실행해 주세요.", null);
         if (tail.Contains("ENOSPC", StringComparison.Ordinal))
-            return ("디스크 여유 공간이 부족합니다.", "필요 없는 파일을 지운 뒤 다시 시도해 주세요.", true);
+            return ("디스크 여유 공간이 부족합니다.", "필요 없는 파일을 지운 뒤 다시 시도해 주세요.", ShellProblems.DiskCleanupAction());
         if (tail.Contains("EPERM", StringComparison.Ordinal) || tail.Contains("EACCES", StringComparison.Ordinal))
-            return ("프로그램 파일에 접근하지 못했습니다. 백신 프로그램이 파일을 검사·차단하고 있을 수 있습니다.", "잠시 후 다시 시도하고, 반복되면 담당자에게 기록을 보내 주세요.", false);
+            return ("프로그램 파일에 접근하지 못했습니다. 백신 프로그램이 파일을 검사·차단하고 있을 수 있습니다.", "잠시 후 다시 시도하고, 반복되면 담당자에게 기록을 보내 주세요.", null);
         if (tail.Contains("Cannot find module", StringComparison.Ordinal) || tail.Contains("ERR_MODULE_NOT_FOUND", StringComparison.Ordinal))
-            return ("프로그램 파일 일부가 없습니다. 설치나 업데이트가 중간에 멈췄을 수 있습니다.", "MY Agent를 다시 설치해 주세요.", false);
+            return (
+                "프로그램 파일 일부가 없습니다. 설치나 업데이트가 중간에 멈췄을 수 있습니다.",
+                "「설치 파일 받기」를 눌러 최신 설치 파일을 받은 뒤 다시 설치해 주세요.",
+                ShellProblems.ReinstallAction());
 
         if (OwnedProcessExited)
         {
@@ -246,12 +252,12 @@ public sealed class ApiProcessHost : IDisposable
             return (
                 $"로컬 서비스가 시작 직후 종료됐습니다 (종료 코드 {code?.ToString() ?? "?"}).",
                 "다시 시도해 보고, 반복되면 담당자에게 기록을 보내 주세요.",
-                false);
+                null);
         }
         return (
             "로컬 서비스가 제한 시간 안에 준비되지 않았습니다. PC가 바쁘거나 백신 프로그램이 검사 중일 수 있습니다.",
             "잠시 후 다시 시도해 주세요.",
-            false);
+            null);
     }
 
     private string ReadStderrTail()

@@ -9,7 +9,7 @@ using Orientation = System.Windows.Controls.Orientation;
 
 namespace CqrPa.Shell;
 
-/// <summary>One user-facing action offered next to a problem ("설치 폴더 열기" 등).</summary>
+/// <summary>One user-facing action offered next to a problem ("디스크 정리 열기" 등).</summary>
 internal sealed record ShellProblemAction(string Label, Action Run);
 
 /// <summary>
@@ -20,6 +20,9 @@ internal sealed record ShellProblemAction(string Label, Action Run);
 internal static class ShellProblems
 {
     private const long LowDiskBytes = 300L * 1024 * 1024;
+
+    /// <summary>Public download page for MY Agent installers (GitHub Releases).</summary>
+    public const string ReleasesUrl = "https://github.com/moonhyun-cheol/myagent/releases/latest";
 
     public static void ShowDialog(
         Window? owner,
@@ -158,11 +161,12 @@ internal static class ShellProblems
     public static bool IsDiskLow(string? root) =>
         FreeDiskMb(root) is long mb && mb * 1024 * 1024 < LowDiskBytes;
 
-    public static ShellProblemAction OpenFolderAction(string label, string path) =>
-        new(label, () => Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }));
-
     public static ShellProblemAction DiskCleanupAction() =>
         new("디스크 정리 열기", () => Process.Start(new ProcessStartInfo("cleanmgr.exe") { UseShellExecute = true }));
+
+    /// <summary>Opens the installer download page in the default browser.</summary>
+    public static ShellProblemAction ReinstallAction() =>
+        new("설치 파일 받기", () => Process.Start(new ProcessStartInfo(ReleasesUrl) { UseShellExecute = true }));
 
     /// <summary>The core updater is replacing files; another instance must not be killed meanwhile.</summary>
     public static bool IsUpdaterRunning()
