@@ -99,6 +99,37 @@ assert.match(truncated, /"hits":\[\]/);
 assert.match(truncated, /"query":"history-budget"/);
 assert.ok(truncated.length < 8_000);
 
+// Sticky fold boundary: growing history (one question = user+assistant) must keep the
+// same fold note while the tail fits; before, the boundary moved every question.
+{
+  const stickyEnv = { MY_AGENT_HISTORY_KEEP_RECENT: '4', MY_AGENT_HISTORY_COMPRESS_CHARS: '3000' };
+  const store = new Map();
+  const foldNoteStore = {
+    load: (k) => store.get(k) ?? null,
+    save: (k, sig, content, count) => store.set(k, { sig, content, count }),
+  };
+  const msg = (i, role) => ({ role, content: `${role[0]}${i} ${'내용 '.repeat(120)}` });
+  const hist = [];
+  for (let i = 0; i < 6; i++) hist.push(msg(i, 'user'), msg(i, 'assistant'));
+  const key = `sticky-${Date.now()}`;
+  const first = applyHistoryContextCompress(hist, stickyEnv, { foldNoteKey: key, foldNoteStore });
+  assert.match(first[0].content, /\[history compress · /);
+  let same = 0;
+  for (let q = 6; q < 12; q++) {
+    hist.push(msg(q, 'user'), msg(q, 'assistant'));
+    const next = applyHistoryContextCompress(hist, stickyEnv, { foldNoteKey: key, foldNoteStore });
+    if (next[0].content === first[0].content) same += 1;
+    else break;
+  }
+  assert.ok(same >= 1, `fold note must stay byte-identical for the next question (same=${same})`);
+  // Restart: in-memory cache is per key; a fresh key backed by the same stored entry reuses it.
+  const restored = applyHistoryContextCompress(hist, stickyEnv, {
+    foldNoteKey: key,
+    foldNoteStore,
+  });
+  assert.ok(restored[0].content.startsWith('[history compress · '));
+}
+
 if (compressAb) {
   const offEnv = { ...env, MY_AGENT_HISTORY_COMPRESS_CHARS: '999999999' };
   const noFold = applyHistoryContextCompress(longHist, offEnv, {

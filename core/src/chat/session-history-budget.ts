@@ -19,16 +19,16 @@ function fileFoldNoteStore(cqrRoot: string): FoldNoteStore {
     load(key) {
       const fp = fileFor(key);
       if (!existsSync(fp)) return null;
-      const raw = JSON.parse(readFileSync(fp, 'utf8')) as { sig?: unknown; content?: unknown };
+      const raw = JSON.parse(readFileSync(fp, 'utf8')) as { sig?: unknown; content?: unknown; count?: unknown };
       return typeof raw.sig === 'string' && typeof raw.content === 'string'
-        ? { sig: raw.sig, content: raw.content }
+        ? { sig: raw.sig, content: raw.content, ...(typeof raw.count === 'number' ? { count: raw.count } : {}) }
         : null;
     },
-    save(key, sig, content) {
+    save(key, sig, content, count) {
       mkdirSync(dir, { recursive: true });
       const fp = fileFor(key);
       const tmp = `${fp}.tmp`;
-      writeFileSync(tmp, JSON.stringify({ sig, content }), 'utf8');
+      writeFileSync(tmp, JSON.stringify({ sig, content, count }), 'utf8');
       renameSync(tmp, fp);
     },
   };

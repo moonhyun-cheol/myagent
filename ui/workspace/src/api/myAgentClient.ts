@@ -374,6 +374,14 @@ export async function listAutomationFeed(limit = 30): Promise<AutomationFeedItem
   return Array.isArray(payload.items) ? payload.items : [];
 }
 
+/** Unread result/error count for the dock badge (no feed payload). */
+export async function countAutomationFeedUnread(): Promise<number> {
+  const res = await fetch('/automations/feed/unread-count', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`자동화 알림 수를 불러오지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { unread?: number };
+  return typeof payload.unread === 'number' ? payload.unread : 0;
+}
+
 export function getStoredSessionId(): string | null {
   const stored = localStorage.getItem(SESSION_KEY);
   if (stored) return stored;

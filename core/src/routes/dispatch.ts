@@ -356,6 +356,12 @@ export async function dispatchApiRequest(
         });
       }
 
+      // Dock badge poll: a single number instead of cloning the feed list every 10s.
+      if (method === 'GET' && url.pathname === '/automations/feed/unread-count') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { unread: personalScheduler.countUnreadFeed() });
+      }
+
       if (method === 'DELETE' && url.pathname === '/automations/feed') {
         license.assertWritable();
         license.assertFeature('chat');

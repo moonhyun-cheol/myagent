@@ -21,9 +21,12 @@ export type CompressTelemetry = {
 };
 
 export type FoldNoteStore = {
-  load(key: string): { sig: string; content: string } | null;
-  save(key: string, sig: string, content: string): void;
+  load(key: string): StoredFoldNote | null;
+  save(key: string, sig: string, content: string, count?: number): void;
 };
+
+/** `count` = folded head length; lets the next request keep the same boundary. */
+export type StoredFoldNote = { sig: string; content: string; count?: number };
 
 export type HistoryBudgetOpts = {
   modelId?: string | null;
@@ -79,7 +82,7 @@ function totalHistoryChars(messages: Array<{ content?: string }>): number {
 export const HISTORY_FOLD_STEP = 20;
 
 const FOLD_NOTE_CACHE_MAX = 200;
-const foldNoteCache = new Map<string, { sig: string; content: string }>();
+const foldNoteCache = new Map<string, StoredFoldNote>();
 
 function foldSignature(head: Array<{ role: string; content: string }>): string {
   const h = createHash('sha256');
@@ -93,9 +96,9 @@ function foldSignature(head: Array<{ role: string; content: string }>): string {
   return h.digest('hex');
 }
 
-function rememberFoldNote(key: string, sig: string, content: string): void {
+function rememberFoldNote(key: string, sig: string, content: string, count?: number): void {
   foldNoteCache.delete(key);
-  foldNoteCache.set(key, { sig, content });
+  foldNoteCache.set(key, { sig, content, count });
   while (foldNoteCache.size > FOLD_NOTE_CACHE_MAX) {
     const oldest = foldNoteCache.keys().next().value;
     if (oldest === undefined) break;
@@ -174,6 +177,35 @@ export function applyHistoryContextCompress<T extends { role: string; content: s
     return messages;
   }
 
+  // Sticky boundary: while the previously folded head is unchanged and the recent tail
+  // still fits the budget, keep the same fold. Recomputing it every request moved the
+  // boundary by one question each time (the note heads the history, so cache read 0).
+  const stickyKey = opts?.foldNoteKey;
+  if (stickyKey) {
+    const fits = (n: StoredFoldNote | null | undefined): n is StoredFoldNote & { count: number } => {
+      const count = n?.count;
+      if (!n || typeof count !== 'number' || !Number.isInteger(count)) return false;
+      if (count < 1 || count > messages.length - 2) return false;
+      if (messages.length - count > keepRecent + HISTORY_FOLD_STEP) return false;
+      if (totalHistoryChars(messages.slice(count)) > compressChars) return false;
+      return foldSignature(messages.slice(0, count)) === n.sig;
+    };
+    let prior: StoredFoldNote | null | undefined = foldNoteCache.get(stickyKey);
+    if (!fits(prior) && opts.foldNoteStore) {
+      try {
+        prior = opts.foldNoteStore.load(stickyKey);
+      } catch {
+        prior = null;
+      }
+    }
+    if (fits(prior)) {
+      rememberFoldNote(stickyKey, prior.sig, prior.content, prior.count);
+      const out = [{ role: 'user', content: prior.content } as T, ...messages.slice(prior.count)];
+      emit(true, prior.count, out);
+      return out;
+    }
+  }
+
   const rawFold = messages.length - keepRecent;
   // Fixed steps only; before the first full step fold one fixed step (keeping at least
   // two recent messages) instead of a boundary that moves on every turn.
@@ -196,6 +228,14 @@ export function applyHistoryContextCompress<T extends { role: string; content: s
     }
   }
   if (cachedNote && cachedNote.sig === sig) {
+    if (opts?.foldNoteKey && cachedNote.count !== head.length) {
+      rememberFoldNote(opts.foldNoteKey, cachedNote.sig, cachedNote.content, head.length);
+      try {
+        opts.foldNoteStore?.save(opts.foldNoteKey, cachedNote.sig, cachedNote.content, head.length);
+      } catch {
+        /* store is best-effort */
+      }
+    }
     const out = [{ role: 'user', content: cachedNote.content } as T, ...tail];
     emit(true, head.length, out);
     return out;
@@ -223,9 +263,9 @@ export function applyHistoryContextCompress<T extends { role: string; content: s
     content: lines.join('\n'),
   } as T;
   if (opts?.foldNoteKey) {
-    rememberFoldNote(opts.foldNoteKey, sig, note.content);
+    rememberFoldNote(opts.foldNoteKey, sig, note.content, head.length);
     try {
-      opts.foldNoteStore?.save(opts.foldNoteKey, sig, note.content);
+      opts.foldNoteStore?.save(opts.foldNoteKey, sig, note.content, head.length);
     } catch {
       /* store is best-effort */
     }

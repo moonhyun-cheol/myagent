@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-11-03T02:57:28.397Z",
+  "generated_at": "2026-11-03T03:29:27.156Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 125,
+    "route_count": 126,
     "routes": [
       {
         "method": "GET",
@@ -114,6 +114,11 @@
       {
         "method": "POST",
         "path": "/automations/feed/read",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/feed/unread-count",
         "match": "exact"
       },
       {
@@ -649,11 +654,6 @@
       {
         "method": "POST",
         "path": "/workspace/checkpoint/rollback",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/workspace/documents",
         "match": "exact"
       }
     ]

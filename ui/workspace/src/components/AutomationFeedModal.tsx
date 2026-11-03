@@ -41,35 +41,43 @@ function browserHandoff(attachment: AutomationFeedAttachment): string | null {
     : null;
 }
 
+// Open with a small first page; older items load on demand (server caps at 200).
+const FEED_PAGE = 30;
+const FEED_MAX = 200;
+
 export function AutomationFeedModal({ open, onClose, targetItemId = null }: { open: boolean; onClose: () => void; targetItemId?: string | null }) {
   const [items, setItems] = useState<AutomationFeedItem[]>([]);
+  const [limit, setLimit] = useState(FEED_PAGE);
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [loading, setLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [loadError, setLoadError] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (nextLimit: number = limit) => {
     setLoading(true);
     setLoadError('');
     try {
-      setItems(await listAutomationFeed(100));
+      setItems(await listAutomationFeed(nextLimit));
+      setLimit(nextLimit);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : '자동화 뉴스피드를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     if (!open) return;
-    void refresh();
+    void refresh(FEED_PAGE);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose, open, refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reopen resets to the first page only
+  }, [onClose, open]);
+  const canLoadMore = items.length >= limit && limit < FEED_MAX;
 
   const filteredItems = useMemo(
     () => filter === 'all' ? items : items.filter((item) => item.kind === filter),
@@ -190,6 +198,16 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
           ) : (
             <div className="space-y-3">
               {filteredItems.map((item) => <AutomationFeedCard key={item.id} item={item} highlighted={item.id === targetItemId} />)}
+              {canLoadMore ? (
+                <button
+                  type="button"
+                  onClick={() => void refresh(Math.min(FEED_MAX, limit + FEED_PAGE * 2))}
+                  disabled={loading}
+                  className="w-full rounded-xl border border-line bg-white/65 py-2.5 text-xs font-semibold text-muted transition hover:border-accent/40 hover:text-text disabled:cursor-wait disabled:opacity-50"
+                >
+                  {loading ? '불러오는 중…' : '이전 항목 더 보기'}
+                </button>
+              ) : null}
             </div>
           )}
         </div>

@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { ArrowSquareOut, ArrowsInSimple, ArrowsOutSimple, FolderOpen, TerminalWindow, CaretRight } from '@phosphor-icons/react';
 import type { WorkspaceMode } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { listAutomationFeed, markAutomationFeedRead, openWorkspaceRootInExplorer } from '../api/myAgentClient';
+import { countAutomationFeedUnread, markAutomationFeedRead, openWorkspaceRootInExplorer } from '../api/myAgentClient';
 import { BrowserPane } from './BrowserPane';
 import { APP_PREFERENCES_CHANGED_EVENT, syncMinimizeToTrayOnClose } from '../lib/appPreferences';
 import { subscribeInAppBrowserActivation } from '../lib/inAppBrowserBridge';
@@ -167,12 +167,8 @@ export function MainWorkspaceContainer() {
     let active = true;
     const poll = async () => {
       try {
-        const feed = await listAutomationFeed(100);
-        if (active) {
-          setAutomationUnread(feed.filter(
-            (item) => (item.kind === 'result' || item.kind === 'error') && item.read_at === null,
-          ).length);
-        }
+        const unread = await countAutomationFeedUnread();
+        if (active) setAutomationUnread(unread);
       } catch { /* ignore transient feed errors */ }
     };
     void poll();
