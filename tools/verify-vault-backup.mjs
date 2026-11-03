@@ -7,6 +7,9 @@ const vault = path.join(root, 'data', 'vault');
 const lic = path.join(vault, 'license.ocx');
 const keys = path.join(vault, 'provider-keys.json');
 const config = path.join(root, 'data', 'config', 'user-overrides.json');
+// saveUserOverrides keeps a last-good copy here and loads it when the main file is missing,
+// so test writes left in it would leak into the next run (e.g. local_only=true).
+const configBak = `${config}.bak`;
 const backupDir = path.join(vault, '.verify-backup');
 
 function backupFile(src, name) {
@@ -19,6 +22,7 @@ export function backupUserVault() {
   backupFile(lic, 'license.ocx');
   backupFile(keys, 'provider-keys.json');
   backupFile(config, 'user-overrides.json');
+  backupFile(configBak, 'user-overrides.json.bak');
 }
 
 /**
@@ -47,13 +51,14 @@ export function restoreUserVault() {
       unlinkSync(bak);
     } else if (name === 'provider-keys.json' && existsSync(dest)) {
       unlinkSync(dest);
-    } else if (name === 'user-overrides.json' && existsSync(dest)) {
+    } else if ((name === 'user-overrides.json' || name === 'user-overrides.json.bak') && existsSync(dest)) {
       unlinkSync(dest);
     }
   };
   restore('license.ocx', lic);
   restore('provider-keys.json', keys);
   restore('user-overrides.json', config);
+  restore('user-overrides.json.bak', configBak);
   try {
     if (existsSync(backupDir)) rmdirSync(backupDir);
   } catch {

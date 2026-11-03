@@ -10,7 +10,9 @@ const keys = path.join(root, 'data', 'vault', 'provider-keys.json');
 const configPath = path.join(root, 'data', 'config', 'user-overrides.json');
 const example = path.join(root, 'data', 'vault', 'license.ocx.example');
 
-for (const f of [keys, configPath]) {
+// The .bak is loaded when the main file is missing; a stale one would start in local_only.
+const configBak = `${configPath}.bak`;
+for (const f of [keys, configPath, configBak]) {
   if (existsSync(f)) unlinkSync(f);
 }
 copyFileSync(example, lic);
@@ -95,4 +97,5 @@ try {
   if (existsSync(lic)) unlinkSync(lic);
   if (existsSync(keys)) unlinkSync(keys);
   if (existsSync(configPath)) unlinkSync(configPath);
+  if (existsSync(configBak)) unlinkSync(configBak);
 }
