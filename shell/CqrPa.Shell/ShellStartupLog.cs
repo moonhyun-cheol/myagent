@@ -53,6 +53,48 @@ internal static class ShellStartupLog
         Write($"{context}: {ex?.ToString() ?? "(no exception object)"}");
     }
 
+    private static string? SessionMarkerPath =>
+        string.IsNullOrWhiteSpace(_root) ? null : Path.Combine(_root, "data", "logs", "shell-session.marker");
+
+    /// <summary>
+    /// Called once by the primary instance. If the previous primary left its marker behind
+    /// (no clean <see cref="EndSession"/>), the earlier run crashed, was killed, or lost power;
+    /// that is recorded as <c>previous_session: abnormal_end</c>. Then writes a fresh marker.
+    /// </summary>
+    public static void BeginSession()
+    {
+        try
+        {
+            var marker = SessionMarkerPath;
+            if (marker is null) return;
+            if (File.Exists(marker))
+            {
+                var previous = File.ReadAllText(marker).Trim();
+                Write($"previous_session: abnormal_end (정상 종료 기록 없음: 강제 종료·충돌·전원 차단 가능) last={previous}");
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+            File.WriteAllText(marker, $"pid={Environment.ProcessId} started={DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}", Encoding.UTF8);
+        }
+        catch
+        {
+            // Diagnostics are best effort.
+        }
+    }
+
+    public static void EndSession(string reason)
+    {
+        Write($"shutdown: clean ({reason})");
+        try
+        {
+            var marker = SessionMarkerPath;
+            if (marker is not null && File.Exists(marker)) File.Delete(marker);
+        }
+        catch
+        {
+            // Diagnostics are best effort.
+        }
+    }
+
     internal static void RotateIfLarge(string path)
     {
         try

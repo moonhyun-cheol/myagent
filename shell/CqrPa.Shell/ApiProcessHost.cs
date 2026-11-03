@@ -1,10 +1,22 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.Json;
 
 namespace CqrPa.Shell;
+
+/// <summary>Why the local API could not be started (drives the user-facing message).</summary>
+public enum ApiStartFailureKind
+{
+    None,
+    /// <summary>core\dist\main.js or runtime\node\node.exe is missing.</summary>
+    FilesMissing,
+    /// <summary>Windows refused to run node.exe (antivirus, Smart App Control, group policy).</summary>
+    Blocked,
+    Other,
+}
 
 public sealed class ApiProcessHost : IDisposable
 {
@@ -19,6 +31,9 @@ public sealed class ApiProcessHost : IDisposable
     private readonly string _expectedVersion;
     private bool _startedByShell;
     private bool _restartedAfterVersionMismatch;
+    private bool _disposed;
+    private bool _needsRestart;
+    private readonly object _lifecycleGate = new();
 
     public TimeSpan RecommendedHealthTimeout =>
         _restartedAfterVersionMismatch ? TimeSpan.FromSeconds(90) : TimeSpan.FromSeconds(60);
@@ -27,6 +42,8 @@ public sealed class ApiProcessHost : IDisposable
 
     /// <summary>Why <see cref="Start"/> returned false (shown to the user and logged).</summary>
     public string? LastStartFailure { get; private set; }
+
+    public ApiStartFailureKind LastStartFailureKind { get; private set; }
 
     private StreamWriter? _stderrLog;
     private readonly object _stderrGate = new();
@@ -41,10 +58,13 @@ public sealed class ApiProcessHost : IDisposable
 
     public bool Start()
     {
+        LastStartFailure = null;
+        LastStartFailureKind = ApiStartFailureKind.None;
         var script = Path.Combine(_root, "core", "dist", "main.js");
         if (!File.Exists(script))
         {
             LastStartFailure = $"파일 없음: {script}";
+            LastStartFailureKind = ApiStartFailureKind.FilesMissing;
             return false;
         }
 
@@ -70,6 +90,7 @@ public sealed class ApiProcessHost : IDisposable
         if (!File.Exists(nodePath))
         {
             LastStartFailure = $"파일 없음: {nodePath}";
+            LastStartFailureKind = ApiStartFailureKind.FilesMissing;
             return false;
         }
 
@@ -93,6 +114,10 @@ public sealed class ApiProcessHost : IDisposable
         catch (Exception ex)
         {
             LastStartFailure = $"Node 실행 실패: {ex.Message}";
+            // 5 access denied, 225 virus detected, 1260 blocked by policy, 4551 app control policy.
+            LastStartFailureKind = ex is Win32Exception { NativeErrorCode: 5 or 225 or 1260 or 4551 }
+                ? ApiStartFailureKind.Blocked
+                : ApiStartFailureKind.Other;
             ShellStartupLog.WriteException("api: node start failed", ex);
             return false;
         }
@@ -118,8 +143,137 @@ public sealed class ApiProcessHost : IDisposable
         else
         {
             LastStartFailure = "Node 프로세스를 만들지 못했습니다.";
+            LastStartFailureKind = ApiStartFailureKind.Other;
         }
         return _startedByShell;
+    }
+
+    /// <summary>User-facing cause/advice for a failed <see cref="Start"/>.</summary>
+    public static (string Title, string Cause, string Advice) DescribeStartFailure(ApiStartFailureKind kind) => kind switch
+    {
+        ApiStartFailureKind.FilesMissing => (
+            "프로그램 파일 일부가 없습니다",
+            "백신 프로그램이 파일을 격리했거나, 설치·업데이트가 중간에 멈췄을 수 있습니다.",
+            "MY Agent를 다시 설치해 주세요. 백신이 격리했다면 격리 목록에서 복원해도 됩니다."),
+        ApiStartFailureKind.Blocked => (
+            "Windows가 MY Agent 실행을 막았습니다",
+            "백신 프로그램, 스마트 앱 컨트롤 또는 회사 보안 정책이 로컬 서비스(node.exe) 실행을 차단했습니다.",
+            "회사 PC라면 담당자에게 아래 버튼으로 저장한 기록을 보내 주세요."),
+        _ => (
+            "MY Agent를 시작하지 못했습니다",
+            "로컬 서비스를 실행하지 못했습니다.",
+            "PC를 다시 시작한 뒤 실행해 보고, 반복되면 담당자에게 기록을 보내 주세요."),
+    };
+
+    /// <summary>True when the node process this shell started has exited (crash or kill).</summary>
+    public bool OwnedProcessExited
+    {
+        get
+        {
+            var process = _process;
+            if (!_startedByShell || process is null) return false;
+            try { return process.HasExited; }
+            catch { return false; }
+        }
+    }
+
+    /// <summary>The owned node exited, or an earlier restart attempt did not start it.</summary>
+    public bool NeedsRestart => _needsRestart || OwnedProcessExited;
+
+    /// <summary>
+    /// Starts node again only when the shell-owned process has exited. A running-but-slow
+    /// process is never restarted here (that would cut off in-flight chats).
+    /// </summary>
+    public bool TryRestartAfterExit()
+    {
+        lock (_lifecycleGate)
+        {
+            if (_disposed || !NeedsRestart) return false;
+            _needsRestart = true;
+            var previousPort = Port;
+            var old = _process;
+            _process = null;
+            _startedByShell = false;
+            try { old?.Dispose(); } catch { /* ignore */ }
+            lock (_stderrGate)
+            {
+                try { _stderrLog?.Dispose(); } catch { /* ignore */ }
+                _stderrLog = null;
+            }
+            var ok = Start();
+            if (ok) _needsRestart = false;
+            ShellStartupLog.Write(ok
+                ? $"api_restart: node restarted port={Port}{(Port != previousPort ? $" (port changed from {previousPort})" : "")}"
+                : $"api_restart: failed ({LastStartFailure ?? "unknown"})");
+            return ok;
+        }
+    }
+
+    /// <summary>
+    /// Plain-language cause and advice when <c>/health</c> never became ready, based on the
+    /// node exit state, the tail of <c>logs\api-stderr.log</c> and free disk space.
+    /// </summary>
+    public (string Cause, string Advice, bool DiskLow) DescribeStartupFailure()
+    {
+        if (ShellProblems.IsDiskLow(_root))
+        {
+            return (
+                $"디스크 여유 공간이 부족합니다 (남은 공간 약 {ShellProblems.FreeDiskMb(_root)}MB).",
+                "필요 없는 파일을 지운 뒤 다시 시도해 주세요.",
+                true);
+        }
+
+        if (LastStartFailureKind != ApiStartFailureKind.None)
+        {
+            var described = DescribeStartFailure(LastStartFailureKind);
+            return ($"{described.Title}. {described.Cause}", described.Advice, false);
+        }
+
+        var tail = ReadStderrTail();
+        if (tail.Contains("EADDRINUSE", StringComparison.Ordinal))
+            return ("다른 프로그램이 MY Agent가 쓰는 연결 통로(포트)를 쓰고 있습니다.", "PC를 다시 시작한 뒤 실행해 주세요.", false);
+        if (tail.Contains("ENOSPC", StringComparison.Ordinal))
+            return ("디스크 여유 공간이 부족합니다.", "필요 없는 파일을 지운 뒤 다시 시도해 주세요.", true);
+        if (tail.Contains("EPERM", StringComparison.Ordinal) || tail.Contains("EACCES", StringComparison.Ordinal))
+            return ("프로그램 파일에 접근하지 못했습니다. 백신 프로그램이 파일을 검사·차단하고 있을 수 있습니다.", "잠시 후 다시 시도하고, 반복되면 담당자에게 기록을 보내 주세요.", false);
+        if (tail.Contains("Cannot find module", StringComparison.Ordinal) || tail.Contains("ERR_MODULE_NOT_FOUND", StringComparison.Ordinal))
+            return ("프로그램 파일 일부가 없습니다. 설치나 업데이트가 중간에 멈췄을 수 있습니다.", "MY Agent를 다시 설치해 주세요.", false);
+
+        if (OwnedProcessExited)
+        {
+            int? code = null;
+            try { code = _process?.ExitCode; } catch { /* unavailable */ }
+            return (
+                $"로컬 서비스가 시작 직후 종료됐습니다 (종료 코드 {code?.ToString() ?? "?"}).",
+                "다시 시도해 보고, 반복되면 담당자에게 기록을 보내 주세요.",
+                false);
+        }
+        return (
+            "로컬 서비스가 제한 시간 안에 준비되지 않았습니다. PC가 바쁘거나 백신 프로그램이 검사 중일 수 있습니다.",
+            "잠시 후 다시 시도해 주세요.",
+            false);
+    }
+
+    private string ReadStderrTail()
+    {
+        try
+        {
+            var path = Path.Combine(_root, "logs", "api-stderr.log");
+            if (!File.Exists(path)) return "";
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var length = Math.Min(stream.Length, 16 * 1024);
+            stream.Seek(-length, SeekOrigin.End);
+            var buffer = new byte[length];
+            stream.ReadExactly(buffer);
+            var text = System.Text.Encoding.UTF8.GetString(buffer);
+            // Only the latest start attempt is relevant.
+            var start = text.LastIndexOf("api start port=", StringComparison.Ordinal);
+            return start >= 0 ? text[start..] : text;
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     /// <summary>
@@ -151,6 +305,26 @@ public sealed class ApiProcessHost : IDisposable
         {
             try { _stderrLog?.WriteLine(line); }
             catch { /* diagnostics are best effort */ }
+        }
+    }
+
+    /// <summary>One short /health probe (used by the background health monitor).</summary>
+    public bool ProbeReady() => IsReady(ProbeHealth(Port));
+
+    /// <summary>Node process state for diagnostics lines.</summary>
+    public string DescribeNodeProcess()
+    {
+        var process = _process;
+        if (!_startedByShell || process is null) return "node=reused-or-unowned";
+        try
+        {
+            if (process.HasExited) return $"node pid={process.Id} exited code={process.ExitCode}";
+            process.Refresh();
+            return $"node pid={process.Id} running ws_mb={process.WorkingSet64 / 1048576}";
+        }
+        catch (Exception ex)
+        {
+            return $"node state unavailable ({ex.GetType().Name})";
         }
     }
 
@@ -555,11 +729,15 @@ public sealed class ApiProcessHost : IDisposable
 
     public void Dispose()
     {
-        if (_startedByShell && _process is { HasExited: false })
+        lock (_lifecycleGate)
         {
-            try { _process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            _disposed = true;
+            if (_startedByShell && _process is { HasExited: false })
+            {
+                try { _process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            }
+            _process?.Dispose();
         }
-        _process?.Dispose();
         lock (_stderrGate)
         {
             try { _stderrLog?.Dispose(); } catch { /* ignore */ }

@@ -273,6 +273,12 @@ public partial class MainWindow : Window
                 case "composer.externalDrop.reject":
                     RejectExternalFileDrop(root);
                     break;
+                case "app.diagnostics.collect":
+                    // Leave the WebMessageReceived callback before showing a modal dialog.
+                    _ = Dispatcher.InvokeAsync(
+                        CollectDiagnosticsInteractive,
+                        System.Windows.Threading.DispatcherPriority.Background);
+                    break;
                 case "preview.detach":
                     var previewMode = root.TryGetProperty("mode", out var modeProperty)
                         ? modeProperty.GetString()
@@ -422,13 +428,17 @@ public partial class MainWindow : Window
         _workspaceLoading = true;
         StartupOverlay.Visibility = Visibility.Visible;
         HideHwndWorkspaceWebViewForOverlay();
-        StartupRetryButton.Visibility = Visibility.Collapsed;
-        StartupProgress.Visibility = Visibility.Visible;
-        StartupStatusText.Text = "로컬 서비스를 시작하는 중…";
+        ResetStartupOverlay("로컬 서비스를 시작하는 중…");
+        var healthFailed = false;
         try
         {
+            if (_api.NeedsRestart)
+                await Task.Run(() => _api.TryRestartAfterExit());
             if (!await _api.WaitForHealthAsync(_api.RecommendedHealthTimeout))
+            {
+                healthFailed = true;
                 throw new InvalidOperationException("로컬 서비스가 제한 시간 안에 준비되지 않았습니다.");
+            }
 
             StartupStatusText.Text = "화면 엔진을 준비하는 중…";
             if (WebView.CoreWebView2 is null)
@@ -451,6 +461,7 @@ public partial class MainWindow : Window
                 initializedCore.NavigationStarting += OnWorkspaceNavigationStarting;
                 initializedCore.NavigationCompleted += OnWorkspaceNavigationCompleted;
                 initializedCore.NewWindowRequested += OnWorkspaceNewWindowRequested;
+                initializedCore.ProcessFailed += OnWorkspaceProcessFailed;
                 WebView.DefaultBackgroundColor = WorkspaceBackgroundColor();
                 // Explorer/OLE drops are owned by the WPF shell bridge. CompositionControl
                 // does not reliably expose external files as DOM File objects on every
@@ -469,9 +480,34 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             ShellStartupLog.WriteException("workspace: load failed", ex);
-            StartupProgress.Visibility = Visibility.Collapsed;
-            StartupRetryButton.Visibility = Visibility.Visible;
-            StartupStatusText.Text = $"시작하지 못했습니다. {ex.Message}";
+            if (healthFailed)
+            {
+                ShowApiStartupProblem("MY Agent를 시작하지 못했습니다");
+            }
+            else if (ex is WebView2RuntimeNotFoundException)
+            {
+                ShowStartupProblem(
+                    "화면 엔진이 설치돼 있지 않습니다",
+                    "MY Agent 화면을 보여 주는 Microsoft Edge WebView2 Runtime을 찾지 못했습니다.",
+                    "WebView2 Runtime을 설치한 뒤 다시 시도해 주세요.",
+                    new ShellProblemAction("설치 페이지 열기", () => Process.Start(new ProcessStartInfo(
+                        "https://developer.microsoft.com/microsoft-edge/webview2/") { UseShellExecute = true })));
+            }
+            else if (ShellProblems.IsDiskLow(_cqrRoot))
+            {
+                ShowStartupProblem(
+                    "화면을 준비하지 못했습니다",
+                    $"디스크 여유 공간이 부족합니다 (약 {ShellProblems.FreeDiskMb(_cqrRoot)}MB).",
+                    "필요 없는 파일을 지운 뒤 다시 시도해 주세요.",
+                    ShellProblems.DiskCleanupAction());
+            }
+            else
+            {
+                ShowStartupProblem(
+                    "화면을 준비하지 못했습니다",
+                    "화면 엔진(WebView2)을 시작하지 못했습니다.",
+                    "다시 시도해 보고, 반복되면 PC를 다시 시작하거나 담당자에게 기록을 보내 주세요.");
+            }
         }
         finally
         {
@@ -520,18 +556,53 @@ public partial class MainWindow : Window
     {
         if (e.IsSuccess)
         {
+            _startupProblemShown = false;
             StartupOverlay.Visibility = Visibility.Collapsed;
             WebViewElement.Visibility = Visibility.Visible;
             return;
         }
-        StartupProgress.Visibility = Visibility.Collapsed;
-        StartupRetryButton.Visibility = Visibility.Visible;
-        StartupStatusText.Text = $"작업 화면을 불러오지 못했습니다. ({e.WebErrorStatus})";
+        // A navigation superseded by another (reload, retry) is not a failure.
+        if (e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+        ShellStartupLog.Write($"workspace: navigation failed status={e.WebErrorStatus}");
+        if (_api.NeedsRestart)
+        {
+            ShowApiStartupProblem("작업 화면을 불러오지 못했습니다");
+            return;
+        }
+        ShowStartupProblem(
+            "작업 화면을 불러오지 못했습니다",
+            $"화면 연결에 실패했습니다 ({e.WebErrorStatus}).",
+            "다시 시도해 주세요.");
+    }
+
+    /// <summary>
+    /// WebView2 renderer/GPU/browser process crashes used to leave only a blank or frozen
+    /// window. Record kind, reason and exit code so "화면이 하얗게 됐다/멈춘다" is diagnosable.
+    /// </summary>
+    private void OnWorkspaceProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+    {
+        string detail;
+        try
+        {
+            detail = $"kind={e.ProcessFailedKind} reason={e.Reason} exit_code={e.ExitCode} process={e.ProcessDescription}";
+        }
+        catch
+        {
+            detail = $"kind={e.ProcessFailedKind}";
+        }
+        ShellStartupLog.Write($"webview_process_failed: {detail} {ShellHealthMonitor.DescribeShellProcess()}");
+        RecoverFromWorkspaceProcessFailure(e.ProcessFailedKind);
+    }
+
+    private void CollectDiagnosticsInteractive()
+    {
+        var message = ShellDiagnosticsBundle.CreateAndReveal(_cqrRoot);
+        System.Windows.MessageBox.Show(this, message, "MY Agent 진단", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async void OnStartupRetryClick(object sender, RoutedEventArgs e)
     {
-        await LoadWorkspaceAsync();
+        await RetryWorkspaceAsync();
     }
 
     private void OnMinimizeClick(object sender, RoutedEventArgs e) =>
@@ -672,6 +743,7 @@ public partial class MainWindow : Window
 
         _trayMenu = new Forms.ContextMenuStrip();
         _trayMenu.Items.Add("MY Agent 열기", null, (_, _) => Dispatcher.Invoke(RestoreFromTray));
+        _trayMenu.Items.Add("담당자에게 보낼 기록 저장", null, (_, _) => Dispatcher.Invoke(CollectDiagnosticsInteractive));
         _trayMenu.Items.Add(new Forms.ToolStripSeparator());
         _trayMenu.Items.Add("종료", null, (_, _) => Dispatcher.Invoke(ExitFromTray));
 

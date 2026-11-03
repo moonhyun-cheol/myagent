@@ -1,6 +1,8 @@
-import { ArrowClockwise, Power } from '@phosphor-icons/react';
+import { ArrowClockwise, FirstAidKit, Power } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import {
+  canCollectDiagnostics,
+  collectDiagnosticsBundle,
   loadMinimizeToTrayOnClose,
   loadUpdateAutoCheckEnabled,
   loadUpdatePollIntervalMs,
@@ -113,6 +115,26 @@ export function SettingsLifecycleSection({ readOnly }: { readOnly: boolean }) {
               지금 업데이트 확인
             </button>
           </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-5 rounded-xl border border-border bg-panel/50 px-4 py-3">
+          <span>
+            <span className="block text-sm font-medium text-text">문제 진단 기록</span>
+            <span className="mt-1 block text-xs leading-5 text-muted">
+              프로그램이 꺼지거나 멈추거나 실행되지 않았을 때의 기록(시작·종료·충돌·응답 없음·Windows 오류 이벤트)을 바탕화면의 ZIP 하나로 모읍니다.
+              대화 내용과 API 키는 들어가지 않습니다. 창이 열리지 않을 때는 <code>MYAgent.exe --collect-diagnostics</code>로 실행해도 됩니다.
+            </span>
+          </span>
+          <button
+            type="button"
+            disabled={!canCollectDiagnostics()}
+            onClick={() => collectDiagnosticsBundle()}
+            title={canCollectDiagnostics() ? undefined : '데스크톱 앱에서만 사용할 수 있습니다.'}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-sm font-medium text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <FirstAidKit size={14} />
+            진단 기록 모으기
+          </button>
         </div>
       </div>
     </section>

@@ -73,3 +73,15 @@ export function saveUpdatePollIntervalMs(ms: number): void {
 export function triggerUpdateCheckNow(): void {
   shellWebView()?.postMessage({ type: 'app.update.check', manual: true });
 }
+
+/** Desktop shell only: zip local crash/hang/startup logs onto the Desktop. */
+export function canCollectDiagnostics(): boolean {
+  return shellWebView() !== null;
+}
+
+export function collectDiagnosticsBundle(): boolean {
+  const host = shellWebView();
+  if (!host) return false;
+  host.postMessage({ type: 'app.diagnostics.collect' });
+  return true;
+}

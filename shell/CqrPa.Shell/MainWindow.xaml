@@ -173,9 +173,11 @@
                        FontWeight="Bold"
                        Foreground="{DynamicResource ShellAccentTextBrush}" />
           </Border>
-          <TextBlock Text="MY Agent를 준비하고 있습니다"
+          <TextBlock x:Name="StartupTitleText"
+                     Text="MY Agent를 준비하고 있습니다"
                      Margin="0,18,0,6"
                      TextAlignment="Center"
+                     TextWrapping="Wrap"
                      FontSize="18"
                      FontWeight="SemiBold"
                      Foreground="{DynamicResource ShellTextBrush}" />
@@ -191,15 +193,42 @@
                        IsIndeterminate="True"
                        Foreground="#0f8f83"
                        Background="{DynamicResource ShellProgressTrackBrush}" />
-          <Button x:Name="StartupRetryButton"
+          <TextBlock x:Name="StartupAdviceText"
+                     Visibility="Collapsed"
+                     Margin="0,6,0,0"
+                     TextAlignment="Center"
+                     TextWrapping="Wrap"
+                     FontSize="12"
+                     Foreground="{DynamicResource ShellMutedTextBrush}" />
+          <StackPanel Orientation="Horizontal"
+                      Margin="0,18,0,0"
+                      HorizontalAlignment="Center">
+            <Button x:Name="StartupRetryButton"
+                    Visibility="Collapsed"
+                    Content="다시 시도"
+                    MinWidth="96"
+                    Padding="10,6"
+                    Style="{StaticResource StartupRetryBtn}"
+                    Click="OnStartupRetryClick" />
+            <Button x:Name="StartupFixButton"
+                    Visibility="Collapsed"
+                    MinWidth="96"
+                    Margin="8,0,0,0"
+                    Padding="10,6"
+                    Style="{StaticResource StartupRetryBtn}"
+                    Click="OnStartupFixClick" />
+          </StackPanel>
+          <Button x:Name="StartupSaveLogButton"
                   Visibility="Collapsed"
-                  Content="다시 시도"
-                  Width="96"
-                  Margin="0,18,0,0"
-                  Padding="10,6"
+                  Content="담당자에게 보낼 기록 저장"
+                  Margin="0,10,0,0"
+                  Padding="10,4"
                   HorizontalAlignment="Center"
-                  Style="{StaticResource StartupRetryBtn}"
-                  Click="OnStartupRetryClick" />
+                  Background="Transparent"
+                  BorderThickness="0"
+                  Cursor="Hand"
+                  Foreground="{DynamicResource ShellMutedTextBrush}"
+                  Click="OnStartupSaveLogClick" />
         </StackPanel>
       </Border>
 
