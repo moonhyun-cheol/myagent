@@ -94,6 +94,7 @@ import { resolveAutomatonRoot } from '../automaton/paths.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import {
   resolveSlashRoute,
+  isEscapedSlashCommand,
   SLASH_COMMAND_UNREGISTERED_MESSAGE,
 } from '../router/automaton-intent.js';
 import { matchMarketResearchSlash } from '../skills/market-pipeline-capability.js';
@@ -180,6 +181,11 @@ export class ChatOrchestrator {
         routing: { mode: explicitMode, matched_tool: explicitMode, confidence: 1, layer: 'explicit' },
         automatonText: message,
       };
+    }
+
+    // `//명령` / `\/명령` escape: talk about a command without running it.
+    if (isEscapedSlashCommand(message)) {
+      return { routing: defaultRoute, automatonText: message };
     }
 
     // Host-local market research slashes (not Bulbasaur / OpenClaw).
