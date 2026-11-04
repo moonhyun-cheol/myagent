@@ -392,6 +392,9 @@ interface SessionViewSnapshot {
   canvasEdges: Edge[];
   documentTabs: DocumentTab[];
   activeDocumentTabId: string | null;
+  /** Composer `+` skill is per conversation: switching chats must not carry it over. */
+  skillMode: string | null;
+  skillLabel: string | null;
 }
 
 interface LiveJob {
@@ -926,6 +929,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       canvasEdges: state.canvasEdges,
       documentTabs: state.documentTabs,
       activeDocumentTabId: state.activeDocumentTabId,
+      skillMode: state.skillMode,
+      skillLabel: state.skillLabel,
     });
   };
 
@@ -2332,6 +2337,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         canvasNodes: [],
         canvasEdges: [],
         ...emptyDocumentState(),
+        skillMode: null,
+        skillLabel: null,
       });
       syncViewBusy();
       set({ files: [], filesRoot: null, filesMessage: null });
@@ -2372,6 +2379,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           canvasEdges: snapshot?.canvasEdges ?? [],
           documentTabs: snapshot?.documentTabs ?? [newDraftDocumentTab([])],
           activeDocumentTabId: snapshot?.activeDocumentTabId ?? null,
+          skillMode: snapshot?.skillMode ?? null,
+          skillLabel: snapshot?.skillLabel ?? null,
         });
       } else {
         // Do not leave the previous conversation visible while the first fetch is pending.
@@ -2391,6 +2400,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           canvasEdges: [],
           documentTabs: [newDraftDocumentTab([])],
           activeDocumentTabId: null,
+          skillMode: null,
+          skillLabel: null,
         });
       }
       syncViewBusy();
@@ -2437,6 +2448,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           canvasEdges: previous?.canvasEdges ?? [],
           documentTabs: previous?.documentTabs ?? [newDraftDocumentTab([])],
           activeDocumentTabId: previous?.activeDocumentTabId ?? null,
+          // The skill toggle is client-only; keep the latest choice for this conversation.
+          skillMode: get().activeSessionId === sessionId ? get().skillMode : previous?.skillMode ?? null,
+          skillLabel: get().activeSessionId === sessionId ? get().skillLabel : previous?.skillLabel ?? null,
         };
         sessionViewCache.set(sessionId, refreshed);
         if (detachedRun) applyDetachedRun(sessionId, detachedRun);
