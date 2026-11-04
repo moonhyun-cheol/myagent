@@ -161,6 +161,54 @@ async function isolatedBrowserSession(
   return ctx?.browserSession ?? null;
 }
 
+/** Separate Chromium session for extended browser tools (after the visible route was not chosen). */
+async function isolatedOnlyBrowserSession(
+  _name: string,
+  args: Record<string, unknown>,
+  ctx?: AgentToolContext,
+) {
+  const session = await isolatedBrowserSession({ ...args, target: 'isolated' }, ctx);
+  if (!session) throw new Error('ISOLATED_BROWSER_NOT_AVAILABLE');
+  return session;
+}
+
+/** Copy only present string/number/boolean element-target args into a shell payload. */
+function pickVisibleArgs(args: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === 'string' ? value.trim() !== '' : typeof value === 'number' || typeof value === 'boolean') {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Extended browser tools on the user-visible WebView2 (shell pipe). Returns null when the call
+ * routes to the separate Chromium instead.
+ */
+async function runVisibleExtendedBrowserTool(
+  action: string,
+  args: Record<string, unknown>,
+  ctx: AgentToolContext | undefined,
+  payload: Record<string, unknown>,
+  label: string,
+): Promise<{ label: string; output: string } | null> {
+  if (browserExecutionTarget(args, ctx) !== 'visible') return null;
+  assertVisibleBrowserAllowed(ctx);
+  const bridge = getVisibleBrowserBridge();
+  if (!bridge?.isConnected()) throw new Error('VISIBLE_BROWSER_NOT_CONNECTED');
+  const tabId = visibleTabId(args);
+  await ensureVisibleLock(args, ctx, bridge, tabId);
+  const result = await bridge.request(action, withVisibleTab(args, payload));
+  const blocked = visibleBlockedOutput(result, ctx?.allowLocalhost === true);
+  if (blocked) return { label: `${label} visible blocked`, output: blocked };
+  return { label: `${label} visible`, output: JSON.stringify(result, null, 2) };
+}
+
+const VISIBLE_ELEMENT_KEYS = ['snapshot_id', 'ref', 'selector'];
+
 async function ensureVisibleLock(
   args: Record<string, unknown>,
   ctx: AgentToolContext | undefined,
@@ -1446,6 +1494,103 @@ async function executeAgentToolInner(
         const expression = String(args.expression ?? '');
         const result = await session.evaluate(expression);
         return { label: 'evaluate isolated', output: result };
+      }
+      case 'browser_scroll': {
+        const direction = String(args.direction ?? 'down');
+        if (!['up', 'down', 'to-element', 'to-text'].includes(direction)) throw new Error('BROWSER_SCROLL_DIRECTION_INVALID');
+        const visible = await runVisibleExtendedBrowserTool('scroll', args, ctx,
+          { direction, ...pickVisibleArgs(args, ['amount', 'text', ...VISIBLE_ELEMENT_KEYS]) }, `scroll ${direction}`);
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const output = await session.scroll({
+          direction: direction as 'up' | 'down' | 'to-element' | 'to-text',
+          amount: typeof args.amount === 'number' ? args.amount : undefined,
+          selector: typeof args.selector === 'string' ? args.selector : undefined,
+          text: typeof args.text === 'string' ? args.text : undefined,
+        });
+        return { label: `scroll isolated ${direction}`, output };
+      }
+      case 'browser_wait': {
+        const state = ['attached', 'visible', 'hidden', 'detached'].includes(String(args.state))
+          ? args.state as 'attached' | 'visible' | 'hidden' | 'detached'
+          : undefined;
+        const visible = await runVisibleExtendedBrowserTool('wait', args, ctx,
+          pickVisibleArgs(args, ['selector', 'url', 'state', 'timeout_ms']), 'wait');
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const output = await session.waitFor({
+          selector: typeof args.selector === 'string' ? args.selector : undefined,
+          url: typeof args.url === 'string' ? args.url : undefined,
+          state,
+          timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+        });
+        return { label: 'wait isolated', output };
+      }
+      case 'browser_press_key': {
+        const key = String(args.key ?? '');
+        if (!key.trim()) throw new Error('BROWSER_KEY_REQUIRED');
+        const visible = await runVisibleExtendedBrowserTool('press_key', args, ctx,
+          { key, ...pickVisibleArgs(args, VISIBLE_ELEMENT_KEYS) }, `press ${key}`);
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const output = await session.pressKey(key, typeof args.selector === 'string' ? args.selector : undefined);
+        return { label: `press isolated ${key}`, output };
+      }
+      case 'browser_select': {
+        const visible = await runVisibleExtendedBrowserTool('select', args, ctx,
+          { value: String(args.value ?? ''), ...pickVisibleArgs(args, VISIBLE_ELEMENT_KEYS) }, 'select');
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const selector = String(args.selector ?? '');
+        if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
+        return { label: `select isolated ${selector}`, output: await session.select(selector, String(args.value ?? '')) };
+      }
+      case 'browser_history': {
+        const action = args.action === 'forward' || args.action === 'reload' ? args.action : 'back';
+        const visible = await runVisibleExtendedBrowserTool('history', args, ctx, { action }, `history ${action}`);
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const result = await session.history(action);
+        return { label: `history isolated ${action}`, output: JSON.stringify(result, null, 2) };
+      }
+      case 'browser_find': {
+        const visible = await runVisibleExtendedBrowserTool('find', args, ctx, { text: String(args.text ?? '') }, 'find');
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const result = await session.findInPage(String(args.text ?? ''));
+        return { label: 'find isolated', output: JSON.stringify(result, null, 2) };
+      }
+      case 'browser_read_text': {
+        const mode = args.mode === 'table' ? 'table' : 'text';
+        const visible = await runVisibleExtendedBrowserTool('read_text', args, ctx,
+          { mode, ...pickVisibleArgs(args, VISIBLE_ELEMENT_KEYS) }, `read_text ${mode}`);
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const output = await session.readText(typeof args.selector === 'string' ? args.selector : undefined, mode);
+        return { label: `read_text isolated ${mode}`, output };
+      }
+      case 'browser_console_logs': {
+        const visible = await runVisibleExtendedBrowserTool('console_logs', args, ctx,
+          { clear: args.clear === true }, 'console_logs');
+        if (visible) return visible;
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const entries = session.getConsoleLogs(args.clear === true);
+        return { label: `console_logs isolated ${entries.length}`, output: JSON.stringify({ entries }, null, 2) };
+      }
+      case 'browser_download': {
+        if (browserExecutionTarget(args, ctx) === 'visible') {
+          if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+          const sid = (ctx.sessionId?.trim() || 'session').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'session';
+          const downloadDir = path.join(ctx.cqrRoot, 'data', 'outputs', 'browser', sid, 'downloads');
+          const visible = await runVisibleExtendedBrowserTool('download', args, ctx,
+            { download_dir: downloadDir, ...pickVisibleArgs(args, VISIBLE_ELEMENT_KEYS) }, 'download');
+          if (visible) return visible;
+        }
+        const session = await isolatedOnlyBrowserSession(name, args, ctx);
+        const selector = String(args.selector ?? '');
+        if (!selector) throw new Error('BROWSER_SELECTOR_REQUIRED');
+        const saved = await session.download(selector, ctx?.sessionId);
+        return { label: `download isolated ${saved.relative}`, output: JSON.stringify(saved, null, 2) };
       }
       default: {
         if (name.startsWith('mcp_') && ctx?.cqrRoot) {

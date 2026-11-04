@@ -122,6 +122,15 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
   browser_drag: 'browser_drag',
   browser_fill: 'browser_fill',
   browser_evaluate: 'browser_evaluate',
+  browser_scroll: 'browser_scroll',
+  browser_wait: 'browser_wait',
+  browser_press_key: 'browser_press_key',
+  browser_select: 'browser_select',
+  browser_history: 'browser_history',
+  browser_find: 'browser_find',
+  browser_read_text: 'browser_read_text',
+  browser_console_logs: 'browser_console_logs',
+  browser_download: 'browser_download',
 };
 
 /** Map provider-specific tool names to MY Agent workspace tools. */

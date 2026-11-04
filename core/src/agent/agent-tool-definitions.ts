@@ -1183,6 +1183,83 @@ export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [
       },
     },
   },
+  ...extendedBrowserTool('browser_scroll',
+    'Scroll the page up/down, or to a CSS selector / visible text.',
+    {
+      direction: { type: 'string', enum: ['up', 'down', 'to-element', 'to-text'] },
+      amount: { type: 'number', description: 'Pixels for up/down (100-4000, default 700)' },
+      selector: { type: 'string', description: 'CSS selector for to-element' },
+      text: { type: 'string', description: 'Visible text for to-text' },
+    },
+    ['direction']),
+  ...extendedBrowserTool('browser_wait',
+    'Wait until a CSS selector reaches a state or the URL matches (max 30s). Use after clicks that load content.',
+    {
+      selector: { type: 'string', description: 'CSS selector to wait for' },
+      url: { type: 'string', description: 'URL (or glob) to wait for when no selector' },
+      state: { type: 'string', enum: ['attached', 'visible', 'hidden', 'detached'] },
+      timeout_ms: { type: 'number', description: 'Timeout in ms (100-30000)' },
+    }),
+  ...extendedBrowserTool('browser_press_key',
+    'Press a keyboard key or chord (e.g. Enter, Tab, Control+A), optionally focused on a CSS selector.',
+    {
+      key: { type: 'string', description: 'Playwright key name, e.g. Enter, ArrowDown, Control+A' },
+      selector: { type: 'string', description: 'Optional CSS selector to focus first' },
+    },
+    ['key']),
+  ...extendedBrowserTool('browser_select',
+    'Choose an option in a <select> by value or label (visible: snapshot_id+ref or selector).',
+    {
+      selector: { type: 'string', description: 'CSS selector of the <select>' },
+      value: { type: 'string', description: 'Option value or label' },
+    },
+    ['value']),
+  ...extendedBrowserTool('browser_history',
+    'Go back, forward, or reload the current page.',
+    { action: { type: 'string', enum: ['back', 'forward', 'reload'] } },
+    ['action']),
+  ...extendedBrowserTool('browser_find',
+    'Find visible text on the page; scrolls to it and returns a stable CSS selector plus a text excerpt.',
+    { text: { type: 'string', description: 'Text to find (case-insensitive)' } },
+    ['text']),
+  ...extendedBrowserTool('browser_read_text',
+    'Extract page data. mode=text returns innerText (max 12000 chars); mode=table returns JSON rows [{table,cells[]}] for every <table>. Optional selector limits the scope. Use for data collection, then save results with write_file.',
+    {
+      selector: { type: 'string', description: 'Optional CSS selector to scope extraction (default body)' },
+      mode: { type: 'string', enum: ['text', 'table'], description: 'Default text' },
+    }),
+  ...extendedBrowserTool('browser_console_logs',
+    'Read recent console errors/warnings, HTTP >=400 responses and failed requests captured on the page (max 100).',
+    { clear: { type: 'boolean', description: 'Clear the buffer after reading' } }),
+  ...extendedBrowserTool('browser_download',
+    'Click a download link/button (visible: snapshot_id+ref or selector; isolated: selector) and save the file under data/outputs/browser/<session>/downloads/. Returns the saved path; open it with read_file or markitdown_convert.',
+    { selector: { type: 'string', description: 'CSS selector of the download link/button' } }),
 ];
+
+function extendedBrowserTool(
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  required: string[] = [],
+): AgentToolDefinition[] {
+  return [{
+    type: 'function',
+    function: {
+      name,
+      description: `${description} Works on target=visible (user's in-app browser, keeps login; lock like other visible tools) and target=isolated (separate Chromium). Use the same target the page was opened with. Element refs need snapshot_id+ref from the latest visible snapshot; selector works on both.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          ...properties,
+          target: { type: 'string', enum: ['visible', 'isolated'], description: 'Optional target; interactive defaults to shared visible, background defaults to isolated' },
+          snapshot_id: { type: 'string', description: 'Latest visible browser snapshot id (visible element target)' },
+          ref: { type: 'string', description: 'Element ref from the latest visible snapshot' },
+          tab_id: { type: 'string', description: 'Optional visible-browser tab id (multi-tab); defaults to the active tab' },
+        },
+        ...(required.length ? { required } : {}),
+      },
+    },
+  }];
+}
 
 export const CODE_AGENT_TOOL_NAMES = CODE_AGENT_TOOLS.map((t) => t.function.name);

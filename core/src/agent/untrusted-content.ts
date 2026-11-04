@@ -15,6 +15,15 @@ const BROWSER_CONTENT_TOOLS = new Set([
   'browser_drag',
   'browser_fill',
   'browser_evaluate',
+  'browser_scroll',
+  'browser_wait',
+  'browser_press_key',
+  'browser_select',
+  'browser_history',
+  'browser_find',
+  'browser_read_text',
+  'browser_console_logs',
+  'browser_download',
 ]);
 
 export type UntrustedSource = 'web' | 'mcp' | 'download' | 'remote_repo';
