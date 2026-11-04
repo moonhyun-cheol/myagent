@@ -41,7 +41,15 @@ export function automatonIntentToRoute(intent: AutomatonIntentResult): RouteDeci
 
 /** 등록되지 않은 슬래시 명령에 대한 한국어 안내 (LLM 폴백 금지). */
 export const SLASH_COMMAND_UNREGISTERED_MESSAGE =
-  '**슬래시 명령 미등록** — 이 명령은 automaton 도구 목록에 없습니다. 회사(조직) 모듈이 로드되지 않았거나 명령 철자가 다를 수 있습니다. 일반 대화는 `/` 없이 입력하세요.';
+  '**슬래시 명령 미등록** — 이 명령은 automaton 도구 목록에 없습니다. 회사(조직) 모듈이 로드되지 않았거나 명령 철자가 다를 수 있습니다. 일반 대화는 `/` 없이 입력하거나, 명령을 실행하지 않고 이야기하려면 `//명령` 처럼 `/`를 두 번 쓰세요.';
+
+/**
+ * 탈출 표기: `//명령` 또는 `\/명령`으로 시작하면 명령을 실행하지 않고 일반 대화로 넘긴다.
+ * 명령에 대해 이야기하거나 양식을 고칠 때 실수로 실행되는 것을 막는다.
+ */
+export function isEscapedSlashCommand(message: string): boolean {
+  return /^(?:\/\/|\\\/)\S/.test(message.trim());
+}
 
 export interface SlashRouteResult {
   routing: RouteDecision;
@@ -55,6 +63,7 @@ export interface SlashRouteResult {
  * - slash가 아니면 null (일반 라우팅 계속).
  */
 export function resolveSlashRoute(message: string, cqrRoot?: string): SlashRouteResult | null {
+  if (isEscapedSlashCommand(message)) return null;
   if (!/^\/\S/.test(message.trim())) return null;
   const intent = peekAutomatonIntent(message, cqrRoot);
   if (intent) {
