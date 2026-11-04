@@ -15,6 +15,11 @@ import { summarizeAgentToolResult } from './agent-tool-result.js';
 export type WebAuditTarget = AgentWebAuditFields['target'];
 export type WebAuditOutcome = AgentWebAuditFields['outcome'];
 
+/** Browser tools that never touch the user-visible WebView2. */
+const ISOLATED_ONLY_BROWSER_TOOLS = new Set([
+  'browser_evaluate',
+]);
+
 export function isAuditedWebTool(name: string): boolean {
   return name.startsWith('browser_') || name === 'save_web_asset' || name.startsWith('mcp_');
 }
@@ -50,7 +55,7 @@ export function webAuditTarget(
   if (name.startsWith('mcp_')) return 'mcp';
   if (name === 'browser_targets') return 'none';
   if (name === 'browser_lock' || name === 'browser_unlock') return 'visible';
-  if (name === 'browser_evaluate') return 'isolated';
+  if (ISOLATED_ONLY_BROWSER_TOOLS.has(name)) return 'isolated';
   if (args.target === 'visible' || args.target === 'isolated') return args.target;
   // Not executed (e.g. approval denied before routing) → no surface was touched.
   return resolvedBrowserTarget ?? 'none';

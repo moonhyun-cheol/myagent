@@ -53,6 +53,11 @@ public partial class MainWindow
         public string? SnapshotId;
         public ulong SnapshotNavigationId;
         public Dictionary<string, long> Refs = new(StringComparer.Ordinal);
+
+        // Agent diagnostics (console errors, failed requests) and the one download an agent action armed.
+        public List<VisibleDiagnosticEntry> Diagnostics = new();
+        public Dictionary<string, string> RequestUrls = new(StringComparer.Ordinal);
+        public PendingVisibleDownload? PendingDownload;
     }
 
     /// <summary>Register the primary tab lazily, reusing the existing XAML controls.</summary>
@@ -352,10 +357,12 @@ public partial class MainWindow
         core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
         core.DownloadStarting += (s, e) =>
         {
-            e.Cancel = true;
             var owner = TabForCore(s);
+            if (owner is not null && TryAcceptAutomationDownload(owner, e)) return;
+            e.Cancel = true;
             if (owner is not null) UpdateTabState(owner, "다운로드는 인앱 브라우저에서 차단됩니다.");
         };
+        AttachBrowserDiagnostics(tab, core);
         tab.View.PreviewKeyDown += OnBrowserPreviewKeyDown;
         tab.View.DefaultBackgroundColor = WorkspaceBackgroundColor();
     }
