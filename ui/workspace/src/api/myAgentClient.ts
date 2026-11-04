@@ -170,7 +170,7 @@ export interface SessionActiveRun {
 export type ReasoningLevel = 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type AgentAutopilotMode = 'auto' | 'on' | 'off';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
-export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';
+export type WorkspaceBehavior = 'agent' | 'plan' | 'ask' | 'debug';
 export interface ExecutionPolicy {
   reasoning: ReasoningLevel;
   autopilot: AgentAutopilotMode;

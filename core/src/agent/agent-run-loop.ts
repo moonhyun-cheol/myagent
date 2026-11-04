@@ -163,6 +163,7 @@ import {
 import {
   maxSilentVerifyRetries,
 } from './verify-loop.js';
+import { behaviorAllowsAutopilot, resolveBehaviorToolPack } from './agent-runtime-facts.js';
 import {
   clearOldCheckpoints,
   createWorkspaceCheckpoint,
@@ -220,13 +221,16 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   assertDevWorkspaceRootReadable(opts.workspaceRoot);
   const guard = { allowNas };
 
-  const autopilot = resolveAutopilotEnabled(
-    process.env,
-    typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
-    opts.userMessage,
-    { codeSession: true },
-  );
-  const toolPack = opts.forceToolPack ?? 'files+browser';
+  const workspaceBehavior = opts.workspaceBehavior ?? 'agent';
+  const autopilot = behaviorAllowsAutopilot(workspaceBehavior, opts.cqrRoot)
+    && resolveAutopilotEnabled(
+      process.env,
+      typeof opts.autopilot === 'boolean' ? opts.autopilot : null,
+      opts.userMessage,
+      { codeSession: true },
+    );
+  const toolPack = opts.forceToolPack
+    ?? resolveBehaviorToolPack(workspaceBehavior, opts.cqrRoot, 'files+browser');
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
@@ -748,6 +752,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     allowLocalhost: opts.playwrightAllowLocalhost,
     browserRouting: opts.browserRouting,
     signal: opts.signal,
+    workspaceBehavior,
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,

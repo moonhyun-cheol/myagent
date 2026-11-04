@@ -8,7 +8,25 @@ import {
   ollamaAllowedForCodeAgent,
   resolveSessionReasoningEffort,
 } from '../../providers/harness-policy.js';
-import { normalizeExecutionPolicy } from '../../execution-policy.js';
+import {
+  normalizeExecutionPolicy,
+  resolveWorkspaceBehavior,
+  type ExecutionPolicy,
+} from '../../execution-policy.js';
+import {
+  behaviorAllowsAutopilot,
+  behaviorPersistsLockedConstraints,
+  loadDebugModeSystemNote,
+  loadPlanModeSystemNote,
+  resolveForcedToolPack,
+  shouldUseWorkspaceToolPlane,
+} from '../../agent/agent-runtime-facts.js';
+import {
+  extractLockedConstraintsFromText,
+  loadLockedConstraints,
+  persistConstraintsFromAssistantText,
+} from '../../agent/agent-locked-constraints.js';
+import { ensureDebugLogGitignore } from '../../sessions/workspace-scratch-gitignore.js';
 import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { appendBrandManualIfNeeded } from '../../providers/brand-manual-context.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
@@ -59,6 +77,18 @@ export function shouldUseWorkspaceAgentRuntime(
     || mode === 'web_dev'
     || mode === 'code_agent'
     || mode.startsWith('user:');
+}
+
+/**
+ * Tool plane entry — explicit execution_policy only (not message regex).
+ * Ask answers from the workspace snippet without entering the tool loop.
+ */
+export function shouldEnterWorkspaceToolPlane(
+  workspaceAgentAvailable: boolean,
+  policy: ExecutionPolicy | undefined,
+): boolean {
+  if (!workspaceAgentAvailable) return false;
+  return shouldUseWorkspaceToolPlane(resolveWorkspaceBehavior(policy));
 }
 
 /** Tool availability must not mutate the model-facing intent or response style. */
@@ -288,6 +318,17 @@ export async function runWorkspaceCodeAgent(opts: {
     sessionStore.load(sessionId)?.execution_policy,
   );
   sessionStore.setExecutionPolicy(sessionId, requestedPolicy);
+  const workspaceBehavior = resolveWorkspaceBehavior(requestedPolicy);
+  // Plan/Debug are chosen explicitly in the UI picker — never inferred from message wording.
+  if (workspaceBehavior === 'plan') {
+    const planNote = loadPlanModeSystemNote(cqrRoot);
+    if (planNote) lockSystemNotes.push(planNote);
+  }
+  if (workspaceBehavior === 'debug') {
+    const debugNote = loadDebugModeSystemNote(cqrRoot);
+    if (debugNote) lockSystemNotes.push(debugNote);
+    ensureDebugLogGitignore(workspaceRoot);
+  }
   const autopilotOverride =
     requestedPolicy.autopilot === 'on' ? true : requestedPolicy.autopilot === 'off' ? false : null;
   const autopilotHeuristic = resolveAutopilotEnabled(
@@ -296,8 +337,9 @@ export async function runWorkspaceCodeAgent(opts: {
     message,
     { codeSession: true },
   );
-  const autopilot =
-    autopilotOverride !== null ? autopilotOverride : autopilotHeuristic ? true : undefined;
+  const autopilot = !behaviorAllowsAutopilot(workspaceBehavior, cqrRoot)
+    ? false
+    : autopilotOverride !== null ? autopilotOverride : autopilotHeuristic ? true : undefined;
   const reasoningEffort = resolveSessionReasoningEffort(requestedPolicy.reasoning, process.env, {
     providerId: provider.providerId,
     modelId: provider.modelId,
@@ -311,9 +353,15 @@ export async function runWorkspaceCodeAgent(opts: {
   appendAgentAuditEvent(cqrRoot, {
     type: 'run_start',
     sessionId,
-    detail: 'workspace_agent:model_directed_tools',
+    detail: workspaceBehavior === 'agent'
+      ? 'workspace_agent:model_directed_tools'
+      : `workspace_agent:${workspaceBehavior}`,
   });
-  callbacks?.onStatus?.('Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다');
+  callbacks?.onStatus?.(workspaceBehavior === 'debug'
+    ? 'Debug 모드 · 가설 → 임시 로그 → 재현 → 수정 → 로그 정리 순서로 진행합니다'
+    : workspaceBehavior === 'plan'
+      ? 'Plan 모드 · 읽기 전용으로 코드를 살펴보고 설계만 합니다'
+      : 'Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다');
 
   const agent = await runMarOrCodeAgent({
     workspaceRoot,
@@ -342,6 +390,8 @@ export async function runWorkspaceCodeAgent(opts: {
     // Code agent default ON for 127.0.0.1 dev E2E; set user-overrides false to lock.
     playwrightAllowLocalhost: overrides.playwright_allow_localhost !== false,
     autopilot,
+    workspaceBehavior,
+    forceToolPack: resolveForcedToolPack(workspaceBehavior, cqrRoot),
     continuationRetry: continuationRetry === true,
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,
@@ -360,6 +410,11 @@ export async function runWorkspaceCodeAgent(opts: {
     signal,
   });
 
+  const persistsConstraints = behaviorPersistsLockedConstraints(workspaceBehavior, cqrRoot);
+  const planConstraintsLocked = persistsConstraints
+    ? Boolean(extractLockedConstraintsFromText(agent.content ?? ''))
+    : undefined;
+
   const scrubbed = appendAssistantReply(sessionStore, sessionId, {
     content: agent.content,
     tool_activity: [...activities.values()],
@@ -368,9 +423,20 @@ export async function runWorkspaceCodeAgent(opts: {
     mode: routing.mode,
     application_notice: agent.applicationNotice,
     userMessage: message,
+    workspace_behavior: workspaceBehavior === 'plan' ? 'plan' : undefined,
+    plan_constraints_locked: planConstraintsLocked,
     emptyFallback:
       '코드 에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
   });
+
+  if (persistsConstraints) {
+    persistConstraintsFromAssistantText({
+      cqrRoot,
+      sessionId,
+      assistantText: scrubbed,
+      previous: loadLockedConstraints(cqrRoot, sessionId),
+    });
+  }
 
   return {
     role: 'assistant',
@@ -381,5 +447,6 @@ export async function runWorkspaceCodeAgent(opts: {
     mutatedPaths: agent.mutatedPaths ?? [],
     ...(agent.browserHandoff ? { browserHandoff: agent.browserHandoff } : {}),
     ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
+    ...(planConstraintsLocked !== undefined ? { planConstraintsLocked } : {}),
   };
 }

@@ -3,6 +3,7 @@ import type { SessionMessage } from '../sessions/types.js';
 import type { ToolApprovalOutcome, ToolApprovalRequest } from './tool-approval.js';
 import type { AgentRuntimeHooks } from './agent-hooks.js';
 import type { AgentToolPack } from './agent-tool-pack.js';
+import type { WorkspaceBehavior } from '../execution-policy.js';
 import type { ProviderWireApi } from '../providers/types.js';
 import type { ResponsesContinuationState } from '../sessions/types.js';
 
@@ -96,6 +97,8 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   imageDataUrls?: string[];
   /** Force tool pack instead of message heuristic. */
   forceToolPack?: AgentToolPack;
+  /** Plan/Ask/Agent/Debug workspace behavior from the session execution policy. */
+  workspaceBehavior?: WorkspaceBehavior;
   /** Extra system notes prepended after skill prompt. */
   extraSystemNotes?: string[];
   /** Autopilot: continuous tool loop (no mid-task 「다음 조치」 stops). */

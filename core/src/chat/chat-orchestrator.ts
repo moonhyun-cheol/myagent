@@ -111,6 +111,7 @@ import { handleDeepResearchMode } from './modes/deep-research.js';
 import { handleImageGenMode } from './modes/image-gen.js';
 import {
   shouldUseWorkspaceAgentRuntime,
+  shouldEnterWorkspaceToolPlane,
   runWorkspaceCodeAgent,
   preserveWorkspaceAgentRouting,
 } from './modes/workspace-agent.js';
@@ -633,7 +634,8 @@ export class ChatOrchestrator {
       });
     }
 
-    if (workspaceAgentAvailable) {
+    // Ask stays on the plain chat path (workspace snippet only, no tool loop).
+    if (shouldEnterWorkspaceToolPlane(workspaceAgentAvailable, requestedExecutionPolicy)) {
       return runWorkspaceCodeAgent({
         cqrRoot: this.cqrRoot,
         configPath: this.configPath,
@@ -968,7 +970,7 @@ export class ChatOrchestrator {
       }
     }
 
-    if (workspaceAgentAvailable) {
+    if (shouldEnterWorkspaceToolPlane(workspaceAgentAvailable, requestedExecutionPolicy)) {
       const agentRouting = preserveWorkspaceAgentRouting(routing);
       let userAppended = false;
       // Model actually running this turn — kept so failure/stop replies say which model failed.
@@ -1362,6 +1364,9 @@ export class ChatOrchestrator {
           ...(lastProcessedTokens !== undefined ? { lastProcessedTokens } : {}),
           ...(donePaths.length ? { mutatedPaths: donePaths } : {}),
           ...(checkpointId ? { checkpointId } : {}),
+          ...((full as { planConstraintsLocked?: boolean }).planConstraintsLocked !== undefined
+            ? { planConstraintsLocked: (full as { planConstraintsLocked?: boolean }).planConstraintsLocked }
+            : {}),
         });
       } catch (e: unknown) {
         const thrownUsage = toMessageUsage(agentUsageFromError(e));

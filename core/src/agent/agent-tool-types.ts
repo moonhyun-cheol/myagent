@@ -33,6 +33,8 @@ export interface AgentToolContext {
   browserRouting?: 'interactive' | 'background';
   /** Cancel long-running tools (run_terminal). */
   signal?: AbortSignal;
+  /** Plan mode forbids mutating tools even if the model calls one outside the schema. */
+  workspaceBehavior?: import('../execution-policy.js').WorkspaceBehavior;
   /** Driver-only, exact command approved for this call; never sourced from model args. */
   approvedTerminalCommand?: string;
   /** Exact current/continued run tool evidence and evidence_read source. */
