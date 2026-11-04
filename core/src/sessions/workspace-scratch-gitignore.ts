@@ -68,6 +68,13 @@ export function ensurePlaywrightGitignore(workspaceRoot: string): void {
   ensureIgnoreLine(workspaceRoot, doc.gitignoreLine, doc.gitignoreComment);
 }
 
+/** Debug mode writes temporary NDJSON traces here; keep them out of the user's git repo. */
+export const DEBUG_LOG_DIR = '.myagent-debug';
+
+export function ensureDebugLogGitignore(workspaceRoot: string): void {
+  ensureIgnoreLine(workspaceRoot, `${DEBUG_LOG_DIR}/`, '# MY Agent debug mode traces (session temp)');
+}
+
 export function removePlaywrightSessionDir(workspaceRoot: string | null | undefined, sessionId: string): void {
   const root = workspaceRoot?.trim();
   const sid = sessionId.trim();

@@ -63,9 +63,16 @@
     "ask": {
       "tool_plane": false,
       "context": "workspace_snippet"
+    },
+    "debug": {
+      "tool_pack": "files+browser",
+      "verify": "full",
+      "autopilot_allowed": true,
+      "system_skill": "skills/debug-mode.md"
     }
   },
   "system_skills": {
-    "plan_mode": "skills/plan-mode.md"
+    "plan_mode": "skills/plan-mode.md",
+    "debug_mode": "skills/debug-mode.md"
   }
 }

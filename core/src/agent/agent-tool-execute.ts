@@ -8,6 +8,7 @@ import {
   writeWorkspaceFile,
 } from './dev-workspace-fs.js';
 import { formatEmptyRetrievalHint, formatToolSelfCorrection } from './tool-self-correction.js';
+import { isMutatingAgentTool } from './verify-loop.js';
 import { extractPathsFromUserMessage } from './agent-outcome-gate.js';
 import {
   formatRunTerminalOutput,
@@ -285,6 +286,13 @@ async function executeAgentToolInner(
   const normalized = normalizeToolCall(call);
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
+
+  if (ctx?.workspaceBehavior === 'plan' && isMutatingAgentTool(name)) {
+    return {
+      label: name,
+      output: 'ERROR: WORKSPACE_BEHAVIOR_READ_ONLY — Plan mode forbids mutating tools. Switch to Agent mode to edit files.',
+    };
+  }
 
   try {
     switch (name) {

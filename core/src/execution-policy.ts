@@ -4,13 +4,20 @@ import { isReasoningLevel, type ReasoningLevelWire } from './providers/reasoning
 export type ReasoningLevel = ReasoningLevelWire;
 export type AutopilotLevel = 'off' | 'auto' | 'on';
 export type ApprovalLevel = 'ask' | 'delegate' | 'autopilot';
-export type WorkspaceBehavior = 'agent' | 'plan' | 'ask';
+export type WorkspaceBehavior = 'agent' | 'plan' | 'ask' | 'debug';
+
+export function isWorkspaceBehavior(value: unknown): value is WorkspaceBehavior {
+  return value === 'agent' || value === 'plan' || value === 'ask' || value === 'debug';
+}
 
 export interface ExecutionPolicy {
   reasoning: ReasoningLevel;
   autopilot: AutopilotLevel;
   approval: ApprovalLevel;
-  /** Explicit UI mode: plan = read-only tools, ask = no tool plane, agent = mutate (default). */
+  /**
+   * Explicit UI mode: plan = read-only tools, ask = no tool plane, agent = mutate (default),
+   * debug = agent tools + hypothesis → temporary instrumentation → reproduce → fix → cleanup loop.
+   */
   workspace_behavior?: WorkspaceBehavior;
 }
 
@@ -26,7 +33,7 @@ export function resolveWorkspaceBehavior(
   fallback: WorkspaceBehavior = 'agent',
 ): WorkspaceBehavior {
   const b = policy?.workspace_behavior;
-  return b === 'plan' || b === 'ask' || b === 'agent' ? b : fallback;
+  return isWorkspaceBehavior(b) ? b : fallback;
 }
 
 export function normalizeExecutionPolicy(
@@ -45,7 +52,7 @@ export function normalizeExecutionPolicy(
     approval: approval === 'delegate' || approval === 'autopilot' || approval === 'ask'
       ? approval
       : fallback.approval,
-    workspace_behavior: workspaceBehavior === 'plan' || workspaceBehavior === 'ask' || workspaceBehavior === 'agent'
+    workspace_behavior: isWorkspaceBehavior(workspaceBehavior)
       ? workspaceBehavior
       : fallback.workspace_behavior ?? 'agent',
   };
@@ -63,9 +70,7 @@ export function defaultExecutionPolicyFromConfig(
   // Product default is always Agent. Plan/Ask are opt-in (UI or MY_AGENT_CODE_PLAN_LOCK / config override).
   const defaultBehavior: WorkspaceBehavior = codingPlanLockEnabled(env)
     ? 'plan'
-    : (config.agent_default_workspace_behavior === 'plan'
-      || config.agent_default_workspace_behavior === 'ask'
-      || config.agent_default_workspace_behavior === 'agent'
+    : (isWorkspaceBehavior(config.agent_default_workspace_behavior)
       ? config.agent_default_workspace_behavior
       : 'agent');
   return normalizeExecutionPolicy({

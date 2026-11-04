@@ -10,6 +10,7 @@ import {
   CaretDown,
   CheckCircle,
   FolderSimple,
+  Hammer,
   X,
   Image as ImageIcon,
   Stop,
@@ -101,7 +102,7 @@ const reasoningLabel = reasoningLevelLabel;
 const approvalLabel = (value: ApprovalLevel) =>
   value === 'autopilot' ? 'Autopilot' : value === 'delegate' ? '나 대신 승인' : '승인 요청';
 const workspaceBehaviorLabel = (value: WorkspaceBehavior | null | undefined) =>
-  value === 'plan' ? 'Plan' : value === 'ask' ? 'Ask' : 'Agent';
+  value === 'plan' ? 'Plan' : value === 'ask' ? 'Ask' : value === 'debug' ? 'Debug' : 'Agent';
 
 function isImageAttachment(mime?: string, name?: string): boolean {
   if (mime?.startsWith('image/')) return true;
@@ -300,6 +301,7 @@ export function ChatPane() {
   const contextBudget = useWorkspaceStore((s) => s.contextBudget);
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
+  const buildFromPlan = useWorkspaceStore((s) => s.buildFromPlan);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const queueReviewSessions = useWorkspaceStore((s) => s.queueReviewSessions);
   const updateQueuedMessage = useWorkspaceStore((s) => s.updateQueuedMessage);
@@ -1590,6 +1592,7 @@ export function ChatPane() {
                   { value: 'agent', label: 'Agent', description: '도구로 바로 실행' },
                   { value: 'plan', label: 'Plan', description: '계획만 · 수정 전 확인' },
                   { value: 'ask', label: 'Ask', description: '설명·질문 중심 · 도구 최소' },
+                  { value: 'debug', label: 'Debug', description: '임시 로그로 재현·수정 반복 · 끝나면 로그 제거' },
                 ]} onSelect={(value) => void savePolicy({ workspace_behavior: value as WorkspaceBehavior })} />
             ) : policyTarget === 'chat-reasoning-level' ? (<>
               <PolicyChoices testId="chat-reasoning-level" label="추론 수준 선택"
@@ -1956,6 +1959,30 @@ export function ChatPane() {
                   : turn.role === 'assistant'
                     ? <MessageMarkdown text={turn.text} onOpenUrl={openExternalUrl} copyText={copyMarkdownText} />
                     : renderMessageText(turn.text)}
+                {turn.role === 'assistant'
+                && turn.planBuildOffer
+                && !turn.planBuilt
+                && !busy
+                && turn.completedAt
+                && turn.text
+                && turn.text !== '작업 중…' ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3">
+                    <button
+                      type="button"
+                      data-testid="plan-build-button"
+                      onClick={() => void buildFromPlan(turn.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-accent/60 bg-accent/12 px-3 py-1.5 text-sm font-semibold text-accent-dim transition-colors hover:bg-accent/20 hover:border-accent"
+                    >
+                      <Hammer size={15} weight="bold" />
+                      Build
+                    </button>
+                    <span className="text-[11px] text-muted">
+                      {turn.planConstraintsLocked === false
+                        ? 'P0 미추출 · 그래도 Build 가능'
+                        : 'Agent 모드로 PLAN 구현'}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               {turn.role === 'assistant' && (conversationDisplay.showTokens || conversationDisplay.showTime)
                 ? (() => {

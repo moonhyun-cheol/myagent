@@ -38,6 +38,8 @@ export function appendAssistantReply(
     tool_activity?: import('../agent/tool-activity.js').ToolActivity[];
     application_notice?: import('../sessions/types.js').ApplicationNotice;
     usage?: import('../sessions/types.js').SessionMessage['usage'];
+    workspace_behavior?: import('../sessions/types.js').SessionMessage['workspace_behavior'];
+    plan_constraints_locked?: boolean;
     emptyFallback?: string;
     /** Used for Korean-vs-Chinese outlet language warning */
     userMessage?: string;
@@ -60,6 +62,10 @@ export function appendAssistantReply(
     ...(opts.tool_activity?.length ? { tool_activity: opts.tool_activity } : {}),
     ...(opts.application_notice ? { application_notice: opts.application_notice } : {}),
     ...(opts.usage ? { usage: opts.usage } : {}),
+    ...(opts.workspace_behavior ? { workspace_behavior: opts.workspace_behavior } : {}),
+    ...(typeof opts.plan_constraints_locked === 'boolean'
+      ? { plan_constraints_locked: opts.plan_constraints_locked }
+      : {}),
   });
   return content;
 }

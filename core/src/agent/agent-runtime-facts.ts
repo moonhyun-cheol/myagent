@@ -26,7 +26,7 @@ export type AgentRuntimeFacts = {
       build_prompt?: string;
     }
   >;
-  system_skills?: { plan_mode?: string };
+  system_skills?: { plan_mode?: string; debug_mode?: string };
 };
 
 const DEFAULT_READ_ONLY = [
@@ -105,8 +105,14 @@ export function loadAgentRuntimeFacts(cqrRoot: string): AgentRuntimeFacts {
         build_prompt: DEFAULT_PLAN_BUILD_PROMPT,
       },
       ask: { tool_plane: false, context: 'workspace_snippet' },
+      debug: {
+        tool_pack: 'files+browser',
+        verify: 'full',
+        autopilot_allowed: true,
+        system_skill: 'skills/debug-mode.md',
+      },
     },
-    system_skills: { plan_mode: 'skills/plan-mode.md' },
+    system_skills: { plan_mode: 'skills/plan-mode.md', debug_mode: 'skills/debug-mode.md' },
   };
 }
 
@@ -175,6 +181,17 @@ export function loadPlanBuildPrompt(cqrRoot: string): string {
 export function loadPlanModeSystemNote(cqrRoot: string): string {
   const facts = loadAgentRuntimeFacts(cqrRoot);
   const rel = facts.system_skills?.plan_mode ?? facts.behaviors.plan?.system_skill ?? 'skills/plan-mode.md';
+  return readDefaultsText(cqrRoot, rel);
+}
+
+/** Debug mode: hypothesis → temporary instrumentation → reproduce → fix → cleanup. */
+export function loadDebugModeSystemNote(cqrRoot: string): string {
+  const facts = loadAgentRuntimeFacts(cqrRoot);
+  const rel = facts.system_skills?.debug_mode ?? facts.behaviors.debug?.system_skill ?? 'skills/debug-mode.md';
+  return readDefaultsText(cqrRoot, rel);
+}
+
+function readDefaultsText(cqrRoot: string, rel: string): string {
   for (const dir of defaultsDir(cqrRoot)) {
     const fp = path.join(dir, rel);
     if (!existsSync(fp)) continue;

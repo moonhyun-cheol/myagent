@@ -74,6 +74,10 @@ export interface SessionMessage {
   attachments?: { id: string; name: string; mime: string; url: string }[];
   /** Host/application notice rendered separately from model-authored content. */
   application_notice?: ApplicationNotice;
+  /** Set on Plan-mode replies so the UI can offer the Build handoff. */
+  workspace_behavior?: ExecutionPolicy['workspace_behavior'];
+  /** Plan reply: whether locked P0 constraints were extracted. */
+  plan_constraints_locked?: boolean;
   /**
    * Provider-reported token usage for this exact assistant response.
    * `input_tokens` maps to the preceding user request, `output_tokens` to this
