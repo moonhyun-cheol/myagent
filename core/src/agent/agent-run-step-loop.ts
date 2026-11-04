@@ -10,7 +10,7 @@ import {
 import { currentLlmUsageTurnId, withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { throwIfAborted } from '../chat/abort.js';
 import { buildToolImageMessage } from './agent-multimodal.js';
-import { wrapUntrustedToolOutput } from './untrusted-content.js';
+import { untrustedSourceForCall, wrapUntrustedToolOutput } from './untrusted-content.js';
 import {
   executeAgentTool,
   normalizeToolCall,
@@ -902,6 +902,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             targets: hitl.targets,
             expires: hitl.expires,
             ...(hitl.fixedSeverity ? { fixedSeverity: hitl.fixedSeverity } : {}),
+            ...(state.untrustedSourcesSeen.size ? { untrustedSourcesInRun: [...state.untrustedSourcesSeen] } : {}),
           }));
           approved = outcome.approved;
           if (outcome.approved && outcome.by === 'reviewer') {
@@ -1333,7 +1334,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         pushToolResultMessage(
           state.messages,
           execCall.id,
-          wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output)),
+          wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output), args),
           execCall.function.name,
         );
         return finishKeptRun(`Agent stopped after tool: ${afterTool.reason}`, 'hook으로 작업 중단');
@@ -1468,11 +1469,13 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.opts.onCode?.({ label: snippet.label, text: trimSnippet(text) });
         }
       }
+      const untrustedSource = untrustedSourceForCall(execCall.function.name, args);
+      if (untrustedSource) state.untrustedSourcesSeen.add(untrustedSource);
       state.messages.push({
         role: 'tool',
         tool_call_id: execCall.id,
-        // Web/MCP results are data inside an explicit envelope, never instructions.
-        content: wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output)),
+        // Web/MCP/downloaded/cloned content is data inside an explicit envelope, never instructions.
+        content: wrapUntrustedToolOutput(execCall.function.name, projectEvidenceForModel(evidenceRecord, output), args),
       });
       if (toolOk) {
         const imageMessage = buildToolImageMessage(execCall.function.name,

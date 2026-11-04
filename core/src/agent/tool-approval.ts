@@ -5,6 +5,7 @@ import { pluginInstallNeedsHitl } from './agent-plugin-capability.js';
 import path from 'node:path';
 import { isOfficeBinaryPath } from '../security/workspace-capabilities.js';
 import { isAbsoluteUserPath, normalizeWorkspacePath } from '../security/dev-workspace-guard.js';
+import { isNetworkSharePath as isSharedNetworkPath } from '../security/path-guard.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
 import { classifyTerminalCommand } from './terminal-risk-policy.js';
 import { mcpServerIdFromTool, networkApprovalNeed } from './untrusted-content.js';
@@ -37,6 +38,11 @@ export interface ToolApprovalRequest {
    * it may only approve when the user explicitly commanded it.
    */
   fixedSeverity?: 'severe';
+  /**
+   * Untrusted origins (web / mcp / download / remote_repo) already read in this run. The
+   * reviewer treats targets not traceable to the user's request as possibly injected.
+   */
+  untrustedSourcesInRun?: string[];
 }
 
 /**
@@ -55,7 +61,7 @@ export function normalizeToolApprovalOutcome(
 
 /** UNC / network share (NAS included). Writes there are never delegated to a model. */
 export function isNetworkSharePath(candidate: string): boolean {
-  return candidate.trim().replace(/\//g, '\\').startsWith('\\\\');
+  return isSharedNetworkPath(candidate);
 }
 
 function pathInsideWorkspace(candidate: unknown, workspaceRoot: string): boolean {
@@ -271,7 +277,7 @@ export function canDelegateToolApproval(
   }
   // Network destinations (unrequested site, first user-MCP call): the reviewer judges
   // whether the destination matches the request and whether arguments carry data out.
-  if (toolName === 'browser_navigate' || mcpServerIdFromTool(toolName)) return true;
+  if (toolName === 'browser_navigate' || toolName === 'save_web_asset' || mcpServerIdFromTool(toolName)) return true;
   // Rollback/plugin changes, moves, and every external write (NAS included)
   // deliberately stay outside delegated authority.
   return false;

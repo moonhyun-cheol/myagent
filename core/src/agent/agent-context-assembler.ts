@@ -40,11 +40,34 @@ const CONTEXT_VIEW_PREFIX = '## Runtime context view';
  * and provider prompt caches keep hitting.
  */
 export const TURN_CONTEXT_PREFIX = '## Turn context';
+/** Question-independent workspace overview, sent once before history (cache-stable). */
+export const WORKSPACE_CONTEXT_PREFIX = '## Workspace context';
+
+export function formatWorkspaceContextMessage(body: string): string {
+  return [
+    `${WORKSPACE_CONTEXT_PREFIX} (runtime-provided, stable across this conversation; discovery only — read concrete files before file-content claims)`,
+    body.trim(),
+  ].join('\n\n');
+}
+
+export function isWorkspaceContextMessage(message: ChatMessage): boolean {
+  return message.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(WORKSPACE_CONTEXT_PREFIX);
+}
 
 export function isTurnContextMessage(message: ChatMessage): boolean {
   return message.role === 'user'
     && typeof message.content === 'string'
     && message.content.startsWith(TURN_CONTEXT_PREFIX);
+}
+
+/** The current request's turn context is the last one; earlier ones are replayed history. */
+export function lastTurnContextIndex(messages: ChatMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (isTurnContextMessage(messages[i])) return i;
+  }
+  return -1;
 }
 
 export function formatTurnContextMessage(sections: string[]): ChatMessage | null {
@@ -63,7 +86,8 @@ export function formatTurnContextMessage(sections: string[]): ChatMessage | null
 export function appendTurnContext(messages: ChatMessage[], section: string): void {
   const text = section.trim();
   if (!text) return;
-  const existing = messages.findIndex(isTurnContextMessage);
+  // Last one: earlier turns' contexts are replayed verbatim in history for prompt caching.
+  const existing = lastTurnContextIndex(messages);
   if (existing >= 0) {
     const current = messages[existing];
     messages[existing] = { ...current, content: `${String(current.content)}\n\n${text}` };
@@ -169,7 +193,8 @@ function recentPlainMessages(messages: ChatMessage[], limit: number): ChatMessag
       return Boolean(text)
         && text.length <= 20_000
         && !text.startsWith(CONTEXT_VIEW_PREFIX)
-        && !text.startsWith(TURN_CONTEXT_PREFIX);
+        && !text.startsWith(TURN_CONTEXT_PREFIX)
+        && !text.startsWith(WORKSPACE_CONTEXT_PREFIX);
     })
     .slice(-Math.max(2, limit * 2))
     .map((message) => ({ role: message.role as 'assistant' | 'user', content: message.content }));
@@ -203,7 +228,9 @@ export function prepareAgentContextForRequest(
     ? 'full_rebuild'
     : 'selective_rebuild';
   const systemMessages = refreshed.filter((message) => message.role === 'system');
-  const turnContext = refreshed.find(isTurnContextMessage);
+  const turnContextAt = lastTurnContextIndex(refreshed);
+  const turnContext = turnContextAt >= 0 ? refreshed[turnContextAt] : undefined;
+  const workspaceContext = refreshed.find(isWorkspaceContextMessage);
   const recent = recentPlainMessages(refreshed, input.recentRoundTrips ?? 3);
   const records = input.evidenceStore.list();
   const newestRequiredIds = new Set(
@@ -212,6 +239,7 @@ export function prepareAgentContextForRequest(
   const evidenceBlocks: string[] = [];
   const projectedEvidenceIds: string[] = [];
   let projectedChars = payloadChars(systemMessages)
+    + (workspaceContext ? payloadChars([workspaceContext]) : 0)
     + (turnContext ? payloadChars([turnContext]) : 0)
     + input.userMessage.length;
   const projectionCeiling = Math.floor(budgetChars * (input.phase === 'retry' ? 0.55 : 0.70));
@@ -258,6 +286,7 @@ export function prepareAgentContextForRequest(
   ].join('\n\n');
   const messages: ChatMessage[] = [
     ...systemMessages,
+    ...(workspaceContext ? [workspaceContext] : []),
     ...(turnContext ? [turnContext] : []),
     { role: 'user', content: input.userMessage },
     ...recent.filter((message) => chatContentToText(message.content).trim() !== input.userMessage.trim()),

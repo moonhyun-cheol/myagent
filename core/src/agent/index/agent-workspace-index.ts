@@ -174,14 +174,17 @@ export function enrichWorkspaceIndexContext(
     symbolMaxChars?: number;
     embeddingMaxChars?: number;
     cqrRoot?: string;
+    /** Context already sent in another message: used only to skip duplicate sections. */
+    presentContext?: string;
   },
 ): string {
   const base = (existingContext ?? '').trim();
   const parts: string[] = [];
 
   if (base) parts.push(base);
+  const seen = `${base}\n${opts?.presentContext ?? ''}`;
 
-  const hasMap = /##\s*Repository map/i.test(base);
+  const hasMap = /##\s*Repository map/i.test(seen);
   if (!hasMap) {
     try {
       const map = buildRepoMapContext(workspaceRoot, {
@@ -201,7 +204,7 @@ export function enrichWorkspaceIndexContext(
   );
   if (hits.trim()) parts.push(hits);
 
-  const hasWindows = /##\s*Adjacent code \(symbol windows/i.test(base);
+  const hasWindows = /##\s*Adjacent code \(symbol windows/i.test(seen);
   if (!hasWindows) {
     try {
       const windows = buildSymbolChunkContext(workspaceRoot, focusMessage, {
@@ -213,7 +216,7 @@ export function enrichWorkspaceIndexContext(
     }
   }
 
-  const hasEmbed = /##\s*Embedding retrieval/i.test(base);
+  const hasEmbed = /##\s*Embedding retrieval/i.test(seen);
   if (!hasEmbed && focusMessage.trim()) {
     try {
       const embed = buildEmbeddingSearchContext(workspaceRoot, focusMessage, {

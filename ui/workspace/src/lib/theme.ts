@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { durableSetItem } from './durableUiState';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export const THEME_KEY = 'my-agent.appearance.v1';
@@ -32,6 +33,12 @@ function apply() {
 export function initializeTheme() {
   apply();
 }
+
+/** Re-read after durable UI state hydration replaced the per-origin cache. */
+export function reloadThemePreference() {
+  preference = load();
+  apply();
+}
 media.addEventListener('change', apply);
 window.addEventListener('storage', event => {
   if (event.key !== THEME_KEY && event.key !== null) return;
@@ -42,7 +49,7 @@ window.addEventListener('storage', event => {
 export function setThemePreference(value: ThemePreference): boolean {
   preference = valid(value);
   let saved = true;
-  try { localStorage.setItem(THEME_KEY, preference); } catch { saved = false; }
+  try { durableSetItem(THEME_KEY, preference); } catch { saved = false; }
   apply();
   return saved;
 }

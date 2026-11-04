@@ -20,7 +20,10 @@ function getArg(args, name) {
 }
 
 function ensureBuilt() {
-  const r = spawnSync(process.execPath, [path.join(root, 'tools', 'build.mjs')], {
+  // Only core/dist is needed here. build-smart rebuilds stale product lanes and
+  // is a no-op when fresh; the forced build.mjs used to rebuild core+ui a third
+  // time during publish (publish.mjs -> bundle-keys).
+  const r = spawnSync(process.execPath, [path.join(root, 'tools', 'build-smart.mjs'), '--lanes=defaults,core,ui'], {
     cwd: root,
     stdio: 'inherit',
   });

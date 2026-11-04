@@ -2,6 +2,7 @@
 
 import { confirmDialog } from '../lib/confirmDialog';
 import { dismissUserNotification, showUserNotification } from '../lib/userNotifications';
+import { durableRemoveItem, durableSetItem } from '../lib/durableUiState';
 
 const SESSION_KEY = 'my-agent-workspace-session';
 const LEGACY_SESSION_KEY = 'cqr-workspace-session';
@@ -373,21 +374,29 @@ export async function listAutomationFeed(limit = 30): Promise<AutomationFeedItem
   return Array.isArray(payload.items) ? payload.items : [];
 }
 
+/** Unread result/error count for the dock badge (no feed payload). */
+export async function countAutomationFeedUnread(): Promise<number> {
+  const res = await fetch('/automations/feed/unread-count', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`자동화 알림 수를 불러오지 못했습니다. (${res.status})`);
+  const payload = await res.json() as { unread?: number };
+  return typeof payload.unread === 'number' ? payload.unread : 0;
+}
+
 export function getStoredSessionId(): string | null {
   const stored = localStorage.getItem(SESSION_KEY);
   if (stored) return stored;
   const legacy = localStorage.getItem(LEGACY_SESSION_KEY);
-  if (legacy) localStorage.setItem(SESSION_KEY, legacy);
+  if (legacy) durableSetItem(SESSION_KEY, legacy);
   return legacy;
 }
 
 export function setStoredSessionId(id: string): void {
-  localStorage.setItem(SESSION_KEY, id);
+  durableSetItem(SESSION_KEY, id);
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 
 export function clearStoredSessionId(): void {
-  localStorage.removeItem(SESSION_KEY);
+  durableRemoveItem(SESSION_KEY);
   localStorage.removeItem(LEGACY_SESSION_KEY);
 }
 
@@ -395,7 +404,7 @@ export function getPinnedSessionIds(): string[] {
   try {
     const stored = localStorage.getItem(PINNED_KEY);
     const legacy = stored === null ? localStorage.getItem(LEGACY_PINNED_KEY) : null;
-    if (legacy !== null) localStorage.setItem(PINNED_KEY, legacy);
+    if (legacy !== null) durableSetItem(PINNED_KEY, legacy);
     const raw = JSON.parse(stored ?? legacy ?? '[]');
     return Array.isArray(raw) ? raw.map(String) : [];
   } catch {
@@ -404,7 +413,7 @@ export function getPinnedSessionIds(): string[] {
 }
 
 export function setPinnedSessionIds(ids: string[]): void {
-  localStorage.setItem(PINNED_KEY, JSON.stringify(ids));
+  durableSetItem(PINNED_KEY, JSON.stringify(ids));
   localStorage.removeItem(LEGACY_PINNED_KEY);
 }
 
@@ -626,7 +635,7 @@ export async function ensureSession(): Promise<string> {
   if (existing) {
     const check = await fetch(`/sessions/${encodeURIComponent(existing)}`);
     if (check.ok) return existing;
-    localStorage.removeItem(SESSION_KEY);
+    durableRemoveItem(SESSION_KEY);
   }
   return createSession();
 }
@@ -652,7 +661,7 @@ export async function createSessionRecord(
   if (!res.ok || !data.id) {
     throw new Error(data.message || data.error || '세션 실패 · API 확인');
   }
-  localStorage.setItem(SESSION_KEY, data.id);
+  durableSetItem(SESSION_KEY, data.id);
   const { workspace_root_project_id: rootId, ...rec } = data as SessionRecord & { workspace_root_project_id?: string | null };
   // Older cores omit the field: fall back to the tree lookup.
   const workspaceRootProjectId = rootId === undefined ? await resolveWorkspaceRootProjectId(projectId) : rootId;
@@ -667,7 +676,7 @@ export async function importSession(session: unknown, projectId: string | null =
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.id) throw new Error(data.message || data.error || '세션 가져오기 실패');
-  localStorage.setItem(SESSION_KEY, data.id);
+  durableSetItem(SESSION_KEY, data.id);
   return data as SessionSummary;
 }
 
@@ -1086,7 +1095,7 @@ export async function saveDefaultModelOverride(value: string): Promise<void> {
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`세션 삭제 실패 (${res.status})`);
-  if (localStorage.getItem(SESSION_KEY) === id) localStorage.removeItem(SESSION_KEY);
+  if (localStorage.getItem(SESSION_KEY) === id) durableRemoveItem(SESSION_KEY);
 }
 
 export async function archiveSession(id: string, archived: boolean): Promise<SessionSummary> {
@@ -1298,6 +1307,40 @@ export async function setLlmUsageTracking(enabled: boolean): Promise<LlmUsageTra
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `비용 추적 설정 실패 (${res.status})`);
   return data.tracking as LlmUsageTracking;
+}
+
+export type ProblemSeverity = 'recovered' | 'warn' | 'error';
+
+export interface ProblemHistoryGroup {
+  kind: string;
+  title: string;
+  severity: ProblemSeverity;
+  count: number;
+  first_at: string;
+  last_at: string;
+  /** Cause of the latest occurrence, when known. */
+  cause?: string;
+  advice: string;
+  /** Installer download page, when reinstalling is the fix. */
+  download_url?: string;
+}
+
+export interface ProblemHistory {
+  days: number;
+  generated_at: string;
+  status: 'ok' | 'recovered' | 'attention';
+  headline: string;
+  groups: ProblemHistoryGroup[];
+  recent: Array<{ at: string; kind: string; title: string; severity: ProblemSeverity; detail?: string; cause?: string }>;
+  sources_found: number;
+}
+
+/** 「문제 해결」: local crash/hang/restart logs summarized by the core. */
+export async function fetchProblemHistory(days = 14): Promise<ProblemHistory> {
+  const res = await fetch(`/runtime/problem-history?days=${encodeURIComponent(String(days))}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `문제 기록 조회 실패 (${res.status})`);
+  return data as ProblemHistory;
 }
 
 export type LlmUsageRangeQuery = { days: number | 'all' } | { from: string; to: string };
@@ -2556,7 +2599,7 @@ export async function testUserMcpServer(
 }
 
 export async function importSkillPackage(zipPath: string): Promise<SkillListItem> {
-  const res = await fetch('/skills/import', {
+  const res = await fetch('/skills/package', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ zip_path: zipPath }),

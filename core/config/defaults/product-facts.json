@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-10-30T08:01:22.725Z",
+  "generated_at": "2026-11-03T05:51:14.644Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -54,7 +54,7 @@
       "/organization-features",
       "/assets/"
     ],
-    "route_count": 123,
+    "route_count": 127,
     "routes": [
       {
         "method": "GET",
@@ -114,6 +114,11 @@
       {
         "method": "POST",
         "path": "/automations/feed/read",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/automations/feed/unread-count",
         "match": "exact"
       },
       {
@@ -244,6 +249,16 @@
       {
         "method": "PUT",
         "path": "/config/nas-consent",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/config/ui-state",
+        "match": "exact"
+      },
+      {
+        "method": "PUT",
+        "path": "/config/ui-state",
         "match": "exact"
       },
       {
@@ -553,6 +568,11 @@
       },
       {
         "method": "GET",
+        "path": "/runtime/problem-history",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
         "path": "/sessions",
         "match": "exact"
       },
@@ -634,26 +654,6 @@
       {
         "method": "GET",
         "path": "/workspace/checkpoint/preview",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/workspace/checkpoint/rollback",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/workspace/documents",
-        "match": "exact"
-      },
-      {
-        "method": "POST",
-        "path": "/workspace/documents",
-        "match": "exact"
-      },
-      {
-        "method": "PUT",
-        "path": "/workspace/documents",
         "match": "exact"
       }
     ]

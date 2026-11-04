@@ -86,6 +86,40 @@ interface BlockEntry {
 let blocklistFile: string | null = null;
 let blocklistCache: { key: string; entries: BlockEntry[] } | null = null;
 
+// ── MY Agent local API port ───────────────────────────────────────────────────────────
+
+/** The core's own unauthenticated API port. Agent browsers/downloads never reach it. */
+let agentApiPort: string | null = null;
+
+/** Called once at API start. Pass null to clear (tests). */
+export function configureAgentApiPort(port: number | string | null): void {
+  const value = port === null ? '' : String(port).trim();
+  agentApiPort = /^\d{1,5}$/.test(value) ? value : null;
+}
+
+function isLoopbackAddress(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (/^127(?:\.\d{1,3}){3}$/.test(h)) return true;
+  if (h === '::1' || h === '0:0:0:0:0:0:0:1') return true;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(h);
+  if (mapped) return isLoopbackAddress(mapped[1]);
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  if (mappedHex) return parseInt(mappedHex[1], 16) >> 8 === 127;
+  return false;
+}
+
+/**
+ * `/outputs/*` (generated files the user opens) stays reachable; every other API path
+ * (sessions, provider/MCP settings, tool approval, chat) is blocked even with allowLocalhost.
+ */
+function agentApiPortReason(url: URL, hostname = url.hostname): string | null {
+  if (!agentApiPort || effectivePort(url) !== agentApiPort) return null;
+  if (!isLoopbackAddress(hostname)) return null;
+  if (decodeURIComponentSafe(url.pathname).startsWith('/outputs/')) return null;
+  return `BLOCKED_HOST: ${url.host} is the MY Agent local API. The agent may not open or download from it (only /outputs/ files). Tell the user.`;
+}
+
 /** Point the guard at user-overrides.json (`browser_blocked_urls: string[]`). Called once at API start. */
 export function configureBrowserUrlBlocklistFile(filePath: string | null): void {
   blocklistFile = filePath;
@@ -198,6 +232,8 @@ export function browserUrlBlockReason(rawUrl: string, opts: UrlGuardOptions = {}
   }
   const hostReason = hostBlockReason(parsed.hostname, opts);
   if (hostReason) return hostReason;
+  const apiReason = agentApiPortReason(parsed);
+  if (apiReason) return apiReason;
   const entry = userBlockedEntry(parsed, opts.blockedUrls);
   if (entry) {
     return `BLOCKED_BY_USER_POLICY: ${parsed.host}${parsed.pathname} matches browser_blocked_urls entry "${entry.raw}". Do not retry or work around it; tell the user.`;
@@ -247,5 +283,7 @@ export async function assertBrowserUrlResolvesAllowed(
   for (const { address } of addresses) {
     const reason = hostBlockReason(address, opts);
     if (reason) throw new Error(`${reason} (${parsed.hostname} resolves to ${address})`);
+    const apiReason = agentApiPortReason(parsed, address);
+    if (apiReason) throw new Error(`${apiReason} (${parsed.hostname} resolves to ${address})`);
   }
 }

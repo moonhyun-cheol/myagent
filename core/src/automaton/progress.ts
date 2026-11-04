@@ -85,18 +85,18 @@ export function formatAutomatonProgressStatus(
   const elapsed = formatElapsed(startedMs);
   const sidecar = readProgressSidecar(progressFile);
   if (!sidecar) {
-    return `my_live_automaton 시작 중… (${elapsed})`;
+    return `상태: 시작 중\n경과: ${elapsed}`;
   }
 
   const segment = String(sidecar.last_segment || sidecar.command_id || '').trim();
   const status = String(sidecar.status || 'running');
   if (segment) {
-    return `my_live_automaton — ${segment} (${elapsed})`;
+    return `상태: 진행 중\n단계: ${segment}\n경과: ${elapsed}`;
   }
   if (status === 'running') {
-    return `my_live_automaton 실행 중… (${elapsed})`;
+    return `상태: 진행 중\n경과: ${elapsed}`;
   }
-  return `my_live_automaton ${status} (${elapsed})`;
+  return `상태: ${status}\n경과: ${elapsed}`;
 }
 
 export interface AutomatonProgressCallbacks {

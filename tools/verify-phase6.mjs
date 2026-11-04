@@ -24,10 +24,10 @@ const srv = await createApiServer(port);
 await new Promise((r) => srv.listen(port, '127.0.0.1', r));
 
 try {
-  await fetch(`http://127.0.0.1:${port}/providers/minimax/key`, {
+  await fetch(`http://127.0.0.1:${port}/providers/anthropic/key`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: 'stub:phase6', model_id: 'MiniMax-M2.1' }),
+    body: JSON.stringify({ api_key: 'stub:phase6', model_id: 'claude-opus-4-8' }),
   });
 
   const created = await fetch(`http://127.0.0.1:${port}/sessions`, {
@@ -43,7 +43,7 @@ try {
     body: JSON.stringify({
       message: 'stream hello',
       mode: 'chat',
-      model: 'provider:minimax',
+      model: 'provider:anthropic',
       attachments: [],
     }),
   });

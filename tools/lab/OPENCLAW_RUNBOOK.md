@@ -65,10 +65,12 @@ Do **not** wire CI to send live jobs.
 Symptom in CQR chat:
 
 ```
-OpenClaw Adapter 실행 실패
-- tool: us_sample_stock_lookup (or other remote)
-- status: denied
-- reason: INGRESS_LANE_NOT_ALLOWED
+**미국샘플재고 조회 실패** (`/미국샘플재고 ...`)
+
+- 실행 경로: OpenClaw Adapter
+- 명령 ID: `us_sample_stock_lookup` (or other remote)
+- 상태: denied
+- 사유 코드: `INGRESS_LANE_NOT_ALLOWED`
 ```
 
 Meaning (verified 2026-08-05 against local adapter `:8790`):

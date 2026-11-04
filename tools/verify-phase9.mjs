@@ -10,7 +10,9 @@ const keys = path.join(root, 'data', 'vault', 'provider-keys.json');
 const configPath = path.join(root, 'data', 'config', 'user-overrides.json');
 const example = path.join(root, 'data', 'vault', 'license.ocx.example');
 
-for (const f of [keys, configPath]) {
+// The .bak is loaded when the main file is missing; a stale one would start in local_only.
+const configBak = `${configPath}.bak`;
+for (const f of [keys, configPath, configBak]) {
   if (existsSync(f)) unlinkSync(f);
 }
 copyFileSync(example, lic);
@@ -35,60 +37,36 @@ const base = `http://127.0.0.1:${srv.address().port}`;
 const providerOptions = (picker, id) => picker.options.filter(
   (option) => option.kind === 'provider' && option.provider_id === id,
 );
-function assertOllamaOptions(picker) {
-  const options = providerOptions(picker, 'ollama');
-  if (!options.length || options.some((option) =>
-    !option.value.startsWith('provider:ollama@')
-    || !decodeURIComponent(option.value.slice('provider:ollama@'.length)).trim()
-    || option.access_mode !== 'local')) {
-    throw new Error('expected explicit local Ollama model picks');
-  }
-}
 
+// Ollama/MiniMax defaults were removed (b8281e0). No local provider ships by default, so
+// this checks the cloud side of local_only: BYOK providers hide and new cloud keys block.
 try {
-  await fetch(`${base}/providers/ollama/key`, {
+  await fetch(`${base}/providers/anthropic/key`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: 'stub:ollama', model_id: 'qwen2.5:latest' }),
-  });
-  await fetch(`${base}/providers/minimax/key`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: 'stub:mini', model_id: 'MiniMax-M2.1' }),
+    body: JSON.stringify({ api_key: 'stub:p9', model_id: 'claude-opus-4-8' }),
   });
   await fetch(`${base}/providers/default`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'ollama' }),
+    body: JSON.stringify({ id: 'anthropic' }),
   });
 
-  const { loadCurateConfig } = await import(
-    pathToFileURL(path.join(root, 'core', 'dist', 'providers', 'remote-model-curate.js')).href
-  );
-  // matrix_only curation keeps the default picker limited to the workspace matrix, so
-  // plain providers are hidden there but must stay usable by explicit pick (stream below)
-  // and must reappear once local_only turns the matrix off.
-  const matrixOnly = loadCurateConfig().matrix_only === true;
+  // Anthropic is a primary BYOK provider, so it stays visible even under matrix_only.
   const picker0 = await fetch(`${base}/models/picker`).then((r) => r.json());
-  assertOllamaOptions(picker0);
-  const minimax0 = providerOptions(picker0, 'minimax');
-  if (matrixOnly) {
-    if (minimax0.length) {
-      throw new Error('minimax should be hidden under matrix_only curation');
-    }
-  } else if (!minimax0.length) {
-    throw new Error('expected both ollama and minimax in picker');
+  if (!providerOptions(picker0, 'anthropic').length) {
+    throw new Error('expected primary BYOK anthropic in picker');
   }
 
   const stream = await fetch(`${base}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CQR-Session': 'p9-ollama' },
-    body: JSON.stringify({ message: 'hello ollama', model: 'provider:ollama', mode: 'chat' }),
+    headers: { 'Content-Type': 'application/json', 'X-CQR-Session': 'p9-explicit' },
+    body: JSON.stringify({ message: 'hello explicit pick', model: 'provider:anthropic', mode: 'chat' }),
   });
-  if (stream.status !== 200) throw new Error(`ollama stream ${stream.status}`);
+  if (stream.status !== 200) throw new Error(`explicit pick stream ${stream.status}`);
   const body = await stream.text();
   if (!body.includes('stub stream') && !body.includes('token')) {
-    throw new Error('ollama stream empty');
+    throw new Error('explicit pick stream empty');
   }
 
   await fetch(`${base}/config/local-only`, {
@@ -98,8 +76,7 @@ try {
   });
   const picker1 = await fetch(`${base}/models/picker`).then((r) => r.json());
   if (!picker1.local_only) throw new Error('local_only flag expected');
-  if (providerOptions(picker1, 'minimax').length) throw new Error('minimax should be hidden in local_only');
-  assertOllamaOptions(picker1);
+  if (providerOptions(picker1, 'anthropic').length) throw new Error('anthropic should be hidden in local_only');
 
   const block = await fetch(`${base}/providers/openai/key`, {
     method: 'PUT',
@@ -107,9 +84,6 @@ try {
     body: JSON.stringify({ api_key: 'sk-test' }),
   });
   if (block.status !== 403) throw new Error('openai key should block in local_only');
-
-  const ollamaTest = await fetch(`${base}/providers/ollama/test`, { method: 'POST' }).then((r) => r.json());
-  if (!ollamaTest.ok) throw new Error('ollama stub test failed');
 
   await fetch(`${base}/config/local-only`, {
     method: 'PUT',
@@ -123,4 +97,5 @@ try {
   if (existsSync(lic)) unlinkSync(lic);
   if (existsSync(keys)) unlinkSync(keys);
   if (existsSync(configPath)) unlinkSync(configPath);
+  if (existsSync(configBak)) unlinkSync(configBak);
 }

@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type ChildProcessWithoutNullStream
 import path from 'node:path';
 import { existsSync, readdirSync } from 'node:fs';
 import { assertDevWorkspaceRootReadable, normalizeWorkspacePath, resolveDevWorkspaceReadPath } from '../security/dev-workspace-guard.js';
+import { buildTerminalEnv } from '../security/terminal-env.js';
 import { externalTerminalPaths } from './terminal-path-policy.js';
 import { classifyTerminalCommand } from './terminal-risk-policy.js';
 import { commandFailureKind } from './agent-tool-result.js';
@@ -320,7 +321,7 @@ export function runTerminalCommandAsync(
       {
         cwd,
         windowsHide: true,
-        env: process.env,
+        env: buildTerminalEnv(),
       },
     ) as ChildProcessWithoutNullStreams;
     activeJobs.set(jobId, {
@@ -443,7 +444,7 @@ export function runTerminalCommand(
       windowsHide: true,
       timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT_BYTES * 2,
-      env: process.env,
+      env: buildTerminalEnv(),
     },
   );
 

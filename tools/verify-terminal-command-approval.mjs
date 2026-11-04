@@ -151,6 +151,9 @@ if (process.platform === 'win32') {
       globalThis.fetch = originalFetch;
     }
   } finally {
+    // runCodeAgent opens <tmp>/data/logs/llm-usage/llm-usage.sqlite; close it so Windows can delete tmp.
+    const { resetLlmUsageStoresForTest } = await import('../core/dist/providers/llm-usage-store.js');
+    resetLlmUsageStoresForTest();
     rmSync(tmp, { recursive: true, force: true });
   }
 } else {

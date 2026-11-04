@@ -27,8 +27,25 @@
       "release": { "version": null, "update_sequence": null }
     },
     {
+      "id": "shell-startup-diagnostics",
+      "status": "released",
+      "title": "MY Agent가 조용히 안 열릴 때 원인을 기록하고 안내",
+      "detail": "시작 과정과 처리되지 않은 예외를 시작 로그에, API 오류 출력을 별도 로그에 남깁니다. 이미 실행 중인 MY Agent가 5초 안에 응답하지 않으면 멈춘 프로세스를 종료하고 새로 시작할지 묻습니다. 설치 폴더는 실행 파일 위치를 먼저 보므로 다른 MY Agent 안에서 실행해도 바로 꺼지지 않습니다.",
+      "area": "shell",
+      "created_at": "2026-11-03",
+      "source_paths": [
+        "shell/CqrPa.Shell/App.xaml.cs",
+        "shell/CqrPa.Shell/ShellStartupLog.cs",
+        "shell/CqrPa.Shell/SingleInstanceGuard.cs",
+        "shell/CqrPa.Shell/CqrPaths.cs",
+        "shell/CqrPa.Shell/ApiProcessHost.cs",
+        "shell/CqrPa.Shell/MainWindow.xaml.cs"
+      ],
+      "release": { "version": "1.1.23", "update_sequence": 71 }
+    },
+    {
       "id": "llm-usage-session-table-groupby",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면의 대화방·질문별 표를 「대화방별」 묶기에서만 표시",
       "detail": "「대화방·질문별 사용량」 표가 묶기 기준과 상관없이 항상 나오던 것을, 묶기가 「대화방별」일 때만 보이도록 바꿨습니다. 모델별·프로바이더별·용도별에서는 해당 합계 표만 나옵니다.",
       "area": "ui",
@@ -36,11 +53,11 @@
       "source_paths": [
         "ui/workspace/src/components/SettingsUsagePage.tsx"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-continuation-fold",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면에서 이어서 한 작업을 원래 질문에 묶어 표시",
       "detail": "AI가 이전에 멈춘 작업을 이어서 진행한 질문(active_task resume_run)은 따로 한 줄로 나오지 않고, 그 작업을 처음 시작한 질문 줄에 호출·토큰·비용이 합쳐집니다. 해당 줄에는 「이어서 N회」 표시가 붙습니다. 이 연결은 이번 변경 이후 기록부터 적용되며, 원래 질문이 고른 기간 밖이면 이어서 한 작업만 원래 질문 이름으로 보여 줍니다.",
       "area": "core",
@@ -52,11 +69,11 @@
         "core/src/agent/agent-continuation-snapshot.ts",
         "ui/workspace/src/components/SettingsUsagePage.tsx"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-question-number-basis",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면의 질문 번호 기준 통일",
       "detail": "질문 번호(#N)를 그 대화방에서 보낸 N번째 메시지로 통일했습니다. 표·막대 그래프·경로 표시줄이 같은 번호를 쓰고, 기간·비용 추적 구간·표시 개수와 관계없이 번호가 바뀌지 않습니다. 대화방이나 메시지가 지워져 찾을 수 없으면 번호를 표시하지 않습니다.",
       "area": "core",
@@ -67,11 +84,11 @@
         "core/src/routes/dispatch.ts",
         "ui/workspace/src/components/SettingsUsagePage.tsx"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-drilldown-top-controls",
-      "status": "development",
+      "status": "released",
       "title": "사용량 단계별 보기에서 위 메뉴가 반응 없던 문제 수정",
       "detail": "대화방·질문을 보고 있을 때 묶기를 누르면 전체 화면으로 돌아가 바로 적용합니다. 기간을 바꿔 보던 대화방·질문이 빠지면 선택을 지우고 안내합니다. 단계별 화면에서도 불러오는 중이 보이고, 기간·토큰/비용이 이 화면에 적용된다는 안내를 넣었습니다.",
       "area": "ui",
@@ -79,11 +96,11 @@
       "source_paths": [
         "ui/workspace/src/components/SettingsUsagePage.tsx"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-session-turn-call-drilldown",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면에 대화방 → 질문 → 작업 단계별 보기 추가",
       "detail": "대화방을 누르면 질문별 막대 그래프와 질문 목록이, 질문을 누르면 작업(AI 호출)별 그래프와 목록이 나옵니다. 토큰·비용 모두 지원하고 경로 표시줄로 오갑니다. 묶기에 「대화방별」, 목록에 정렬을 넣고 「요청」→「작업」, 「캐시 증감」→「캐시 절감」으로 바꿨습니다.",
       "area": "ui",
@@ -96,87 +113,87 @@
         "ui/workspace/src/components/SettingsUsagePage.tsx",
         "tools/verify-llm-usage-sqlite.mjs"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-remove-cache-request-table",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면의 요청별 캐시 할인 내역 표 제거",
       "detail": "요청 단위로 섞여 보이던 「캐시 할인 내역」 표를 지웠습니다. 캐시 내역은 질문별 사용량 표에서 줄을 눌러 보고, 모델별 효율은 합계 표의 「캐시 비율」로 봅니다. 캐시 카드의 「내역 보기 ↓」 링크도 함께 뺐습니다.",
       "area": "ui",
       "created_at": "2026-11-02",
       "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-group-cache-ratio",
-      "status": "development",
+      "status": "released",
       "title": "사용량 합계 표에 캐시 비율 추가",
       "detail": "사용량 화면의 모델별(또는 프로바이더별·용도별) 합계 표에 「캐시 비율」 열을 넣었습니다. 입력 토큰 중 캐시에서 읽은 비율이며, 마우스를 올리면 입력·캐시 읽기·캐시 저장 토큰 수가 나옵니다.",
       "area": "ui",
       "created_at": "2026-11-02",
       "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-chart-cumulative-by-item",
-      "status": "development",
+      "status": "released",
       "title": "사용량 차트를 일별·누적 두 가지로 정리",
       "detail": "사용량 차트의 「선」 보기를 빼고 「일별」과 「누적」 두 가지만 남겼습니다. 누적 보기도 모델별(또는 선택한 묶기 기준별)로 띠를 쌓아, 날짜마다 항목별로 쌓인 양과 전체 합계를 함께 보여 줍니다.",
       "area": "ui",
       "created_at": "2026-11-02",
       "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "todo-hide-author-line",
-      "status": "development",
+      "status": "released",
       "title": "할 일 목록에서 작성자 줄 숨김",
       "detail": "우측 패널 할 일 항목 아래에 붙던 「작성: 모델 (todo_update)」 줄을 지웠습니다. 작성자 값은 core와 API에 그대로 남고 화면에만 보이지 않습니다.",
       "area": "ui",
       "created_at": "2026-11-02",
       "source_paths": ["ui/workspace/src/components/WorkspaceObjectsPane.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-per-question",
-      "status": "development",
+      "status": "released",
       "title": "사용량 화면에 질문별 사용량 추가",
       "detail": "사용량 화면에 「질문별 사용량」 표를 추가했습니다. 질문 하나에 쓴 AI 호출을 한 줄로 합쳐 호출 수·토큰·비용·캐시 증감을 질문 내용, 대화 제목과 함께 보여 주고, 줄을 누르면 캐시 내역이 열립니다. 앱 시작 때 사용량 DB의 WAL 파일도 비웁니다.",
       "area": "core",
       "created_at": "2026-11-02",
       "source_paths": ["core/src/providers/llm-usage-summary.ts", "core/src/providers/llm-usage-store.ts", "core/src/sessions/session-sqlite-store.ts", "core/src/sessions/session-store.ts", "core/src/routes/dispatch.ts", "ui/workspace/src/components/SettingsUsagePage.tsx", "ui/workspace/src/api/myAgentClient.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "llm-usage-sqlite-turn-id",
-      "status": "development",
+      "status": "released",
       "title": "사용량 기록을 SQLite로 옮기고 질문 ID 기록",
       "detail": "AI 사용량 기록을 날짜별 JSONL 파일에서 SQLite로 옮겼습니다. 처음 시작할 때 기존 기록을 한 번 옮기고 날짜별 합계를 대조합니다. 합계가 다른 날짜가 있어도 전환하고, 그 날짜만 사용량 화면에 안내합니다. 기존 파일은 지우지 않으며, DB를 열 수 없을 때만 JSONL을 계속 씁니다. 질문 하나를 처리하는 모든 AI 호출에 같은 질문 ID가 남습니다.",
       "area": "core",
       "created_at": "2026-11-02",
       "source_paths": ["core/src/providers/llm-usage-store.ts", "core/src/providers/llm-usage-metrics.ts", "core/src/providers/llm-usage-log.ts", "core/src/providers/llm-usage-summary.ts", "core/src/chat/chat-runs.ts", "core/src/api-server.ts", "ui/workspace/src/components/SettingsUsagePage.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "chat-long-session-render",
-      "status": "development",
+      "status": "released",
       "title": "긴 대화를 열 때 화면이 멈추던 문제 개선",
       "detail": "메시지가 많은 대화는 열 때 모든 메시지와 작업 기록을 한 번에 그려 화면이 1~2초 멈췄습니다. 이제 최근 40개 턴만 먼저 그리고, 위로 스크롤하거나 「이전 메시지 더 보기」를 누르면 더 불러옵니다. 접힌 작업 기록은 펼칠 때만 그립니다.",
       "area": "ui",
       "created_at": "2026-10-30",
       "source_paths": ["ui/workspace/src/components/ChatPane.tsx", "ui/workspace/src/components/ToolActivityLog.tsx"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "session-save-without-full-rewrite",
-      "status": "development",
+      "status": "released",
       "title": "AI 호출마다 큰 대화 전체를 다시 저장하던 문제 개선",
       "detail": "이어 쓰기 상태와 토큰 사용량을 저장할 때 대화 전체를 다시 쓰던 것을, 바뀐 부분만 저장하도록 바꿨습니다. 다른 화면에서 진행 중인 답변을 확인할 때도 대화 전체 대신 마지막 메시지와 중간본만 받습니다.",
       "area": "core",
       "created_at": "2026-10-30",
       "source_paths": ["core/src/sessions/session-sqlite-store.ts", "core/src/sessions/session-store.ts", "ui/workspace/src/store/workspaceStore.ts"],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.23", "update_sequence": 71 }
     },
     {
       "id": "chat-media-bubble-cost",

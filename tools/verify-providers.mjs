@@ -30,25 +30,26 @@ const srv = await createApiServer(port);
 await new Promise((r) => srv.listen(port, '127.0.0.1', r));
 
 try {
-  const save = await fetch(`http://127.0.0.1:${port}/providers/minimax/key`, {
+  // Ollama/MiniMax defaults were removed (b8281e0); exercise a shipped BYOK provider.
+  const save = await fetch(`http://127.0.0.1:${port}/providers/anthropic/key`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: 'stub:test-key', model_id: 'MiniMax-M2.1' }),
+    body: JSON.stringify({ api_key: 'stub:test-key', model_id: 'claude-opus-4-8' }),
   });
   const saved = await save.json();
-  if (!save.ok || !saved.providers?.find((p) => p.id === 'minimax' && p.configured)) {
+  if (!save.ok || !saved.providers?.find((p) => p.id === 'anthropic' && p.configured)) {
     console.error('save key failed', saved);
     process.exit(1);
   }
 
   const list = await fetch(`http://127.0.0.1:${port}/providers`).then((r) => r.json());
-  const minimax = list.providers.find((p) => p.id === 'minimax');
-  if (!minimax?.key_hint) {
-    console.error('key hint missing', minimax);
+  const anthropic = list.providers.find((p) => p.id === 'anthropic');
+  if (!anthropic?.key_hint) {
+    console.error('key hint missing', anthropic);
     process.exit(1);
   }
 
-  const test = await fetch(`http://127.0.0.1:${port}/providers/minimax/test`, { method: 'POST' });
+  const test = await fetch(`http://127.0.0.1:${port}/providers/anthropic/test`, { method: 'POST' });
   const testData = await test.json();
   if (!test.ok || !testData.ok) {
     console.error('test failed', testData);
@@ -56,7 +57,7 @@ try {
   }
 
   const picker = await fetch(`http://127.0.0.1:${port}/models/picker`).then((r) => r.json());
-  if (!picker.options.some((o) => o.value === 'provider:minimax')) {
+  if (!picker.options.some((o) => o.value === 'provider:anthropic')) {
     console.error('picker missing provider', picker);
     process.exit(1);
   }
@@ -66,7 +67,7 @@ try {
     headers: { 'Content-Type': 'application/json', 'X-CQR-Session': 'prov-test' },
     body: JSON.stringify({
       message: 'hello provider',
-      model: 'provider:minimax',
+      model: 'provider:anthropic',
       attachments: [],
     }),
   });
@@ -176,7 +177,7 @@ try {
     process.exit(1);
   }
 
-  const del = await fetch(`http://127.0.0.1:${port}/providers/minimax/key`, { method: 'DELETE' });
+  const del = await fetch(`http://127.0.0.1:${port}/providers/anthropic/key`, { method: 'DELETE' });
   if (!del.ok) {
     console.error('delete key failed');
     process.exit(1);

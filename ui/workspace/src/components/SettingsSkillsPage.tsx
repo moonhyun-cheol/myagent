@@ -43,6 +43,9 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
   const [zipPath, setZipPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  /** Install-only state: shown next to the install button, not at the page top. */
+  const [installing, setInstalling] = useState(false);
+  const [installMessage, setInstallMessage] = useState('');
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const pickerRequestRef = useRef<{ id: string; purpose: 'skillZip' } | null>(null);
 
@@ -77,7 +80,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
       pickerRequestRef.current = null;
       if (!data.canceled && typeof data.path === 'string' && data.path.toLowerCase().endsWith('.zip')) {
         setZipPath(data.path);
-        setMessage('스킬 ZIP을 선택했습니다. 설치를 누르면 등록합니다.');
+        setInstallMessage('스킬 ZIP을 선택했습니다. 설치를 누르면 등록합니다.');
       }
     };
     webview.addEventListener('message', onMessage);
@@ -99,49 +102,44 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     [skills],
   );
 
-  useEffect(() => {
-    if (!highlightId) return;
-    const node = document.querySelector(`[data-testid="installed-skill-${CSS.escape(highlightId)}"]`);
-    if (node instanceof HTMLElement) node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [highlightId, installed]);
-
   const openZipPicker = () => {
-    if (readOnly || busy) return;
+    if (readOnly || busy || installing) return;
     const webview = getShellWebView();
     if (!webview) {
-      setMessage('파일 탐색기는 데스크톱 앱에서 사용할 수 있습니다. 이 화면에서는 ZIP 경로를 직접 입력하세요.');
+      setInstallMessage('파일 탐색기는 데스크톱 앱에서 사용할 수 있습니다. 이 화면에서는 ZIP 경로를 직접 입력하세요.');
       return;
     }
     const requestId = `skill-zip-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     pickerRequestRef.current = { id: requestId, purpose: 'skillZip' };
-    setMessage('스킬 ZIP을 선택하세요.');
+    setInstallMessage('스킬 ZIP을 선택하세요.');
     webview.postMessage({ type: 'filePicker.open', requestId, purpose: 'skillZip' });
   };
 
   const install = async () => {
+    if (installing) return;
     const requestedPath = zipPath.trim().replace(/^"|"$/g, '');
     if (!requestedPath) {
-      setMessage('설치할 스킬 ZIP 파일 경로를 입력하세요.');
+      setInstallMessage('설치할 스킬 ZIP 파일 경로를 입력하세요.');
       return;
     }
-    setBusy(true);
-    setMessage('');
+    setInstalling(true);
+    setInstallMessage('');
     setHighlightId(null);
     try {
       const skill = await importSkillPackage(requestedPath);
       setZipPath('');
-      setMessage(`설치됨 · ${skill.label}`);
+      setInstallMessage(`설치됨 · ${skill.label}. 위 「사용자가 설치한 스킬」 목록에 표시됩니다.`);
       setHighlightId(skill.id);
       await refresh();
     } catch (error) {
       const existingId = existingSkillIdFromError(error);
-      setMessage(error instanceof Error ? error.message : '스킬 설치 실패');
+      setInstallMessage(error instanceof Error ? error.message : '스킬 설치 실패');
       if (existingId) {
         setHighlightId(existingId);
         await refresh();
       }
     } finally {
-      setBusy(false);
+      setInstalling(false);
     }
   };
 
@@ -156,6 +154,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
     if (!ok) return;
     setBusy(true);
     setMessage('');
+    setInstallMessage('');
     try {
       await deleteSkill(skill.id);
       setMessage(`제거됨 · ${skill.label}`);
@@ -218,7 +217,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
                 </div>
                 <button
                   type="button"
-                  disabled={readOnly || busy || skill.removable === false}
+                  disabled={readOnly || busy || installing || skill.removable === false}
                   onClick={() => void remove(skill)}
                   className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-45"
                 >
@@ -289,7 +288,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           <input
             data-testid="skill-zip-path"
             value={zipPath}
-            disabled={readOnly || busy}
+            disabled={readOnly || busy || installing}
             onClick={openZipPicker}
             onChange={(event) => setZipPath(event.target.value)}
             onKeyDown={(event) => {
@@ -301,7 +300,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           <button
             data-testid="skill-zip-browse-button"
             type="button"
-            disabled={readOnly || busy}
+            disabled={readOnly || busy || installing}
             onClick={openZipPicker}
             className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-[#fafbf8] px-3.5 py-2.5 text-sm font-semibold text-text hover:border-accent disabled:cursor-not-allowed disabled:opacity-45"
           >
@@ -310,13 +309,17 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           <button
             data-testid="skill-import-button"
             type="button"
-            disabled={readOnly || busy || !zipPath.trim()}
+            disabled={readOnly || busy || installing || !zipPath.trim()}
             onClick={() => void install()}
             className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-45"
           >
             설치
           </button>
         </div>
+        {installing ? <p data-testid="skill-installing" className="mt-3 text-sm text-muted">설치 중...</p> : null}
+        {installMessage && !installing ? (
+          <p data-testid="skill-install-message" className="mt-3 rounded-lg border border-line bg-ink/40 px-3 py-2 text-sm text-text">{installMessage}</p>
+        ) : null}
         <p className="mt-3 text-xs leading-5 text-muted">ZIP 원본은 앱에 복사하지 않고 내부 스킬 폴더로 압축 해제합니다.</p>
         </section>
 

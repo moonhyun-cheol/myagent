@@ -75,10 +75,15 @@ import {
 import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
-import { dispatchAutomatonTool } from '../automaton/adapter.js';
+import { AUTOMATON_UNCONFIGURED_MESSAGE, dispatchAutomatonTool } from '../automaton/adapter.js';
 import {
   buildAutomatonAckContent,
+  formatAutomatonCompletedFrame,
+  formatAutomatonFailedFrame,
+  formatAutomatonProgressFrame,
   formatUnsupportedAutomatonBatch,
+  resolveAutomatonLabel,
+  type AutomatonFrameInfo,
 } from '../automaton/automaton-ack.js';
 import { getAutomatonToolEntry } from '../automaton/tool-catalog.js';
 import { loadAdapterConnection } from '../automaton/adapter-connection.js';
@@ -267,15 +272,15 @@ export class ChatOrchestrator {
       );
     }
     if (!openclaw && !automatonRoot) {
-      throw new Error(
-        'Automaton not configured — set openclaw_adapter_base_url + bootstrap/token (or data/vault/openclaw-adapter.json), or LIVE_AUTOMATON_ROOT',
-      );
+      throw new Error(AUTOMATON_UNCONFIGURED_MESSAGE);
     }
     const progressFile = automatonRoot
       ? buildAutomatonProgressPath(automatonRoot, sessionId, tool)
       : undefined;
     const requestId = randomUUID();
-    const response = getAutomatonToolEntry(tool, this.cqrRoot)?.response;
+    const toolEntry = getAutomatonToolEntry(tool, this.cqrRoot);
+    const response = toolEntry?.response;
+    const label = resolveAutomatonLabel(tool, response, toolEntry?.description_ko);
     const unsupportedBatch = formatUnsupportedAutomatonBatch(message, response);
     if (unsupportedBatch) {
       this.sessionStore.append(sessionId, {
@@ -293,7 +298,7 @@ export class ChatOrchestrator {
         model: `automaton/${tool}`,
       };
     }
-    const ack = buildAutomatonAckContent(message, tool, { requestId, response });
+    const ack = buildAutomatonAckContent(message, tool, { requestId, response, label });
     options?.onStatus?.('명령어 접수');
     const beforeLen = this.sessionStore.load(sessionId)?.messages.length ?? 0;
     this.sessionStore.append(sessionId, {
@@ -313,6 +318,7 @@ export class ChatOrchestrator {
       fallbackLocal: defaults.openclaw_fallback_local !== false && Boolean(automatonRoot),
       statusMessageIndex,
       requestId,
+      label,
     });
     return {
       role: 'assistant',
@@ -334,11 +340,17 @@ export class ChatOrchestrator {
       fallbackLocal: boolean;
       statusMessageIndex?: number;
       requestId: string;
+      label: string;
     },
   ): Promise<void> {
     const connection = loadAdapterConnection(this.cqrRoot);
     const editExisting = connection?.progress?.edit_existing_message_when_supported !== false;
     const appendWhenUnsupported = connection?.progress?.append_status_when_edit_unsupported !== false;
+    const frame: AutomatonFrameInfo = {
+      label: job.label,
+      commandText: job.message,
+      requestId: job.requestId,
+    };
     let lastPublished = '';
     const publishStatus = (text: string) => {
       const next = text.trim();
@@ -365,6 +377,8 @@ export class ChatOrchestrator {
         /* aborted chat run must not kill adapter polling */
       }
     };
+    // Every message is a fixed frame filled with adapter/script data — no model wording.
+    const publishProgress = (text: string) => publishStatus(formatAutomatonProgressFrame(frame, text));
 
     try {
       const result = await dispatchAutomatonTool(job.message, job.tool, job.automatonRoot, {
@@ -374,26 +388,24 @@ export class ChatOrchestrator {
         fallbackLocal: job.fallbackLocal,
         cqrRoot: this.cqrRoot,
         requestId: job.requestId,
-        onStatus: publishStatus,
+        onStatus: publishProgress,
       });
-      if (result?.content?.trim()) {
-        const envelopeStatus = String(result.envelope?.status ?? '').trim().toLowerCase();
-        const responseProfile = getAutomatonToolEntry(job.tool, this.cqrRoot)?.response?.profile ?? 'auto';
-        const failed = Boolean(
-          envelopeStatus
-          && !['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(envelopeStatus),
-        );
-        // Declarative response profiles own the final user answer. Legacy `auto`
-        // commands keep the historical NOPSPro-only success behavior.
-        if (failed || responseProfile !== 'auto') publishStatus(result.content);
-      }
+      const envelopeStatus = String(result?.envelope?.status ?? '').trim().toLowerCase();
+      const responseProfile = getAutomatonToolEntry(job.tool, this.cqrRoot)?.response?.profile ?? 'auto';
+      const failed = Boolean(
+        envelopeStatus
+        && !['ok', 'success', 'completed', 'accepted', 'queued', 'running'].includes(envelopeStatus),
+      );
+      const resultContent = result?.content?.trim() ?? '';
+      // Declarative response profiles own the final body. Legacy `auto` commands
+      // deliver the body elsewhere (NOPSPro), so chat shows completion only.
+      if (failed) publishStatus(formatAutomatonFailedFrame(frame, resultContent));
+      else publishStatus(formatAutomatonCompletedFrame(frame, responseProfile !== 'auto' ? resultContent : ''));
     } catch (err: unknown) {
-      const content = [
-        '**업무 명령 실행 실패**',
-        '',
-        `접수: \`${job.message.trim()}\``,
-        err instanceof Error ? err.message : String(err),
-      ].join('\n');
+      const content = formatAutomatonFailedFrame(
+        frame,
+        `- 오류: ${err instanceof Error ? err.message : String(err)}`,
+      );
       publishStatus(content);
       this.autoReportError({
         subject: 'MY Agent 오류 [automaton_direct]',

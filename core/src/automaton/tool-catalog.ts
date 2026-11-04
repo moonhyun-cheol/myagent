@@ -30,6 +30,8 @@ export interface AutomatonResponseContract {
   fallback_profile?: AutomatonFallbackProfile;
   /** Dot paths are resolved from the deep business result first (for example qty or form_fields.SKU). */
   fields?: string[];
+  /** Display label per field path (for example { "qty": "수량" }). Defaults to the last path segment. */
+  field_labels?: Record<string, string>;
   /** Optional concise success label; defaults to description_ko. */
   label_ko?: string;
   /** File profile allowlist. Extensions are lowercase and include the leading dot. */

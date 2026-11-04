@@ -26,15 +26,15 @@ const srv = await createApiServer(port);
 await new Promise((r) => srv.listen(port, '127.0.0.1', r));
 
 try {
-  await fetch(`http://127.0.0.1:${port}/providers/minimax/key`, {
+  await fetch(`http://127.0.0.1:${port}/providers/anthropic/key`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_key: 'stub:phase7', model_id: 'MiniMax-M2.1' }),
+    body: JSON.stringify({ api_key: 'stub:phase7', model_id: 'claude-opus-4-8' }),
   });
   await fetch(`http://127.0.0.1:${port}/providers/default`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: 'minimax' }),
+    body: JSON.stringify({ id: 'anthropic' }),
   });
 
   const research = await fetch(`http://127.0.0.1:${port}/chat`, {

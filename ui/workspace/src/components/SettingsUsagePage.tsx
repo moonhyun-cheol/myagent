@@ -621,7 +621,8 @@ function StatCard({ label, value, hint, onHintClick }: { label: string; value: s
 export function SettingsUsagePage() {
   // Nothing is counted until the user turns 「사용량·비용 집계」 on; rows outside on-intervals are never included.
   const today = localDay(new Date());
-  const [range, setRange] = useState<Range>('all');
+  // Default to the lightest range (7 days): less data to fetch/aggregate/render on open. 「전체」 stays one click away.
+  const [range, setRange] = useState<Range>(7);
   const [customFrom, setCustomFrom] = useState(() => localDay(new Date(Date.now() - 6 * 86_400_000)));
   const [customTo, setCustomTo] = useState(today);
   const [switchBusy, setSwitchBusy] = useState(false);

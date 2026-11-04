@@ -16,6 +16,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const preflightDone = process.env.MY_AGENT_BUILD_PREFLIGHT_DONE === '1';
@@ -62,10 +63,13 @@ if (norm.status !== 0) process.exit(norm.status ?? 1);
 }
 
 import { checkDeployParity } from './deploy-parity.mjs';
-import { publishShell } from './shell-publish.mjs';
-import { publishUpdater } from './updater-publish.mjs';
 
-const build = spawnSync(process.execPath, [path.join(root, 'tools', 'build.mjs')], {
+// release-preflight (above) already built every release lane (defaults/core/ui/
+// shell/updater) and recorded the receipt. A forced `build.mjs` here rebuilt
+// core+ui a second time, and shell/updater were `dotnet publish`ed again below.
+// build-smart only rebuilds lanes whose sources changed since the receipt
+// (normally none) and fails if any lane is still stale afterwards.
+const build = spawnSync(process.execPath, [path.join(root, 'tools', 'build-smart.mjs')], {
   cwd: root,
   stdio: 'inherit',
 });
@@ -109,6 +113,9 @@ const skipDirs = new Set([
   // shipped in 1.1.14/1.1.15 install zips via copyTree.
   '.my-agent',
   '.playwright',
+  // Repo-level developer notes (plans, ledgers, ops memos). Nothing at runtime
+  // reads them; 1.1.22/1.1.23 install zips shipped them as app/docs/*.md.
+  'docs',
 ]);
 
 /**
@@ -225,44 +232,79 @@ if (!skipNode && !nodeDeferred) {
 // like the runtime bootstrap, so this never pulls the ~300MB browser download.
 if (!skipVendor) {
   const vendorBuild = path.join(outDir, 'vendor-build');
-  if (existsSync(vendorBuild)) rmSync(vendorBuild, { recursive: true, force: true });
-  mkdirSync(vendorBuild, { recursive: true });
-  cpSync(path.join(root, 'package.json'), path.join(vendorBuild, 'package.json'));
+  const vendModules = path.join(vendorBuild, 'node_modules');
+  const vendorKeyFile = path.join(vendorBuild, '.vendor-key');
+  const installArgs = ['install', '--omit=dev', '--omit=optional', '--no-fund', '--no-audit'];
+  const portableNode = path.join(root, 'runtime', 'node', 'node.exe');
+  const portableNpmCli = path.join(root, 'runtime', 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const usePortableNpm = existsSync(portableNode) && existsSync(portableNpmCli);
+
+  // Cache key = the dependency graph only. package.json / package-lock.json
+  // carry the product `version`, which changes every release, so hashing the
+  // raw files would force a fresh npm install each time.
+  const pkgDoc = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   const lockSrc = path.join(root, 'package-lock.json');
-  if (existsSync(lockSrc)) cpSync(lockSrc, path.join(vendorBuild, 'package-lock.json'));
+  const lockDoc = existsSync(lockSrc) ? JSON.parse(readFileSync(lockSrc, 'utf8')) : null;
+  const lockPackages = { ...(lockDoc?.packages ?? {}) };
+  const lockRoot = lockPackages[''] ?? {};
+  delete lockPackages[''];
+  const vendorKey = createHash('sha256')
+    .update(JSON.stringify({
+      schema: 1,
+      dependencies: pkgDoc.dependencies ?? {},
+      optionalDependencies: pkgDoc.optionalDependencies ?? {},
+      lockRootDependencies: lockRoot.dependencies ?? {},
+      lockRootOptional: lockRoot.optionalDependencies ?? {},
+      lockPackages,
+      installArgs,
+      npm: usePortableNpm ? 'portable' : 'system',
+    }))
+    .digest('hex');
+  const cachedKey = existsSync(vendorKeyFile) ? readFileSync(vendorKeyFile, 'utf8').trim() : '';
+  const vendorReused = cachedKey === vendorKey && existsSync(vendModules);
 
   const vendorEnv = {
     ...process.env,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
     npm_config_cache: path.join(vendorBuild, '.npm-cache'),
   };
-  const installArgs = ['install', '--omit=dev', '--omit=optional', '--no-fund', '--no-audit'];
-  const portableNode = path.join(root, 'runtime', 'node', 'node.exe');
-  const portableNpmCli = path.join(root, 'runtime', 'node', 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  let vend;
-  if (existsSync(portableNode) && existsSync(portableNpmCli)) {
-    vend = spawnSync(portableNode, [portableNpmCli, ...installArgs], {
-      cwd: vendorBuild,
-      env: vendorEnv,
-      stdio: 'inherit',
-    });
+
+  if (vendorReused) {
+    console.log('publish: core dependency graph unchanged — reusing vendor-build/node_modules (npm install skipped)');
   } else {
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    vend = spawnSync(npmCmd, installArgs, {
-      cwd: vendorBuild,
-      env: vendorEnv,
-      stdio: 'inherit',
-      shell: true,
-    });
+    // Keep `.npm-cache` across rebuilds so even a changed graph mostly installs offline.
+    mkdirSync(vendorBuild, { recursive: true });
+    for (const name of readdirSync(vendorBuild)) {
+      if (name === '.npm-cache') continue;
+      rmSync(path.join(vendorBuild, name), { recursive: true, force: true });
+    }
+    cpSync(path.join(root, 'package.json'), path.join(vendorBuild, 'package.json'));
+    if (lockDoc) cpSync(lockSrc, path.join(vendorBuild, 'package-lock.json'));
+
+    let vend;
+    if (usePortableNpm) {
+      vend = spawnSync(portableNode, [portableNpmCli, ...installArgs], {
+        cwd: vendorBuild,
+        env: vendorEnv,
+        stdio: 'inherit',
+      });
+    } else {
+      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      vend = spawnSync(npmCmd, installArgs, {
+        cwd: vendorBuild,
+        env: vendorEnv,
+        stdio: 'inherit',
+        shell: true,
+      });
+    }
+    if (vend.status !== 0) {
+      console.error(
+        'publish: vendoring core node_modules failed — offline install would break. '
+        + 'Fix network/dependencies at build time, or pass --no-vendor-node-modules to skip.',
+      );
+      process.exit(vend.status ?? 1);
+    }
   }
-  if (vend.status !== 0) {
-    console.error(
-      'publish: vendoring core node_modules failed — offline install would break. '
-      + 'Fix network/dependencies at build time, or pass --no-vendor-node-modules to skip.',
-    );
-    process.exit(vend.status ?? 1);
-  }
-  const vendModules = path.join(vendorBuild, 'node_modules');
   const requiredCorePackages = [
     path.join('@modelcontextprotocol', 'sdk', 'package.json'),
     path.join('mammoth', 'package.json'),
@@ -282,8 +324,13 @@ if (!skipVendor) {
   });
   if (verifyCore.status !== 0) {
     console.error('publish: vendored core dependencies failed the runtime load check — aborting.');
+    // Never trust this cache again: the next publish reinstalls from scratch.
+    rmSync(vendorKeyFile, { force: true });
     process.exit(verifyCore.status ?? 1);
   }
+  // Written only after the package + runtime load checks pass (also on reuse),
+  // so a half-finished or broken install is never treated as reusable.
+  writeFileSync(vendorKeyFile, `${vendorKey}\n`, 'utf8');
   const vendorDst = path.join(appDir, 'nm');
   if (existsSync(vendorDst)) rmSync(vendorDst, { recursive: true, force: true });
   cpSync(vendModules, vendorDst, { recursive: true });
@@ -334,17 +381,17 @@ console.log(`publish: synced non-secret local-provider bundle -> activation-serv
 const shellProj = path.join(appDir, 'shell', 'CqrPa.Shell', 'CqrPa.Shell.csproj');
 const shellOut = path.join(appDir, 'bin', 'my-agent');
 if (existsSync(shellProj)) {
-  const shell = publishShell({
-    // Repo root — not stage/app. Using appDir put NuGet + dotnet-cli (~340 MB) into the zip.
-    root,
-    projPath: shellProj,
-    outDir: shellOut,
-    label: 'publish',
-  });
-  if (!shell.ok) {
-    console.error(shell.reason);
+  // The `shell` build lane is fresh (build-smart above), so root bin/my-agent is
+  // the `dotnet publish` of the current shell sources. Copy it instead of
+  // publishing the same project a second time into the stage.
+  const builtShell = path.join(root, 'bin', 'my-agent');
+  if (!existsSync(path.join(builtShell, 'MYAgent.exe'))) {
+    console.error(`publish: shell build output missing: ${builtShell} (run node tools/build-smart.mjs)`);
     process.exit(1);
   }
+  if (existsSync(shellOut)) rmSync(shellOut, { recursive: true, force: true });
+  cpSync(builtShell, shellOut, { recursive: true });
+  console.log('publish: reused fresh shell build bin/my-agent -> stage');
   const publishedExe = path.join(shellOut, 'MYAgent.exe');
   const productExe = path.join(appDir, 'MYAgent.exe');
   if (!existsSync(publishedExe)) {
@@ -368,16 +415,13 @@ if (existsSync(shellProj)) {
   }
 }
 
-const updater = publishUpdater({
-  root,
-  outDir: path.join(root, 'bin', 'my-agent-updater'),
-  label: 'publish',
-});
-if (!updater.ok) {
-  console.error(updater.reason);
+// Same for the `updater` lane: bin/my-agent-updater is already fresh.
+const updaterExe = path.join(root, 'bin', 'my-agent-updater', 'MYAgent.Updater.exe');
+if (!existsSync(updaterExe)) {
+  console.error(`publish: updater build output missing: ${updaterExe} (run node tools/build-smart.mjs)`);
   process.exit(1);
 }
-cpSync(updater.executable, path.join(appDir, 'MYAgent.Updater.exe'));
+cpSync(updaterExe, path.join(appDir, 'MYAgent.Updater.exe'));
 console.log('publish: update helper -> app/MYAgent.Updater.exe');
 
 

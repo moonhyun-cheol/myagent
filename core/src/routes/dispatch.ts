@@ -29,6 +29,13 @@ import {
   type UserMcpServerConfig,
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
+import {
+  applyUiStatePatch,
+  loadUiState,
+  uiStatePath,
+  UiStateError,
+  validateUiStatePatch,
+} from '../config/ui-state-store.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import {
   AgentProfileError,
@@ -119,6 +126,7 @@ import {
 } from '../updates/work-kit-catalog-feed.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
 import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
+import { loadProblemHistory } from '../runtime/problem-history.js';
 import type { ApiContext } from '../http/api-context.js';
 import { listContextLimitMismatches } from '../providers/model-context-limits.js';
 import { listRecentSoftCostWarns } from '../agent/agent-perf-metrics.js';
@@ -349,6 +357,12 @@ export async function dispatchApiRequest(
         });
       }
 
+      // Dock badge poll: a single number instead of cloning the feed list every 10s.
+      if (method === 'GET' && url.pathname === '/automations/feed/unread-count') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { unread: personalScheduler.countUnreadFeed() });
+      }
+
       if (method === 'DELETE' && url.pathname === '/automations/feed') {
         license.assertWritable();
         license.assertFeature('chat');
@@ -485,6 +499,12 @@ export async function dispatchApiRequest(
           return sendJson(res, 400, { error: 'INVALID_TRACKING', message: 'enabled(true/false)만 받습니다.' });
         }
         return sendJson(res, 200, { tracking: setLlmUsageTracking(cqrRoot, body.enabled) });
+      }
+
+      // 「문제 해결」: shell/API crash·hang·restart logs summarized in plain language (local files only).
+      if (method === 'GET' && url.pathname === '/runtime/problem-history') {
+        const days = Number(url.searchParams.get('days') ?? '14');
+        return sendJson(res, 200, loadProblemHistory(cqrRoot, { days: Number.isFinite(days) ? days : 14 }));
       }
 
       if (method === 'GET' && url.pathname === '/license/status') {
@@ -1525,6 +1545,25 @@ export async function dispatchApiRequest(
           cqrRoot,
         });
         return sendJson(res, 200, payload);
+      }
+
+      // WebView preferences mirrored to data/ so a changed API port (new localStorage origin)
+      // does not reset pins, the active chat, or app preferences.
+      if (method === 'GET' && url.pathname === '/config/ui-state') {
+        const doc = loadUiState(uiStatePath(userConfigPath));
+        return sendJson(res, 200, { entries: doc.entries, removed: doc.removed, updated_at: doc.updated_at ?? null });
+      }
+
+      if (method === 'PUT' && url.pathname === '/config/ui-state') {
+        let patch;
+        try {
+          patch = validateUiStatePatch(JSON.parse(await readBody(req)));
+        } catch (err) {
+          if (err instanceof UiStateError) return sendJson(res, 400, { error: err.code, message: err.message });
+          return sendJson(res, 400, { error: 'UI_STATE_BODY_INVALID', message: 'JSON body required.' });
+        }
+        const doc = applyUiStatePatch(uiStatePath(userConfigPath), patch, cqrRoot);
+        return sendJson(res, 200, { ok: true, updated_at: doc.updated_at ?? null });
       }
 
       if (method === 'PUT' && url.pathname === '/models/company-selection') {

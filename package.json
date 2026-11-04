@@ -1,6 +1,6 @@
 {
   "name": "myagent",
-  "version": "1.1.22",
+  "version": "1.1.23",
   "private": true,
   "description": "MY Agent ??portable isolated AI toolkit",
   "type": "module",
@@ -33,6 +33,7 @@
     "verify:preview-explorer": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && npm --prefix ui/workspace run build && node tools/verify-preview-explorer.mjs",
     "verify:approval-auto-review": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-approval-auto-review.mjs",
     "verify:local-api-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-api-guard.mjs",
+    "verify:problem-history": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-problem-history.mjs",
     "verify:untrusted-content": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-untrusted-content.mjs",
     "verify:browser-url-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-browser-url-guard.mjs",
     "verify:web-action-audit": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-web-action-audit.mjs",

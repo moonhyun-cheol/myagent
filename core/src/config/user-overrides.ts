@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
 import type { ReasoningLevel } from '../execution-policy.js';
@@ -70,26 +70,37 @@ const DEFAULT_MAX = 20 * 1024 * 1024;
 const DEFAULT_MODEL_MAX = 32 * 1024 * 1024 * 1024;
 export const DEFAULT_SCHEDULER_MODEL = 'provider:custom@openai%2Fgpt-5.6-luna';
 
-export function loadUserOverrides(configPath: string): UserOverrides {
-  if (!existsSync(configPath)) {
-    return {
-      attachment_max_bytes: DEFAULT_MAX,
-      model_upload_max_bytes: DEFAULT_MODEL_MAX,
-    };
-  }
+function withDefaults(doc: UserOverrides): UserOverrides {
+  return {
+    ...doc,
+    attachment_max_bytes: doc.attachment_max_bytes ?? DEFAULT_MAX,
+    model_upload_max_bytes: doc.model_upload_max_bytes ?? DEFAULT_MODEL_MAX,
+  };
+}
+
+/** Last successfully written copy; used when the main file is truncated/corrupt. */
+function backupPath(configPath: string): string {
+  return `${configPath}.bak`;
+}
+
+function tryReadOverrides(file: string): UserOverrides | null {
+  if (!existsSync(file)) return null;
   try {
-    const doc = JSON.parse(readFileSync(configPath, 'utf8')) as UserOverrides;
-    return {
-      ...doc,
-      attachment_max_bytes: doc.attachment_max_bytes ?? DEFAULT_MAX,
-      model_upload_max_bytes: doc.model_upload_max_bytes ?? DEFAULT_MODEL_MAX,
-    };
+    const doc = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+    return doc as UserOverrides;
   } catch {
-    return {
-      attachment_max_bytes: DEFAULT_MAX,
-      model_upload_max_bytes: DEFAULT_MODEL_MAX,
-    };
+    return null;
   }
+}
+
+export function loadUserOverrides(configPath: string): UserOverrides {
+  const main = tryReadOverrides(configPath);
+  if (main) return withDefaults(main);
+  // A process killed mid-write (e.g. updater stopping node) must not silently
+  // reset every user choice: fall back to the last good copy.
+  const backup = tryReadOverrides(backupPath(configPath));
+  return withDefaults(backup ?? {});
 }
 
 export function saveUserOverrides(
@@ -100,7 +111,27 @@ export function saveUserOverrides(
   const current = loadUserOverrides(configPath);
   const next: UserOverrides = { ...current, ...patch };
   assertWritablePath(configPath, cqrRoot);
-  writeFileSync(configPath, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  const body = JSON.stringify(next, null, 2) + '\n';
+  if (existsSync(configPath)) {
+    if (tryReadOverrides(configPath)) {
+      copyFileSync(configPath, backupPath(configPath));
+    } else {
+      // Preserve an unreadable file for diagnosis instead of overwriting it blindly.
+      try {
+        copyFileSync(configPath, `${configPath}.invalid-${Date.now()}.bak`);
+      } catch {
+        /* best effort */
+      }
+    }
+  }
+  // Atomic replace: write a temp file then rename, so a kill mid-write never truncates.
+  const temp = `${configPath}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, body, 'utf8');
+    renameSync(temp, configPath);
+  } finally {
+    rmSync(temp, { force: true });
+  }
   return next;
 }
 

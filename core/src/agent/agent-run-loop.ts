@@ -107,8 +107,11 @@ import { attachAgentUsage } from './agent-usage-carry.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
 import { AgentEvidenceStore } from './agent-evidence-store.js';
+import { untrustedSourceForCall } from './untrusted-content.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
+import { lastTurnContextIndex } from './agent-context-assembler.js';
+import { saveTurnContextRecord, turnContextKey } from './agent-turn-context-store.js';
 import {
   detectModelSwitch,
   formatModelSwitchTurnNote,
@@ -694,6 +697,20 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       sysInsertAt += 1;
     }
   }
+  // Record the exact first-request turn context + user content so the next question can
+  // replay them and extend this request's prefix (provider prompt cache hit).
+  {
+    const ctxAt = lastTurnContextIndex(messages);
+    const ctx = ctxAt >= 0 ? messages[ctxAt] : undefined;
+    const lastUser = messages[messages.length - 1];
+    if (ctx && typeof ctx.content === 'string' && lastUser?.role === 'user') {
+      saveTurnContextRecord(opts.cqrRoot, opts.sessionId, {
+        key: turnContextKey(opts.history?.[opts.history.length - 1]?.at, opts.userMessage ?? ''),
+        context: ctx.content,
+        ...(typeof lastUser.content === 'string' ? { user: lastUser.content } : {}),
+      });
+    }
+  }
   const toolsUsedThisRun = new Set<string>();
   const successfulReadsThisRun = new Set<string>();
   const readBodiesFetchedThisRun = new Set<string>();
@@ -885,6 +902,12 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     approvalTrace,
     approvedExternalReadRoots,
     approvedNetworkGrants,
+    // Evidence from earlier turns is re-projected into context, so its origins count too.
+    untrustedSourcesSeen: new Set(
+      evidenceStore.list()
+        .map((record) => untrustedSourceForCall(record.tool, record.args))
+        .filter((source): source is NonNullable<typeof source> => source !== null),
+    ),
     llmUsage,
     browserSession,
     toolCtx,

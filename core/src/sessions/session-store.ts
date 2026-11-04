@@ -600,6 +600,12 @@ export class SessionStore {
     return safe ? this.database.recent(safe, limit) : [];
   }
 
+  /** Like recentMessages, but the window start moves in `step`-message increments. */
+  recentMessagesAligned(id: string, limit = 20, step = 6): SessionMessage[] {
+    const safe = sanitizeId(id);
+    return safe ? this.database.recentAligned(safe, limit, step) : [];
+  }
+
   /**
    * In-flight assistant draft for a live run (not yet a committed message). Runs owned by
    * this process answer from memory (no 1 s checkpoint lag); otherwise the last DB checkpoint.

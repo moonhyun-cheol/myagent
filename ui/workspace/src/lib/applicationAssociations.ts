@@ -1,4 +1,5 @@
 import { runWorkspaceTerminal } from '../api/myAgentClient';
+import { durableSetItem } from './durableUiState';
 
 const STORAGE_KEY = 'my-agent.file-associations.v1';
 const LEGACY_STORAGE_KEY = 'cqr.file-associations.v1';
@@ -17,7 +18,7 @@ export function loadFileAssociations(): FileAssociationSettings {
   try {
     const current = localStorage.getItem(STORAGE_KEY);
     const legacy = current === null ? localStorage.getItem(LEGACY_STORAGE_KEY) : null;
-    if (legacy !== null) localStorage.setItem(STORAGE_KEY, legacy);
+    if (legacy !== null) durableSetItem(STORAGE_KEY, legacy);
     const saved = JSON.parse(current ?? legacy ?? '{}') as Partial<FileAssociationSettings>;
     return {
       textEditor: typeof saved.textEditor === 'string' ? saved.textEditor : DEFAULT_FILE_ASSOCIATIONS.textEditor,
@@ -29,7 +30,7 @@ export function loadFileAssociations(): FileAssociationSettings {
 }
 
 export function saveFileAssociations(settings: FileAssociationSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  durableSetItem(STORAGE_KEY, JSON.stringify(settings));
   localStorage.removeItem(LEGACY_STORAGE_KEY);
   window.dispatchEvent(new CustomEvent('my-agent:file-associations-changed'));
 }

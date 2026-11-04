@@ -101,7 +101,7 @@ async function dispatchAutomatonToolAsync(
     progressFile,
   });
 
-  options?.onStatus?.('my_live_automaton — 독립 프로세스 시작…');
+  options?.onStatus?.('상태: 프로세스 시작 중');
 
   try {
     const child = spawn(pythonPath, [scriptPath, ...cliArgs], {
@@ -208,7 +208,7 @@ export async function dispatchAutomatonTool(
         if (!fallbackLocal || !configuredRoot) {
           throw remoteErr;
         }
-        options?.onStatus?.('OpenClaw 원격 실패 — 로컬 automaton으로 폴백…');
+        options?.onStatus?.('상태: 원격 실행 실패, 로컬 실행으로 전환');
         options?.onThought?.(
           remoteErr instanceof Error ? remoteErr.message : String(remoteErr),
         );
