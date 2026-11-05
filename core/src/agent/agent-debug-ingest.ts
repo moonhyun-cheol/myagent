@@ -8,7 +8,7 @@
  * Tokens live in memory only (an app restart issues a new URL).
  */
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
 import { DEBUG_LOG_DIR, ensureDebugLogGitignore } from '../sessions/workspace-scratch-gitignore.js';
@@ -19,6 +19,10 @@ const MAX_LINE_CHARS = 8 * 1024;
 const MAX_RECORDS_PER_POST = 500;
 const MAX_TRACE_BYTES = 5 * 1024 * 1024;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
+const MARK_SRC = 'mark';
+const READ_DEFAULT_MAX = 200;
+const READ_HARD_MAX = 1000;
+const READ_LINE_CHARS = 2000;
 
 export interface DebugIngestBinding {
   token: string;
@@ -131,6 +135,110 @@ export function appendDebugIngest(binding: DebugIngestBinding, raw: string, now 
   return { accepted: lines.length, dropped, file: rel };
 }
 
+function splitLogLines(abs: string): string[] {
+  if (!existsSync(abs)) return [];
+  return readFileSync(abs, 'utf8').split(/\r?\n/).filter((l) => l.trim());
+}
+
+function markOf(line: string): { ts?: unknown; label?: unknown } | null {
+  if (!line.includes(`"src":"${MARK_SRC}"`)) return null;
+  try {
+    const rec = JSON.parse(line) as Record<string, unknown>;
+    return rec && rec.src === MARK_SRC ? rec : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface DebugLogMarkResult {
+  file: string;
+  mark_ts: number;
+  records_before: number;
+}
+
+/**
+ * Append a reproduction boundary. Ingest records always carry `src:"ingest"`, so a probe cannot
+ * forge a mark through the HTTP endpoint.
+ */
+export function markDebugLog(
+  workspaceRoot: string,
+  sessionId: string,
+  label?: string,
+  now = Date.now(),
+): DebugLogMarkResult {
+  const root = path.resolve(workspaceRoot);
+  const rel = debugTraceRelPath(sessionId);
+  const abs = path.join(root, rel);
+  mkdirSync(path.dirname(abs), { recursive: true });
+  ensureDebugLogGitignore(root);
+  const before = splitLogLines(abs).filter((l) => !markOf(l)).length;
+  const rec: Record<string, unknown> = { ts: now, src: MARK_SRC };
+  const cleanLabel = String(label ?? '').trim().slice(0, 200);
+  if (cleanLabel) rec.label = cleanLabel;
+  appendFileSync(abs, `${JSON.stringify(rec)}\n`, 'utf8');
+  return { file: rel, mark_ts: now, records_before: before };
+}
+
+export interface DebugLogReadOptions {
+  /** `mark` (default): only records after the latest mark; `all`: the whole file. */
+  since?: 'mark' | 'all';
+  /** Case-insensitive substring filter applied to raw lines. */
+  contains?: string;
+  skip?: number;
+  max?: number;
+}
+
+/** Plain-text tool body: one meta line, then the selected raw NDJSON lines. */
+export function readDebugLog(workspaceRoot: string, sessionId: string, opts: DebugLogReadOptions = {}): string {
+  const rel = debugTraceRelPath(sessionId);
+  const abs = path.join(path.resolve(workspaceRoot), rel);
+  const all = splitLogLines(abs);
+  if (!all.length) {
+    return `[debug_log_read meta] file=${rel} records=0 — nothing received yet. Check that the probe ran and posts to the Ingest URL (or appends to this file).`;
+  }
+  let lastMark = -1;
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    if (markOf(all[i]!)) {
+      lastMark = i;
+      break;
+    }
+  }
+  const sinceMark = opts.since !== 'all' && lastMark >= 0;
+  const scope = (sinceMark ? all.slice(lastMark + 1) : all).filter((l) => !markOf(l));
+  const needle = String(opts.contains ?? '').trim().toLowerCase();
+  const matched = needle ? scope.filter((l) => l.toLowerCase().includes(needle)) : scope;
+  const skip = Math.max(0, Math.floor(Number(opts.skip) || 0));
+  const max = Math.min(READ_HARD_MAX, Math.max(1, Math.floor(Number(opts.max) || READ_DEFAULT_MAX)));
+  const page = matched.slice(skip, skip + max);
+
+  const byHypothesis = new Map<string, number>();
+  for (const line of matched) {
+    try {
+      const h = (JSON.parse(line) as Record<string, unknown>).h;
+      if (typeof h === 'string' && h) byHypothesis.set(h, (byHypothesis.get(h) ?? 0) + 1);
+    } catch {
+      /* non-JSON line */
+    }
+  }
+  const mark = lastMark >= 0 ? markOf(all[lastMark]!) : null;
+  const markTs = typeof mark?.ts === 'number' ? new Date(mark.ts).toISOString() : String(mark?.ts ?? '');
+  const scopeText = sinceMark
+    ? `since=mark(${markTs}${typeof mark?.label === 'string' ? ` "${mark.label}"` : ''})`
+    : lastMark >= 0
+      ? 'since=all'
+      : 'since=all(no mark yet — call action=mark before the next reproduction)';
+  const meta = [
+    `[debug_log_read meta] file=${rel}`,
+    scopeText,
+    `records=${matched.length}${needle ? ` (filter "${needle}" of ${scope.length})` : ''}`,
+    page.length ? `shown=${skip + 1}-${skip + page.length}` : 'shown=0',
+    byHypothesis.size ? `h={${[...byHypothesis].map(([k, v]) => `${k}:${v}`).join(', ')}}` : '',
+    skip + page.length < matched.length ? `more: skip=${skip + page.length}` : '',
+  ].filter(Boolean).join(' ');
+  const body = page.map((l) => (l.length > READ_LINE_CHARS ? `${l.slice(0, READ_LINE_CHARS)}…[truncated]` : l));
+  return [meta, ...body].join('\n');
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -215,6 +323,7 @@ export function formatDebugIngestNote(binding: DebugIngestBinding): string {
     '- Body: one JSON object, a JSON array, NDJSON, or plain text lines (max 256KB per POST, 5MB per file).',
     '- Browser code: `fetch(URL, { method: "POST", body: JSON.stringify(rec) }).catch(() => {})` — no Content-Type header keeps it a simple request (no CORS preflight).',
     '- Node/other runtimes: POST the same way, or append the NDJSON line to the log file directly.',
+    '- Read it with `debug_log_read` (`action=mark` before each reproduction, then `action=read` for records after the mark).',
     '- The URL is valid only for this conversation while the app runs. It is a temporary probe target: mark those lines with `@myagent-debug` and never commit it.',
   ].join('\n');
 }

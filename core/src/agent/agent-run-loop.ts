@@ -232,7 +232,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     );
   const toolPack = opts.forceToolPack
     ?? resolveBehaviorToolPack(workspaceBehavior, opts.cqrRoot, 'files+browser');
-  let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack);
+  let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack, { workspaceBehavior });
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
   const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
   const selfWorkspace = scopedMemory.selfWorkspace;

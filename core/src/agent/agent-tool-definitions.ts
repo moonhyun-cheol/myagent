@@ -1263,3 +1263,26 @@ function extendedBrowserTool(
 }
 
 export const CODE_AGENT_TOOL_NAMES = CODE_AGENT_TOOLS.map((t) => t.function.name);
+
+/** Added to the schema only for runs in Debug mode (workspace_behavior=debug). */
+export const DEBUG_AGENT_TOOLS: AgentToolDefinition[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'debug_log_read',
+      description:
+        "Debug mode: this conversation's temporary probe log (.myagent-debug/<session>.ndjson). Call action=mark right before each reproduction, then action=read (default) returns only records written after the latest mark. Prefer this over read_file on the log.",
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['read', 'mark'], description: 'read (default) | mark' },
+          label: { type: 'string', description: 'mark: short reproduction label, e.g. "round 2 after fix"' },
+          since: { type: 'string', enum: ['mark', 'all'], description: 'read: mark (default) | all' },
+          contains: { type: 'string', description: 'read: case-insensitive substring filter' },
+          skip: { type: 'number', description: 'read: records to skip (paging)' },
+          max: { type: 'number', description: 'read: max records (default 200, max 1000)' },
+        },
+      },
+    },
+  },
+];
