@@ -373,6 +373,9 @@ async function executeAgentToolInner(
         if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
         const runtime = getPersonalSchedulerRuntime(ctx.cqrRoot);
         if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
+        // Bind the creating chat's workspace so the unattended run gets the tool runtime.
+        const sessionRoots = ctx.sessionId ? runtime.resolveSessionWorkspaceRoots?.(ctx.sessionId) ?? [] : [];
+        const workspaceRoots = sessionRoots.length ? sessionRoots : workspaceRoot ? [workspaceRoot] : [];
         const task = runtime.service.saveTask({
           name: String(args.name ?? ''),
           description: String(args.description ?? ''),
@@ -380,6 +383,7 @@ async function executeAgentToolInner(
           triggers: args.triggers as SchedulerTaskInput['triggers'],
           enabled: args.enabled !== false,
           misfire_policy: args.misfire_policy === 'run_once' ? 'run_once' : 'skip',
+          workspace_roots: workspaceRoots,
         }, typeof args.id === 'string' && args.id.trim() ? args.id.trim() : undefined);
         return { label: `scheduler saved (${task.name})`, output: JSON.stringify({ ok: true, task }) };
       }

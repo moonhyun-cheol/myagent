@@ -25,6 +25,8 @@ import { dispatchApiRequest } from './routes/dispatch.js';
 import { PersonalSchedulerService } from './scheduler/personal-scheduler-service.js';
 import { PersonalSchedulerRuntime } from './scheduler/personal-scheduler-runtime.js';
 import { buildSchedulerTraceEntries, type SchedulerTraceEntry } from './scheduler/run-trace.js';
+import { createSchedulerDecisionHooks } from './scheduler/scheduler-decision-hooks.js';
+import { resolveWorkspaceRootsForSession } from './chat/session-context.js';
 import {
   registerPersonalSchedulerRuntime,
   unregisterPersonalSchedulerRuntime,
@@ -168,12 +170,38 @@ export async function createApiServer(port: number) {
       const sessionId = `automation-${run.id}`;
       const startedAt = Date.now();
       let runError: string | undefined;
+      const workspaceEntries: SchedulerTraceEntry[] = [];
+      const hooks = createSchedulerDecisionHooks({
+        providerStore,
+        cqrRoot,
+        sessionId,
+        instruction: task.instruction,
+        reviewerPreference: loadUserOverrides(userConfigPath).approval_reviewer_model,
+      });
       try {
+        // Workspace binding: without roots the temporary chat has no tool runtime and the
+        // model can only answer "no tools". A vanished folder fails the run explicitly.
+        const boundRoots = task.workspace_roots ?? [];
+        if (boundRoots.length) {
+          const present = boundRoots.filter((root) => existsSync(root));
+          const missing = boundRoots.filter((root) => !existsSync(root));
+          workspaceEntries.push({
+            type: 'workspace',
+            at: new Date().toISOString(),
+            roots: present,
+            ...(missing.length ? { missing } : {}),
+          });
+          if (!present.length) {
+            throw new Error(`예약 작업에 연결된 작업 폴더를 찾을 수 없습니다: ${missing.join(', ')}`);
+          }
+          sessionStore.ensure(sessionId);
+          sessionStore.setScopeSettings(sessionId, { allowed_paths: present });
+        }
         const response = await orchestrator.handle({
           message: task.instruction,
           attachments: [],
           execution_context: 'background',
-        }, sessionId);
+        }, sessionId, hooks);
         const feedAttachments = [
           ...(response.mutatedPaths ?? []).map((filePath) => ({
             name: path.basename(filePath),
@@ -199,7 +227,9 @@ export async function createApiServer(port: number) {
           const finishedAt = Date.now();
           const entries: SchedulerTraceEntry[] = [
             { type: 'run', event: 'start', at: new Date(startedAt).toISOString() },
+            ...workspaceEntries,
             ...buildSchedulerTraceEntries(sessionStore.load(sessionId)?.messages),
+            ...hooks.decisions.map((row) => ({ type: 'decision' as const, ...row })),
             {
               type: 'run',
               event: 'end',
@@ -361,6 +391,8 @@ export async function createApiServer(port: number) {
       );
     }, 20_000).unref?.();
     startVisibleBrowserBridge(port);
+    personalSchedulerRuntime.resolveSessionWorkspaceRoots = (id) =>
+      resolveWorkspaceRootsForSession(sessionStore, projectStore, id);
     registerPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
     personalSchedulerRuntime.start();
     // Premium-tier badges need provider prices. Fetch once in the background only when no

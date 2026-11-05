@@ -133,6 +133,13 @@ import {
 import { loadAgentRunMeta } from '../agent/agent-run-meta.js';
 import { persistInterruptedAgentProgress } from '../agent/agent-session-continuity.js';
 
+/** Trusted in-process host hooks for `ChatOrchestrator.handle` (no SSE approval card). */
+export interface ChatHandleHooks {
+  onToolApproval?: (req: import('../agent/tool-approval.js').ToolApprovalRequest) => Promise<import('../agent/tool-approval.js').ToolApprovalOutcome>;
+  onStepBudgetExhausted?: import('../agent/step-budget-review.js').StepBudgetExhaustedHandler;
+  signal?: AbortSignal;
+}
+
 export class ChatOrchestrator {
   private research: DeepResearchPipeline;
   private imageBackend: AutoImageBackend;
@@ -426,13 +433,18 @@ export class ChatOrchestrator {
     queueAutoErrorReport(this.cqrRoot, this.dataDir, this.vaultDir, payload);
   }
 
-  async handle(req: ChatRequest, sessionId: string): Promise<ChatResponse> {
+  /**
+   * Non-stream turn. `hooks` is for trusted in-process hosts (the personal scheduler):
+   * there is no approval card, so the host decides approvals and step-budget checkpoints.
+   * Never populated from an HTTP request body.
+   */
+  async handle(req: ChatRequest, sessionId: string, hooks?: ChatHandleHooks): Promise<ChatResponse> {
     // Model resolution happens inside; errors carry the running model for failure copy.
     let runningModel: string | undefined;
     try {
       return await this.handleResolved(req, sessionId, (m) => {
         runningModel = m;
-      });
+      }, hooks);
     } catch (e: unknown) {
       throw tagFailureModel(e, runningModel);
     }
@@ -442,6 +454,7 @@ export class ChatOrchestrator {
     req: ChatRequest,
     sessionId: string,
     noteModel: (model: string | undefined) => void,
+    hooks?: ChatHandleHooks,
   ): Promise<ChatResponse> {
     const inlet = applyChatInletFilter((req.message ?? '').trim(), {
       sessionId,
@@ -660,6 +673,15 @@ export class ChatOrchestrator {
           sessionId,
           { cqrRoot: this.cqrRoot },
         ),
+        ...(hooks
+          ? {
+              callbacks: {
+                onToolApproval: hooks.onToolApproval,
+                onStepBudgetExhausted: hooks.onStepBudgetExhausted,
+              },
+              signal: hooks.signal,
+            }
+          : {}),
       });
     }
 

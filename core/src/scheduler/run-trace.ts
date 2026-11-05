@@ -31,7 +31,18 @@ export type SchedulerTraceEntry =
     failure_kind?: string;
     output: string;
     output_truncated: boolean;
-  };
+  }
+  | {
+    type: 'decision';
+    at: string;
+    kind: 'tool_approval' | 'step_budget';
+    tool?: string;
+    summary: string;
+    decision: 'allow' | 'deny' | 'extend' | 'stop';
+    reviewer: string;
+    reason: string;
+  }
+  | { type: 'workspace'; at: string; roots: string[]; missing?: string[] };
 
 function clip(text: unknown, limit: number): { text: string; truncated: boolean } {
   const value = String(text ?? '');

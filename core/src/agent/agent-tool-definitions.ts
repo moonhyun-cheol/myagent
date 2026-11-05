@@ -36,7 +36,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
           id: { type: 'string', description: 'Existing task id to replace; omit to create' },
           name: { type: 'string' },
           description: { type: 'string' },
-          instruction: { type: 'string', description: 'Prompt executed in a fresh isolated chat context' },
+          instruction: { type: 'string', description: 'Prompt executed in a fresh isolated chat bound to this chat\'s workspace folder. Approval-gated tools in that unattended run execute without review (free pass), so state only the exact commands/targets the task should run.' },
           triggers: {
             type: 'array',
             items: {

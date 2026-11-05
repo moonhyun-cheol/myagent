@@ -88,7 +88,7 @@
     "verify:locked-constraints": "node tools/verify-locked-constraints.mjs",
     "verify:artifact-contract": "node tools/verify-artifact-contract.mjs",
     "verify:domain-registry": "node tools/verify-domain-registry.mjs",
-    "verify:personal-scheduler": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-personal-scheduler.mjs",
+    "verify:personal-scheduler": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-personal-scheduler.mjs && node tools/verify-scheduler-workspace-binding.mjs",
     "verify:conversation-image-catalog": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-conversation-image-catalog.mjs",
     "verify:tool-visual-results": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-tool-visual-results.mjs",
     "verify:work-timeline": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-work-timeline.mjs",
