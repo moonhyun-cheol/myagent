@@ -116,7 +116,10 @@ function isLoopbackAddress(hostname: string): boolean {
 function agentApiPortReason(url: URL, hostname = url.hostname): string | null {
   if (!agentApiPort || effectivePort(url) !== agentApiPort) return null;
   if (!isLoopbackAddress(hostname)) return null;
-  if (decodeURIComponentSafe(url.pathname).startsWith('/outputs/')) return null;
+  const apiPath = decodeURIComponentSafe(url.pathname);
+  if (apiPath.startsWith('/outputs/')) return null;
+  // Debug mode probes in pages under test POST here (write-only, token-bound).
+  if (apiPath.startsWith('/debug/ingest/')) return null;
   return `BLOCKED_HOST: ${url.host} is the MY Agent local API. The agent may not open or download from it (only /outputs/ files). Tell the user.`;
 }
 

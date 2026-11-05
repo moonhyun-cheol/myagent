@@ -35,6 +35,7 @@ import { warmModelPricingIfMissing } from './models/model-picker.js';
 import { trackSlowRequest } from './routes/slow-request-log.js';
 import { checkLocalApiRequest } from './security/local-api-guard.js';
 import { configureAgentApiPort, configureBrowserUrlBlocklistFile } from './browser/url-guard.js';
+import { configureDebugIngestPort } from './agent/agent-debug-ingest.js';
 import { prepareLlmUsageStore } from './providers/llm-usage-store.js';
 import { resolveLlmUsageLogDir } from './providers/llm-usage-summary.js';
 
@@ -65,6 +66,7 @@ export async function createApiServer(port: number) {
   configureBrowserUrlBlocklistFile(userConfigPath);
   // Agent browsers / save_web_asset must never reach this unauthenticated API (except /outputs/).
   configureAgentApiPort(port);
+  configureDebugIngestPort(port);
   const initialOverrides = getOverrides();
   const attachments = new AttachmentService(
     paths.attachmentsDir,

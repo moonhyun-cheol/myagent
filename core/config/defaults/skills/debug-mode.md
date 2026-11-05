@@ -17,18 +17,21 @@ Goal: find the real cause with **evidence from temporary runtime logs**, fix it,
 
 - Every temporary line/block carries the marker `@myagent-debug`. Single line: append the marker as a trailing comment. Multi-line: wrap with
   `// @myagent-debug:start` … `// @myagent-debug:end` (use the language's comment syntax, e.g. `#` in Python/PowerShell).
-- Write logs as NDJSON (one JSON object per line: `ts`, `h` hypothesis id, `at` file:function, `msg`, `data`) appended to
-  `<workspace>/.myagent-debug/trace.ndjson`. Create the folder if needed. It is git-ignored and is not product code.
-  - If file writes are impossible in that runtime (e.g. browser code), use `console.log('[myagent-debug]', …)` and capture it with browser/terminal tools.
+- Log records are JSON objects: `h` hypothesis id, `at` file:function, `msg`, `data` (`ts` is added if missing).
+  Send them to the **Ingest URL** given in the "Debug log ingest" note (works from browser and Node code);
+  the app appends them to this conversation's log file under `<workspace>/.myagent-debug/`. Direct NDJSON append to that same file is the fallback.
+  The folder is git-ignored and is not product code.
+  - If neither is possible in that runtime, use `console.log('[myagent-debug]', …)` and capture it with browser/terminal tools.
 - Never log secrets, tokens, passwords, or full personal data. Truncate large values.
 - Instrumentation must not change behavior: no extra awaits or side effects that alter control flow; wrap in try/catch so logging can never throw.
-- Before each new reproduction, truncate `trace.ndjson` (or note the last line number) so you analyze only the newest run.
+- Before each new reproduction, note the log file's current line count so you analyze only the newest lines.
 
 ## Cleanup rules
 
 - Remove instrumentation by marker, **not** by `workspace_rollback` (rollback would also undo the real fix).
-- Delete `.myagent-debug/trace.ndjson` at the end unless the user asks to keep it.
+- Delete this conversation's log file under `.myagent-debug/` at the end unless the user asks to keep it.
 - If markers remain because the user must still reproduce, say so: 「임시 계측 N곳 남아 있음 — 재현 완료 후 제거」. Do not claim 완료.
+- At the end of every Debug run the app itself counts `@myagent-debug` markers in files you changed this conversation and shows the count to the user as a separate notice. Your own count must match it.
 
 ## Reply format (each round, Korean)
 

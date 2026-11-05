@@ -10,7 +10,8 @@ export interface PublicReasoningRecord {
 }
 
 export interface ApplicationNotice {
-  kind: 'continuation' | 'failure';
+  /** `debug` = Debug mode residue fact (leftover temporary instrumentation). */
+  kind: 'continuation' | 'failure' | 'debug';
   title: string;
   message: string;
   /** Actual runtime model; never replace with a synthetic policy label. */

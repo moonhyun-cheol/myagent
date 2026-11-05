@@ -2,6 +2,21 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "workspace-behavior-debug",
+      "status": "development",
+      "title": "작업 방식에 Debug 추가 · 남은 임시 로그 자동 안내",
+      "detail": "작업 방식에서 Debug를 고르면 AI가 원인 가설을 세우고, 임시 로그를 심어 직접 재현해 본 뒤 고치고, 다시 재현해 확인하고 임시 로그를 지웁니다. 작업이 끝날 때마다 앱이 이 대화에서 바뀐 파일에 임시 로그가 몇 곳 남았는지 직접 세어 답변 아래에 따로 알려 줍니다. 남아 있어도 작업을 막지는 않습니다.",
+      "area": "core",
+      "created_at": "2026-11-04",
+      "source_paths": [
+        "core/src/agent/agent-debug-residue.ts",
+        "core/src/agent/agent-run-loop.ts",
+        "core/config/defaults/skills/debug-mode.md",
+        "ui/workspace/src/components/ChatPane.tsx"
+      ],
+      "release": { "version": null, "update_sequence": null }
+    },
+    {
       "id": "skill-per-conversation",
       "status": "development",
       "title": "스킬은 켠 대화에서만 적용",
