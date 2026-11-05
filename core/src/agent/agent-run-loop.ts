@@ -124,6 +124,7 @@ import {
   partitionPathsByFingerprint,
 } from './agent-continuation-snapshot.js';
 import { isAgentExecutionLimit } from './agent-failure-plane.js';
+import { mergeDebugResidueNotice, scanDebugResidue } from './agent-debug-residue.js';
 import {
   formatLockedConstraintsSystemNote,
   resolveLockedConstraintsForTurn,
@@ -414,8 +415,20 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     const browserHandoff = opts.browserRouting === 'background'
       ? await browserSession?.handoffState().catch(() => null) ?? null
       : null;
+    // Debug mode: report leftover @myagent-debug markers as a host fact (never blocks).
+    let applicationNotice = result.applicationNotice;
+    if (workspaceBehavior === 'debug') {
+      try {
+        const sessionPaths = loadAgentRunMeta(opts.cqrRoot, opts.sessionId).mutatedPaths ?? [];
+        const residue = scanDebugResidue(opts.workspaceRoot, [...pathList, ...sessionPaths]);
+        applicationNotice = mergeDebugResidueNotice(applicationNotice, residue);
+      } catch {
+        /* residue report is best-effort */
+      }
+    }
     result = {
       ...result,
+      ...(applicationNotice ? { applicationNotice } : {}),
       content: finalContent,
       mutatedPaths: pathList,
       checkpointId: live?.lastAutoCheckpointId ?? result.checkpointId ?? null,

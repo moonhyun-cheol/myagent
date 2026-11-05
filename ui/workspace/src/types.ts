@@ -73,7 +73,7 @@ export interface PendingAttachment {
 }
 
 export interface ApplicationNotice {
-  kind: 'continuation' | 'failure';
+  kind: 'continuation' | 'failure' | 'debug';
   title: string;
   message: string;
   model?: string;

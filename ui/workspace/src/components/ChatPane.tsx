@@ -2018,7 +2018,9 @@ export function ChatPane() {
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
                     turn.applicationNotice.kind === 'continuation'
                       ? 'border-amber-500/30 bg-amber-500/5 text-amber-100/90'
-                      : 'border-red-500/30 bg-red-500/5 text-red-100/90'
+                      : turn.applicationNotice.kind === 'debug'
+                        ? 'border-sky-500/30 bg-sky-500/5 text-sky-100/90'
+                        : 'border-red-500/30 bg-red-500/5 text-red-100/90'
                   }`}
                   aria-label="애플리케이션 안내"
                 >

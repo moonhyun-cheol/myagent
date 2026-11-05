@@ -96,7 +96,7 @@ export interface SessionSummary {
 }
 
 export interface ApplicationNotice {
-  kind: 'continuation' | 'failure';
+  kind: 'continuation' | 'failure' | 'debug';
   title: string;
   message: string;
   model?: string;
@@ -2233,7 +2233,7 @@ export async function streamChat(
           ? rawNotice as Record<string, unknown>
           : undefined;
         const applicationNotice = noticeRecord
-          && (noticeRecord.kind === 'continuation' || noticeRecord.kind === 'failure')
+          && (noticeRecord.kind === 'continuation' || noticeRecord.kind === 'failure' || noticeRecord.kind === 'debug')
           && typeof noticeRecord.title === 'string'
           && typeof noticeRecord.message === 'string'
           ? {

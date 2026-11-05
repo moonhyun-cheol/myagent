@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { loadAgentRunMeta } from '../agent/agent-run-meta.js';
+import { handleDebugIngestRequest } from '../agent/agent-debug-ingest.js';
 import { assertPathUnder } from '../security/path-guard.js';
 import { SecurityError } from '../security/errors.js';
 import { assertDevWorkspaceRoot } from '../security/dev-workspace-guard.js';
@@ -224,6 +225,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/error-report',
     '/organization-module',
     '/organization-features',
+    '/debug',
     '/assets/',
   ];
   return roots.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
@@ -279,6 +281,8 @@ export async function dispatchApiRequest(
     }
     return loadUserOverrides(userConfigPath).dev_workspace_root?.trim() || null;
   };
+
+      if (await handleDebugIngestRequest(req, res, url.pathname, method)) return;
 
       if (method === 'GET' && url.pathname === '/health') {
         let distMtimeMs = 0;

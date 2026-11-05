@@ -27,6 +27,7 @@ import {
   persistConstraintsFromAssistantText,
 } from '../../agent/agent-locked-constraints.js';
 import { ensureDebugLogGitignore } from '../../sessions/workspace-scratch-gitignore.js';
+import { formatDebugIngestNote, registerDebugIngest } from '../../agent/agent-debug-ingest.js';
 import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { appendBrandManualIfNeeded } from '../../providers/brand-manual-context.js';
 import { runMarOrCodeAgent } from '../../agent/agent-mar-runtime.js';
@@ -328,6 +329,8 @@ export async function runWorkspaceCodeAgent(opts: {
     const debugNote = loadDebugModeSystemNote(cqrRoot);
     if (debugNote) lockSystemNotes.push(debugNote);
     ensureDebugLogGitignore(workspaceRoot);
+    // Per-conversation probe target; token is stable for the app lifetime (prompt cache safe).
+    lockSystemNotes.push(formatDebugIngestNote(registerDebugIngest(sessionId, workspaceRoot)));
   }
   const autopilotOverride =
     requestedPolicy.autopilot === 'on' ? true : requestedPolicy.autopilot === 'off' ? false : null;

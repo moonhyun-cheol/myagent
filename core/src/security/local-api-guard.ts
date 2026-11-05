@@ -53,8 +53,15 @@ export function allowedLocalApiOrigins(port: number, env: NodeJS.ProcessEnv = pr
   return origins;
 }
 
+/**
+ * Debug mode probe ingest (`/debug/ingest/<token>`): instrumented pages on any local dev origin
+ * must reach it. It is write-only, token-bound, bounded and returns no data, so only the
+ * loopback Host check applies (DNS rebinding stays blocked).
+ */
+const DEBUG_INGEST_PREFIX = '/debug/ingest/';
+
 export function checkLocalApiRequest(
-  req: Pick<IncomingMessage, 'headers' | 'method'>,
+  req: Pick<IncomingMessage, 'headers' | 'method'> & { url?: string },
   port: number,
   env: NodeJS.ProcessEnv = process.env,
 ): LocalApiGuardVerdict {
@@ -67,6 +74,10 @@ export function checkLocalApiRequest(
   }
 
   const method = String(req.method ?? 'GET').toUpperCase();
+  const rawPath = String(req.url ?? '').split('?')[0];
+  if (rawPath.startsWith(DEBUG_INGEST_PREFIX) && (method === 'POST' || method === 'OPTIONS')) {
+    return { ok: true };
+  }
   const origin = headerValue(req, 'origin');
   if (origin !== undefined && !SAFE_METHODS.has(method)) {
     const normalized = origin.trim().replace(/\/+$/, '').toLowerCase();
