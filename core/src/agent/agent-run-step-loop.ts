@@ -1418,6 +1418,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
               const packTools = await getCodeAgentToolsByPackAsync(
                 state.opts.cqrRoot,
                 state.toolPack,
+                { workspaceBehavior: state.opts.workspaceBehavior },
               );
               state.agentTools = packTools;
               state.toolNames = getCodeAgentToolNamesFromTools(packTools);

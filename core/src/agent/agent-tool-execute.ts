@@ -32,6 +32,7 @@ import {
   runTerminalCommandAsync,
 } from './run-terminal.js';
 import { remoteGitInspect } from './remote-git-inspect.js';
+import { markDebugLog, readDebugLog } from './agent-debug-ingest.js';
 import { runAstGrepSidecar, runRepomixSidecar } from '../sidecars/cli-search-sidecars.js';
 import { runMarkitdownSidecar } from '../sidecars/markitdown-sidecar.js';
 import path from 'node:path';
@@ -963,6 +964,29 @@ async function executeAgentToolInner(
         const max = typeof args.max === 'number' ? args.max : undefined;
         const output = gitLog(workspaceRoot, { range, max });
         return { label: range ? `git log ${range}` : 'git log', output };
+      }
+      case 'debug_log_read': {
+        if (ctx?.workspaceBehavior !== 'debug') {
+          return { label: 'debug log', output: 'ERROR: debug_log_read is available only in Debug mode' };
+        }
+        if (!ctx.sessionId) {
+          return { label: 'debug log', output: 'ERROR: debug_log_read requires a session context' };
+        }
+        if (args.action === 'mark') {
+          const label = typeof args.label === 'string' ? args.label : undefined;
+          const r = markDebugLog(workspaceRoot, ctx.sessionId, label);
+          return {
+            label: 'debug log mark',
+            output: `[debug_log_read mark] file=${r.file} mark_ts=${new Date(r.mark_ts).toISOString()} records_before=${r.records_before} — reproduce now; action=read returns only records after this mark.`,
+          };
+        }
+        const output = readDebugLog(workspaceRoot, ctx.sessionId, {
+          since: args.since === 'all' ? 'all' : 'mark',
+          contains: typeof args.contains === 'string' ? args.contains : undefined,
+          skip: typeof args.skip === 'number' ? args.skip : undefined,
+          max: typeof args.max === 'number' ? args.max : undefined,
+        });
+        return { label: 'debug log read', output };
       }
       case 'remote_git_inspect': {
         const action =

@@ -6,6 +6,7 @@ import {
   BROWSER_AGENT_TOOLS,
   CODE_AGENT_TOOL_NAMES,
   CODE_AGENT_TOOLS,
+  DEBUG_AGENT_TOOLS,
 } from './agent-tool-definitions.js';
 import { getCodeAgentToolsForPack, type AgentToolPack } from './agent-tool-pack.js';
 import { listEnabledPluginToolDefinitions } from './agent-plugin-store.js';
@@ -93,16 +94,22 @@ export async function getCodeAgentToolsAsync(cqrRoot: string): Promise<AgentTool
 export function getCodeAgentToolsByPack(
   cqrRoot: string,
   pack: AgentToolPack,
+  opts?: { workspaceBehavior?: string },
 ): AgentToolDefinition[] {
-  const base = getCodeAgentToolsForPack(pack, true, cqrRoot);
+  const packTools = getCodeAgentToolsForPack(pack, true, cqrRoot);
+  // Debug tools follow the explicitly selected behavior, never message wording.
+  const base = opts?.workspaceBehavior === 'debug' && pack !== 'browser'
+    ? [...packTools, ...DEBUG_AGENT_TOOLS]
+    : packTools;
   return mergePluginTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 
 export async function getCodeAgentToolsByPackAsync(
   cqrRoot: string,
   pack: AgentToolPack,
+  opts?: { workspaceBehavior?: string },
 ): Promise<AgentToolDefinition[]> {
-  const base = getCodeAgentToolsByPack(cqrRoot, pack);
+  const base = getCodeAgentToolsByPack(cqrRoot, pack, opts);
   return mergeMcpTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 

@@ -63,7 +63,7 @@ export function isCommandFailureOutput(toolName: string, output: string): boolea
 const BODY_RESULT_TOOLS = new Set([
   'read_file', 'search_files', 'list_directory', 'query_repo_map', 'search_embeddings',
   'evidence_read', 'git_show', 'git_diff', 'git_log', 'git_blame', 'git_history_tree',
-  'markitdown_convert', 'task_history_search', 'task_history_detail',
+  'markitdown_convert', 'task_history_search', 'task_history_detail', 'debug_log_read',
 ]);
 
 /**
