@@ -3,7 +3,7 @@
   "notes": [
     {
       "id": "workspace-behavior-debug",
-      "status": "development",
+      "status": "released",
       "title": "작업 방식에 Debug 추가 · 남은 임시 로그 자동 안내",
       "detail": "작업 방식에서 Debug를 고르면 AI가 원인 가설을 세우고, 임시 로그를 심어 직접 재현해 본 뒤 고치고, 다시 재현해 확인하고 임시 로그를 지웁니다. 작업이 끝날 때마다 앱이 이 대화에서 바뀐 파일에 임시 로그가 몇 곳 남았는지 직접 세어 답변 아래에 따로 알려 줍니다. 남아 있어도 작업을 막지는 않습니다.",
       "area": "core",
@@ -14,11 +14,11 @@
         "core/config/defaults/skills/debug-mode.md",
         "ui/workspace/src/components/ChatPane.tsx"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.24", "update_sequence": 72 }
     },
     {
       "id": "skill-per-conversation",
-      "status": "development",
+      "status": "released",
       "title": "스킬은 켠 대화에서만 적용",
       "detail": "입력창 `+`에서 켠 스킬이 그 대화에만 적용됩니다. 다른 대화로 옮기면 그 대화에서 켜 둔 스킬(없으면 꺼진 상태)로 바뀌고, 원래 대화로 돌아오면 켜 둔 스킬이 다시 보입니다. 새 대화와 빈 입력창은 스킬이 꺼진 상태로 시작합니다.",
       "area": "ui",
@@ -26,11 +26,11 @@
       "source_paths": [
         "ui/workspace/src/store/workspaceStore.ts"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.24", "update_sequence": 72 }
     },
     {
       "id": "slash-command-escape",
-      "status": "development",
+      "status": "released",
       "title": "`//명령`으로 시작하면 명령을 실행하지 않고 대화로 처리",
       "detail": "메시지를 `//반품율분석`처럼 `/` 두 개(또는 `\\/`)로 시작하면 슬래시 명령을 실행하지 않고 일반 대화나 작업 폴더 AI에게 그대로 전달합니다. 명령의 양식이나 동작에 대해 이야기할 때 실수로 실행되지 않습니다. `/` 하나로 시작하는 기존 명령 실행은 그대로입니다.",
       "area": "core",
@@ -39,7 +39,7 @@
         "core/src/router/automaton-intent.ts",
         "core/src/chat/chat-orchestrator.ts"
       ],
-      "release": { "version": null, "update_sequence": null }
+      "release": { "version": "1.1.24", "update_sequence": 72 }
     },
     {
       "id": "shell-startup-diagnostics",
