@@ -872,6 +872,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       // user is still looking at an approval card.
       let approvedTerminalCommand: string | undefined;
       let approvedByReviewer: string | null = null;
+      let snapshotBestEffort = false;
       const hitl = needsHumanApproval(execCall.function.name, args, process.env, {
         workspaceRoot: state.opts.workspaceRoot,
         allowedWriteRoots: state.opts.allowedWriteRoots,
@@ -923,6 +924,9 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           approved = outcome.approved;
           if (outcome.approved && outcome.by === 'reviewer') {
             approvedByReviewer = outcome.reviewer ?? 'reviewer';
+          } else if (outcome.approved && outcome.snapshot === 'best_effort') {
+            approvedByReviewer = outcome.reviewer ?? 'policy';
+            snapshotBestEffort = true;
           }
           const approvalDurationMs = Date.now() - approvalStarted;
           state.approvalWaitMs += approvalDurationMs;
@@ -1142,11 +1146,21 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             state.reportStatus(`되돌리기 지점 ${meta.id} · 모델 승인(${approvedByReviewer}) 전 ${meta.fileCount}개 파일 보관`);
           } catch (e: unknown) {
             const note = e instanceof Error ? e.message : String(e);
-            const output = `ERROR: model_approval_checkpoint_failed\ntool: ${execCall.function.name}\nA decision-model approval requires a rollback snapshot first; snapshot failed (${note.slice(0, 160)}). Ask the user to approve manually.`;
-            loopGuard.noteResult(execCall, output);
-            state.reportStatus(`모델 승인 취소 · 되돌리기 지점 생성 실패 — ${note.slice(0, 80)}`);
-            pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
-            continue;
+            if (snapshotBestEffort) {
+              appendAgentAuditEvent(state.opts.cqrRoot, {
+                type: 'checkpoint',
+                sessionId: state.opts.sessionId,
+                tool: execCall.function.name,
+                detail: `best_effort_failed approved_by=${approvedByReviewer} ${note.slice(0, 160)}`,
+              });
+              state.reportStatus(`되돌리기 지점 생성 실패 · 그대로 실행 — ${note.slice(0, 80)}`);
+            } else {
+              const output = `ERROR: model_approval_checkpoint_failed\ntool: ${execCall.function.name}\nA decision-model approval requires a rollback snapshot first; snapshot failed (${note.slice(0, 160)}). Ask the user to approve manually.`;
+              loopGuard.noteResult(execCall, output);
+              state.reportStatus(`모델 승인 취소 · 되돌리기 지점 생성 실패 — ${note.slice(0, 80)}`);
+              pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
+              continue;
+            }
           }
         }
       }

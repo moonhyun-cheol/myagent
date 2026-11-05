@@ -60,7 +60,8 @@ export function createSchedulerDecisionHooks(input: {
       reviewer: 'scheduler-free-pass',
       reason: '예약 실행은 승인 검토 없이 바로 실행합니다',
     });
-    return { approved: true, by: 'policy', reviewer: 'scheduler-free-pass' };
+    // Snapshot is attempted before mutations, but a failed snapshot never blocks the run.
+    return { approved: true, by: 'policy', reviewer: 'scheduler-free-pass', snapshot: 'best_effort' };
   };
 
   const onStepBudgetExhausted: StepBudgetExhaustedHandler = async ({ facts, workingModelId, autoGrantsUsed }) => {
