@@ -43,6 +43,10 @@ export interface ToolApprovalRequest {
    * reviewer treats targets not traceable to the user's request as possibly injected.
    */
   untrustedSourcesInRun?: string[];
+  /** Card wording. `repro`: Debug mode asks the user to reproduce (재현 완료 / 취소). */
+  kind?: 'repro';
+  /** Server wait override; defaults to TOOL_APPROVAL_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 /**
@@ -292,6 +296,13 @@ const pending = new Map<string, Pending>();
 /** Server-side approval wait; sent to the UI as timeout_ms so the dialog closes in step. */
 export const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_TIMEOUT_MS = TOOL_APPROVAL_TIMEOUT_MS;
+/** A manual reproduction (login, device, UI flow) takes longer than a yes/no decision. */
+export const DEBUG_REPRO_TIMEOUT_MS = 20 * 60_000;
+
+/** `debug_log_read action=request_repro`: the user, not a model, must confirm the reproduction. */
+export function isDebugReproRequest(toolName: string, args: Record<string, unknown>): boolean {
+  return toolName === 'debug_log_read' && args.action === 'request_repro';
+}
 
 export function createToolApprovalId(): string {
   return randomUUID();
@@ -410,6 +421,16 @@ export function needsHumanApproval(
   expires?: 'once' | 'run';
   fixedSeverity?: 'severe';
 } {
+  if (isDebugReproRequest(toolName, args)) {
+    const steps = String(args.steps ?? '').trim().slice(0, 900);
+    return {
+      needed: true,
+      danger: false,
+      access: 'operation',
+      expires: 'once',
+      summary: steps ? `아래 순서로 재현해 주세요.\n\n${steps}` : '문제를 한 번 재현해 주세요.',
+    };
+  }
   if (toolName === 'scheduler_upsert') {
     const name = typeof args.name === 'string' && args.name.trim() ? args.name.trim() : '새 자동화';
     return {
@@ -595,6 +616,13 @@ export function formatApprovalDenied(
       `tool: ${toolName}`,
       'This tool needs user approval. In the chat UI Accept/Reject dialog will appear on stream runs.',
       'If confirm is available, call again with confirm=true only after the user explicitly approved.',
+    ].join('\n');
+  }
+  if (toolName === 'debug_log_read') {
+    return [
+      'ERROR: reproduction_not_confirmed',
+      'The user cancelled the reproduction card or it timed out. Records after the mark are unconfirmed.',
+      'Do not open the card again right away. Ask the user in your reply whether they could reproduce it and what happened.',
     ].join('\n');
   }
   return [

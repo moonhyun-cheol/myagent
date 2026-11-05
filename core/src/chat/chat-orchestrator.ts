@@ -1118,10 +1118,12 @@ export class ChatOrchestrator {
                   }
                   sseEvent(res, { type: 'status', text: `모델 판단 보류 · 사용자 승인 필요 — ${review.reason}` });
                 }
-                const wait = waitForToolApproval(approvalReq.id, { signal });
+                const approvalTimeoutMs = approvalReq.timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS;
+                const wait = waitForToolApproval(approvalReq.id, { signal, timeoutMs: approvalTimeoutMs });
                 sseEvent(res, {
                   type: 'tool_approval',
                   id: approvalReq.id,
+                  ...(approvalReq.kind ? { kind: approvalReq.kind } : {}),
                   tool: approvalReq.tool,
                   summary: approvalReq.summary,
                   args_preview: approvalReq.argsPreview,
@@ -1129,7 +1131,7 @@ export class ChatOrchestrator {
                   access: approvalReq.access,
                   targets: approvalReq.targets,
                   expires: approvalReq.expires,
-                  timeout_ms: TOOL_APPROVAL_TIMEOUT_MS,
+                  timeout_ms: approvalTimeoutMs,
                   session_title: this.sessionStore.load(sessionId)?.title ?? '',
                 });
                 return wait;

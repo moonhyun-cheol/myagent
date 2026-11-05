@@ -1271,12 +1271,13 @@ export const DEBUG_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'debug_log_read',
       description:
-        "Debug mode: this conversation's temporary probe log (.myagent-debug/<session>.ndjson). Call action=mark right before each reproduction, then action=read (default) returns only records written after the latest mark. Prefer this over read_file on the log.",
+        "Debug mode: this conversation's temporary probe log (.myagent-debug/<session>.ndjson). Call action=mark right before each reproduction you run yourself, then action=read (default) returns only records written after the latest mark. Only when you cannot trigger the bug yourself (user's account/device/manual UI flow), call action=request_repro with numbered Korean steps: the app marks the log, shows the user a card (재현 완료 / 취소), waits, and returns the records from that reproduction. Prefer this over read_file on the log.",
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['read', 'mark'], description: 'read (default) | mark' },
-          label: { type: 'string', description: 'mark: short reproduction label, e.g. "round 2 after fix"' },
+          action: { type: 'string', enum: ['read', 'mark', 'request_repro'], description: 'read (default) | mark | request_repro' },
+          label: { type: 'string', description: 'mark/request_repro: short reproduction label, e.g. "round 2 after fix"' },
+          steps: { type: 'string', description: 'request_repro: numbered steps for the user, in Korean, plain words' },
           since: { type: 'string', enum: ['mark', 'all'], description: 'read: mark (default) | all' },
           contains: { type: 'string', description: 'read: case-insensitive substring filter' },
           skip: { type: 'number', description: 'read: records to skip (paging)' },
