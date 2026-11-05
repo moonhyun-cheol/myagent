@@ -980,6 +980,18 @@ async function executeAgentToolInner(
             output: `[debug_log_read mark] file=${r.file} mark_ts=${new Date(r.mark_ts).toISOString()} records_before=${r.records_before} — reproduce now; action=read returns only records after this mark.`,
           };
         }
+        if (args.action === 'request_repro') {
+          // Reached only after the user pressed 재현 완료; the mark was written before the card.
+          const body = readDebugLog(workspaceRoot, ctx.sessionId, {
+            since: 'mark',
+            contains: typeof args.contains === 'string' ? args.contains : undefined,
+            max: typeof args.max === 'number' ? args.max : undefined,
+          });
+          return {
+            label: 'debug repro',
+            output: `[debug_log_read repro] user confirmed the reproduction is done; records below are from it.\n${body}`,
+          };
+        }
         const output = readDebugLog(workspaceRoot, ctx.sessionId, {
           since: args.since === 'all' ? 'all' : 'mark',
           contains: typeof args.contains === 'string' ? args.contains : undefined,

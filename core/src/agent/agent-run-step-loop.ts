@@ -72,10 +72,13 @@ import {
 import {
   canDelegateToolApproval,
   createToolApprovalId,
+  DEBUG_REPRO_TIMEOUT_MS,
   formatApprovalDenied,
+  isDebugReproRequest,
   needsHumanApproval,
   normalizeToolApprovalOutcome,
 } from './tool-approval.js';
+import { markDebugLog } from './agent-debug-ingest.js';
 import {
   buildStepBudgetResources,
   STEP_BUDGET_TIME_CHECK_INTERVAL_MS,
@@ -889,6 +892,18 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           state.reportStatus(
             `승인 대기 · ${hitl.summary} — 화면의 승인/거절을 눌러 주세요`,
           );
+          // Debug reproduction: the boundary is written before the card opens so every record
+          // the user's reproduction produces lands after it.
+          const repro = isDebugReproRequest(execCall.function.name, args)
+            && state.opts.workspaceBehavior === 'debug'
+            && Boolean(state.opts.sessionId);
+          if (repro) {
+            markDebugLog(
+              state.opts.workspaceRoot,
+              state.opts.sessionId!,
+              typeof args.label === 'string' && args.label.trim() ? args.label : 'user reproduction',
+            );
+          }
           const approvalStarted = Date.now();
           const outcome = normalizeToolApprovalOutcome(await state.opts.onToolApproval({
             id,
@@ -902,6 +917,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             targets: hitl.targets,
             expires: hitl.expires,
             ...(hitl.fixedSeverity ? { fixedSeverity: hitl.fixedSeverity } : {}),
+            ...(repro ? { kind: 'repro' as const, timeoutMs: DEBUG_REPRO_TIMEOUT_MS } : {}),
             ...(state.untrustedSourcesSeen.size ? { untrustedSourcesInRun: [...state.untrustedSourcesSeen] } : {}),
           }));
           approved = outcome.approved;

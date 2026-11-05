@@ -323,7 +323,7 @@ export function formatDebugIngestNote(binding: DebugIngestBinding): string {
     '- Body: one JSON object, a JSON array, NDJSON, or plain text lines (max 256KB per POST, 5MB per file).',
     '- Browser code: `fetch(URL, { method: "POST", body: JSON.stringify(rec) }).catch(() => {})` — no Content-Type header keeps it a simple request (no CORS preflight).',
     '- Node/other runtimes: POST the same way, or append the NDJSON line to the log file directly.',
-    '- Read it with `debug_log_read` (`action=mark` before each reproduction, then `action=read` for records after the mark).',
+    '- Read it with `debug_log_read` (`action=mark` before each reproduction you run, then `action=read` for records after the mark). If only the user can reproduce, use `action=request_repro` with `steps`.',
     '- The URL is valid only for this conversation while the app runs. It is a temporary probe target: mark those lines with `@myagent-debug` and never commit it.',
   ].join('\n');
 }

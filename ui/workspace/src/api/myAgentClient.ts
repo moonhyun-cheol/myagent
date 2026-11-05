@@ -23,6 +23,9 @@ async function askToolApprovalDecision(
     expires?: 'once' | 'run';
     /** Which conversation asked — several chats may wait for approval at once. */
     sessionTitle?: string;
+    /** Debug mode: the agent asks the user to reproduce; same card, different wording. */
+    kind?: 'repro';
+    timeoutMs?: number;
   },
   signal?: AbortSignal,
 ): Promise<boolean> {
@@ -47,12 +50,16 @@ async function askToolApprovalDecision(
   const expiryText = details?.expires === 'run'
     ? '\n\n허용 범위: 현재 작업이 끝날 때까지 해당 위치의 읽기만 허용'
     : '\n\n허용 범위: 이번 실행 1회';
-  const approvalMessage = `${accessLabel}\n\n${summary}${targetText}${expiryText}`;
+  const repro = details?.kind === 'repro';
+  const reproMinutes = details?.timeoutMs ? Math.round(details.timeoutMs / 60_000) : 0;
+  const approvalMessage = repro
+    ? `${summary}\n\n재현을 마친 뒤 「재현 완료」를 눌러 주세요. 기록은 앱이 직접 읽습니다.${reproMinutes ? `\n${reproMinutes}분 안에 누르지 않으면 취소됩니다.` : ''}`
+    : `${accessLabel}\n\n${summary}${targetText}${expiryText}`;
   const sessionTitle = details?.sessionTitle?.trim();
   const context = sessionTitle ? `대화: ${sessionTitle}` : undefined;
   const notificationId = showUserNotification({
     kind: 'approval',
-    title: danger ? '위험 작업 승인이 필요합니다' : '승인이 필요합니다',
+    title: repro ? '재현이 필요합니다' : danger ? '위험 작업 승인이 필요합니다' : '승인이 필요합니다',
     message: context ? `${context}\n${summary}` : summary,
     persistent: true,
     actionLabel: '검토하기',
@@ -61,12 +68,12 @@ async function askToolApprovalDecision(
   try {
     return await confirmDialog({
       signal,
-      title: danger ? '위험 작업 승인' : '접근 승인',
+      title: repro ? '재현 요청' : danger ? '위험 작업 승인' : '접근 승인',
       message: `${danger ? '[위험] ' : ''}${approvalMessage}`,
       context,
       danger,
-      confirmLabel: '승인',
-      cancelLabel: '거절',
+      confirmLabel: repro ? '재현 완료' : '승인',
+      cancelLabel: repro ? '취소' : '거절',
       presentation: 'approval',
       ...sticky,
     });
@@ -2270,6 +2277,7 @@ export async function streamChat(
           : undefined;
         const expires = evt.expires === 'run' || evt.expires === 'once' ? evt.expires : undefined;
         const sessionTitle = typeof evt.session_title === 'string' ? evt.session_title : undefined;
+        const kind = evt.kind === 'repro' ? 'repro' as const : undefined;
         // Close the dialog (queued or shown) shortly before the server stops waiting,
         // so a late click can never be reported as 「승인됨」 for a request already denied.
         const timeoutMs = typeof evt.timeout_ms === 'number' && evt.timeout_ms > 0 ? evt.timeout_ms : 0;
@@ -2284,7 +2292,7 @@ export async function streamChat(
         let approved = false;
         try {
           approved = await askToolApprovalDecision(
-            summary, danger, { access, targets, expires, sessionTitle }, approvalCtl.signal,
+            summary, danger, { access, targets, expires, sessionTitle, kind, timeoutMs: timeoutMs || undefined }, approvalCtl.signal,
           );
         } finally {
           if (timer !== undefined) window.clearTimeout(timer);
@@ -2300,9 +2308,11 @@ export async function streamChat(
         assertCurrent();
         // 404 = the server no longer waits for this id (timed out / run ended).
         const expired = timedOut || ack?.status === 404;
-        handlers.onStatus?.(expired
-          ? '승인 대기 시간이 지나 거절됨'
-          : approved ? '승인됨 · 계속…' : '거절됨');
+        handlers.onStatus?.(kind === 'repro'
+          ? expired ? '재현 대기 시간이 지나 취소됨' : approved ? '재현 완료 · 기록 분석 중…' : '재현 취소됨'
+          : expired
+            ? '승인 대기 시간이 지나 거절됨'
+            : approved ? '승인됨 · 계속…' : '거절됨');
       } else if (type === 'stopped') {
         terminalEvent = true;
         handlers.onDone?.({ model: '중지됨', usage: parseUsageEvent(evt.usage) });
