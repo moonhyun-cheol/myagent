@@ -126,7 +126,12 @@ import {
   WorkKitCatalogError,
 } from '../updates/work-kit-catalog-feed.js';
 import { getAutomatonDiagnostics } from '../automaton/adapter.js';
-import { collectLlmRuntimeStatus, compactLlmRuntimeStatus } from '../runtime/llm-runtime-status.js';
+import {
+  collectLlmRuntimeStatus,
+  compactLlmRuntimeStatus,
+  peekLlmRuntimeStatus,
+  refreshLlmRuntimeStatusInBackground,
+} from '../runtime/llm-runtime-status.js';
 import { loadProblemHistory } from '../runtime/problem-history.js';
 import type { ApiContext } from '../http/api-context.js';
 import { listContextLimitMismatches } from '../providers/model-context-limits.js';
@@ -291,7 +296,10 @@ export async function dispatchApiRequest(
         } catch {
           /* ignore */
         }
-        const llm = await collectLlmRuntimeStatus(providerStore, userConfigPath);
+        // Liveness probe: never wait on Ollama/OpenRouter here (shell probes use a 2s timeout).
+        // Report the last cached status and refresh it in the background.
+        const llm = peekLlmRuntimeStatus();
+        refreshLlmRuntimeStatusInBackground(providerStore, userConfigPath);
         const workspaceReady =
           Boolean(workspaceUiDir)
           && existsSync(path.join(workspaceUiDir, 'index.html'));
@@ -304,7 +312,7 @@ export async function dispatchApiRequest(
           dist_mtime_ms: distMtimeMs,
           ui: 'workspace',
           ui_ready: workspaceReady,
-          llm_runtime: compactLlmRuntimeStatus(llm),
+          llm_runtime: llm ? compactLlmRuntimeStatus(llm) : null,
         });
       }
 

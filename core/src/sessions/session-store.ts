@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { assertChatRunWritable, currentChatRun, type ChatRun } from '../chat/chat-runs.js';
-import { SessionSqliteStore, type MessagePage } from './session-sqlite-store.js';
+import {
+  SessionSqliteStore,
+  type MessagePage,
+  type SessionSqliteStoreOptions,
+  type SessionStoreStartupTimings,
+} from './session-sqlite-store.js';
 import { DEFAULT_EXECUTION_POLICY, normalizeExecutionPolicy, type ExecutionPolicy } from '../execution-policy.js';
 import type {
   ResponsesContinuationState,
@@ -49,8 +54,19 @@ export class SessionStore {
     private readonly cqrRoot: string,
     private readonly onProjectActivity?: (projectId: string) => void,
     private readonly resolveWorkspaceRoot?: (rec: SessionRecord) => string | null,
+    opts?: SessionSqliteStoreOptions,
   ) {
-    this.database = new SessionSqliteStore(sessionsDir, cqrRoot);
+    this.database = new SessionSqliteStore(sessionsDir, cqrRoot, opts);
+  }
+
+  /** Constructor phase timings (boot diagnostics). */
+  startupTimings(): SessionStoreStartupTimings {
+    return { ...this.database.startupTimings };
+  }
+
+  /** Today's snapshot off the event loop (used when constructed with deferDailyBackup). */
+  runDailyBackupInBackground(): Promise<{ created: boolean; ms: number }> {
+    return this.database.runDailyBackupInBackground();
   }
 
   list(): SessionSummary[] {

@@ -434,7 +434,17 @@ public partial class MainWindow : Window
         {
             if (_api.NeedsRestart)
                 await Task.Run(() => _api.TryRestartAfterExit());
-            if (!await _api.WaitForHealthAsync(_api.RecommendedHealthTimeout))
+            var healthy = await _api.WaitForHealthAsync(_api.RecommendedHealthTimeout);
+            if (!healthy && _api.OwnedProcessRunning)
+            {
+                // Slow but alive (large data, AV scan right after boot): keep waiting instead of
+                // showing a failure screen while node is about to answer.
+                ShellStartupLog.Write($"api: health slow, {_api.DescribeNodeProcess()} — extending wait {ApiProcessHost.SlowStartGrace.TotalSeconds:0}s");
+                StartupStatusText.Text = "로컬 서비스 시작이 늦어지고 있어요. 조금만 더 기다려 주세요…";
+                healthy = await _api.WaitForHealthAsync(ApiProcessHost.SlowStartGrace, stopWhenOwnedExited: true);
+                if (healthy) ShellStartupLog.Write("api: health ready after extended wait");
+            }
+            if (!healthy)
             {
                 healthFailed = true;
                 throw new InvalidOperationException("로컬 서비스가 제한 시간 안에 준비되지 않았습니다.");
