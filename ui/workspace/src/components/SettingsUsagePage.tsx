@@ -7,7 +7,9 @@ import {
 
 type Metric = 'tokens' | 'cost';
 type GroupBy = 'sessions' | 'models' | 'providers' | 'purposes';
-type Range = 7 | 30 | 90 | 'all' | 'custom';
+type Range = 7 | 30 | '6m' | 'all' | 'custom';
+/** 차트 단위: 하루 한 점(일별) 또는 달력 한 달 한 막대(월별). */
+type Unit = 'day' | 'month';
 
 const GROUP_LABEL: Record<GroupBy, { short: string; column: string }> = {
   sessions: { short: '대화방별', column: '대화방' },
@@ -39,6 +41,51 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
 
 function localDay(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** 「최근 6개월」= 이번 달 포함 달력 기준 6개 달. 첫 달이 중간에서 잘리지 않도록 그 달 1일부터 요청한다. */
+function sixMonthFrom(today: string): string {
+  const [y, m] = today.split('-').map(Number);
+  return localDay(new Date(y, m - 1 - 5, 1));
+}
+
+function daysInMonth(key: string): number {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+interface MonthBucket {
+  key: string;
+  title: string;
+  label: string;
+  /** Indices into `data.daily` that fall in this month (within the requested range). */
+  indices: number[];
+  tokens: number;
+  cost: number;
+  requests: number;
+  /** Days in range on/after the first tracking start — basis for the daily average. */
+  countedDays: number;
+  daysInMonth: number;
+  state: 'untracked' | 'progress' | 'partial' | 'full';
+}
+
+function monthStateNote(m: MonthBucket): string | null {
+  if (m.state === 'untracked') return '집계 시작 전';
+  if (m.state === 'progress') return `진행 중 · ${m.countedDays}일째`;
+  if (m.state === 'partial') return `${m.countedDays}/${m.daysInMonth}일만 집계`;
+  return null;
+}
+
+/** Month-over-month change on the daily average, so a partial month is compared fairly. */
+function monthChange(m: MonthBucket, prev: MonthBucket | undefined, pick: (b: MonthBucket) => number): { text: string; cls: string } | null {
+  if (!prev || !prev.countedDays || !m.countedDays) return null;
+  const a = pick(prev) / prev.countedDays;
+  const b = pick(m) / m.countedDays;
+  if (!(a > 0)) return null;
+  const p = ((b - a) / a) * 100;
+  if (Math.abs(p) < 0.5) return { text: '변화 없음', cls: 'text-muted' };
+  const n = Math.abs(p).toFixed(Math.abs(p) < 10 ? 1 : 0);
+  return p > 0 ? { text: `▲ ${n}%`, cls: 'text-amber-500' } : { text: `▼ ${n}%`, cls: 'text-emerald-500' };
 }
 
 function formatSince(iso: string): string {
@@ -94,7 +141,8 @@ function trackingMessage(t: LlmUsageTracking | undefined): { title: string; body
   };
 }
 
-type ChartMode = 'daily' | 'cumulative';
+/** 기간별 = each day/month on its own; 누적 = running total. */
+type ChartMode = 'period' | 'cumulative';
 
 const PAGE = 20;
 
@@ -331,10 +379,15 @@ function CallsTable({ calls }: { calls: LlmUsageCall[] }) {
 }
 
 interface BarSegment { key: string; label: string; color: string; value: number }
-interface Bar { id: string; label: string; title: string; detail?: string; segments: BarSegment[] }
+interface Bar { id: string; label: string; title: string; detail?: string; badge?: string; pickable?: boolean; segments: BarSegment[] }
 
 /** Stacked bars in order (questions of a conversation, or tasks of a question). */
-function StackedBars({ bars, format, onPick }: { bars: Bar[]; format: (n: number) => string; onPick?: (i: number) => void }) {
+function StackedBars({ bars, format, onPick, pickHint = '누르면 작업 내역을 봅니다' }: {
+  bars: Bar[];
+  format: (n: number) => string;
+  onPick?: (i: number) => void;
+  pickHint?: string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 720;
   const H = 260;
@@ -375,22 +428,28 @@ function StackedBars({ bars, format, onPick }: { bars: Bar[]; format: (n: number
               {i % labelEvery === 0 || i === n - 1 ? (
                 <text x={x(i)} y={H - 8} textAnchor="middle" fontSize={11} fill="currentColor" className="text-muted">{b.label}</text>
               ) : null}
+              {b.badge ? (
+                <text x={x(i)} y={y(sums[i]) - 5} textAnchor="middle" fontSize={10} fill="currentColor" className="text-muted">{b.badge}</text>
+              ) : null}
             </g>
           );
         })}
-        {bars.map((b, i) => (
-          <rect
-            key={`hit-${b.id}`}
-            x={L + slot * i}
-            y={T}
-            width={slot}
-            height={H - T - B}
-            fill="transparent"
-            className={onPick ? 'cursor-pointer' : undefined}
-            onMouseEnter={() => setHover(i)}
-            onClick={onPick ? () => onPick(i) : undefined}
-          />
-        ))}
+        {bars.map((b, i) => {
+          const can = Boolean(onPick) && b.pickable !== false;
+          return (
+            <rect
+              key={`hit-${b.id}`}
+              x={L + slot * i}
+              y={T}
+              width={slot}
+              height={H - T - B}
+              fill="transparent"
+              className={can ? 'cursor-pointer' : undefined}
+              onMouseEnter={() => setHover(i)}
+              onClick={can ? () => onPick!(i) : undefined}
+            />
+          );
+        })}
       </svg>
       {hb && hover !== null ? (
         <div
@@ -407,7 +466,7 @@ function StackedBars({ bars, format, onPick }: { bars: Bar[]; format: (n: number
             </p>
           ))}
           <p className="mt-1 border-t border-line pt-1 text-muted">합계 <span className="float-right text-text">{format(sums[hover])}</span></p>
-          {onPick ? <p className="mt-1 text-[10px] text-muted">누르면 작업 내역을 봅니다</p> : null}
+          {onPick && hb.pickable !== false ? <p className="mt-1 text-[10px] text-muted">{pickHint}</p> : null}
         </div>
       ) : null}
     </div>
@@ -455,10 +514,18 @@ function Breadcrumb({ items }: { items: Array<{ label: string; onClick?: () => v
 const RANGE_OPTIONS: Array<{ value: Range; label: string }> = [
   { value: 7, label: '7일' },
   { value: 30, label: '30일' },
-  { value: 90, label: '90일' },
+  { value: '6m', label: '6개월' },
   { value: 'all', label: '전체' },
   { value: 'custom', label: '기간 지정' },
 ];
+
+interface RangeSnapshot { range: Range; from: string; to: string }
+function rangeSnapshotLabel(s: RangeSnapshot): string {
+  if (s.range === '6m') return '최근 6개월';
+  if (s.range === 'all') return '전체 기간';
+  if (s.range === 'custom') return `${s.from} ~ ${s.to}`;
+  return `최근 ${s.range}일`;
+}
 const MAX_SERIES = 7;
 const OTHER_KEY = '기타';
 const PALETTE = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#a855f7', '#ec4899', '#94a3b8'];
@@ -628,7 +695,11 @@ export function SettingsUsagePage() {
   const [switchBusy, setSwitchBusy] = useState(false);
   const [metric, setMetric] = useState<Metric>('tokens');
   const [groupBy, setGroupBy] = useState<GroupBy>('models');
-  const [mode, setMode] = useState<ChartMode>('daily');
+  const [mode, setMode] = useState<ChartMode>('period');
+  /** User's explicit 일별/월별 choice; null = pick from the range (6개월·60일 초과 → 월별). */
+  const [unitOverride, setUnitOverride] = useState<Unit | null>(null);
+  /** Set while viewing one month opened from a monthly bar; `back` restores the previous range. */
+  const [monthDrill, setMonthDrill] = useState<{ key: string; title: string; back: RangeSnapshot } | null>(null);
   // 대화방 → 질문 → 작업 drill-down; chart and table below follow the same focus.
   const [focusSession, setFocusSession] = useState<string | null>(null);
   const [focusTurn, setFocusTurn] = useState<string | null>(null);
@@ -642,9 +713,10 @@ export function SettingsUsagePage() {
   const [loading, setLoading] = useState(false);
 
   const query = useMemo<LlmUsageRangeQuery | null>(() => {
+    if (range === '6m') return { from: sixMonthFrom(today), to: today };
     if (range !== 'custom') return { days: range };
     return customFrom && customTo ? { from: customFrom, to: customTo } : null;
-  }, [range, customFrom, customTo]);
+  }, [range, customFrom, customTo, today]);
 
   const load = useCallback(async () => {
     if (!query) return;
@@ -727,6 +799,8 @@ export function SettingsUsagePage() {
     : []), [data, sessionId]);
 
   const goRoot = useCallback(() => { setFocusSession(null); setFocusTurn(null); setFocusNotice(null); }, []);
+  /** Changing the period by hand leaves a month view and returns 단위 to the range default. */
+  const pickRange = useCallback((r: Range) => { setMonthDrill(null); setUnitOverride(null); setRange(r); }, []);
   const openSession = useCallback((id: string) => { setFocusSession(id); setFocusTurn(null); setFocusNotice(null); }, []);
   const openTurn = useCallback((t: LlmUsageTurn) => { setFocusSession(t.session_id ?? null); setFocusTurn(turnKeyOf(t)); setFocusNotice(null); }, []);
   /** 묶기 only shapes the overview chart, so picking one while drilled in returns to the overview. */
@@ -797,6 +871,101 @@ export function SettingsUsagePage() {
 
   const totals = data?.totals;
   const dates = data?.daily.map((d) => d.date) ?? [];
+
+  // ---- 월별 묶음 (daily → calendar months; server API unchanged) ----
+  const months = useMemo<MonthBucket[]>(() => {
+    if (!data) return [];
+    const out: MonthBucket[] = [];
+    const byKey = new Map<string, MonthBucket>();
+    data.daily.forEach((d, i) => {
+      const key = d.date.slice(0, 7);
+      let m = byKey.get(key);
+      if (!m) {
+        const mo = Number(key.slice(5));
+        m = {
+          key, title: `${key.slice(0, 4)}년 ${mo}월`, label: `${mo}월`, indices: [],
+          tokens: 0, cost: 0, requests: 0, countedDays: 0, daysInMonth: daysInMonth(key), state: 'full',
+        };
+        byKey.set(key, m);
+        out.push(m);
+      }
+      m.indices.push(i);
+      if (!minDay || d.date >= minDay) m.countedDays += 1;
+      // Every counted call lands in exactly one purpose, so the purpose points add up to the day total.
+      for (const p of Object.values(d.purposes ?? {})) { m.tokens += p.tokens; m.cost += p.cost_usd; m.requests += p.requests; }
+    });
+    const multiYear = new Set(out.map((m) => m.key.slice(0, 4))).size > 1;
+    for (const m of out) {
+      if (multiYear) m.label = `${m.key.slice(2, 4)}.${m.key.slice(5)}`;
+      const last = data.daily[m.indices[m.indices.length - 1]].date;
+      m.state = m.countedDays === 0 ? 'untracked'
+        : last === today ? 'progress'
+          : m.countedDays < m.daysInMonth ? 'partial' : 'full';
+    }
+    return out;
+  }, [data, minDay, today]);
+  const canMonth = range !== 7 && months.length >= 2;
+  const unit: Unit = canMonth ? unitOverride ?? (range === '6m' || dates.length > 60 ? 'month' : 'day') : 'day';
+  const pickMonthValue = useCallback((m: MonthBucket) => (metric === 'tokens' ? m.tokens : m.cost), [metric]);
+
+  const monthBars = useMemo<Bar[]>(() => {
+    const running = series.map(() => 0);
+    return months.map((m, mi) => {
+      const segments = series.map((s, si) => {
+        const v = m.indices.reduce((a, i) => a + s.values[i], 0);
+        running[si] += v;
+        return { key: s.key, label: s.label, color: s.color, value: mode === 'cumulative' ? running[si] : v };
+      });
+      const note = monthStateNote(m);
+      const change = monthChange(m, months[mi - 1], pickMonthValue);
+      const detail = mode === 'cumulative'
+        ? note
+        : [
+            note,
+            m.countedDays ? `일평균 ${format(pickMonthValue(m) / m.countedDays)}` : null,
+            `작업 ${m.requests.toLocaleString()}회`,
+            change ? `전월 대비(일평균) ${change.text}` : null,
+          ].filter(Boolean).join(' · ');
+      return {
+        id: m.key,
+        label: m.label,
+        title: mode === 'cumulative' ? `${m.title}까지 누적` : m.title,
+        detail: detail || undefined,
+        badge: m.state === 'untracked' ? '집계 전' : m.state === 'progress' ? '진행 중' : undefined,
+        pickable: m.state !== 'untracked',
+        segments,
+      };
+    });
+  }, [months, series, mode, format, pickMonthValue]);
+
+  /** Opening a month re-queries that month, so cards, charts and tables below all show the same period. */
+  const drillMonth = useCallback((m: MonthBucket) => {
+    if (m.state === 'untracked') return;
+    const first = `${m.key}-01`;
+    const last = `${m.key}-${pad2(m.daysInMonth)}`;
+    setMonthDrill((cur) => ({ key: m.key, title: m.title, back: cur?.back ?? { range, from: customFrom, to: customTo } }));
+    setCustomFrom(minDay && minDay > first && minDay <= last ? minDay : first);
+    setCustomTo(last > today ? today : last);
+    setRange('custom');
+    setUnitOverride(null);
+    goRoot();
+  }, [range, customFrom, customTo, minDay, today, goRoot]);
+  const leaveMonth = useCallback(() => {
+    if (!monthDrill) return;
+    const { back } = monthDrill;
+    setMonthDrill(null);
+    setCustomFrom(back.from);
+    setCustomTo(back.to);
+    setRange(back.range);
+    setUnitOverride(null);
+    goRoot();
+  }, [monthDrill, goRoot]);
+  const monthAverage = (() => {
+    const tracked = months.filter((m) => m.state === 'full');
+    if (unit !== 'month' || !tracked.length) return null;
+    const top = tracked.reduce((a, b) => (pickMonthValue(b) > pickMonthValue(a) ? b : a));
+    return { avg: tracked.reduce((s, m) => s + pickMonthValue(m), 0) / tracked.length, top, n: tracked.length };
+  })();
   const costHint = totals
     ? [
         totals.billed_cost_usd > 0 ? `실제 청구 ${formatUsd(totals.billed_cost_usd)}` : null,
@@ -827,7 +996,7 @@ export function SettingsUsagePage() {
 
       {hasData ? (<>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Segmented<Range> label="기간" value={range} onChange={setRange} options={RANGE_OPTIONS} />
+        <Segmented<Range> label="기간" value={range} onChange={pickRange} options={RANGE_OPTIONS} />
         {range === 'custom' ? (
           <span className="inline-flex items-center gap-1 text-xs text-muted">
             <input
@@ -836,7 +1005,7 @@ export function SettingsUsagePage() {
               value={customFrom}
               min={minDay}
               max={customTo || today}
-              onChange={(e) => setCustomFrom(e.target.value)}
+              onChange={(e) => { setMonthDrill(null); setCustomFrom(e.target.value); }}
               className="rounded-md border border-line bg-ink px-2 py-1 text-text"
             />
             ~
@@ -846,7 +1015,7 @@ export function SettingsUsagePage() {
               value={customTo}
               min={customFrom || minDay}
               max={today}
-              onChange={(e) => setCustomTo(e.target.value)}
+              onChange={(e) => { setMonthDrill(null); setCustomTo(e.target.value); }}
               className="rounded-md border border-line bg-ink px-2 py-1 text-text"
             />
             <span className={`ml-1 ${overYear ? 'text-amber-500' : ''}`}>
@@ -914,7 +1083,8 @@ export function SettingsUsagePage() {
       <section ref={chartRef} aria-busy={loading} className={`mb-4 scroll-mt-4 rounded-2xl border border-line bg-panel p-5 shadow-sm transition-opacity ${loading ? 'opacity-60' : ''}`}>
         <Breadcrumb
           items={[
-            { label: '전체 대화방', onClick: level > 0 ? goRoot : undefined },
+            ...(monthDrill ? [{ label: rangeSnapshotLabel(monthDrill.back), onClick: leaveMonth }] : []),
+            { label: monthDrill ? `${monthDrill.title} · 전체 대화방` : '전체 대화방', onClick: level > 0 ? goRoot : undefined },
             ...(level > 0 ? [{
               label: sessionName(sessionId ?? undefined, session?.session_title ?? turn?.session_title),
               onClick: level === 2 && sessionId ? () => openSession(sessionId) : undefined,
@@ -925,16 +1095,31 @@ export function SettingsUsagePage() {
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <ChartLine size={18} className="text-accent" />
           <h3 className="text-sm font-semibold text-text">
-            {level === 0 ? `${mode === 'cumulative' ? '누적' : '일별'} ${metricWord}` : level === 1 ? `질문별 ${metricWord}` : `작업별 ${metricWord}`}
+            {level === 0
+              ? `${unit === 'month' ? '월별' : '일별'} ${metricWord}${mode === 'cumulative' ? ' (누적)' : ''}`
+              : level === 1 ? `질문별 ${metricWord}` : `작업별 ${metricWord}`}
           </h3>
           {data && level === 0 ? <span className="text-xs text-muted">{data.range.from} ~ {data.range.to}</span> : null}
           {level === 0 ? (
-            <span className="ml-auto">
+            <span className="ml-auto flex flex-wrap items-center gap-2">
+              {monthDrill ? (
+                <button type="button" onClick={leaveMonth} className="rounded-lg border border-line px-3 py-1 text-xs text-muted hover:text-text">
+                  ← {rangeSnapshotLabel(monthDrill.back)}
+                </button>
+              ) : null}
+              {canMonth ? (
+                <Segmented<Unit>
+                  label="차트 단위"
+                  value={unit}
+                  onChange={setUnitOverride}
+                  options={[{ value: 'day', label: '일별' }, { value: 'month', label: '월별' }]}
+                />
+              ) : null}
               <Segmented
                 label="차트 모양"
                 value={mode}
                 onChange={setMode}
-                options={[{ value: 'daily', label: '일별' }, { value: 'cumulative', label: '누적' }]}
+                options={[{ value: 'period', label: '기간별' }, { value: 'cumulative', label: '누적' }]}
               />
             </span>
           ) : (
@@ -984,7 +1169,16 @@ export function SettingsUsagePage() {
                 : '이 기간에 기록된 사용량이 없습니다.'}</p>
         ) : (
           <>
-            <UsageChart dates={dates} series={series} mode={mode} format={format} />
+            {unit === 'month' ? (
+              <StackedBars
+                bars={monthBars}
+                format={format}
+                onPick={(i) => drillMonth(months[i])}
+                pickHint="누르면 그 달의 일별 화면으로 들어갑니다"
+              />
+            ) : (
+              <UsageChart dates={dates} series={series} mode={mode} format={format} />
+            )}
             <Legend
               format={format}
               items={series.map((s) => ({
@@ -997,12 +1191,75 @@ export function SettingsUsagePage() {
             />
           </>
         )}
-        {level === 0 && series.length > 0 && dates.length > 1 ? (
+        {level === 0 && series.length > 0 && unit === 'month' ? (
+          <p className="mt-2 text-[11px] text-muted">
+            {mode === 'cumulative'
+              ? '막대 하나가 그 달까지 쌓인 합계이고, 색은 각 항목이 쌓은 몫입니다.'
+              : '막대 하나가 한 달이고, 색은 각 항목의 몫입니다.'}
+            {' 막대를 누르면 그 달만 다시 불러와 일별로 봅니다.'}
+            {monthAverage && mode !== 'cumulative'
+              ? ` 온전히 집계된 ${monthAverage.n}개 달 월평균 ${format(monthAverage.avg)} · 가장 많은 달 ${monthAverage.top.title}.`
+              : ''}
+            {groupBy === 'sessions' ? ' 아래 범례의 대화방 이름을 누르면 그 대화방으로 들어갑니다.' : ''}
+          </p>
+        ) : level === 0 && series.length > 0 && dates.length > 1 ? (
           <p className="mt-2 text-[11px] text-muted">{mode === 'cumulative'
             ? '맨 위 선이 그날까지 쌓인 합계, 띠의 두께가 각 항목이 쌓은 몫입니다.'
             : '맨 위 선이 그날 합계, 띠의 두께가 각 항목의 몫입니다.'}{groupBy === 'sessions' ? ' 아래 범례의 대화방 이름을 누르면 그 대화방으로 들어갑니다.' : ''}</p>
         ) : null}
       </section>
+
+      {level === 0 && unit === 'month' && months.length ? (
+        <section className="mb-4 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-text">월별 요약</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs tabular-nums">
+              <thead className="text-muted">
+                <tr className="border-b border-line">
+                  <th className="py-2 pr-3 font-medium">월</th>
+                  <th className="py-2 pr-3 text-right font-medium">작업</th>
+                  <th className="py-2 pr-3 text-right font-medium">토큰</th>
+                  <th className="py-2 pr-3 text-right font-medium">비용</th>
+                  <th className="py-2 pr-3 text-right font-medium" title="집계한 날 기준 하루 평균">일평균 {metricWord}</th>
+                  <th className="py-2 text-right font-medium" title="일평균끼리 비교하므로 진행 중이거나 일부만 집계된 달도 공정하게 비교됩니다">전월 대비</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...months].reverse().map((m) => {
+                  const mi = months.indexOf(m);
+                  const change = monthChange(m, months[mi - 1], pickMonthValue);
+                  const note = monthStateNote(m);
+                  const untracked = m.state === 'untracked';
+                  return (
+                    <tr
+                      key={m.key}
+                      className={`border-b border-line/60 last:border-0 ${untracked ? 'text-muted opacity-60' : 'cursor-pointer hover:bg-line/20'}`}
+                      onClick={untracked ? undefined : () => drillMonth(m)}
+                    >
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-1">
+                          <span className={untracked ? '' : 'text-text'}>{m.title}</span>
+                          {note ? <span className="rounded bg-line/50 px-1 text-[10px] text-muted">{note}</span> : null}
+                          {untracked ? null : <CaretRight size={11} className="shrink-0 text-muted" />}
+                        </div>
+                      </td>
+                      <td className="py-2 pr-3 text-right">{untracked ? '-' : m.requests.toLocaleString()}</td>
+                      <td className="py-2 pr-3 text-right">{untracked ? '-' : formatTokens(m.tokens)}</td>
+                      <td className="py-2 pr-3 text-right">{untracked ? '-' : formatUsd(m.cost)}</td>
+                      <td className="py-2 pr-3 text-right">{m.countedDays ? format(pickMonthValue(m) / m.countedDays) : '-'}</td>
+                      <td className={`py-2 text-right ${change?.cls ?? 'text-muted'}`}>{change?.text ?? '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[11px] leading-4 text-muted">
+            줄을 누르면 그 달만 다시 불러와 일별 그래프와 아래 합계·대화방 목록을 그 달 기준으로 봅니다.
+            일시 중지했던 구간은 집계에서 빠지지만 일평균의 날짜 수에는 들어갑니다.
+          </p>
+        </section>
+      ) : null}
 
       {level === 0 && rows.length ? (
         <section className="rounded-2xl border border-line bg-panel p-5 shadow-sm">
