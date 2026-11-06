@@ -43,10 +43,14 @@ function localDay(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-/** 「최근 6개월」= 이번 달 포함 달력 기준 6개 달. 첫 달이 중간에서 잘리지 않도록 그 달 1일부터 요청한다. */
+/**
+ * 「최근 6개월」= 6개월 전 같은 날 ~ 오늘 (예: 11-06 → 05-06 ~ 11-06).
+ * 그 달에 같은 날이 없으면 말일로 맞춘다 (08-31 → 02-28). 첫 달은 일부 기간이라 막대에 「일부」로 표시된다.
+ */
 function sixMonthFrom(today: string): string {
-  const [y, m] = today.split('-').map(Number);
-  return localDay(new Date(y, m - 1 - 5, 1));
+  const [y, m, d] = today.split('-').map(Number);
+  const lastOfTarget = new Date(y, m - 1 - 6 + 1, 0).getDate();
+  return localDay(new Date(y, m - 1 - 6, Math.min(d, lastOfTarget)));
 }
 
 function daysInMonth(key: string): number {
@@ -65,14 +69,16 @@ interface MonthBucket {
   requests: number;
   /** Days in range on/after the first tracking start — basis for the daily average. */
   countedDays: number;
+  /** Day-of-month of the first counted day (range start or tracking start); 0 when nothing is counted. */
+  fromDay: number;
   daysInMonth: number;
   state: 'untracked' | 'progress' | 'partial' | 'full';
 }
 
 function monthStateNote(m: MonthBucket): string | null {
   if (m.state === 'untracked') return '집계 시작 전';
-  if (m.state === 'progress') return `진행 중 · ${m.countedDays}일째`;
-  if (m.state === 'partial') return `${m.countedDays}/${m.daysInMonth}일만 집계`;
+  if (m.state === 'progress') return m.fromDay > 1 ? `진행 중 · ${m.fromDay}일부터 ${m.countedDays}일치` : `진행 중 · ${m.countedDays}일째`;
+  if (m.state === 'partial') return `일부 · ${m.fromDay}일부터 ${m.countedDays}/${m.daysInMonth}일`;
   return null;
 }
 
@@ -884,13 +890,16 @@ export function SettingsUsagePage() {
         const mo = Number(key.slice(5));
         m = {
           key, title: `${key.slice(0, 4)}년 ${mo}월`, label: `${mo}월`, indices: [],
-          tokens: 0, cost: 0, requests: 0, countedDays: 0, daysInMonth: daysInMonth(key), state: 'full',
+          tokens: 0, cost: 0, requests: 0, countedDays: 0, fromDay: 0, daysInMonth: daysInMonth(key), state: 'full',
         };
         byKey.set(key, m);
         out.push(m);
       }
       m.indices.push(i);
-      if (!minDay || d.date >= minDay) m.countedDays += 1;
+      if (!minDay || d.date >= minDay) {
+        if (!m.countedDays) m.fromDay = Number(d.date.slice(8, 10));
+        m.countedDays += 1;
+      }
       // Every counted call lands in exactly one purpose, so the purpose points add up to the day total.
       for (const p of Object.values(d.purposes ?? {})) { m.tokens += p.tokens; m.cost += p.cost_usd; m.requests += p.requests; }
     });
@@ -931,25 +940,29 @@ export function SettingsUsagePage() {
         label: m.label,
         title: mode === 'cumulative' ? `${m.title}까지 누적` : m.title,
         detail: detail || undefined,
-        badge: m.state === 'untracked' ? '집계 전' : m.state === 'progress' ? '진행 중' : undefined,
+        badge: m.state === 'untracked' ? '집계 전' : m.state === 'progress' ? '진행 중' : m.state === 'partial' ? '일부' : undefined,
         pickable: m.state !== 'untracked',
         segments,
       };
     });
   }, [months, series, mode, format, pickMonthValue]);
 
-  /** Opening a month re-queries that month, so cards, charts and tables below all show the same period. */
+  /**
+   * Opening a month re-queries exactly the days that bar covered (e.g. 5/6~5/31 for a cut first month),
+   * so cards, charts and tables below show the same numbers as the bar that was clicked.
+   */
   const drillMonth = useCallback((m: MonthBucket) => {
-    if (m.state === 'untracked') return;
-    const first = `${m.key}-01`;
+    if (m.state === 'untracked' || !m.fromDay) return;
+    const first = `${m.key}-${pad2(m.fromDay)}`;
     const last = `${m.key}-${pad2(m.daysInMonth)}`;
-    setMonthDrill((cur) => ({ key: m.key, title: m.title, back: cur?.back ?? { range, from: customFrom, to: customTo } }));
-    setCustomFrom(minDay && minDay > first && minDay <= last ? minDay : first);
+    const title = m.fromDay > 1 ? `${m.title} ${m.fromDay}일~` : m.title;
+    setMonthDrill((cur) => ({ key: m.key, title, back: cur?.back ?? { range, from: customFrom, to: customTo } }));
+    setCustomFrom(first);
     setCustomTo(last > today ? today : last);
     setRange('custom');
     setUnitOverride(null);
     goRoot();
-  }, [range, customFrom, customTo, minDay, today, goRoot]);
+  }, [range, customFrom, customTo, today, goRoot]);
   const leaveMonth = useCallback(() => {
     if (!monthDrill) return;
     const { back } = monthDrill;
