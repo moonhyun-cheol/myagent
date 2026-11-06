@@ -17,6 +17,11 @@ export class PersonalSchedulerRuntime {
   private queue: Promise<void> = Promise.resolve();
   private executing = 0;
   private recovered = false;
+  /**
+   * Set by the Core API host: workspace roots of a chat session, so a task created from a
+   * workspace chat (scheduler_upsert) keeps that folder for its unattended runs.
+   */
+  resolveSessionWorkspaceRoots?: (sessionId: string) => string[];
 
   constructor(
     readonly service: PersonalSchedulerService,

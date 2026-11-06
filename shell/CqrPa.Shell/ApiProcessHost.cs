@@ -177,6 +177,21 @@ public sealed class ApiProcessHost : IDisposable
         }
     }
 
+    /// <summary>True while the node process this shell started is still alive (slow, not dead).</summary>
+    public bool OwnedProcessRunning
+    {
+        get
+        {
+            var process = _process;
+            if (!_startedByShell || process is null) return false;
+            try { return !process.HasExited; }
+            catch { return false; }
+        }
+    }
+
+    /// <summary>Extra wait after <see cref="RecommendedHealthTimeout"/> while the owned node is still alive.</summary>
+    public static TimeSpan SlowStartGrace => TimeSpan.FromSeconds(120);
+
     /// <summary>The owned node exited, or an earlier restart attempt did not start it.</summary>
     public bool NeedsRestart => _needsRestart || OwnedProcessExited;
 
@@ -347,7 +362,7 @@ public sealed class ApiProcessHost : IDisposable
         return false;
     }
 
-    public async Task<bool> WaitForHealthAsync(TimeSpan timeout)
+    public async Task<bool> WaitForHealthAsync(TimeSpan timeout, bool stopWhenOwnedExited = false)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
@@ -355,6 +370,8 @@ public sealed class ApiProcessHost : IDisposable
             var h = await Task.Run(() => ProbeHealth(Port));
             if (IsReady(h))
                 return true;
+            if (stopWhenOwnedExited && OwnedProcessExited)
+                return false;
             await Task.Delay(200);
         }
         return false;

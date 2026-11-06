@@ -28,6 +28,24 @@ const CONTENT_OUTCOME_PATTERNS: Array<{ outcome: Exclude<SchedulerContentOutcome
   { outcome: 'warning', pattern: /(?:^|\b)(?:warning|partial(?:ly)?|incomplete|skipped)(?:\b|$)|(?:주의|경고|부분 완료|일부.*(?:건너|누락|미완료)|누락.*확인)/iu },
 ];
 
+/** Absolute, de-duplicated workspace roots (relative or blank entries are dropped). */
+export function normalizeWorkspaceRoots(roots: unknown): string[] {
+  if (!Array.isArray(roots)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of roots) {
+    const value = String(raw ?? '').trim();
+    if (!value || !path.isAbsolute(value)) continue;
+    const resolved = path.resolve(value);
+    const key = resolved.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(resolved);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 export function classifySchedulerContentOutcome(content: string): SchedulerContentOutcome {
   const normalized = String(content ?? '').replace(/\s+/g, ' ').trim();
   if (!normalized) return 'warning';
@@ -193,6 +211,9 @@ export class PersonalSchedulerService {
       triggers: input.triggers,
       enabled: input.enabled !== false,
       misfire_policy: input.misfire_policy === 'run_once' ? 'run_once' : 'skip',
+      ...(input.workspace_roots !== undefined
+        ? { workspace_roots: normalizeWorkspaceRoots(input.workspace_roots) }
+        : {}),
     };
     if (!normalized.name) throw new Error('Task name is required');
     if (!normalized.instruction) throw new Error('Task instruction is required');

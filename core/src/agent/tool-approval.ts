@@ -55,11 +55,21 @@ export interface ToolApprovalRequest {
  */
 export type ToolApprovalOutcome =
   | boolean
-  | { approved: boolean; by: 'user' | 'reviewer' | 'policy'; reviewer?: string };
+  | {
+    approved: boolean;
+    by: 'user' | 'reviewer' | 'policy';
+    reviewer?: string;
+    /**
+     * Rollback snapshot before a mutation. Reviewer approvals always require one (failure
+     * cancels the call). `best_effort` (scheduler free pass) tries it, but a failed
+     * snapshot does not block execution.
+     */
+    snapshot?: 'best_effort';
+  };
 
 export function normalizeToolApprovalOutcome(
   outcome: ToolApprovalOutcome,
-): { approved: boolean; by: 'user' | 'reviewer' | 'policy'; reviewer?: string } {
+): Exclude<ToolApprovalOutcome, boolean> {
   return typeof outcome === 'boolean' ? { approved: outcome, by: 'user' } : outcome;
 }
 

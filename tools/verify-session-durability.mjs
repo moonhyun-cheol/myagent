@@ -232,6 +232,26 @@ if (process.argv[2] === '--crash-child') {
     assert.equal(readdirSync(path.join(rotationDir, 'backups')).length, 7);
     console.log('PASS: WAL-aware pre-migration snapshot, daily deduplication/7-snapshot retention, actual offline restore');
 
+    // API boot defers the daily snapshot to a worker thread (no VACUUM INTO on the event loop).
+    const deferredDir = path.join(root, 'deferred'); mkdirSync(deferredDir);
+    copyFileSync(beforePath, path.join(deferredDir, 'sessions.sqlite'));
+    const deferred = new SessionStore(deferredDir, root, undefined, undefined, { deferDailyBackup: true });
+    assert.equal(deferred.startupTimings().daily_backup, 'deferred');
+    const deferredBackups = path.join(deferredDir, 'backups');
+    assert.equal(readdirSync(deferredBackups).filter((name) => name.includes('daily-')).length, 0);
+    const [firstRun, sameFlight] = await Promise.all([deferred.runDailyBackupInBackground(), deferred.runDailyBackupInBackground()]);
+    assert.equal(firstRun.created, true);
+    assert.equal(sameFlight, firstRun, 'concurrent calls share one worker run');
+    const dailyName = readdirSync(deferredBackups).find((name) => name.includes('daily-'));
+    assert.ok(dailyName && !readdirSync(deferredBackups).some((name) => name.endsWith('.tmp')));
+    withDb((db) => {
+      assert.equal(db.prepare('PRAGMA quick_check').get().quick_check, 'ok');
+      assert.equal(JSON.parse(db.prepare('SELECT body FROM messages').get().body).content, 'v1 data');
+    }, path.join(deferredBackups, dailyName));
+    assert.equal((await deferred.runDailyBackupInBackground()).created, false);
+    assert.equal(new SessionStore(deferredDir, root, undefined, undefined, { deferDailyBackup: true }).startupTimings().daily_backup, 'exists');
+    console.log('PASS: deferred daily snapshot in worker thread, verified and deduplicated');
+
     const blockedDir = path.join(root, 'blocked-backup'); mkdirSync(blockedDir);
     const blockedDb = path.join(blockedDir, 'sessions.sqlite');
     copyFileSync(beforePath, blockedDb);

@@ -223,6 +223,8 @@ export class PersonalSchedulerStore {
       updated_at: now,
       last_run_at: existing?.last_run_at ?? null,
     };
+    const roots = input.workspace_roots !== undefined ? input.workspace_roots : existing?.workspace_roots;
+    if (roots?.length) task.workspace_roots = [...roots];
     this.saveTaskFile(task);
     this.tasks.set(task.id, task);
     return clone(task);

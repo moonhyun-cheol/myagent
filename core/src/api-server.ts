@@ -25,6 +25,8 @@ import { dispatchApiRequest } from './routes/dispatch.js';
 import { PersonalSchedulerService } from './scheduler/personal-scheduler-service.js';
 import { PersonalSchedulerRuntime } from './scheduler/personal-scheduler-runtime.js';
 import { buildSchedulerTraceEntries, type SchedulerTraceEntry } from './scheduler/run-trace.js';
+import { createSchedulerDecisionHooks } from './scheduler/scheduler-decision-hooks.js';
+import { resolveWorkspaceRootsForSession } from './chat/session-context.js';
 import {
   registerPersonalSchedulerRuntime,
   unregisterPersonalSchedulerRuntime,
@@ -39,9 +41,39 @@ import { configureDebugIngestPort } from './agent/agent-debug-ingest.js';
 import { prepareLlmUsageStore } from './providers/llm-usage-store.js';
 import { resolveLlmUsageLogDir } from './providers/llm-usage-summary.js';
 
+/**
+ * Boot phase stopwatch -> one `boot-phases` line in api-start.log. `process_ms` is the time
+ * node spent before createApiServer ran (module loading), so slow PCs can be told apart from
+ * slow initialization.
+ */
+function createBootPhases() {
+  const processMs = Math.round(process.uptime() * 1000);
+  const started = performance.now();
+  let mark = started;
+  const parts: string[] = [];
+  return {
+    lap(name: string): void {
+      const now = performance.now();
+      parts.push(`${name}=${Math.round(now - mark)}`);
+      mark = now;
+    },
+    line(): string {
+      return `boot-phases process_ms=${processMs} total_ms=${Math.round(performance.now() - started)} ${parts.join(' ')}`;
+    },
+  };
+}
+
 export async function createApiServer(port: number) {
+  const boot = createBootPhases();
   const cqrRoot = resolveCqrRoot();
   const paths = getBootstrapPaths(cqrRoot);
+  const startLog = (line: string): void => {
+    try {
+      appendFileSync(path.join(paths.logsDir, 'api-start.log'), `${new Date().toISOString()} ${line}\n`, 'utf8');
+    } catch {
+      /* ignore log write errors */
+    }
+  };
   // Self-heal %LOCALAPPDATA%\MYAgent\install-root.json every boot (moved/restored/updated
   // trees). Contract: never blocks startup — the writer swallows all errors.
   writeInstallRootPointer(cqrRoot, {
@@ -54,11 +86,14 @@ export async function createApiServer(port: number) {
     },
   });
   ensureDataDirs(paths);
+  boot.lap('dirs');
+  startLog(`boot-begin pid=${process.pid} process_ms=${Math.round(process.uptime() * 1000)}`);
   try {
     ensureShippedProductPlugins(paths.cqrRoot);
   } catch {
     /* non-fatal — plugins panel / GET will retry */
   }
+  boot.lap('plugins');
   const license = new FileLicenseGate(paths.vaultDir, cqrRoot);
   const userConfigPath = path.join(paths.dataDir, 'config', 'user-overrides.json');
   const getOverrides = () => loadUserOverrides(userConfigPath);
@@ -68,6 +103,7 @@ export async function createApiServer(port: number) {
   configureAgentApiPort(port);
   configureDebugIngestPort(port);
   const initialOverrides = getOverrides();
+  boot.lap('license_overrides');
   const attachments = new AttachmentService(
     paths.attachmentsDir,
     cqrRoot,
@@ -80,9 +116,11 @@ export async function createApiServer(port: number) {
     cqrRoot,
     initialOverrides.model_upload_max_bytes ?? 32 * 1024 * 1024 * 1024,
   );
+  boot.lap('attach_models');
   const providerStore = new ProviderStore(path.join(paths.vaultDir, 'provider-keys.json'), cqrRoot);
   const projectStore = new ProjectStore(path.join(paths.dataDir, 'projects'), cqrRoot);
   const userSkillStore = new UserSkillStore(path.join(paths.dataDir, 'skills'), cqrRoot);
+  boot.lap('provider_project_skill');
   const sessionStore = new SessionStore(
     path.join(paths.dataDir, 'sessions'),
     cqrRoot,
@@ -91,16 +129,22 @@ export async function createApiServer(port: number) {
       const pid = rec.workspace_project_id || rec.project_id;
       return pid ? projectStore.resolveWorkspaceRootForProject(pid) : null;
     },
+    // Daily VACUUM INTO snapshot runs in a worker after listen (see below).
+    { deferDailyBackup: true },
   );
+  boot.lap('sessions');
   const setup = new SetupService(paths.vaultDir, cqrRoot, providerStore);
   providerStore.migrateVaultIfNeeded();
+  boot.lap('vault_migrate');
   setup.tryAutoImportFromRoot();
+  boot.lap('auto_import');
   void setup.tryCentralActivation().then(async () => {
     setup.syncProviderRegistry();
     await setup.ensureOpenClawAdapter();
   });
   setup.syncProviderRegistry();
   void setup.ensureOpenClawAdapter();
+  boot.lap('provider_sync');
   const llamaBinary = findLlamaServerBinary(cqrRoot);
   const researchOut = path.join(paths.dataDir, 'outputs', 'research');
   const imageOut = path.join(paths.dataDir, 'outputs', 'images');
@@ -117,19 +161,47 @@ export async function createApiServer(port: number) {
     researchOut,
     imageOut,
   );
+  boot.lap('orchestrator');
   const personalScheduler = PersonalSchedulerService.forRoot(cqrRoot);
+  boot.lap('scheduler');
   const personalSchedulerRuntime = new PersonalSchedulerRuntime(
     personalScheduler,
     async (task, run) => {
       const sessionId = `automation-${run.id}`;
       const startedAt = Date.now();
       let runError: string | undefined;
+      const workspaceEntries: SchedulerTraceEntry[] = [];
+      const hooks = createSchedulerDecisionHooks({
+        providerStore,
+        cqrRoot,
+        sessionId,
+        instruction: task.instruction,
+        reviewerPreference: loadUserOverrides(userConfigPath).approval_reviewer_model,
+      });
       try {
+        // Workspace binding: without roots the temporary chat has no tool runtime and the
+        // model can only answer "no tools". A vanished folder fails the run explicitly.
+        const boundRoots = task.workspace_roots ?? [];
+        if (boundRoots.length) {
+          const present = boundRoots.filter((root) => existsSync(root));
+          const missing = boundRoots.filter((root) => !existsSync(root));
+          workspaceEntries.push({
+            type: 'workspace',
+            at: new Date().toISOString(),
+            roots: present,
+            ...(missing.length ? { missing } : {}),
+          });
+          if (!present.length) {
+            throw new Error(`예약 작업에 연결된 작업 폴더를 찾을 수 없습니다: ${missing.join(', ')}`);
+          }
+          sessionStore.ensure(sessionId);
+          sessionStore.setScopeSettings(sessionId, { allowed_paths: present });
+        }
         const response = await orchestrator.handle({
           message: task.instruction,
           attachments: [],
           execution_context: 'background',
-        }, sessionId);
+        }, sessionId, hooks);
         const feedAttachments = [
           ...(response.mutatedPaths ?? []).map((filePath) => ({
             name: path.basename(filePath),
@@ -155,7 +227,9 @@ export async function createApiServer(port: number) {
           const finishedAt = Date.now();
           const entries: SchedulerTraceEntry[] = [
             { type: 'run', event: 'start', at: new Date(startedAt).toISOString() },
+            ...workspaceEntries,
             ...buildSchedulerTraceEntries(sessionStore.load(sessionId)?.messages),
+            ...hooks.decisions.map((row) => ({ type: 'decision' as const, ...row })),
             {
               type: 'run',
               event: 'end',
@@ -212,6 +286,14 @@ export async function createApiServer(port: number) {
   }
 
   startAutoLogReportLoop(cqrRoot, paths.dataDir, paths.vaultDir);
+  boot.lap('rest');
+  startLog(boot.line());
+  {
+    const s = sessionStore.startupTimings();
+    startLog(`boot-sessions db_mb=${s.db_mb} open_schema=${s.open_schema_ms} split_states=${s.split_states_ms} `
+      + `legacy_scan=${s.legacy_scan_ms} legacy_files=${s.legacy_files} legacy_imported=${s.legacy_imported} `
+      + `daily_backup=${s.daily_backup}:${s.daily_backup_ms} drafts=${s.drafts_ms} drafts_recovered=${s.drafts_recovered}`);
+  }
 
   // Housekeeping is deliberately deferred until after server.listen(). A large checkpoint
   // tree must not hold the first visible window behind the health gate.
@@ -230,6 +312,7 @@ export async function createApiServer(port: number) {
     } catch {
       /* housekeeping must never block boot */
     }
+    const sweepStarted = performance.now();
     try {
       const swept = sweepCheckpoints(cqrRoot);
       if (swept.removedSessions || swept.removedCheckpoints) {
@@ -242,25 +325,25 @@ export async function createApiServer(port: number) {
     } catch {
       /* housekeeping must never block boot */
     }
-    try {
-      const tempSwept = sweepSessionTemp(cqrRoot, sessionStore.loadAll(), {
-        workspaceRootForSession: (sid) => {
-          const rec = sessionStore.load(sid);
-          if (!rec) return null;
-          const pid = rec.workspace_project_id || rec.project_id;
-          return pid ? projectStore.resolveWorkspaceRootForProject(pid) : null;
-        },
-      });
-      if (tempSwept.removedFiles) {
-        appendFileSync(
-          path.join(paths.logsDir, 'api-start.log'),
-          `${new Date().toISOString()} session-temp-sweep files=${tempSwept.removedFiles} keptShared=${tempSwept.keptShared} freedMB=${Math.round(tempSwept.freedBytes / 1048576)}\n`,
-          'utf8',
-        );
+    startLog(`boot-housekeeping usage_checkpoints_ms=${Math.round(performance.now() - sweepStarted)}`);
+    // loadAll() parses every message of every conversation on the main thread. Keep it well
+    // away from the first window paint and the shell's health gate.
+    setTimeout(() => {
+      const tempStarted = performance.now();
+      try {
+        const tempSwept = sweepSessionTemp(cqrRoot, sessionStore.loadAll(), {
+          workspaceRootForSession: (sid) => {
+            const rec = sessionStore.load(sid);
+            if (!rec) return null;
+            const pid = rec.workspace_project_id || rec.project_id;
+            return pid ? projectStore.resolveWorkspaceRootForProject(pid) : null;
+          },
+        });
+        startLog(`session-temp-sweep files=${tempSwept.removedFiles} keptShared=${tempSwept.keptShared} freedMB=${Math.round(tempSwept.freedBytes / 1048576)} ms=${Math.round(performance.now() - tempStarted)}`);
+      } catch {
+        /* housekeeping must never block boot */
       }
-    } catch {
-      /* housekeeping must never block boot */
-    }
+    }, 90_000).unref?.();
   });
 
   const server = createServer(async (req, res) => {
@@ -299,7 +382,17 @@ export async function createApiServer(port: number) {
   server.headersTimeout = 70_000;
 
   server.once('listening', () => {
+    startLog(`listening port=${port} process_ms=${Math.round(process.uptime() * 1000)}`);
+    // Daily session snapshot off the event loop; failure is logged, never fatal.
+    setTimeout(() => {
+      sessionStore.runDailyBackupInBackground().then(
+        (r) => { if (r.created) startLog(`session-daily-backup ok ms=${r.ms}`); },
+        (error: unknown) => startLog(`session-daily-backup failed ${error instanceof Error ? error.message : String(error)}`),
+      );
+    }, 20_000).unref?.();
     startVisibleBrowserBridge(port);
+    personalSchedulerRuntime.resolveSessionWorkspaceRoots = (id) =>
+      resolveWorkspaceRootsForSession(sessionStore, projectStore, id);
     registerPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
     personalSchedulerRuntime.start();
     // Premium-tier badges need provider prices. Fetch once in the background only when no

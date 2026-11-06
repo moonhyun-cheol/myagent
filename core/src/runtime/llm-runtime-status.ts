@@ -254,6 +254,25 @@ export async function collectLlmRuntimeStatus(
   });
 }
 
+/** Last computed status without any network probe (null before the first probe). */
+export function peekLlmRuntimeStatus(): LlmRuntimeStatus | null {
+  return llmStatusCache?.data ?? null;
+}
+
+let llmStatusRefresh: Promise<unknown> | null = null;
+
+/**
+ * Refresh the cached status in the background when it is missing/stale (single-flight).
+ * `/health` uses this so the shell's 2s health probe never waits on Ollama/OpenRouter.
+ */
+export function refreshLlmRuntimeStatusInBackground(providerStore: ProviderStore, configPath: string): void {
+  if (llmStatusRefresh) return;
+  if (llmStatusCache && Date.now() - llmStatusCache.at < LLM_STATUS_CACHE_MS) return;
+  llmStatusRefresh = collectLlmRuntimeStatus(providerStore, configPath)
+    .catch(() => undefined)
+    .finally(() => { llmStatusRefresh = null; });
+}
+
 function finishLlmRuntimeStatus(data: LlmRuntimeStatus): LlmRuntimeStatus {
   llmStatusCache = { at: Date.now(), data };
   return data;

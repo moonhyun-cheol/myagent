@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { assertWritablePath } from '../security/path-guard.js';
 import type { ResponsesContinuationState, SessionMessage, SessionRecord, SessionSummary } from './types.js';
 
@@ -19,14 +20,79 @@ export interface MessagePage {
   has_more: boolean;
 }
 
+export interface SessionSqliteStoreOptions {
+  /**
+   * Skip the synchronous daily snapshot in the constructor. The API server sets this and
+   * runs {@link SessionSqliteStore.runDailyBackupInBackground} after it starts listening:
+   * `VACUUM INTO` + `quick_check` grows with the database and used to block boot for tens
+   * of seconds. Migration backups (schema/state split) always stay synchronous.
+   */
+  deferDailyBackup?: boolean;
+}
+
+/** Per-phase wall time (ms) of the constructor, for `api-start.log` boot diagnostics. */
+export interface SessionStoreStartupTimings {
+  open_schema_ms: number;
+  split_states_ms: number;
+  legacy_scan_ms: number;
+  legacy_files: number;
+  legacy_imported: number;
+  daily_backup_ms: number;
+  daily_backup: 'sync' | 'deferred' | 'exists';
+  drafts_ms: number;
+  drafts_recovered: number;
+  db_mb: number;
+}
+
+const DAILY_BACKUP_RE = /^sessions-daily-\d{4}-\d{2}-\d{2}\.sqlite$/;
+
+// Runs in a worker thread so the API event loop keeps serving while the snapshot is written.
+const BACKUP_WORKER_SOURCE = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { DatabaseSync } = require('node:sqlite');
+const { renameSync, rmSync } = require('node:fs');
+const { source, target, temporary } = workerData;
+try {
+  const db = new DatabaseSync(source);
+  try {
+    db.exec('PRAGMA busy_timeout = 5000;');
+    db.prepare('VACUUM INTO ?').run(temporary);
+  } finally { db.close(); }
+  const snapshot = new DatabaseSync(temporary, { readOnly: true });
+  try {
+    if (snapshot.prepare('PRAGMA quick_check').get().quick_check !== 'ok') throw new Error('SESSION_BACKUP_INTEGRITY_FAILED');
+  } finally { snapshot.close(); }
+  renameSync(temporary, target);
+  parentPort.postMessage({ ok: true });
+} catch (error) {
+  parentPort.postMessage({ ok: false, error: String((error && error.message) || error) });
+} finally {
+  try { rmSync(temporary, { force: true }); } catch {}
+}
+`;
+
 /** Local-disk store. JSON files remain untouched as migration backups, never live fallbacks. */
 export class SessionSqliteStore {
   readonly databasePath: string;
+  readonly startupTimings: SessionStoreStartupTimings = {
+    open_schema_ms: 0, split_states_ms: 0, legacy_scan_ms: 0, legacy_files: 0, legacy_imported: 0,
+    daily_backup_ms: 0, daily_backup: 'sync', drafts_ms: 0, drafts_recovered: 0, db_mb: 0,
+  };
+  private dailyBackupRunning: Promise<{ created: boolean; ms: number }> | null = null;
 
-  constructor(private readonly dir: string, private readonly root: string) {
+  constructor(private readonly dir: string, private readonly root: string, opts: SessionSqliteStoreOptions = {}) {
     this.databasePath = path.join(dir, 'sessions.sqlite');
     assertWritablePath(this.databasePath, root);
     mkdirSync(dir, { recursive: true });
+    const timings = this.startupTimings;
+    let mark = performance.now();
+    const lap = (): number => {
+      const now = performance.now();
+      const ms = Math.round(now - mark);
+      mark = now;
+      return ms;
+    };
+    try { timings.db_mb = Math.round(statSync(this.databasePath).size / 1048576); } catch { /* new database */ }
     this.withDb((db) => {
       const version = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
       if (version > 2) throw new Error('SESSION_DATABASE_VERSION_UNSUPPORTED');
@@ -52,11 +118,20 @@ export class SessionSqliteStore {
         );
         PRAGMA user_version = 2;
       `));
+      timings.open_schema_ms = lap();
       this.splitResponsesStates(db);
+      timings.split_states_ms = lap();
       // Fail closed: a corrupt source must not silently disappear from the live set (or GC).
       // Each file and its marker commit together; a restart resumes without duplicates.
-      for (const filename of readdirSync(dir).filter((name) => name.endsWith('.json'))) {
-        if (db.prepare('SELECT 1 FROM legacy_imports WHERE filename = ?').get(filename)) continue;
+      const legacyFiles = readdirSync(dir).filter((name) => name.endsWith('.json'));
+      timings.legacy_files = legacyFiles.length;
+      // One query instead of one lookup per file on every boot.
+      const imported = legacyFiles.length
+        ? new Set((db.prepare('SELECT filename FROM legacy_imports').all() as { filename: string }[]).map((r) => r.filename))
+        : new Set<string>();
+      for (const filename of legacyFiles) {
+        if (imported.has(filename)) continue;
+        timings.legacy_imported++;
         const rec = JSON.parse(readFileSync(path.join(dir, filename), 'utf8')) as SessionRecord;
         if (!rec || rec.id !== filename.slice(0, -5) || !/^[a-zA-Z0-9_-]{1,64}$/.test(rec.id)
           || !Array.isArray(rec.messages) || typeof rec.title !== 'string'
@@ -72,15 +147,74 @@ export class SessionSqliteStore {
           }
         });
       }
-      this.backup(db, `daily-${new Date().toISOString().slice(0, 10)}`);
+      timings.legacy_scan_ms = lap();
+      if (existsSync(this.dailyBackupTarget())) timings.daily_backup = 'exists';
+      else if (opts.deferDailyBackup) timings.daily_backup = 'deferred';
+      else this.backup(db, this.dailyBackupLabel());
+      timings.daily_backup_ms = lap();
       this.transaction(db, () => {
         const drafts = db.prepare('SELECT * FROM assistant_drafts').all() as unknown as DraftRow[];
         for (const draft of drafts) {
           // A second store/process must never recover a still-running owner's work.
-          if (!processIsAlive(draft.owner_pid)) this.recoverDraft(db, draft);
+          if (!processIsAlive(draft.owner_pid)) {
+            this.recoverDraft(db, draft);
+            timings.drafts_recovered++;
+          }
         }
       });
+      timings.drafts_ms = lap();
     });
+  }
+
+  private dailyBackupLabel(): string {
+    return `daily-${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private dailyBackupTarget(): string {
+    return path.join(this.dir, 'backups', `sessions-${this.dailyBackupLabel()}.sqlite`);
+  }
+
+  private rotateDailyBackups(dir: string): void {
+    // Daily snapshots rotate only after a verified replacement. Migration backups are retained.
+    const daily = readdirSync(dir).filter((name) => DAILY_BACKUP_RE.test(name)).sort().reverse();
+    for (const name of daily.slice(7)) rmSync(path.join(dir, name));
+  }
+
+  /**
+   * Today's snapshot in a worker thread (same VACUUM INTO + quick_check + atomic rename as the
+   * synchronous path). Single-flight; resolves `created: false` when today's file already exists.
+   */
+  runDailyBackupInBackground(): Promise<{ created: boolean; ms: number }> {
+    if (this.dailyBackupRunning) return this.dailyBackupRunning;
+    const started = performance.now();
+    const run = async (): Promise<{ created: boolean; ms: number }> => {
+      const target = this.dailyBackupTarget();
+      const dir = path.dirname(target);
+      assertWritablePath(target, this.root);
+      mkdirSync(dir, { recursive: true });
+      if (existsSync(target)) return { created: false, ms: Math.round(performance.now() - started) };
+      const temporary = `${target}.${randomUUID()}.tmp`;
+      await new Promise<void>((resolve, reject) => {
+        const worker = new Worker(BACKUP_WORKER_SOURCE, {
+          eval: true,
+          workerData: { source: this.databasePath, target, temporary },
+        });
+        let settled = false;
+        worker.once('message', (msg: { ok: boolean; error?: string }) => {
+          settled = true;
+          if (msg.ok) resolve();
+          else reject(new Error(msg.error || 'SESSION_BACKUP_FAILED'));
+        });
+        worker.once('error', (error) => { settled = true; reject(error); });
+        worker.once('exit', (code) => {
+          if (!settled) reject(new Error(`SESSION_BACKUP_WORKER_EXIT_${code}`));
+        });
+      });
+      this.rotateDailyBackups(dir);
+      return { created: true, ms: Math.round(performance.now() - started) };
+    };
+    this.dailyBackupRunning = run().finally(() => { this.dailyBackupRunning = null; });
+    return this.dailyBackupRunning;
   }
 
   /** Consistent WAL-aware snapshot; never copy only the live .sqlite file. Fail closed on backup errors. */
@@ -101,9 +235,7 @@ export class SessionSqliteStore {
       } finally { snapshot.close(); }
       renameSync(temporary, target);
     } finally { rmSync(temporary, { force: true }); }
-    // Daily snapshots rotate only after a verified replacement. Migration backups are retained.
-    const daily = readdirSync(dir).filter((name) => /^sessions-daily-\d{4}-\d{2}-\d{2}\.sqlite$/.test(name)).sort().reverse();
-    for (const name of daily.slice(7)) rmSync(path.join(dir, name));
+    this.rotateDailyBackups(dir);
   }
 
   // Operation-scoped handles avoid leaked locks and allow offline backup after shutdown.

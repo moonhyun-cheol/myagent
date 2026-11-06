@@ -21,6 +21,12 @@ export interface PersonalSchedulerTask {
   created_at: string;
   updated_at: string;
   last_run_at: string | null;
+  /**
+   * Absolute workspace folders bound when the task was created. A scheduled run opens its
+   * temporary chat with these roots so the tool runtime (run_terminal, files) is available.
+   * Empty/absent = plain chat without workspace tools.
+   */
+  workspace_roots?: string[];
 }
 
 export interface SchedulerTaskInput {
@@ -30,6 +36,8 @@ export interface SchedulerTaskInput {
   triggers: SchedulerTrigger[];
   enabled?: boolean;
   misfire_policy?: SchedulerMisfirePolicy;
+  /** undefined = keep the existing binding on update; [] = unbind. */
+  workspace_roots?: string[];
 }
 
 export interface SchedulerRun {
