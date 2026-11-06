@@ -1585,16 +1585,21 @@ export function ChatPane() {
                 </select>
                 <span className="mt-2 block break-all text-[11px] leading-5 text-muted">{workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '등록된 작업 폴더의 파일 접근 범위를 연결합니다. 스킬은 자동 적용하지 않습니다.'}</span>
               </label>
-            ) : policyTarget === 'chat-workspace-behavior' ? (
+            ) : policyTarget === 'chat-workspace-behavior' ? (<>
               <PolicyChoices testId="chat-workspace-behavior" label="작업 방식 선택"
                 value={activeExecutionPolicy.workspace_behavior ?? 'agent'} disabled={busy || policySaving}
                 options={[
-                  { value: 'agent', label: 'Agent', description: '도구로 바로 실행' },
+                  { value: 'agent', label: 'Agent', description: activeWorkspaceProjectId ? '도구로 바로 실행' : '웹 검색·브라우저·자동화 등록 (파일 접근 없음)' },
                   { value: 'plan', label: 'Plan', description: '계획만 · 수정 전 확인' },
                   { value: 'ask', label: 'Ask', description: '설명·질문 중심 · 도구 최소' },
                   { value: 'debug', label: 'Debug', description: '임시 로그로 재현·수정 반복 · 끝나면 로그 제거' },
                 ]} onSelect={(value) => void savePolicy({ workspace_behavior: value as WorkspaceBehavior })} />
-            ) : policyTarget === 'chat-reasoning-level' ? (<>
+              {!activeWorkspaceProjectId ? (
+                <p className="mt-2 text-[11px] leading-5 text-muted" data-testid="chat-workspace-behavior-no-folder">
+                  작업 폴더가 없으면 Agent만 웹·자동화 도구를 쓰고, Plan·Debug는 작업 폴더를 연결해야 동작합니다.
+                </p>
+              ) : null}
+            </>) : policyTarget === 'chat-reasoning-level' ? (<>
               <PolicyChoices testId="chat-reasoning-level" label="추론 수준 선택"
                 value={normalizeReasoningLevelForModel(activeExecutionPolicy.reasoning, skillMode === 'image' ? null : selectedModel, selectedReasoningCapability)}
                 disabled={busy || policySaving || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel, selectedReasoningCapability)}

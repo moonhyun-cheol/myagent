@@ -1,4 +1,6 @@
 import type { ChatRequest, ChatResponse, ChatMode, RouteDecision } from '../../router/types.js';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import type { ResolvedModelRoute } from '../../providers/types.js';
 import type { ProviderStore } from '../../providers/provider-store.js';
 import type { SessionStore } from '../../sessions/session-store.js';
@@ -83,13 +85,39 @@ export function shouldUseWorkspaceAgentRuntime(
 /**
  * Tool plane entry — explicit execution_policy only (not message regex).
  * Ask answers from the workspace snippet without entering the tool loop.
+ * Without a bound folder only Agent enters (web tool pack); Plan/Debug/Ask stay plain chat.
  */
 export function shouldEnterWorkspaceToolPlane(
   workspaceAgentAvailable: boolean,
   policy: ExecutionPolicy | undefined,
+  webOnlyAgentAvailable = false,
 ): boolean {
-  if (!workspaceAgentAvailable) return false;
-  return shouldUseWorkspaceToolPlane(resolveWorkspaceBehavior(policy));
+  if (workspaceAgentAvailable) return shouldUseWorkspaceToolPlane(resolveWorkspaceBehavior(policy));
+  if (webOnlyAgentAvailable) return resolveWorkspaceBehavior(policy) === 'agent';
+  return false;
+}
+
+/**
+ * No-folder chats (개인 작업 / 새 채팅, scheduled runs without roots) may still use the
+ * web tool pack: browser, web download, scheduler, task history, memory. File access stays
+ * tied to a bound folder (shouldUseWorkspaceAgentRuntime).
+ */
+export function shouldUseWebOnlyAgentRuntime(
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string,
+  mode: ChatMode,
+): boolean {
+  if (resolveWorkspaceRootForSession(sessionStore, projectStore, sessionId)) return false;
+  return mode === 'chat' || mode === 'code_agent';
+}
+
+/** App-data scratch dir for a no-folder agent run (same folder save_web_asset writes to). */
+export function webOnlyScratchRoot(cqrRoot: string, sessionId: string): string {
+  const sid = sessionId.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'session';
+  const dir = path.join(cqrRoot, 'data', 'outputs', 'web', sid);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 /** Tool availability must not mutate the model-facing intent or response style. */
@@ -222,7 +250,16 @@ export async function runWorkspaceCodeAgent(opts: {
   const sessionRoots = resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId);
   const sessionRoot = sessionRoots[0] ?? null;
   // Standalone chats never borrow the PC default folder (see shouldUseWorkspaceAgentRuntime).
+  // They run the web tool pack in an app scratch dir instead (Agent behavior only).
   let workspaceRoot = sessionRoot;
+  const fileAccess: 'workspace' | 'none' = sessionRoot ? 'workspace' : 'none';
+  const preRequestedBehavior = resolveWorkspaceBehavior(normalizeExecutionPolicy(
+    req.execution_policy,
+    sessionStore.load(sessionId)?.execution_policy,
+  ));
+  if (!workspaceRoot && preRequestedBehavior === 'agent') {
+    workspaceRoot = webOnlyScratchRoot(cqrRoot, sessionId);
+  }
   if (!workspaceRoot) {
     // ADR-008: policy reply on tool plane — never throw → INTERNAL_ERROR 500.
     const content = appendAssistantReply(sessionStore, sessionId, {
@@ -250,7 +287,8 @@ export async function runWorkspaceCodeAgent(opts: {
     callbacks?.onStatus?.(`Workspace lock · ${workspaceLock.matchedName || workspaceRoot}`);
   }
   const browserRouting = req.execution_context === 'background' ? 'background' : 'interactive';
-  const lockNote = formatWorkspaceLockNote(workspaceLock);
+  // No-folder runs: the scratch dir is not a user workspace, so no lock note.
+  const lockNote = fileAccess === 'none' ? '' : formatWorkspaceLockNote(workspaceLock);
   const backgroundBrowserNote = browserRouting === 'background'
     ? [
         '## Background browser routing',
@@ -282,7 +320,16 @@ export async function runWorkspaceCodeAgent(opts: {
   const editorSnippet = buildEditorContextSnippet(req?.editor_context);
   // Split for prompt caching: the stable part (memory, tree, unfocused repo map, location)
   // is sent once before history; only the request-scoped part rides in the turn context.
-  const workspaceParts = workspaceLock.narrowed
+  const workspaceParts = fileAccess === 'none'
+    ? {
+        turn: [buildPinnedInstructionsContext(req), editorSnippet].filter((p) => p.trim()).join('\n\n'),
+        // Scratch dir has no project files: memory + explicit no-folder note only.
+        stable: [
+          buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
+          '## 작업 폴더 없음\n이 대화에는 연결된 작업 폴더가 없습니다. 웹·브라우저·자동화 등록·작업 기록·메모리 도구만 사용할 수 있고, 파일·터미널·Git 도구는 없습니다.',
+        ].filter((p) => p.trim()).join('\n\n'),
+      }
+    : workspaceLock.narrowed
     ? {
         turn: [buildPinnedInstructionsContext(req), editorSnippet].filter((p) => p.trim()).join('\n\n'),
         stable: [
@@ -364,7 +411,9 @@ export async function runWorkspaceCodeAgent(opts: {
     ? 'Debug 모드 · 가설 → 임시 로그 → 재현 → 수정 → 로그 정리 순서로 진행합니다'
     : workspaceBehavior === 'plan'
       ? 'Plan 모드 · 읽기 전용으로 코드를 살펴보고 설계만 합니다'
-      : 'Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다');
+      : fileAccess === 'none'
+        ? 'Agent runtime · 작업 폴더 없음 — 웹·자동화 도구만 사용합니다'
+        : 'Agent runtime · 모델이 도구 사용과 작업 완결성을 판단합니다');
 
   const agent = await runMarOrCodeAgent({
     workspaceRoot,
@@ -394,7 +443,8 @@ export async function runWorkspaceCodeAgent(opts: {
     playwrightAllowLocalhost: overrides.playwright_allow_localhost !== false,
     autopilot,
     workspaceBehavior,
-    forceToolPack: resolveForcedToolPack(workspaceBehavior, cqrRoot),
+    forceToolPack: fileAccess === 'none' ? 'web' : resolveForcedToolPack(workspaceBehavior, cqrRoot),
+    fileAccess,
     continuationRetry: continuationRetry === true,
     imageDataUrls: opts.imageDataUrls,
     extraSystemNotes: lockSystemNotes,

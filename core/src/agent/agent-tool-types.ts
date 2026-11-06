@@ -35,6 +35,13 @@ export interface AgentToolContext {
   signal?: AbortSignal;
   /** Plan mode forbids mutating tools even if the model calls one outside the schema. */
   workspaceBehavior?: import('../execution-policy.js').WorkspaceBehavior;
+  /**
+   * When set, only these tool names may execute (calls outside the pack schema fail with
+   * TOOL_NOT_IN_PACK). Used for no-folder chats.
+   */
+  allowedToolNames?: ReadonlySet<string>;
+  /** 'none' = the chat has no bound work folder (workspaceRoot is an app scratch dir). */
+  fileAccess?: 'workspace' | 'none';
   /** Driver-only, exact command approved for this call; never sourced from model args. */
   approvedTerminalCommand?: string;
   /** Exact current/continued run tool evidence and evidence_read source. */

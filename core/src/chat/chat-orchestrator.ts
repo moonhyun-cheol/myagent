@@ -112,6 +112,7 @@ import { handleImageGenMode } from './modes/image-gen.js';
 import {
   shouldUseWorkspaceAgentRuntime,
   shouldEnterWorkspaceToolPlane,
+  shouldUseWebOnlyAgentRuntime,
   runWorkspaceCodeAgent,
   preserveWorkspaceAgentRouting,
 } from './modes/workspace-agent.js';
@@ -648,7 +649,12 @@ export class ChatOrchestrator {
     }
 
     // Ask stays on the plain chat path (workspace snippet only, no tool loop).
-    if (shouldEnterWorkspaceToolPlane(workspaceAgentAvailable, requestedExecutionPolicy)) {
+    // No bound folder + Agent → web tool pack (browser/web download/scheduler, no file tools).
+    if (shouldEnterWorkspaceToolPlane(
+      workspaceAgentAvailable,
+      requestedExecutionPolicy,
+      shouldUseWebOnlyAgentRuntime(this.sessionStore, this.projectStore, sessionId, routing.mode),
+    )) {
       return runWorkspaceCodeAgent({
         cqrRoot: this.cqrRoot,
         configPath: this.configPath,
@@ -992,7 +998,11 @@ export class ChatOrchestrator {
       }
     }
 
-    if (shouldEnterWorkspaceToolPlane(workspaceAgentAvailable, requestedExecutionPolicy)) {
+    if (shouldEnterWorkspaceToolPlane(
+      workspaceAgentAvailable,
+      requestedExecutionPolicy,
+      shouldUseWebOnlyAgentRuntime(this.sessionStore, this.projectStore, sessionId, routing.mode),
+    )) {
       const agentRouting = preserveWorkspaceAgentRouting(routing);
       let userAppended = false;
       // Model actually running this turn — kept so failure/stop replies say which model failed.

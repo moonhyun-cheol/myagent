@@ -9,6 +9,7 @@ import {
 } from '../providers/openai-compatible.js';
 import { currentLlmUsageTurnId, withLlmUsageContext } from '../providers/llm-usage-log.js';
 import { throwIfAborted } from '../chat/abort.js';
+import { formatToolNotInPack } from './agent-tool-pack.js';
 import { buildToolImageMessage } from './agent-multimodal.js';
 import { untrustedSourceForCall, wrapUntrustedToolOutput } from './untrusted-content.js';
 import {
@@ -866,6 +867,17 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       }
 
       const args = parseToolArgs(execCall.function.arguments);
+
+      // Pack allowlist first: an out-of-pack call must not raise an approval card or
+      // trigger read-before-write auto-heal (no-folder chats have no file tools).
+      const packAllow = state.toolCtx.allowedToolNames;
+      if (packAllow && !packAllow.has(execCall.function.name)) {
+        const output = formatToolNotInPack(execCall.function.name, state.toolCtx.fileAccess);
+        loopGuard.noteResult(execCall, output);
+        state.reportStatus(`Tool: ${toolStatusLabel(execCall)} (이 대화에서 사용 불가)`);
+        pushToolResultMessage(state.messages, execCall.id, output, execCall.function.name);
+        continue;
+      }
 
       // Approval is evaluated before retrieval auto-heal, read-before-write and
       // checkpoint creation. No outside-workspace path may be touched while the

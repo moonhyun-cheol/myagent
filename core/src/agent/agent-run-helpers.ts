@@ -160,16 +160,25 @@ export function buildAgentMessages(
 ): ChatMessage[] {
   rememberMessagePins(opts.cqrRoot, opts.sessionId, opts.userMessage);
   const root = toPosix(path.resolve(opts.workspaceRoot));
+  const noFolder = opts.fileAccess === 'none';
   const hasImages = (opts.imageDataUrls?.length ?? 0) > 0;
   const hasAttach = Boolean(opts.attachmentContext?.trim());
   const protocolLines = useClientToolProtocol
     ? [
         'Tools run in-process via TOOL_CALL: lines (see protocol note). Ollama/passthrough-off OWUI must use TOOL_CALL.',
       ]
-    : [
+    : noFolder
+      ? ['Tools run in-process via native API tool_calls.']
+      : [
         'Tools run in-process via native API tool_calls. Prefer read→edit_file/apply_patch→run_diagnostics/run_tests; git_commit/git_pull/git_push/git_switch/git_restore need confirm=true where required.',
       ];
-  const selfUiLines = selfWorkspace
+  const selfUiLines = noFolder
+    ? [
+        'NO WORK FOLDER: this chat has no bound work folder. File, terminal, git, checkpoint and plugin tools are not available and calls to them fail.',
+        'Use web/browser tools, scheduler, task history and memory tools only. Downloads and screenshots go to app data for this session, not to user files.',
+        'If the request needs local files or commands, say that the user must connect a work folder to this chat (작업폴더 연결) — do not pretend to read or edit files.',
+      ]
+    : selfWorkspace
     ? injectUiMap
       ? [
           'Product UI = ui/workspace at /. Classify UI target (shell titlebar / native confirm / ChatPane) — never default every UI edit to ChatPane.',
@@ -216,14 +225,18 @@ export function buildAgentMessages(
         'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and sufficient outcome-relevant verification, call active_task complete. User correction may replace/cancel it.',
         'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
         UNTRUSTED_CONTENT_SYSTEM_RULE,
-        'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
-        `Dev workspace root (not an FS cage): ${root}`,
-        'Relative paths resolve here; absolute/UNC allowed when the user points outside. NAS writes need consent. Do not ask to copy NAS files in — list/read UNC directly.',
+        noFolder
+          ? 'NEVER invent: no internet. Browser and web download tools are available in this chat.'
+          : 'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
+        noFolder ? `Session scratch folder (app data, not user files): ${root}` : `Dev workspace root (not an FS cage): ${root}`,
+        noFolder
+          ? ''
+          : 'Relative paths resolve here; absolute/UNC allowed when the user points outside. NAS writes need consent. Do not ask to copy NAS files in — list/read UNC directly.',
         `Available tools: ${toolNames.join(', ')}.`,
         ...protocolLines,
         ...selfUiLines,
         'Preserve useful findings and answer in the form best suited to the user request.',
-        formatPatchFormatConstraints(),
+        noFolder ? '' : formatPatchFormatConstraints(),
         injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
         // Message-dependent notes (UI path hints, multimodal, image catalog) live in the
@@ -281,13 +294,16 @@ export function buildAgentMessages(
       messages.push({ role: m.role, content: m.content });
     }
   }
-  const turnSnapshot = workspaceSnapshot(
-    opts.workspaceRoot,
-    opts.workspaceContext,
-    opts.userMessage,
-    opts.cqrRoot,
-    stableWorkspace || undefined,
-  ).trim();
+  // No-folder chats: the scratch dir has no project files worth indexing.
+  const turnSnapshot = noFolder
+    ? String(opts.workspaceContext ?? '').trim()
+    : workspaceSnapshot(
+      opts.workspaceRoot,
+      opts.workspaceContext,
+      opts.userMessage,
+      opts.cqrRoot,
+      stableWorkspace || undefined,
+    ).trim();
   const turnContext = formatTurnContextMessage([
     AGENT_REPLY_LANGUAGE_REMINDER,
     injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace).trim() : '',

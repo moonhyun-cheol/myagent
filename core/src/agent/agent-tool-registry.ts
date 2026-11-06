@@ -97,6 +97,8 @@ export function getCodeAgentToolsByPack(
   opts?: { workspaceBehavior?: string },
 ): AgentToolDefinition[] {
   const packTools = getCodeAgentToolsForPack(pack, true, cqrRoot);
+  // No-folder chats: fixed built-in set only (plugins/MCP may touch files or processes).
+  if (pack === 'web') return packTools;
   // Debug tools follow the explicitly selected behavior, never message wording.
   const base = opts?.workspaceBehavior === 'debug' && pack !== 'browser'
     ? [...packTools, ...DEBUG_AGENT_TOOLS]
@@ -110,6 +112,7 @@ export async function getCodeAgentToolsByPackAsync(
   opts?: { workspaceBehavior?: string },
 ): Promise<AgentToolDefinition[]> {
   const base = getCodeAgentToolsByPack(cqrRoot, pack, opts);
+  if (pack === 'web') return base;
   return mergeMcpTools(cqrRoot, base, { stripMutating: pack === 'read_only' });
 }
 
