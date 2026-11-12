@@ -2,10 +2,10 @@
  * Provider-reported model pricing → cost tier.
  *
  * The premium rule is price-based, never a model-name list: a model is
- * `premium` when the provider's output price is >= the configured threshold
- * (USD per 1M output tokens, `deploy-defaults.json`
- * `premium_output_usd_per_million`, default 50). Models whose provider does not
- * publish pricing stay `unknown` — we do not guess.
+ * `premium` when the provider's input price is >= the configured threshold
+ * (USD per 1M input tokens, `deploy-defaults.json`
+ * `premium_input_usd_per_million`, default 4). Models whose provider does not
+ * publish an input price stay `unknown` — we do not guess.
  *
  * Prices from the last remote `/models` listing are persisted under
  * `data/model-pricing.json` so a cold app start can show tiers before the
@@ -27,7 +27,7 @@ export interface ModelPricing {
 
 export type ModelCostTier = 'premium' | 'standard' | 'unknown';
 
-export const DEFAULT_PREMIUM_OUTPUT_USD_PER_MILLION = 50;
+export const DEFAULT_PREMIUM_INPUT_USD_PER_MILLION = 4;
 
 /** OpenRouter reports USD per token as strings ("0.00005"); negative = variable/unknown. */
 export function perTokenToPerMillion(value: unknown): number | undefined {
@@ -66,21 +66,21 @@ export function parseModelPricing(row: Record<string, unknown>): ModelPricing | 
 
 export function costTierFor(
   pricing: ModelPricing | undefined,
-  thresholdUsdPerMillion = DEFAULT_PREMIUM_OUTPUT_USD_PER_MILLION,
+  thresholdUsdPerMillion = DEFAULT_PREMIUM_INPUT_USD_PER_MILLION,
 ): ModelCostTier {
-  if (!pricing || pricing.output === undefined) return 'unknown';
-  return pricing.output >= thresholdUsdPerMillion ? 'premium' : 'standard';
+  if (!pricing || pricing.input === undefined) return 'unknown';
+  return pricing.input >= thresholdUsdPerMillion ? 'premium' : 'standard';
 }
 
-export function resolvePremiumOutputThreshold(cqrRoot?: string): number {
+export function resolvePremiumInputThreshold(cqrRoot?: string): number {
   const root = cqrRoot ?? process.env.MY_AGENT_ROOT ?? '';
   try {
-    const value = Number(loadDeployDefaults(root).premium_output_usd_per_million);
+    const value = Number(loadDeployDefaults(root).premium_input_usd_per_million);
     if (Number.isFinite(value) && value > 0) return value;
   } catch {
     /* fall through to default */
   }
-  return DEFAULT_PREMIUM_OUTPUT_USD_PER_MILLION;
+  return DEFAULT_PREMIUM_INPUT_USD_PER_MILLION;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ export function modelCostTier(
   return costTierFor(lookupModelPricing(providerId, modelId), thresholdUsdPerMillion);
 }
 
-/** All model ids (any provider) whose known output price meets the threshold. */
+/** All model ids (any provider) whose known input price meets the threshold. */
 export function listPremiumModelIds(thresholdUsdPerMillion: number): string[] {
   const out = new Set<string>();
   for (const models of loadTable().values()) {

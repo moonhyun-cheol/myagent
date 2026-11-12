@@ -5,7 +5,7 @@ import { loadPinnedInstructions } from '../lib/pinnedInstructions';
 import { showUserNotification } from '../lib/userNotifications';
 import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
 import {
-  PLAN_BUILD_USER_MESSAGE,
+  saveLastPlanBuildPreference,
   shouldOfferPlanBuild,
 } from '../lib/plan-build';
 import type {
@@ -38,6 +38,7 @@ import { documentApi, type DocumentRecord } from '../api/documentClient';
 import type { Edge, Node } from '@xyflow/react';
 import {
   clearStoredSessionId,
+  createPlanBuildHandoff,
   createSession,
   createSessionRecord,
   deleteAttachment,
@@ -65,6 +66,7 @@ import {
   type PickerModel,
   type SessionActiveRun,
   type SessionMessage,
+  type SessionRecord,
   type ExecutionPolicy,
   type EffectiveExecutionPolicy,
   type WorkspaceFsTreeNode,
@@ -318,6 +320,8 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
           }
         : undefined,
       planBuildOffer: m.status !== 'stopped' && shouldOfferPlanBuild(messages, i),
+      planBuilt: m.role === 'assistant' && m.plan_built_session_id ? true : undefined,
+      planBuiltSessionId: m.role === 'assistant' ? m.plan_built_session_id : undefined,
       planConstraintsLocked:
         m.role === 'assistant' && typeof m.plan_constraints_locked === 'boolean'
           ? m.plan_constraints_locked
@@ -425,6 +429,8 @@ interface LiveJob {
   terminalUsed: boolean;
   /** document-memo asks stay out of ChatPane and run as ask-only. */
   uiSurface?: 'chat' | 'document-memo';
+  /** Server saved the reply as a Plan reply (`done.planBuildOffer`); plain-chat fallbacks never do. */
+  planReplySaved?: boolean;
 }
 
 export type PendingMutateReview = {
@@ -659,8 +665,11 @@ interface WorkspaceState {
     modelOverride?: string,
     opts?: { uiSurface?: 'chat' | 'document-memo' },
   ) => Promise<void>;
-  /** Plan → Agent: switch mode and send build prompt for a plan assistant turn. */
-  buildFromPlan: (assistantTurnId: string) => Promise<void>;
+  /** Plan → Build: open a new Agent conversation (chosen model / reasoning) and send the PLAN block. */
+  buildFromPlan: (
+    assistantTurnId: string,
+    opts: { model: string; reasoning: ExecutionPolicy['reasoning'] },
+  ) => Promise<void>;
   stopAiMessage: () => void;
 }
 
@@ -886,6 +895,56 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     } catch {
       // Best effort: the send request still carries the explicit model.
     }
+  };
+  /** Show a just-created conversation (new chat / Plan Build handoff) as the active view. */
+  const activateCreatedSession = (
+    rec: SessionRecord,
+    workspaceRootProjectId: string | null,
+    membershipProjectId: string | null,
+  ) => {
+    const id = rec.id;
+    cacheActiveSessionView();
+    const policy = rec.execution_policy ?? {
+      reasoning: 'auto' as const,
+      autopilot: 'auto' as const,
+      approval: 'ask' as const,
+      workspace_behavior: 'agent' as const,
+    };
+    // Same rule as reopening: no explicit conversation model → 'auto', which the server resolves
+    // conversation → project/workspace → global default. Sending the global default explicitly
+    // here used to bypass the project model and differ from the reopened state.
+    const selectedModel = rec.preferred_model ?? 'auto';
+    set({
+      activeSessionId: id,
+      composerSessionPromotionId: null,
+      pendingAttachments: attachmentDrafts.get(id) ?? [],
+      activeProjectId: rec.project_id ?? membershipProjectId,
+      activeWorkspaceProjectId: workspaceRootProjectId,
+      chat: [],
+      selectedModel,
+      activeExecutionPolicy: {
+        ...policy,
+        reasoning: normalizeReasoningLevelForModel(
+          policy.reasoning,
+          selectedModel,
+          reasoningCapabilityFor(get().modelOptions, selectedModel),
+        ),
+        workspace_behavior: policy.workspace_behavior ?? 'agent',
+      },
+      effectiveExecutionPolicy: null,
+      assets: [],
+      canvasNodes: [],
+      canvasEdges: [],
+      ...emptyDocumentState(),
+      skillMode: null,
+      skillLabel: null,
+    });
+    cacheActiveSessionView();
+    syncViewBusy();
+    // The file list belongs to the conversation's workspace; the previous chat's tree must not
+    // remain as the Document picker / explorer source for the new chat.
+    set({ files: [], filesRoot: null, filesMessage: null });
+    void get().refreshExplorer();
   };
   const ensureAttachmentSession = async () => {
     const active = get().activeSessionId;
@@ -1158,7 +1217,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const finishedJob = liveJobs.get(sid);
     if (finishedJob) {
       const completedAt = new Date().toISOString();
-      const isPlanRun = !finishedJob.abort.signal.aborted && finishedJob.executionPolicy.workspace_behavior === 'plan';
+      // Server-confirmed only: a Plan-mode request that fell back to plain chat (no folder,
+      // provider error, stop) is not saved as a Plan reply, so offering Build would 409.
+      const isPlanRun = !finishedJob.abort.signal.aborted && finishedJob.planReplySaved === true;
       const completedChat = finishedJob.chat.map((turn) => {
         if (turn.id !== finishedJob.assistantId) return turn;
         const next: ChatTurn = { ...turn, completedAt };
@@ -1492,6 +1553,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 : info.mode === 'image_gen'
                   ? 'image'
                   : 'text';
+              if (info.planBuildOffer) job.planReplySaved = true;
               patchAssistant({
                 mode: resolvedMode,
                 ...(typeof info.planConstraintsLocked === 'boolean'
@@ -2261,55 +2323,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       cacheActiveSessionView();
       const membershipProjectId = projectId;
       const { rec, workspaceRootProjectId } = await createSessionRecord(membershipProjectId);
-      const id = rec.id;
       if (revision !== navigationRevision) {
         const current = get().activeSessionId;
         if (current) setStoredSessionId(current);
         else clearStoredSessionId();
         return;
       }
-      cacheActiveSessionView();
-      const policy = rec.execution_policy ?? {
-        reasoning: 'auto' as const,
-        autopilot: 'auto' as const,
-        approval: 'ask' as const,
-        workspace_behavior: 'agent' as const,
-      };
-      // Same rule as reopening: no explicit conversation model → 'auto', which the server resolves
-      // conversation → project/workspace → global default. Sending the global default explicitly
-      // here used to bypass the project model and differ from the reopened state.
-      const selectedModel = rec.preferred_model ?? 'auto';
-      set({
-        activeSessionId: id,
-        composerSessionPromotionId: null,
-        pendingAttachments: attachmentDrafts.get(id) ?? [],
-        activeProjectId: rec.project_id ?? membershipProjectId,
-        activeWorkspaceProjectId: workspaceRootProjectId,
-        chat: [],
-        selectedModel,
-        activeExecutionPolicy: {
-          ...policy,
-          reasoning: normalizeReasoningLevelForModel(
-            policy.reasoning,
-            selectedModel,
-            reasoningCapabilityFor(get().modelOptions, selectedModel),
-          ),
-          workspace_behavior: policy.workspace_behavior ?? 'agent',
-        },
-        effectiveExecutionPolicy: null,
-        assets: [],
-        canvasNodes: [],
-        canvasEdges: [],
-        ...emptyDocumentState(),
-        skillMode: null,
-        skillLabel: null,
-      });
-      cacheActiveSessionView();
-      syncViewBusy();
-      // The file list belongs to the conversation's workspace; the previous chat's tree must not
-      // remain as the Document picker / explorer source for the new chat.
-      set({ files: [], filesRoot: null, filesMessage: null });
-      void get().refreshExplorer();
+      activateCreatedSession(rec, workspaceRootProjectId, membershipProjectId);
     },
 
     clearActiveChat: () => {
@@ -3611,30 +3631,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       void runJob(sid);
     },
 
-    buildFromPlan: async (assistantTurnId) => {
+    buildFromPlan: async (assistantTurnId, opts) => {
       const sid = get().activeSessionId;
       if (!sid || get().busy) return;
       const turn = get().chat.find((t) => t.id === assistantTurnId);
       if (!turn || turn.role !== 'assistant' || !turn.planBuildOffer || turn.planBuilt) return;
 
-      const nextChat = get().chat.map((t) =>
-        t.id === assistantTurnId ? { ...t, planBuilt: true, planBuildOffer: false } : t,
+      // Server cuts the PLAN block, creates the Agent conversation and copies the Locked P0.
+      const handoff = await createPlanBuildHandoff(sid, opts);
+      saveLastPlanBuildPreference(opts);
+
+      const markBuilt = (chat: ChatTurn[]) => chat.map((t) =>
+        t.id === assistantTurnId
+          ? { ...t, planBuilt: true, planBuildOffer: false, planBuiltSessionId: handoff.rec.id }
+          : t,
       );
-      set({ chat: nextChat });
       const cached = sessionViewCache.get(sid);
-      if (cached) sessionViewCache.set(sid, { ...cached, chat: nextChat });
+      if (cached) sessionViewCache.set(sid, { ...cached, chat: markBuilt(cached.chat) });
+      if (get().activeSessionId !== sid) return;
+      set({ chat: markBuilt(get().chat) });
 
-      const priorAutopilot = get().activeExecutionPolicy.autopilot;
-      await get().setExecutionPolicy({
-        workspace_behavior: 'agent',
-        autopilot:
-          get().activeExecutionPolicy.workspace_behavior === 'plan' ||
-          get().activeExecutionPolicy.workspace_behavior === 'ask'
-            ? 'auto'
-            : priorAutopilot,
-      });
-
-      await get().sendAiMessage(PLAN_BUILD_USER_MESSAGE);
+      ++navigationRevision;
+      setStoredSessionId(handoff.rec.id);
+      activateCreatedSession(handoff.rec, handoff.workspaceRootProjectId, handoff.rec.project_id ?? null);
+      await get().sendAiMessage(handoff.buildMessage);
     },
 
     stopAiMessage: () => {

@@ -304,7 +304,7 @@ export function BrowserPane() {
                   {favicon ? <img src={favicon} alt="" className="size-3.5 shrink-0 rounded-sm" /> : <GlobeSimple size={14} className="shrink-0" />}
                   <span className="truncate">{label}</span>
                   {tab.controlled ? (
-                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent" aria-label="에이전트 제어 중">AI</span>
+                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-[10px] font-semibold text-accent" aria-label="에이전트 제어 중">AI</span>
                   ) : null}
                   {tab.loading ? <span className="shrink-0 text-accent" aria-label="로딩 중">•</span> : null}
                 </button>
@@ -479,7 +479,7 @@ export function BrowserPane() {
                       }`}
                     >
                       <span className="min-w-0 truncate text-[11px]">{preset.label}</span>
-                      <span className="ml-1 shrink-0 text-[9px] text-muted/70">
+                      <span className="ml-1 shrink-0 text-[10px] text-muted/70">
                         {preset.width}×{preset.height}
                       </span>
                       {selected ? <Check size={12} className="ml-1 shrink-0 text-accent" weight="bold" /> : null}

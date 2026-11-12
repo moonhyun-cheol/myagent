@@ -85,7 +85,7 @@ const facts = {
       persist_locked_constraints: true,
       ui_handoff: 'build',
       build_prompt:
-        '위 PLAN을 Agent 모드로 구현해 주세요. Locked P0·대상 파일·단계만 따르고, Exit Gate 1개만 닫으세요. PLAN에 없는 리팩터·범위 확장 금지. verify로 증거를 남기세요.',
+        '아래 PLAN을 Agent 모드로 구현해 주세요. Locked P0·대상 파일·단계만 따르고, Exit Gate 1개만 닫으세요. PLAN에 없는 리팩터·범위 확장 금지. verify로 증거를 남기세요.',
     },
     ask: {
       tool_plane: false,

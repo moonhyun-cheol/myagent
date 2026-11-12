@@ -85,7 +85,7 @@ export function DeveloperPatchNotesMenu({ compact = false }: { compact?: boolean
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-semibold text-text">{note.title}</h3>
-                    <span className="rounded-full border border-line px-1.5 py-0.5 text-[9px] text-muted">
+                    <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] text-muted">
                       {note.status === 'released' && note.release.version
                         ? `v${note.release.version} · update ${note.release.update_sequence}`
                         : PATCH_NOTE_STATUS_LABEL.development}

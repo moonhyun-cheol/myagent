@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * High-cost ($) model tier: provider output price >= threshold (USD / 1M tokens).
+ * High-cost ($) model tier: provider input price >= threshold (USD / 1M input tokens).
  * Price-based only — no model-name list. Requires `npx tsc -p tsconfig.json` (core/dist).
  */
 import assert from 'node:assert/strict';
@@ -22,16 +22,17 @@ assert.equal(pricing.perTokenToPerMillion(''), undefined);
 assert.equal(pricing.perTokenToPerMillion(null), undefined);
 assert.equal(pricing.perTokenToPerMillion('0'), 0);
 
-// 2. Tier boundaries (default 50, inclusive)
-const tier = (output, threshold) => pricing.costTierFor(output === undefined ? undefined : { output }, threshold);
-assert.equal(tier(49.99), 'standard');
-assert.equal(tier(50), 'premium', '$50 exactly is premium (inclusive)');
-assert.equal(tier(600), 'premium');
+// 2. Tier boundaries (default $4 input, inclusive)
+const tier = (input, threshold) => pricing.costTierFor(input === undefined ? undefined : { input }, threshold);
+assert.equal(tier(3.99), 'standard');
+assert.equal(tier(4), 'premium', '$4 input exactly is premium (inclusive)');
+assert.equal(tier(150), 'premium');
 assert.equal(tier(0), 'standard');
 assert.equal(tier(undefined), 'unknown', 'missing pricing is never guessed');
-assert.equal(pricing.costTierFor({ input: 30 }), 'unknown', 'input-only price does not decide the tier');
-assert.equal(tier(50, 80), 'standard', 'threshold is configurable');
-assert.equal(tier(80, 80), 'premium');
+assert.equal(pricing.costTierFor({ output: 600 }), 'unknown', 'output-only price does not decide the tier');
+assert.equal(pricing.costTierFor({ input: 3, output: 600 }), 'standard', 'output price is ignored');
+assert.equal(tier(4, 8), 'standard', 'threshold is configurable');
+assert.equal(tier(8, 8), 'premium');
 
 // 3. /models parsing keeps pricing (new models need no code change)
 const parsed = oai.parseRemoteModels({
@@ -55,13 +56,13 @@ pricing.setModelPricingFileForTest(file);
 pricing.recordProviderPricing('custom', parsed);
 assert.ok(existsSync(file), 'pricing table persisted');
 pricing.setModelPricingFileForTest(file); // drop memory → reload from disk
-assert.equal(pricing.modelCostTier('custom', 'vendor/brand-new-giant', 50), 'premium');
-assert.equal(pricing.modelCostTier('custom', 'vendor/cheap', 50), 'standard');
-assert.equal(pricing.modelCostTier('custom', 'vendor/no-pricing', 50), 'unknown');
-assert.equal(pricing.modelCostTier('openai', 'vendor/brand-new-giant', 50), 'unknown', 'tier is per provider');
+assert.equal(pricing.modelCostTier('custom', 'vendor/brand-new-giant', 4), 'premium');
+assert.equal(pricing.modelCostTier('custom', 'vendor/cheap', 4), 'standard');
+assert.equal(pricing.modelCostTier('custom', 'vendor/no-pricing', 4), 'unknown');
+assert.equal(pricing.modelCostTier('openai', 'vendor/brand-new-giant', 4), 'unknown', 'tier is per provider');
 pricing.recordProviderPricing('custom', [{ id: 'vendor/x' }]);
-assert.equal(pricing.modelCostTier('custom', 'vendor/brand-new-giant', 50), 'premium', 'unpriced listing keeps old table');
-assert.deepEqual(pricing.listPremiumModelIds(50), ['vendor/brand-new-giant']);
+assert.equal(pricing.modelCostTier('custom', 'vendor/brand-new-giant', 4), 'premium', 'unpriced listing keeps old table');
+assert.deepEqual(pricing.listPremiumModelIds(4), ['vendor/brand-new-giant']);
 assert.deepEqual(pricing.listPremiumModelIds(100), []);
 const doc = JSON.parse(readFileSync(file, 'utf8'));
 assert.equal(doc.version, 1);
@@ -70,12 +71,12 @@ assert.equal(doc.version, 1);
 const bad = path.join(dir, 'bad.json');
 await import('node:fs').then((fs) => fs.writeFileSync(bad, '{not json'));
 pricing.setModelPricingFileForTest(bad);
-assert.deepEqual(pricing.listPremiumModelIds(50), []);
+assert.deepEqual(pricing.listPremiumModelIds(4), []);
 
-// 6. Threshold from deploy-defaults (repo default = 50)
+// 6. Threshold from deploy-defaults (repo default = $4 input)
 const repoRoot = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-assert.equal(pricing.resolvePremiumOutputThreshold(repoRoot), 50);
-assert.equal(pricing.resolvePremiumOutputThreshold(path.join(dir, 'no-such-root')), 50, 'missing config → default 50');
+assert.equal(pricing.resolvePremiumInputThreshold(repoRoot), 4);
+assert.equal(pricing.resolvePremiumInputThreshold(path.join(dir, 'no-such-root')), 4, 'missing config → default 4');
 
 // 7. UI source: badge is `$` only, banner text only, no price text / hover tooltip
 const ui = (p) => readFileSync(new URL(`../ui/workspace/src/${p}`, import.meta.url), 'utf8');

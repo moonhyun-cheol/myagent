@@ -31,6 +31,15 @@ P0 line must be parseable (pipe-separated). Example:
 미결정 example:
 `- 미결정: 1) 스킬 범위 — 권장: UI 기본 지정만(세션 자동전환 X) 2) 툴 팩 — 권장: v1 제외`
 
+## Every reply ends with the full PLAN block
+
+Build hands **only the latest reply's PLAN block** to a new Agent conversation; earlier replies do not travel.
+
+- Follow-up turns (수정 요청, 미결정 답변, 방향 변경): restate the **whole** PLAN block — all 7 items (목표·P0·대상 파일·Acceptance·단계·미결정·Exit Gate), never only the changed items.
+- Put a 1–3 line change summary **above** the block. Append 「(변경)」 to the **end** of revised lines (keep the item label first, e.g. `- 단계: … (변경)`). Never mark the `- P0:` line — it must stay parseable; mention P0 changes in the summary instead.
+- Items the user decided: move them out of 미결정 into 단계/P0 (미결정 may become `없음`).
+- Even when you must ask the user something, still output the full PLAN using each 미결정's 「권장」.
+
 ## Rules
 
 - **Never** call `write_file`, `edit_file`, `apply_patch`, `delete_file`, `rename_file`, `run_terminal`, git mutators, or browser tools.

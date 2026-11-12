@@ -36,6 +36,7 @@ import { useConversationDisplayPreferences } from '../lib/conversationDisplayPre
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
+import { PlanBuildDialog } from './PlanBuildDialog';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import {
   listSelectableSkills,
@@ -302,6 +303,7 @@ export function ChatPane() {
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
   const buildFromPlan = useWorkspaceStore((s) => s.buildFromPlan);
+  const [planBuildTurnId, setPlanBuildTurnId] = useState<string | null>(null);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const queueReviewSessions = useWorkspaceStore((s) => s.queueReviewSessions);
   const updateQueuedMessage = useWorkspaceStore((s) => s.updateQueuedMessage);
@@ -912,6 +914,16 @@ export function ChatPane() {
                 ...(message.mode ? { mode: message.mode } : {}),
                 ...(message.image_urls?.length ? { image_urls: message.image_urls } : {}),
                 ...(message.reasoning?.content?.trim() ? { reasoning: message.reasoning } : {}),
+                // 작업기록: tool rows + interleaved order. Local cancel bindings are PC-specific.
+                ...(message.tool_activity?.length
+                  ? {
+                      tool_activity: message.tool_activity.map((row) => {
+                        const { cancelSessionId: _cancel, cancelRequested: _requested, ...rest } = row;
+                        return rest;
+                      }),
+                    }
+                  : {}),
+                ...(message.work_timeline?.length ? { work_timeline: message.work_timeline } : {}),
               })),
             },
           };
@@ -1585,16 +1597,21 @@ export function ChatPane() {
                 </select>
                 <span className="mt-2 block break-all text-[11px] leading-5 text-muted">{workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '등록된 작업 폴더의 파일 접근 범위를 연결합니다. 스킬은 자동 적용하지 않습니다.'}</span>
               </label>
-            ) : policyTarget === 'chat-workspace-behavior' ? (
+            ) : policyTarget === 'chat-workspace-behavior' ? (<>
               <PolicyChoices testId="chat-workspace-behavior" label="작업 방식 선택"
                 value={activeExecutionPolicy.workspace_behavior ?? 'agent'} disabled={busy || policySaving}
                 options={[
-                  { value: 'agent', label: 'Agent', description: '도구로 바로 실행' },
+                  { value: 'agent', label: 'Agent', description: activeWorkspaceProjectId ? '도구로 바로 실행' : '웹 검색·브라우저·자동화 등록 (파일 접근 없음)' },
                   { value: 'plan', label: 'Plan', description: '계획만 · 수정 전 확인' },
                   { value: 'ask', label: 'Ask', description: '설명·질문 중심 · 도구 최소' },
                   { value: 'debug', label: 'Debug', description: '임시 로그로 재현·수정 반복 · 끝나면 로그 제거' },
                 ]} onSelect={(value) => void savePolicy({ workspace_behavior: value as WorkspaceBehavior })} />
-            ) : policyTarget === 'chat-reasoning-level' ? (<>
+              {!activeWorkspaceProjectId ? (
+                <p className="mt-2 text-[11px] leading-5 text-muted" data-testid="chat-workspace-behavior-no-folder">
+                  작업 폴더가 없으면 Agent만 웹·자동화 도구를 쓰고, Plan·Debug는 작업 폴더를 연결해야 동작합니다.
+                </p>
+              ) : null}
+            </>) : policyTarget === 'chat-reasoning-level' ? (<>
               <PolicyChoices testId="chat-reasoning-level" label="추론 수준 선택"
                 value={normalizeReasoningLevelForModel(activeExecutionPolicy.reasoning, skillMode === 'image' ? null : selectedModel, selectedReasoningCapability)}
                 disabled={busy || policySaving || skillMode === 'image' || modelOmitsReasoningEffort(selectedModel, selectedReasoningCapability)}
@@ -1648,7 +1665,7 @@ export function ChatPane() {
         </div>
       </div>
       {apiError ? (
-        <div className="border-b border-line bg-red-950/40 px-5 py-2 text-[12px] text-red-300">
+        <div className="border-b border-danger/30 bg-danger/10 px-5 py-2 text-[12px] text-danger">
           {apiError}
         </div>
       ) : null}
@@ -1970,7 +1987,7 @@ export function ChatPane() {
                     <button
                       type="button"
                       data-testid="plan-build-button"
-                      onClick={() => void buildFromPlan(turn.id)}
+                      onClick={() => setPlanBuildTurnId(turn.id)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-accent/60 bg-accent/12 px-3 py-1.5 text-sm font-semibold text-accent-dim transition-colors hover:bg-accent/20 hover:border-accent"
                     >
                       <Hammer size={15} weight="bold" />
@@ -1979,8 +1996,37 @@ export function ChatPane() {
                     <span className="text-[11px] text-muted">
                       {turn.planConstraintsLocked === false
                         ? 'P0 미추출 · 그래도 Build 가능'
-                        : 'Agent 모드로 PLAN 구현'}
+                        : '새 Agent 대화에서 PLAN 구현'}
                     </span>
+                    {planBuildTurnId === turn.id && activeSessionId ? (
+                      <PlanBuildDialog
+                        sessionId={activeSessionId}
+                        onReformat={(message) => {
+                          setPlanBuildTurnId(null);
+                          void sendAiMessage(message);
+                        }}
+                        modelOptions={modelOptions}
+                        currentModel={selectedModel}
+                        currentReasoning={activeExecutionPolicy.reasoning}
+                        onCancel={() => setPlanBuildTurnId(null)}
+                        onConfirm={async (choice) => {
+                          await buildFromPlan(turn.id, choice);
+                          setPlanBuildTurnId(null);
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+                {turn.role === 'assistant' && turn.planBuilt && turn.planBuiltSessionId ? (
+                  <div className="mt-3 border-t border-line/60 pt-3 text-[12px] text-muted">
+                    <button
+                      type="button"
+                      data-testid="plan-build-open-session"
+                      onClick={() => void loadChatSession(turn.planBuiltSessionId!)}
+                      className="font-semibold text-accent-dim hover:underline"
+                    >
+                      구현 대화 열기 →
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -2017,10 +2063,10 @@ export function ChatPane() {
                 <aside
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
                     turn.applicationNotice.kind === 'continuation'
-                      ? 'border-amber-500/30 bg-amber-500/5 text-amber-100/90'
+                      ? 'border-warning/35 bg-warning/5 text-warning'
                       : turn.applicationNotice.kind === 'debug'
-                        ? 'border-sky-500/30 bg-sky-500/5 text-sky-100/90'
-                        : 'border-red-500/30 bg-red-500/5 text-red-100/90'
+                        ? 'border-info/35 bg-info/5 text-info'
+                        : 'border-danger/35 bg-danger/5 text-danger'
                   }`}
                   aria-label="애플리케이션 안내"
                 >
@@ -2045,9 +2091,9 @@ export function ChatPane() {
             );
           })}
           {openGateText && !busy ? (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-100/90">
+            <div className="flex items-start gap-2 rounded-xl border border-warning/35 bg-warning/5 px-3 py-2 text-sm text-text">
               <div className="min-w-0">
-                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-amber-200/80">
+                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-warning">
                   Exit Gate · 1
                 </p>
                 <p className="mt-0.5 leading-snug">{openGateText}</p>
@@ -2070,7 +2116,7 @@ export function ChatPane() {
                   </span>
                 </div>
                 {openGateText ? (
-                  <p className="mt-0.5 text-[11px] text-amber-200/80">Exit Gate: {openGateText}</p>
+                  <p className="mt-0.5 text-[11px] text-warning">Exit Gate: {openGateText}</p>
                 ) : null}
               </div>
             </div>
@@ -2103,7 +2149,7 @@ export function ChatPane() {
               {contextBudget.compressed ? <span className="text-amber-300">압축됨</span> : null}
             </div>
           ) : null}          {pasteHint ? (
-            <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>
+            <p className="mb-2 text-[11px] text-warning">{pasteHint}</p>
           ) : null}
           {selectedModelPremium ? (
             <div className="premium-model-banner" role="status" data-testid="premium-model-banner">

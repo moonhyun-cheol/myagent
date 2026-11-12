@@ -665,7 +665,7 @@ export function ModelManagementModal({
                           className={`flex-1 rounded-lg border px-3 py-2 text-left ${customForm.compatibility === compatibility ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted'}`}
                         >
                           <span className="block text-xs font-semibold">{compatibility === 'openai' ? 'OpenAI 호환' : 'Anthropic 호환'}</span>
-                          <span className="mt-0.5 block text-[9px]">
+                          <span className="mt-0.5 block text-[10px]">
                             {compatibility === 'openai' ? 'Responses 우선 · 필요 시 Chat Completions로 구성' : 'Anthropic Messages 고정'}
                           </span>
                         </button>

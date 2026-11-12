@@ -84,7 +84,7 @@ function ContextMenuEntry({ item, onClose }: { item: ContextMenuItem; onClose: (
         disabled={item.disabled}
         className={`flex w-full items-center justify-between gap-4 px-3 py-2 text-left text-[13px] outline-none disabled:opacity-40 ${
           item.danger
-            ? 'text-red-300 hover:bg-red-950/50'
+            ? 'text-danger hover:bg-danger/10'
             : 'text-text hover:bg-ink hover:text-accent'
         }`}
         onClick={() => {

@@ -92,7 +92,8 @@ export function contentLooksLikeLeakedRoleInfraFailure(content: string): boolean
  */
 export const TOOL_PLANE_NO_WORKSPACE_REFUSAL =
   '이 대화에는 연결된 작업 폴더가 없습니다. '
-  + '노트북에서 폴더/프로젝트 채팅을 열거나, Manager에서 전역 작업 폴더를 지정해 주세요.';
+  + '이 대화에 작업 폴더를 연결하면 파일·터미널 도구를 쓸 수 있습니다. '
+  + '웹 검색·브라우저·자동화 등록은 작업 방식을 Agent로 두면 폴더 없이도 사용할 수 있습니다.';
 
 /** True when an error string is the legacy thrown no-workspace message (or current refusal). */
 export function isNoWorkspaceBoundError(err: unknown): boolean {

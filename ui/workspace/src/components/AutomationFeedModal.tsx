@@ -126,7 +126,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
         className="flex h-[min(820px,90vh)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-line bg-panel text-text shadow-[0_28px_90px_rgba(0,0,0,0.28)]"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 items-start justify-between gap-5 border-b border-line bg-white/80 px-6 py-5">
+        <header className="flex shrink-0 items-start justify-between gap-5 border-b border-line bg-panel px-6 py-5">
           <div className="flex min-w-0 items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-white shadow-sm">
               <Robot size={21} weight="duotone" />
@@ -142,7 +142,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
               type="button"
               onClick={() => void clearReadItems()}
               disabled={clearing || readItemCount === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-2 text-xs font-semibold text-muted transition hover:border-danger/35 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-45"
               title={readItemCount === 0 ? '정리할 읽은 항목이 없습니다.' : '읽은 항목만 목록에서 제거합니다.'}
             >
               <Trash size={14} />
@@ -175,7 +175,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
               onClick={() => setFilter(id)}
               aria-pressed={filter === id}
               className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
-                filter === id ? 'border-accent bg-accent text-white' : 'border-line bg-white/65 text-muted hover:text-text'
+                filter === id ? 'border-accent bg-accent text-white' : 'border-line bg-panel text-muted hover:text-text'
               }`}
             >
               {label}
@@ -186,11 +186,11 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
 
         <div ref={scrollAreaRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {loadError ? (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{loadError}</div>
+            <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{loadError}</div>
           ) : loading && items.length === 0 ? (
             <p className="py-16 text-center text-sm text-muted">자동화 뉴스피드를 불러오는 중입니다.</p>
           ) : filteredItems.length === 0 ? (
-            <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-white/35 text-center">
+            <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-panel/50 text-center">
               <Robot size={28} weight="duotone" className="text-accent" />
               <p className="mt-3 text-sm font-semibold">표시할 자동화 메시지가 없습니다</p>
               <p className="mt-1 text-xs text-muted">작업 실행 결과와 개선 제안이 생성되면 이곳에 표시됩니다.</p>
@@ -203,7 +203,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
                   type="button"
                   onClick={() => void refresh(Math.min(FEED_MAX, limit + FEED_PAGE * 2))}
                   disabled={loading}
-                  className="w-full rounded-xl border border-line bg-white/65 py-2.5 text-xs font-semibold text-muted transition hover:border-accent/40 hover:text-text disabled:cursor-wait disabled:opacity-50"
+                  className="w-full rounded-xl border border-line bg-panel py-2.5 text-xs font-semibold text-muted transition hover:border-accent/40 hover:text-text disabled:cursor-wait disabled:opacity-50"
                 >
                   {loading ? '불러오는 중…' : '이전 항목 더 보기'}
                 </button>
@@ -240,7 +240,7 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
     <article
       data-feed-item-id={item.id}
       tabIndex={highlighted ? -1 : undefined}
-      className={`rounded-2xl border bg-white/80 p-5 shadow-sm outline-none transition ${highlighted ? 'border-accent ring-2 ring-accent/35' : error ? 'border-red-200' : warning ? 'border-amber-200' : 'border-line'}`}
+      className={`rounded-2xl border bg-panel p-5 shadow-sm outline-none transition ${highlighted ? 'border-accent ring-2 ring-accent/35' : error ? 'border-danger/35' : warning ? 'border-warning/35' : 'border-line'}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
@@ -250,7 +250,7 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-text">{item.title}</h3>
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${error ? 'bg-red-100 text-red-700' : warning ? 'bg-amber-100 text-amber-800' : status ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${error ? 'bg-danger/10 text-danger' : warning ? 'bg-warning/10 text-warning' : status ? 'bg-info/10 text-info' : 'bg-success/10 text-success'}`}>
                 {label}
               </span>
             </div>
@@ -260,20 +260,20 @@ function AutomationFeedCard({ item, highlighted = false }: { item: AutomationFee
       </div>
       <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-text/90">{item.message}</p>
       {error && item.kind !== 'error' ? (
-        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-5 text-red-700">
+        <p className="mt-3 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold leading-5 text-danger">
           실행은 종료됐지만 요청한 결과는 달성되지 않았습니다. 위 실패·차단 사유를 확인한 뒤 권한, 입력 또는 실행 조건을 보완해 다시 실행하세요.
         </p>
       ) : warning ? (
-        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
+        <p className="mt-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-semibold leading-5 text-warning">
           실행은 종료됐지만 일부 결과에 확인이 필요합니다. 내용을 검토한 뒤 누락된 조건을 보완해 다시 실행하세요.
         </p>
       ) : null}
       {browserPages.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-900">
+        <div className="mt-4 rounded-xl border border-info/30 bg-info/10 px-3 py-3 text-text">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold">에이전트 백그라운드 브라우저 작업</p>
-              <p className="mt-0.5 text-[11px] text-sky-700">헤드리스로 완료되었습니다. 요청할 때만 보이는 탭으로 엽니다.</p>
+              <p className="mt-0.5 text-[11px] text-muted">헤드리스로 완료되었습니다. 요청할 때만 보이는 탭으로 엽니다.</p>
             </div>
             {browserPages.map(({ attachment, url }) => (
               <button

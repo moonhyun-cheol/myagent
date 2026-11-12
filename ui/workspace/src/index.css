@@ -3,8 +3,8 @@
 @import './ux.css';
 
 @theme {
-  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-sans: 'Outfit', 'Pretendard', 'Malgun Gothic', 'Apple SD Gothic Neo', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'D2Coding', ui-monospace, 'Consolas', 'Malgun Gothic', monospace;
   --color-ink: #eef2f0;
   --color-panel: #fafcfb;
   --color-panel-2: #e0e8e4;

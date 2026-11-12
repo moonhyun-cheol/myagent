@@ -21,8 +21,51 @@ import { formatCarriedMediaNote, sanitizeLocalMediaUrls } from './session-media-
 import {
   pushResponseDelta,
   pushToolMarker,
+  sanitizeWorkTimeline,
   type WorkTimelineItem,
 } from './work-timeline.js';
+import { redactActivity, type ToolActivity } from '../agent/tool-activity.js';
+
+const MAX_IMPORTED_TOOL_ACTIVITY = 500;
+const MAX_IMPORTED_TOOL_OUTPUT_CHARS = 200_000;
+
+/** Portable import: keep finished work-log rows only; local cancel bindings never travel. */
+function sanitizeImportedToolActivity(value: unknown): ToolActivity[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: ToolActivity[] = [];
+  for (const raw of value.slice(0, MAX_IMPORTED_TOOL_ACTIVITY)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    if (typeof item.id !== 'string' || !item.id || typeof item.tool !== 'string' || !item.tool) continue;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const state = item.state === 'success' || item.state === 'failed' || item.state === 'cancelled'
+      ? item.state
+      : 'cancelled';
+    const startedAt = num(item.startedAt) ?? 0;
+    const output = typeof item.output === 'string' ? redactActivity(item.output) : '';
+    const clipped = output.length > MAX_IMPORTED_TOOL_OUTPUT_CHARS;
+    const finishedAt = num(item.finishedAt);
+    const lastOutputAt = num(item.lastOutputAt);
+    out.push({
+      id: item.id,
+      ...(typeof item.activityGroupId === 'string' && item.activityGroupId ? { activityGroupId: item.activityGroupId } : {}),
+      tool: item.tool,
+      target: typeof item.target === 'string' ? redactActivity(item.target).slice(0, 600) : '',
+      state,
+      startedAt,
+      updatedAt: num(item.updatedAt) ?? startedAt,
+      ...(finishedAt !== undefined ? { finishedAt } : {}),
+      ...(lastOutputAt !== undefined ? { lastOutputAt } : {}),
+      output: clipped ? output.slice(0, MAX_IMPORTED_TOOL_OUTPUT_CHARS) : output,
+      truncated: clipped || item.truncated === true,
+      ...(typeof item.exitCode === 'number' || item.exitCode === null ? { exitCode: item.exitCode as number | null } : {}),
+      ...(state === 'failed' && (item.failureKind === 'command_failed' || item.failureKind === 'call_failed')
+        ? { failureKind: item.failureKind }
+        : {}),
+    });
+  }
+  return out.length ? out : undefined;
+}
 
 const MAX_ASSISTANT_THOUGHT_CHARS = 200_000;
 const TRUNCATED_THOUGHT_PREFIX = '[이전 작업 로그 일부 생략]\n';
@@ -164,8 +207,19 @@ export class SessionStore {
             },
           };
         })(),
+        ...(() => {
+          if (item.role !== 'assistant') return {};
+          const toolActivity = sanitizeImportedToolActivity(item.tool_activity);
+          const ids = new Set(toolActivity?.map((row) => row.id) ?? []);
+          const timeline = sanitizeWorkTimeline(item.work_timeline)
+            ?.filter((entry) => entry.kind === 'response' || ids.has(entry.id));
+          return {
+            ...(toolActivity ? { tool_activity: toolActivity } : {}),
+            ...(timeline?.length ? { work_timeline: timeline } : {}),
+          };
+        })(),
       }))
-      .filter((item) => item.content.trim() || (item.image_urls?.length ?? 0) > 0);
+      .filter((item) => item.content.trim() || (item.image_urls?.length ?? 0) > 0 || (item.tool_activity?.length ?? 0) > 0);
     const title = normalizeSessionTitle(
       typeof conversation.title === 'string' && conversation.title.trim()
         ? conversation.title
@@ -724,6 +778,17 @@ export class SessionStore {
     rec.updated_at = new Date().toISOString();
     this.save(rec);
     return rec;
+  }
+
+  /** Mark the latest Plan reply as handed off to `builtSessionId` (Build offer stays hidden on reload). */
+  markPlanBuilt(id: string, builtSessionId: string): boolean {
+    const rec = this.load(id);
+    const last = rec?.messages[rec.messages.length - 1];
+    const target = sanitizeId(builtSessionId);
+    if (!rec || !last || last.role !== 'assistant' || !target) return false;
+    last.plan_built_session_id = target;
+    this.save(rec);
+    return true;
   }
 
   setExecutionPolicy(id: string, policy: ExecutionPolicy): SessionRecord | null {

@@ -97,6 +97,11 @@ export interface CodeAgentOptions extends CodeAgentCallbacks {
   imageDataUrls?: string[];
   /** Force tool pack instead of message heuristic. */
   forceToolPack?: AgentToolPack;
+  /**
+   * 'none' = no bound work folder: workspaceRoot is an app scratch dir, the web tool pack
+   * is enforced, and file-index context (tree/repo map/retrieval) is skipped.
+   */
+  fileAccess?: 'workspace' | 'none';
   /** Plan/Ask/Agent/Debug workspace behavior from the session execution policy. */
   workspaceBehavior?: WorkspaceBehavior;
   /** Extra system notes prepended after skill prompt. */

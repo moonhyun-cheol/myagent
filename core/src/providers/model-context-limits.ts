@@ -1,8 +1,12 @@
 /**
  * Model context_length seeds + budget scaling for history/tool caps.
  * Remote /models meta wins over seed; unknown models fall back to 128k (flagged).
+ *
+ * Remote values are persisted under `data/model-context-remote.json` so a cold app start
+ * keeps the real window. Without it every unseeded model ran at 128k until the user
+ * manually refreshed the model list, which made long runs rebuild context every step.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadHarnessPolicy } from './harness-policy.js';
@@ -153,18 +157,107 @@ export function normalizeModelIdForLimits(modelId: string): string[] {
 }
 
 const remoteContextCache = new Map<string, number>();
+/** Raw model id → context_length as listed by the provider (what gets persisted). */
+const remoteContextById = new Map<string, number>();
+const REMOTE_CONTEXT_FILE_MAX_MODELS = 5_000;
+let remoteFileOverride: string | null | undefined;
+let remoteLoaded = false;
+let remoteDirty = false;
 
-/** Remember context_length from a live /models list (process-lifetime). */
-export function rememberRemoteModelContext(modelId: string, contextLength: number): void {
+interface RemoteContextFileDoc {
+  version: 1;
+  updated_at: string;
+  models: Record<string, number>;
+}
+
+function remoteContextFile(): string | null {
+  if (remoteFileOverride !== undefined) return remoteFileOverride;
+  const root = process.env.MY_AGENT_ROOT?.trim();
+  return root ? path.join(root, 'data', 'model-context-remote.json') : null;
+}
+
+function setRemoteContext(modelId: string, contextLength: number): boolean {
   const n = Math.floor(contextLength);
-  if (!modelId || !Number.isFinite(n) || n < 1_024) return;
+  if (!modelId || !Number.isFinite(n) || n < 1_024) return false;
+  const changed = remoteContextById.get(modelId) !== n;
+  remoteContextById.set(modelId, n);
   for (const k of normalizeModelIdForLimits(modelId)) {
     remoteContextCache.set(k, n);
   }
+  return changed;
 }
 
+/** Lazy one-time load of the persisted remote windows; live values already in memory win. */
+function ensureRemoteContextLoaded(): void {
+  if (remoteLoaded) return;
+  remoteLoaded = true;
+  const file = remoteContextFile();
+  if (!file || !existsSync(file)) return;
+  try {
+    const doc = JSON.parse(readFileSync(file, 'utf8')) as Partial<RemoteContextFileDoc>;
+    const models = doc.models && typeof doc.models === 'object' ? doc.models : {};
+    for (const [id, value] of Object.entries(models).slice(0, REMOTE_CONTEXT_FILE_MAX_MODELS)) {
+      if (typeof value !== 'number' || remoteContextById.has(id)) continue;
+      setRemoteContext(id, value);
+    }
+  } catch {
+    /* corrupt cache: start empty, the next /models listing rewrites it */
+  }
+}
+
+/** Remember context_length from a live /models list (memory; call persist after a batch). */
+export function rememberRemoteModelContext(modelId: string, contextLength: number): void {
+  ensureRemoteContextLoaded();
+  if (setRemoteContext(modelId, contextLength)) remoteDirty = true;
+}
+
+/** Write remembered remote windows to disk (best-effort, atomic). No-op when unchanged. */
+export function persistRemoteModelContexts(): void {
+  if (!remoteDirty) return;
+  const file = remoteContextFile();
+  if (!file) return;
+  const doc: RemoteContextFileDoc = {
+    version: 1,
+    updated_at: new Date().toISOString(),
+    models: Object.fromEntries([...remoteContextById].slice(0, REMOTE_CONTEXT_FILE_MAX_MODELS)),
+  };
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(doc), 'utf8');
+    renameSync(tmp, file);
+    remoteDirty = false;
+  } catch {
+    /* context cache is best-effort; memory values still apply for this process */
+  }
+}
+
+/** True once any remote context window is known (memory or `data/model-context-remote.json`). */
+export function hasRemoteModelContexts(): boolean {
+  ensureRemoteContextLoaded();
+  return remoteContextById.size > 0;
+}
+
+/** True when remote windows can be persisted for the next start (app root known). */
+export function canPersistRemoteModelContexts(): boolean {
+  return remoteContextFile() !== null;
+}
+
+/** Memory only: drops remembered values without touching or re-reading the persisted file. */
 export function clearRemoteModelContextCache(): void {
   remoteContextCache.clear();
+  remoteContextById.clear();
+  remoteLoaded = true;
+  remoteDirty = false;
+}
+
+/** Verify hook: point the store at a temp file (null = memory only) and drop memory. */
+export function setRemoteModelContextFileForTest(file: string | null | undefined): void {
+  remoteFileOverride = file;
+  remoteContextCache.clear();
+  remoteContextById.clear();
+  remoteLoaded = false;
+  remoteDirty = false;
 }
 
 export function seedContextLengthForModel(modelId: string | null | undefined): number | null {
@@ -188,6 +281,7 @@ function lookupOverride(modelId: string | null | undefined): ModelLimitOverride 
 }
 
 function remoteContextLengthForModel(modelId: string): number | null {
+  ensureRemoteContextLoaded();
   for (const k of normalizeModelIdForLimits(modelId)) {
     const remote = remoteContextCache.get(k);
     if (typeof remote === 'number' && remote > 0) return remote;

@@ -59,7 +59,7 @@ import {
   completeAgentStepWithProtocol,
   type AgentToolProtocol,
 } from './agent-llm-step.js';
-import { packIncludesBrowser } from './agent-tool-pack.js';
+import { packEnforcesToolAllowlist, packIncludesBrowser } from './agent-tool-pack.js';
 import { loadUiFacts } from './agent-grounding.js';
 import {
   formatAutopilotSystemNote,
@@ -230,11 +230,16 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       opts.userMessage,
       { codeSession: true },
     );
-  const toolPack = opts.forceToolPack
-    ?? resolveBehaviorToolPack(workspaceBehavior, opts.cqrRoot, 'files+browser');
+  const fileAccess = opts.fileAccess ?? 'workspace';
+  const toolPack = fileAccess === 'none'
+    ? 'web'
+    : opts.forceToolPack ?? resolveBehaviorToolPack(workspaceBehavior, opts.cqrRoot, 'files+browser');
   let agentTools = await getCodeAgentToolsByPackAsync(opts.cqrRoot, toolPack, { workspaceBehavior });
   let toolNames = getCodeAgentToolNamesFromTools(agentTools);
-  const scopedMemory = resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
+  // No-folder chats run in an app scratch dir under cqrRoot: never treat it as self-workspace.
+  const scopedMemory = fileAccess === 'none'
+    ? { selfWorkspace: false, promptBlock: '' }
+    : resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
   const selfWorkspace = scopedMemory.selfWorkspace;
   // The model receives the complete safe tool schema and decides whether tools are needed.
   const uiFacts = selfWorkspace ? loadUiFacts(opts.cqrRoot) : null;
@@ -766,6 +771,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     browserRouting: opts.browserRouting,
     signal: opts.signal,
     workspaceBehavior,
+    fileAccess,
+    ...(packEnforcesToolAllowlist(toolPack) ? { allowedToolNames: new Set(toolNames) } : {}),
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,

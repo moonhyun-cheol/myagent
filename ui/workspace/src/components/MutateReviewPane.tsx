@@ -22,9 +22,9 @@ function fileLabel(path: string): string {
 
 function DiffLine({ line }: { line: string }) {
   const cls = line.startsWith('+')
-    ? 'bg-emerald-500/10 text-emerald-200/90'
+    ? 'bg-success/10 text-success'
     : line.startsWith('-')
-      ? 'bg-red-500/10 text-red-200/90'
+      ? 'bg-danger/10 text-danger'
       : 'text-text/75';
   return (
     <div className={`whitespace-pre-wrap break-all px-2 py-px ${cls}`}>
@@ -155,7 +155,7 @@ export function MutateReviewPane() {
           disabled={!reviewSelected.length}
           onClick={() => void rejectMutateReview(reviewSelected)}
           data-testid="mutate-review-reject-selected"
-          className="rounded-md border border-amber-400/40 bg-amber-950/20 px-2.5 py-1 text-[11px] font-semibold text-amber-100 hover:border-amber-400/70 disabled:opacity-40"
+          className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning hover:border-warning/70 disabled:opacity-40"
         >
           Reject 선택
         </button>
@@ -163,7 +163,7 @@ export function MutateReviewPane() {
           type="button"
           onClick={() => void rejectMutateReview()}
           data-testid="mutate-review-reject"
-          className="rounded-md border border-red-400/40 bg-red-950/20 px-2.5 py-1 text-[11px] font-semibold text-red-200 hover:border-red-400/70"
+          className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1 text-[11px] font-semibold text-danger hover:border-danger/70"
         >
           Reject 전부
         </button>
@@ -208,7 +208,7 @@ export function MutateReviewPane() {
                     </button>
                     <button
                       type="button"
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-amber-200/80 hover:bg-amber-500/10"
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-warning hover:bg-warning/10"
                       onClick={() => void rejectMutateReview([p])}
                     >
                       복원

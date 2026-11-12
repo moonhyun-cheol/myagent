@@ -20,7 +20,7 @@
 .document-pane td, .document-pane th { border: 1px solid var(--color-line); padding: 6px; }
 .document-pane a { color: var(--color-accent); text-decoration: underline; }
 .document-pane blockquote { border-left: 3px solid var(--color-accent); padding-left: 12px; }
-.document-pane textarea { width: 100%; min-height: 220px; background: var(--color-ink); color: var(--color-text); border: 1px solid var(--color-line); padding: 10px; font-family: monospace; }
+.document-pane textarea { width: 100%; min-height: 220px; background: var(--color-ink); color: var(--color-text); border: 1px solid var(--color-line); padding: 10px; font-family: var(--font-mono); }
 .document-bubble { position: fixed; z-index: 100; display: flex; flex-wrap: wrap; gap: 5px; width: 290px; background: var(--surface-raised); color: var(--color-text); border: 1px solid var(--color-line); border-radius: 8px; padding: 8px; box-shadow: 0 4px 18px #0004; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; }
 .document-bubble input { min-width: 100px; flex: 1; max-width: 100%; box-sizing: border-box; }
 .document-bubble button { min-height: 32px; }

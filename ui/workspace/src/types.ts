@@ -151,6 +151,8 @@ export interface ChatTurn {
   planBuildOffer?: boolean;
   /** User clicked Build for this plan turn. */
   planBuilt?: boolean;
+  /** Build conversation created from this plan turn (link target). */
+  planBuiltSessionId?: string;
   /** Weak signal: P0 locked-constraints extract succeeded (Build still allowed if false). */
   planConstraintsLocked?: boolean;
   /** Host/application notice displayed outside the model-authored bubble. */

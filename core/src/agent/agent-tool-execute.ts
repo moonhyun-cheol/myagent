@@ -9,6 +9,7 @@ import {
 } from './dev-workspace-fs.js';
 import { formatEmptyRetrievalHint, formatToolSelfCorrection } from './tool-self-correction.js';
 import { isMutatingAgentTool } from './verify-loop.js';
+import { formatToolNotInPack } from './agent-tool-pack.js';
 import { extractPathsFromUserMessage } from './agent-outcome-gate.js';
 import {
   formatRunTerminalOutput,
@@ -336,6 +337,10 @@ async function executeAgentToolInner(
   const args = parseToolArgs(normalized.function.arguments);
   const name = normalized.function.name;
 
+  if (ctx?.allowedToolNames && !ctx.allowedToolNames.has(name)) {
+    return { label: name, output: formatToolNotInPack(name, ctx.fileAccess) };
+  }
+
   if (ctx?.workspaceBehavior === 'plan' && isMutatingAgentTool(name)) {
     return {
       label: name,
@@ -375,7 +380,10 @@ async function executeAgentToolInner(
         if (!runtime) throw new Error('Personal scheduler is not running with the Core API');
         // Bind the creating chat's workspace so the unattended run gets the tool runtime.
         const sessionRoots = ctx.sessionId ? runtime.resolveSessionWorkspaceRoots?.(ctx.sessionId) ?? [] : [];
-        const workspaceRoots = sessionRoots.length ? sessionRoots : workspaceRoot ? [workspaceRoot] : [];
+        // No-folder chats run in an app scratch dir; never bind it as the task's work folder.
+        const workspaceRoots = sessionRoots.length
+          ? sessionRoots
+          : workspaceRoot && ctx.fileAccess !== 'none' ? [workspaceRoot] : [];
         const task = runtime.service.saveTask({
           name: String(args.name ?? ''),
           description: String(args.description ?? ''),
