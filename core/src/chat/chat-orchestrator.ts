@@ -1401,6 +1401,7 @@ export class ChatOrchestrator {
           ...((full as { planConstraintsLocked?: boolean }).planConstraintsLocked !== undefined
             ? { planConstraintsLocked: (full as { planConstraintsLocked?: boolean }).planConstraintsLocked }
             : {}),
+          ...((full as { planBuildOffer?: boolean }).planBuildOffer ? { planBuildOffer: true } : {}),
         });
       } catch (e: unknown) {
         const thrownUsage = toMessageUsage(agentUsageFromError(e));

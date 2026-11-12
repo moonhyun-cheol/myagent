@@ -50,6 +50,51 @@ export function formatPlanBuildMessage(cqrRoot: string, planBlock: string): stri
   return `${loadPlanBuildPrompt(cqrRoot)}\n\n${planBlock.trim()}`;
 }
 
+/** PLAN items Build cannot run without (Acceptance / 미결정 may legitimately be n/a). */
+const REQUIRED_PLAN_FIELDS: Array<{ label: string; re: RegExp }> = [
+  { label: '목표', re: /^[-*•]\s*(?:\*\*)?목표/m },
+  { label: 'P0', re: /^[-*•]\s*(?:\*\*)?P0/m },
+  { label: '대상 파일', re: /^[-*•]\s*(?:\*\*)?대상\s*파일/m },
+  { label: '단계', re: /^[-*•]\s*(?:\*\*)?단계/m },
+  { label: 'Exit Gate', re: /^[-*•]\s*(?:\*\*)?Exit\s*Gate/im },
+];
+
+/** Required PLAN items missing from a block (e.g. a follow-up reply that only listed the changes). */
+export function missingPlanFields(planBlock: string): string[] {
+  return REQUIRED_PLAN_FIELDS.filter((field) => !field.re.test(planBlock)).map((field) => field.label);
+}
+
+/** Same-chat follow-up asking the Plan model to restate the full PLAN block (no new exploration). */
+export const PLAN_REFORMAT_MESSAGE =
+  '지금까지 정한 내용을 PLAN 블록 전체(목표·P0·대상 파일·Acceptance·단계·미결정·Exit Gate)로 다시 정리해 주세요. '
+  + '새로 탐색하지 말고 이 대화에서 확인한 내용만 쓰세요.';
+
+export type PlanBuildPreview =
+  | { status: 'ready' | 'incomplete'; missing_fields: string[]; plan_block: string; reformat_message: string }
+  | { status: 'missing'; missing_fields: string[]; reformat_message: string }
+  | { status: 'not_buildable'; message: string };
+
+/** Dry-run of the handoff: what Build would carry, so the dialog can warn before creating a chat. */
+export function previewPlanBuild(rec: SessionRecord): PlanBuildPreview {
+  const plan = buildablePlanMessage(rec);
+  if (!plan) return { status: 'not_buildable', message: 'Build할 수 있는 최신 PLAN 답변이 없습니다.' };
+  const block = extractPlanBlock(plan.content);
+  if (!block) {
+    return {
+      status: 'missing',
+      missing_fields: REQUIRED_PLAN_FIELDS.map((field) => field.label),
+      reformat_message: PLAN_REFORMAT_MESSAGE,
+    };
+  }
+  const missing = missingPlanFields(block);
+  return {
+    status: missing.length ? 'incomplete' : 'ready',
+    missing_fields: missing,
+    plan_block: block,
+    reformat_message: PLAN_REFORMAT_MESSAGE,
+  };
+}
+
 /** Latest Plan reply eligible for Build (same rule as the UI offer: nothing sent after it). */
 export function buildablePlanMessage(rec: SessionRecord): SessionMessage | null {
   const last = rec.messages[rec.messages.length - 1];
@@ -67,6 +112,7 @@ export type PlanBuildHandoffResult =
       session: SessionRecord;
       build_message: string;
       plan_constraints_locked: boolean;
+      missing_fields: string[];
     }
   | { ok: false; status: number; error: string; message: string };
 
@@ -134,5 +180,6 @@ export function createPlanBuildHandoff(opts: {
     session,
     build_message: formatPlanBuildMessage(cqrRoot, block),
     plan_constraints_locked: Boolean(constraints),
+    missing_fields: missingPlanFields(block),
   };
 }

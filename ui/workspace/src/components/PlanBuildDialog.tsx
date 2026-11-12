@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Hammer } from '@phosphor-icons/react';
-import type { PickerModel, ReasoningLevel } from '../api/myAgentClient';
+import { fetchPlanBuildPreview, type PickerModel, type PlanBuildPreview, type ReasoningLevel } from '../api/myAgentClient';
 import { normalizeReasoningLevelForModel, reasoningSelectOptionsForModel } from '../lib/reasoning-levels';
 import { readLastPlanBuildPreference } from '../lib/plan-build';
 
@@ -10,13 +10,16 @@ import { readLastPlanBuildPreference } from '../lib/plan-build';
  * build model / reasoning are picked here (prefilled with the last Build choice).
  */
 export function PlanBuildDialog(props: {
+  sessionId: string;
   modelOptions: PickerModel[];
   currentModel: string;
   currentReasoning: ReasoningLevel;
   onCancel: () => void;
   onConfirm: (choice: { model: string; reasoning: ReasoningLevel }) => Promise<void>;
+  /** Ask the Plan chat to restate the full PLAN block (same chat, Plan mode). */
+  onReformat: (message: string) => void;
 }) {
-  const { modelOptions, currentModel, currentReasoning, onCancel, onConfirm } = props;
+  const { sessionId, modelOptions, currentModel, currentReasoning, onCancel, onConfirm, onReformat } = props;
   const languageModels = useMemo(
     () => modelOptions.filter((option) => option.category !== 'video'),
     [modelOptions],
@@ -35,7 +38,25 @@ export function PlanBuildDialog(props: {
   });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PlanBuildPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
   const reasoningOptions = reasoningSelectOptionsForModel(model, { capability: capabilityFor(model) });
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreviewLoading(true);
+    fetchPlanBuildPreview(sessionId)
+      .then((next) => { if (!cancelled) setPreview(next); })
+      // Preview is advisory: the handoff itself still validates the PLAN block.
+      .catch(() => { if (!cancelled) setPreview(null); })
+      .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const blockMissing = preview?.status === 'missing';
+  const notBuildable = preview?.status === 'not_buildable';
+  const reformatMessage = preview && preview.status !== 'not_buildable' ? preview.reformatMessage : '';
+  const buildDisabled = pending || previewLoading || blockMissing || notBuildable;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -86,6 +107,19 @@ export function PlanBuildDialog(props: {
           <p className="mt-2 text-[13px] leading-5 text-muted">
             PLAN 블록과 P0 제약만 새 Agent 대화로 넘깁니다. 구현에 쓸 모델과 추론 수준을 고르세요.
           </p>
+          {blockMissing ? (
+            <p data-testid="plan-build-block-missing" className="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] leading-5 text-text">
+              이 답변에는 PLAN 블록이 없어 새 대화로 넘길 내용이 없습니다. 「PLAN으로 정리 요청」을 누르면 이 대화에서 지금까지의 내용을 PLAN 형식으로 다시 받습니다.
+            </p>
+          ) : preview?.status === 'incomplete' ? (
+            <p data-testid="plan-build-incomplete" className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] leading-5 text-text">
+              PLAN이 불완전합니다. 빠진 항목: {preview.missingFields.join(', ')}. 변경분만 담긴 답변이면 구현 대화가 빠진 내용을 모릅니다. 다시 정리하거나 그대로 Build할 수 있습니다.
+            </p>
+          ) : notBuildable ? (
+            <p data-testid="plan-build-not-buildable" className="mt-3 text-[12px] font-semibold leading-snug text-danger">
+              {preview.message}
+            </p>
+          ) : null}
           <label className="mt-5 block text-[12px] font-semibold text-muted" htmlFor="plan-build-model">
             모델
           </label>
@@ -138,15 +172,32 @@ export function PlanBuildDialog(props: {
             >
               취소
             </button>
+            {reformatMessage && (blockMissing || preview?.status === 'incomplete') ? (
+              <button
+                type="button"
+                data-testid="plan-build-reformat"
+                className="min-w-[96px] rounded-xl border border-accent/60 bg-accent/12 px-3.5 py-2.5 text-xs font-semibold text-accent-dim transition-colors hover:bg-accent/20"
+                disabled={pending}
+                onClick={() => onReformat(reformatMessage)}
+              >
+                PLAN으로 정리 요청
+              </button>
+            ) : null}
             <button
               type="button"
               data-testid="plan-build-confirm"
               autoFocus
               className="min-w-[96px] rounded-xl bg-accent px-3.5 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/90 disabled:opacity-60"
-              disabled={pending}
+              disabled={buildDisabled}
               onClick={() => void submit()}
             >
-              {pending ? '새 대화 여는 중…' : '새 대화에서 Build'}
+              {pending
+                ? '새 대화 여는 중…'
+                : previewLoading
+                  ? 'PLAN 확인 중…'
+                  : preview?.status === 'incomplete'
+                    ? '그래도 Build'
+                    : '새 대화에서 Build'}
             </button>
           </div>
         </div>

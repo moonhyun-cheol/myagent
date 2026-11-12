@@ -429,6 +429,8 @@ interface LiveJob {
   terminalUsed: boolean;
   /** document-memo asks stay out of ChatPane and run as ask-only. */
   uiSurface?: 'chat' | 'document-memo';
+  /** Server saved the reply as a Plan reply (`done.planBuildOffer`); plain-chat fallbacks never do. */
+  planReplySaved?: boolean;
 }
 
 export type PendingMutateReview = {
@@ -1215,7 +1217,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     const finishedJob = liveJobs.get(sid);
     if (finishedJob) {
       const completedAt = new Date().toISOString();
-      const isPlanRun = !finishedJob.abort.signal.aborted && finishedJob.executionPolicy.workspace_behavior === 'plan';
+      // Server-confirmed only: a Plan-mode request that fell back to plain chat (no folder,
+      // provider error, stop) is not saved as a Plan reply, so offering Build would 409.
+      const isPlanRun = !finishedJob.abort.signal.aborted && finishedJob.planReplySaved === true;
       const completedChat = finishedJob.chat.map((turn) => {
         if (turn.id !== finishedJob.assistantId) return turn;
         const next: ChatTurn = { ...turn, completedAt };
@@ -1549,6 +1553,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
                 : info.mode === 'image_gen'
                   ? 'image'
                   : 'text';
+              if (info.planBuildOffer) job.planReplySaved = true;
               patchAssistant({
                 mode: resolvedMode,
                 ...(typeof info.planConstraintsLocked === 'boolean'

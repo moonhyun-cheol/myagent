@@ -1988,8 +1988,13 @@ export function ChatPane() {
                         ? 'P0 미추출 · 그래도 Build 가능'
                         : '새 Agent 대화에서 PLAN 구현'}
                     </span>
-                    {planBuildTurnId === turn.id ? (
+                    {planBuildTurnId === turn.id && activeSessionId ? (
                       <PlanBuildDialog
+                        sessionId={activeSessionId}
+                        onReformat={(message) => {
+                          setPlanBuildTurnId(null);
+                          void sendAiMessage(message);
+                        }}
                         modelOptions={modelOptions}
                         currentModel={selectedModel}
                         currentReasoning={activeExecutionPolicy.reasoning}

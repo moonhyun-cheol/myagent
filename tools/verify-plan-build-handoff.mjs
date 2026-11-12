@@ -11,6 +11,8 @@ import { SessionStore } from '../core/dist/sessions/session-store.js';
 import {
   createPlanBuildHandoff,
   extractPlanBlock,
+  missingPlanFields,
+  previewPlanBuild,
 } from '../core/dist/sessions/plan-build-handoff.js';
 import { loadLockedConstraints } from '../core/dist/agent/agent-locked-constraints.js';
 
@@ -37,6 +39,14 @@ assert.equal(extractPlanBlock('서술형 답변만 있습니다.'), null);
 const revised = PLAN.replace('Build를 새 대화로 넘긴다', '수정된 목표');
 assert.equal(extractPlanBlock(`${PLAN}\n\n수정본:\n\n${revised}`), revised);
 
+// Completeness: a changes-only follow-up block is flagged before Build.
+assert.deepEqual(missingPlanFields(PLAN), []);
+assert.deepEqual(
+  missingPlanFields('PLAN:\n- 단계: 2번만 변경 (변경)\n- Exit Gate: ok'),
+  ['목표', 'P0', '대상 파일'],
+);
+assert.deepEqual(missingPlanFields(PLAN.replace('- 목표:', '- **목표**:')), []);
+
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-plan-build-'));
 
 function seed(store, id, reply) {
@@ -51,6 +61,10 @@ try {
   const store = new SessionStore(temp, temp);
   seed(store, 'plan-a', REPLY);
   store.setScopeSettings('plan-a', { allowed_paths: [path.join(temp, 'ws')] });
+
+  const ready = previewPlanBuild(store.load('plan-a'));
+  assert.equal(ready.status, 'ready');
+  assert.ok(ready.reformat_message.length > 10);
 
   const out = createPlanBuildHandoff({
     sessionStore: store,
@@ -85,11 +99,18 @@ try {
   const again = createPlanBuildHandoff({ sessionStore: store, cqrRoot: temp, sourceSessionId: 'plan-a', model: 'auto', reasoning: 'auto' });
   assert.equal(again.ok, false);
   assert.equal(again.error, 'PLAN_NOT_BUILDABLE');
+  assert.equal(previewPlanBuild(store.load('plan-a')).status, 'not_buildable');
 
   seed(store, 'plan-prose', '서술형 계획입니다. 먼저 A를 하고 B를 합니다.');
   const prose = createPlanBuildHandoff({ sessionStore: store, cqrRoot: temp, sourceSessionId: 'plan-prose', model: 'auto', reasoning: 'auto' });
   assert.equal(prose.ok, false);
   assert.equal(prose.error, 'PLAN_BLOCK_MISSING');
+  assert.equal(previewPlanBuild(store.load('plan-prose')).status, 'missing');
+
+  seed(store, 'plan-delta', '2번 단계만 바꿉니다.\n\nPLAN:\n- 단계: 2번을 API 먼저 (변경)\n- Exit Gate: ok');
+  const delta = previewPlanBuild(store.load('plan-delta'));
+  assert.equal(delta.status, 'incomplete');
+  assert.deepEqual(delta.missing_fields, ['목표', 'P0', '대상 파일']);
 
   seed(store, 'plan-auto', REPLY);
   const auto = createPlanBuildHandoff({ sessionStore: store, cqrRoot: temp, sourceSessionId: 'plan-auto', model: 'auto', reasoning: 'auto' });

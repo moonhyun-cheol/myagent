@@ -81,6 +81,8 @@ export interface ChatResponse {
   mutatedPaths?: string[];
   /** Plan mode: locked-constraints extract succeeded (weak UI signal). */
   planConstraintsLocked?: boolean;
+  /** Plan reply persisted through the Plan tool plane (Build offer; plain-chat fallbacks never set it). */
+  planBuildOffer?: boolean;
   /** Host-side continuation or failure notice surfaced to the workspace UI. */
   applicationNotice?: ApplicationNotice;
   /** Final isolated-browser page that a host UI may promote after background completion. */

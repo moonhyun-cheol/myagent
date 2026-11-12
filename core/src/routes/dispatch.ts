@@ -3010,6 +3010,12 @@ export async function dispatchApiRequest(
       }
 
       const planBuildHandoffMatch = url.pathname.match(/^\/sessions\/([^/]+)\/plan-build-handoff$/);
+      if (planBuildHandoffMatch && method === 'GET') {
+        const rec = sessionStore.load(decodeURIComponent(planBuildHandoffMatch[1]));
+        if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        const { previewPlanBuild } = await import('../sessions/plan-build-handoff.js');
+        return sendJson(res, 200, previewPlanBuild(rec));
+      }
       if (planBuildHandoffMatch && method === 'POST') {
         license.assertWritable();
         license.assertFeature('chat');

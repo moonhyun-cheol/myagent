@@ -501,5 +501,7 @@ export async function runWorkspaceCodeAgent(opts: {
     ...(agent.browserHandoff ? { browserHandoff: agent.browserHandoff } : {}),
     ...(agent.applicationNotice ? { applicationNotice: agent.applicationNotice } : {}),
     ...(planConstraintsLocked !== undefined ? { planConstraintsLocked } : {}),
+    // Saved with workspace_behavior=plan → the UI may offer Build (same rule as after reload).
+    ...(workspaceBehavior === 'plan' ? { planBuildOffer: true } : {}),
   };
 }

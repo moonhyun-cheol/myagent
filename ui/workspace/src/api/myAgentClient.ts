@@ -461,6 +461,8 @@ export interface StreamHandlers {
     mutatedPaths?: string[];
     checkpointId?: string;
     planConstraintsLocked?: boolean;
+    /** Server saved this reply as a Plan reply (Build may be offered). */
+    planBuildOffer?: boolean;
     lastProcessedTokens?: number;
     usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
     applicationNotice?: ApplicationNotice;
@@ -1058,6 +1060,25 @@ export async function setSessionPreferredModel(
  * The server carries only the PLAN block and the Locked P0; `build_message` is sent as
  * the first message of the new conversation.
  */
+export type PlanBuildPreview =
+  | { status: 'ready' | 'incomplete'; missingFields: string[]; reformatMessage: string }
+  | { status: 'missing'; missingFields: string[]; reformatMessage: string }
+  | { status: 'not_buildable'; message: string };
+
+/** Dry-run of the handoff: is there a full PLAN block to carry into the Build chat? */
+export async function fetchPlanBuildPreview(sessionId: string): Promise<PlanBuildPreview> {
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/plan-build-handoff`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `PLAN 확인 실패 (${res.status})`);
+  if (data.status === 'not_buildable') {
+    return { status: 'not_buildable', message: String(data.message ?? 'Build할 수 있는 PLAN 답변이 없습니다.') };
+  }
+  const missingFields = Array.isArray(data.missing_fields) ? data.missing_fields.map(String) : [];
+  const reformatMessage = String(data.reformat_message ?? '');
+  const status = data.status === 'missing' || data.status === 'incomplete' ? data.status : 'ready';
+  return { status, missingFields, reformatMessage };
+}
+
 export async function createPlanBuildHandoff(
   sessionId: string,
   body: { model: string; reasoning: ReasoningLevel },
@@ -2295,6 +2316,7 @@ export async function streamChat(
           checkpointId,
           planConstraintsLocked:
             typeof evt.planConstraintsLocked === 'boolean' ? evt.planConstraintsLocked : undefined,
+          planBuildOffer: evt.planBuildOffer === true ? true : undefined,
           lastProcessedTokens:
             typeof evt.lastProcessedTokens === 'number' ? evt.lastProcessedTokens : undefined,
           usage: parseUsageEvent(evt.usage),
