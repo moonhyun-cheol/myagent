@@ -105,6 +105,19 @@ export function appendTurnContext(messages: ChatMessage[], section: string): voi
   messages.splice(at, 0, created);
 }
 const CHARS_PER_TOKEN_ESTIMATE = 4;
+/** Raw payload share that triggers a rebuild. */
+const REBUILD_TRIGGER = 0.60;
+const FULL_REBUILD_AT = 0.75;
+/**
+ * Share the whole rebuilt request may occupy. It must stay well below REBUILD_TRIGGER:
+ * a view that lands above the trigger is rebuilt again on the very next step, which
+ * rewrites the request tail every step and voids the provider prompt cache.
+ */
+const REBUILD_TARGET = 0.45;
+const RETRY_REBUILD_TARGET = 0.40;
+/** Evidence references are bounded too: long runs accumulate hundreds of records. */
+const REFERENCE_SHARE = 0.08;
+const COMPACT_REFERENCE_SHARE = 0.04;
 
 function payloadChars(messages: ChatMessage[]): number {
   let total = 0;
@@ -137,6 +150,10 @@ function evidenceReference(record: EvidenceRecord, note?: string): string {
       : '',
     note ?? 'Exact body remains in Evidence Store; call evidence_read when exact text is needed.',
   ].filter(Boolean).join('\n');
+}
+
+function compactEvidenceReference(record: EvidenceRecord): string {
+  return `[evidence reference id=${record.evidenceId} tool=${record.tool} ok=${record.ok}${record.source?.path ? ` source=${record.source.path}` : ''}]`;
 }
 
 function matchingRetainHint(record: EvidenceRecord, ledger?: TodoLedger | null): RetainHint | undefined {
@@ -213,7 +230,7 @@ export function prepareAgentContextForRequest(
   const usedChars = payloadChars(refreshed);
   const utilization = usedChars / budgetChars;
   const forceRebuild = input.forceRebuild === true || input.phase === 'retry' || input.phase === 'final';
-  if (!forceRebuild && utilization < 0.60) {
+  if (!forceRebuild && utilization < REBUILD_TRIGGER) {
     return {
       messages: refreshed,
       action: 'unchanged',
@@ -224,64 +241,127 @@ export function prepareAgentContextForRequest(
     };
   }
 
-  const action: AgentContextAction = forceRebuild || utilization >= 0.75
+  const action: AgentContextAction = forceRebuild || utilization >= FULL_REBUILD_AT
     ? 'full_rebuild'
     : 'selective_rebuild';
   const systemMessages = refreshed.filter((message) => message.role === 'system');
   const turnContextAt = lastTurnContextIndex(refreshed);
   const turnContext = turnContextAt >= 0 ? refreshed[turnContextAt] : undefined;
   const workspaceContext = refreshed.find(isWorkspaceContextMessage);
-  const recent = recentPlainMessages(refreshed, input.recentRoundTrips ?? 3);
+  const recent = recentPlainMessages(refreshed, input.recentRoundTrips ?? 3)
+    .filter((message) => chatContentToText(message.content).trim() !== input.userMessage.trim());
   const records = input.evidenceStore.list();
   const newestRequiredIds = new Set(
     records.filter(runtimeMustRetain).slice(-12).map((record) => record.evidenceId),
   );
-  const evidenceBlocks: string[] = [];
-  const projectedEvidenceIds: string[] = [];
+  const todoView = formatTodoView(input.todoLedger, input.phase);
+  const targetChars = Math.floor(
+    budgetChars * (input.phase === 'retry' ? RETRY_REBUILD_TARGET : REBUILD_TARGET),
+  );
+  // Everything the rebuilt request carries counts, not only the evidence bodies.
   let projectedChars = payloadChars(systemMessages)
     + (workspaceContext ? payloadChars([workspaceContext]) : 0)
     + (turnContext ? payloadChars([turnContext]) : 0)
-    + input.userMessage.length;
-  const projectionCeiling = Math.floor(budgetChars * (input.phase === 'retry' ? 0.55 : 0.70));
+    + input.userMessage.length
+    + payloadChars(recent)
+    + todoView.length;
 
+  const blockById = new Map<string, string>();
+  const exactCandidates: EvidenceRecord[] = [];
+  const referenceCandidates: Array<{ record: EvidenceRecord; text: string }> = [];
   for (const record of records) {
-    const hint = matchingRetainHint(record, input.todoLedger);
     const requestedForm = evidenceProjectionForm(record, input.todoLedger);
     const exactRequired = !record.observedByModel
       || requestedForm === 'exact'
       || newestRequiredIds.has(record.evidenceId);
     if (exactRequired) {
-      const body = selectedEvidenceBody(record, input.evidenceStore, hint);
-      const exact = formatEvidenceEnvelope(record, body);
-      if (projectedChars + exact.length <= projectionCeiling) {
-        evidenceBlocks.push(exact);
-        projectedChars += exact.length;
-      } else {
-        evidenceBlocks.push(evidenceReference(
-          record,
-          'selection_required: exact evidence exceeds this request admission budget; call evidence_read with a selector.',
-        ));
-      }
+      exactCandidates.push(record);
     } else if (requestedForm === 'digest') {
       const notes = input.todoLedger?.workingNotes
         .filter((note) => note.supports.some((support) => support.includes(record.evidenceId)))
         .map((note) => note.text) ?? [];
-      evidenceBlocks.push(evidenceReference(
+      referenceCandidates.push({
         record,
-        notes.length ? `Model-authored digest: ${notes.join(' | ')}` : 'Digest requested; use linked working notes or evidence_read before a source-sensitive decision.',
-      ));
+        text: evidenceReference(
+          record,
+          notes.length ? `Model-authored digest: ${notes.join(' | ')}` : 'Digest requested; use linked working notes or evidence_read before a source-sensitive decision.',
+        ),
+      });
     } else {
-      evidenceBlocks.push(evidenceReference(record));
+      referenceCandidates.push({ record, text: evidenceReference(record) });
     }
+  }
+
+  // References: newest keep the full form, older ones degrade to one line, the
+  // oldest are only counted. Ids stay valid for evidence_read either way.
+  const referenceBudget = Math.floor(budgetChars * REFERENCE_SHARE);
+  const compactBudget = Math.floor(budgetChars * COMPACT_REFERENCE_SHARE);
+  let referenceChars = 0;
+  let compactChars = 0;
+  let referenceTier: 'full' | 'compact' | 'omitted' = 'full';
+  let omittedReferences = 0;
+  for (let i = referenceCandidates.length - 1; i >= 0; i -= 1) {
+    const { record, text } = referenceCandidates[i];
+    if (referenceTier === 'full') {
+      if (referenceChars + text.length <= referenceBudget) {
+        blockById.set(record.evidenceId, text);
+        referenceChars += text.length;
+        continue;
+      }
+      referenceTier = 'compact';
+    }
+    if (referenceTier === 'compact') {
+      const compact = compactEvidenceReference(record);
+      if (compactChars + compact.length <= compactBudget) {
+        blockById.set(record.evidenceId, compact);
+        compactChars += compact.length;
+        continue;
+      }
+      referenceTier = 'omitted';
+    }
+    omittedReferences += 1;
+  }
+  projectedChars += referenceChars + compactChars;
+
+  // Exact bodies: results the model has not seen yet come first, then newest first,
+  // so a long run keeps its latest failures/mutations instead of its oldest ones.
+  const unseen = exactCandidates.filter((record) => !record.observedByModel);
+  const seenNewestFirst = exactCandidates.filter((record) => record.observedByModel).reverse();
+  for (const record of [...unseen, ...seenNewestFirst]) {
+    const hint = matchingRetainHint(record, input.todoLedger);
+    const exact = formatEvidenceEnvelope(record, selectedEvidenceBody(record, input.evidenceStore, hint));
+    if (projectedChars + exact.length <= targetChars) {
+      blockById.set(record.evidenceId, exact);
+      projectedChars += exact.length;
+    } else {
+      blockById.set(record.evidenceId, evidenceReference(
+        record,
+        'selection_required: exact evidence exceeds this request admission budget; call evidence_read with a selector.',
+      ));
+    }
+  }
+
+  // Emit in record order so consecutive views share as long a prefix as possible.
+  const evidenceBlocks: string[] = [];
+  const projectedEvidenceIds: string[] = [];
+  for (const record of records) {
+    const block = blockById.get(record.evidenceId);
+    if (!block) continue;
+    evidenceBlocks.push(block);
     projectedEvidenceIds.push(record.evidenceId);
   }
 
+  // No utilization figure here: it changed on every rebuild (cache break) and read
+  // like a spending budget to the model. The UI status line reports it instead.
   const contextView = [
     CONTEXT_VIEW_PREFIX,
-    `phase=${input.phase} action=${action} priorUtilization=${utilization.toFixed(3)}`,
+    `phase=${input.phase} action=${action}`,
     'This view is rebuilt from durable TODO and Evidence records. References are not deletions.',
-    formatTodoView(input.todoLedger, input.phase),
+    todoView,
     evidenceBlocks.length ? 'Evidence projection:' : 'Evidence projection: none',
+    ...(omittedReferences
+      ? [`${omittedReferences} older evidence record(s) are not listed in this view; their ids remain valid for evidence_read.`]
+      : []),
     ...evidenceBlocks,
   ].join('\n\n');
   const messages: ChatMessage[] = [
@@ -289,7 +369,7 @@ export function prepareAgentContextForRequest(
     ...(workspaceContext ? [workspaceContext] : []),
     ...(turnContext ? [turnContext] : []),
     { role: 'user', content: input.userMessage },
-    ...recent.filter((message) => chatContentToText(message.content).trim() !== input.userMessage.trim()),
+    ...recent,
     { role: 'user', content: contextView },
   ];
   return {

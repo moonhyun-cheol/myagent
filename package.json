@@ -57,6 +57,7 @@
     "verify:native-tool-runtime": "node tools/build.mjs && node tools/verify-native-tool-runtime.mjs",
     "verify:harness-policy": "node tools/verify-harness-policy.mjs",
     "verify:history-compress": "node tools/verify-history-compress.mjs",
+    "verify:model-context-persist": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-model-context-persist.mjs",
     "verify:capability-scorecard": "node tools/verify-capability-scorecard.mjs",
     "verify:error-report-dry": "node tools/verify-error-report-dry.mjs",
     "verify:local-error-log": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-error-report-dry.mjs && node tools/verify-local-error-log.mjs",

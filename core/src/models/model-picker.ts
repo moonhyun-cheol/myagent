@@ -33,6 +33,7 @@ import {
   resolvePremiumInputThreshold,
   type ModelCostTier,
 } from './model-pricing.js';
+import { canPersistRemoteModelContexts, hasRemoteModelContexts } from '../providers/model-context-limits.js';
 
 export interface ModelPickerOption {
   value: string;
@@ -410,6 +411,7 @@ export async function buildModelPicker(
   const premiumModelIds = listPremiumModelIds(premiumThreshold);
   if (companyModels) companyModels.premium = premiumModelIds;
   const pricingWarming = !localOnly && !opts?.refreshRemote && warmModelPricingIfMissing(providerStore);
+  if (!localOnly && !opts?.refreshRemote) warmModelContextIfMissing(providerStore);
 
   return {
     local_only: localOnly,
@@ -498,6 +500,26 @@ export function warmModelPricingIfMissing(providerStore: ProviderStore): boolean
     .finally(() => {
       pricingWarm = null;
     });
+  return true;
+}
+
+let contextWarmTried = false;
+
+/**
+ * One background /models fetch per process when no remote context window is known yet
+ * (install upgraded from a build that did not persist them). Unseeded models otherwise run
+ * at the 128k fallback until a manual refresh. Never blocks; a provider that publishes no
+ * context_length is asked only once.
+ */
+export function warmModelContextIfMissing(providerStore: ProviderStore): boolean {
+  if (contextWarmTried) return false;
+  if (!canPersistRemoteModelContexts() || hasRemoteModelContexts()) return false;
+  const hasCustom = providerStore.getConfiguredIds().some((id) => providerStore.getDefinition(id)?.custom === true);
+  if (!hasCustom) return false;
+  contextWarmTried = true;
+  // The in-flight pricing warm-up is the same /models listing and records context windows too.
+  if (pricingWarm) return false;
+  void warmRemoteModelCache(providerStore).catch(() => undefined);
   return true;
 }
 

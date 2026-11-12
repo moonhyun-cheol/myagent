@@ -917,10 +917,11 @@ export async function listRemoteModelsDetailed(
     try {
       const models = await fetchModelsDetailedFromUrl(url, apiKey);
       if (models.length > 0) {
-        const { rememberRemoteModelContext } = await import('./model-context-limits.js');
+        const { rememberRemoteModelContext, persistRemoteModelContexts } = await import('./model-context-limits.js');
         for (const m of models) {
           if (m.context_length) rememberRemoteModelContext(m.id, m.context_length);
         }
+        persistRemoteModelContexts();
         return models;
       }
     } catch (e: unknown) {

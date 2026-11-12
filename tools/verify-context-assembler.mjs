@@ -84,6 +84,48 @@ try {
   assert.match(resumedText, /repair context assembly/);
   assert.match(resumedText, /PINNED_EXACT_BODY/);
   assert.match(resumedText, /TEST_FAILURE_MUST_SURVIVE/);
+
+  // Regression: a rebuilt view must land below the rebuild trigger. It used to be
+  // filled up to 70% while the trigger is 60%, so a long run with large failures
+  // was rebuilt on every step and lost the provider prompt cache each time.
+  const longStore = new AgentEvidenceStore({ cqrRoot: root, runId: 'long-run' });
+  const seen = [];
+  for (let i = 0; i < 900; i += 1) {
+    seen.push(longStore.record({ tool: 'read_file', args: { path: `src/file-${i}.ts` }, output: `body ${i}`, ok: true }).evidenceId);
+  }
+  for (let i = 0; i < 12; i += 1) {
+    seen.push(longStore.record({ tool: 'run_tests', args: {}, output: `FAILURE_${i}_` + 'f'.repeat(60_000), ok: false }).evidenceId);
+  }
+  longStore.markObserved(seen);
+  longStore.record({ tool: 'read_file', args: { path: 'fresh.ts' }, output: 'UNSEEN_RESULT_MUST_SURVIVE', ok: true });
+  const longRun = prepareAgentContextForRequest({
+    phase: 'work',
+    messages,
+    userMessage: 'original request',
+    todoLedger: null,
+    evidenceStore: longStore,
+    modelId: 'unlisted/model-with-default-limit',
+  });
+  const longText = longRun.messages.map((message) => String(message.content || '')).join('\n');
+  assert.notEqual(longRun.action, 'unchanged');
+  assert.ok(
+    longRun.usedChars / longRun.budgetChars < 0.5,
+    `rebuilt view must stay below the rebuild trigger (got ${(longRun.usedChars / longRun.budgetChars).toFixed(3)})`,
+  );
+  assert.match(longText, /UNSEEN_RESULT_MUST_SURVIVE/, 'unseen tool result is projected first');
+  assert.match(longText, /FAILURE_11_/, 'newest failure keeps its exact body');
+  assert.match(longText, /older evidence record\(s\) are not listed/);
+  assert.doesNotMatch(longText, /priorUtilization/, 'volatile utilization must not be in the cached request');
+  const nextStep = prepareAgentContextForRequest({
+    phase: 'work',
+    messages: longRun.messages,
+    userMessage: 'original request',
+    todoLedger: null,
+    evidenceStore: longStore,
+    modelId: 'unlisted/model-with-default-limit',
+  });
+  assert.equal(nextStep.action, 'unchanged', 'the step after a rebuild must not rebuild again');
+  assert.deepEqual(nextStep.messages, longRun.messages, 'request stays byte-identical after a rebuild');
   console.log('verify-context-assembler: ok');
 } finally {
   rmSync(root, { recursive: true, force: true });
