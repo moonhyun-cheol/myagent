@@ -30,7 +30,7 @@ import {
   listPremiumModelIds,
   modelCostTier,
   recordProviderPricing,
-  resolvePremiumOutputThreshold,
+  resolvePremiumInputThreshold,
   type ModelCostTier,
 } from './model-pricing.js';
 
@@ -57,8 +57,8 @@ export interface ModelPickerPayload {
   mode_hints?: Partial<Record<ChatMode, ModeHint>>;
   remote_models_total?: Record<string, number>;
   remote_models_shown?: Record<string, number>;
-  /** Output-price threshold (USD / 1M tokens) used for `cost_tier: premium`. */
-  premium_output_usd_per_million?: number;
+  /** Input-price threshold (USD / 1M input tokens) used for `cost_tier: premium`. */
+  premium_input_usd_per_million?: number;
   /** Every model id with known pricing at/above the threshold (any provider, incl. search-only models). */
   premium_model_ids?: string[];
   /** No price table yet and a one-time background `/models` fetch is running — UI may re-poll. */
@@ -217,7 +217,7 @@ export async function buildModelPicker(
   },
 ): Promise<ModelPickerPayload> {
   const doc = registry.load();
-  const premiumThreshold = resolvePremiumOutputThreshold(opts?.cqrRoot);
+  const premiumThreshold = resolvePremiumInputThreshold(opts?.cqrRoot);
   const localOnly = overrides.local_only === true;
   const catalog = providerStore.listDefinitions();
   const configured = new Set(providerStore.getConfiguredIds());
@@ -414,7 +414,7 @@ export async function buildModelPicker(
   return {
     local_only: localOnly,
     default_provider_id: defaultProvider,
-    premium_output_usd_per_million: premiumThreshold,
+    premium_input_usd_per_million: premiumThreshold,
     premium_model_ids: premiumModelIds,
     ...(pricingWarming ? { pricing_warming: true } : {}),
     default_llm_id: doc.default_llm_id,
