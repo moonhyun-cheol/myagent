@@ -17,6 +17,7 @@ import {
 import {
   buildConversationImageCatalog,
   formatConversationImageCatalogNote,
+  formatHistoryImageMarker,
 } from './conversation-image-catalog.js';
 import { enrichWorkspaceIndexContext } from './index/public.js';
 import { buildDevWorkspaceContext } from './dev-workspace-fs.js';
@@ -264,15 +265,22 @@ export function buildAgentMessages(
   // prompt extends the previous request byte-for-byte (provider prompt cache prefix).
   const sanitizedHistory = sanitizeHistoryForModel(opts.history ?? []);
   const turnContexts = loadTurnContextRecords(opts.cqrRoot, opts.sessionId);
-  const historyWithReplay = turnContexts.size
-    ? sanitizedHistory.map((m, i) => {
-        if (m.role !== 'user') return m;
-        const rec = turnContexts.get(turnContextKey(sanitizedHistory[i - 1]?.at, m.content ?? ''));
-        return rec ? { ...m, model_context: rec.context, model_user: rec.user } : m;
-      })
-    : sanitizedHistory;
+  const historyWithReplay = sanitizedHistory.map((m, i) => {
+    if (m.role !== 'user') return m;
+    // Replay is text-only: mark image turns so they stay tied to the image catalog ids.
+    const imageNote = formatHistoryImageMarker(m);
+    const rec = turnContexts.size
+      ? turnContexts.get(turnContextKey(sanitizedHistory[i - 1]?.at, m.content ?? ''))
+      : undefined;
+    if (!rec && !imageNote) return m;
+    return {
+      ...m,
+      ...(rec ? { model_context: rec.context, model_user: rec.user } : {}),
+      ...(imageNote ? { model_image_note: imageNote } : {}),
+    };
+  });
   for (const m of applyHistoryContentBudget(
-    historyWithReplay as Array<SessionMessage & { model_context?: string; model_user?: string }>,
+    historyWithReplay as Array<SessionMessage & { model_context?: string; model_user?: string; model_image_note?: string }>,
     process.env,
     buildSessionHistoryBudgetOpts({
       cqrRoot: opts.cqrRoot,
@@ -287,10 +295,14 @@ export function buildAgentMessages(
       },
     }),
   )) {
+    const withImageNote = (text: string): string =>
+      m.model_image_note ? (text.trim() ? `${text}\n\n${m.model_image_note}` : m.model_image_note) : text;
     if (m.role === 'user' && typeof m.model_context === 'string') {
       messages.push({ role: 'user', content: m.model_context });
-      messages.push({ role: 'user', content: typeof m.model_user === 'string' ? m.model_user : m.content });
-    } else if (m.role === 'user' || m.role === 'assistant') {
+      messages.push({ role: 'user', content: withImageNote(typeof m.model_user === 'string' ? m.model_user : m.content) });
+    } else if (m.role === 'user') {
+      messages.push({ role: 'user', content: withImageNote(m.content) });
+    } else if (m.role === 'assistant') {
       messages.push({ role: m.role, content: m.content });
     }
   }

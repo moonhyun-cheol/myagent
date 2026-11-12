@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   buildConversationImageCatalog,
   formatConversationImageCatalogNote,
+  formatHistoryImageMarker,
   validateConversationImage,
   isCatalogEligibleImageMime,
   CONVERSATION_IMAGE_CATALOG_MAX,
@@ -80,6 +81,24 @@ check('catalog note states metadata contract', () => {
   assert.ok(note.includes('No automatic reattachment'), 'declares no auto reattachment');
   assert.ok(note.includes('keyword matching'), 'declares no keyword matching');
   assert.ok(note.includes('id=img-1'), 'lists the id');
+  assert.ok(note.includes('BEFORE answering'), 'tells the model to fetch before answering follow-ups');
+});
+
+// 2b. History replay marker ties text-only image turns to catalog ids.
+check('history image marker lists eligible ids only, deterministic', () => {
+  const msg = { role: 'user', content: 'see this',
+    attachments: [
+      { id: 'img-1', name: 'shot.png', mime: 'image/png', url: '/a/1' },
+      { id: 'svg-1', name: 'd.svg', mime: 'image/svg+xml', url: '/a/2' },
+      { id: 'txt-1', name: 'a.log', mime: 'text/plain', url: '/a/3' },
+    ] };
+  const marker = formatHistoryImageMarker(msg);
+  assert.ok(marker.includes('id=img-1 (shot.png)'));
+  assert.ok(!marker.includes('svg-1') && !marker.includes('txt-1'));
+  assert.ok(marker.includes('conversation_image_get'));
+  assert.equal(marker, formatHistoryImageMarker(msg), 'byte-stable for prompt cache');
+  assert.equal(formatHistoryImageMarker({ attachments: [] }), '');
+  assert.equal(formatHistoryImageMarker(undefined), '');
 });
 
 // 3. Validation rejects svg, missing, non-image, oversized.

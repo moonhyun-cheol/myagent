@@ -79,6 +79,26 @@ export function buildConversationImageCatalog(
 }
 
 /**
+ * One deterministic line appended to a replayed history message that carried
+ * image attachments. History replay sends text only, so without this marker the
+ * model sees the earlier turn (and its "images may be included" turn context)
+ * with no trace of the image. The marker ties the turn to catalog ids; it never
+ * carries pixels and performs no relevance selection.
+ */
+export function formatHistoryImageMarker(
+  message: Pick<SessionMessage, 'attachments'> | undefined | null,
+): string {
+  const ids: string[] = [];
+  for (const att of message?.attachments ?? []) {
+    if (!att || typeof att.id !== 'string') continue;
+    if (!isCatalogEligibleImageMime(att.mime)) continue;
+    ids.push(`id=${att.id} (${att.name || att.id})`);
+  }
+  if (!ids.length) return '';
+  return `[Image attached to this message — pixels not replayed: ${ids.join('; ')}. Call conversation_image_get with the id to view it again.]`;
+}
+
+/**
  * System note describing the catalog. States plainly that it holds metadata,
  * not pixels, and that the model must call the retrieval tool before implying
  * it inspected an image's contents.
@@ -99,6 +119,11 @@ export function formatConversationImageCatalogNote(
     'a multimodal image for your next step. Retrieval is limited to this session and',
     'rejects SVG, oversized, missing, or foreign attachments. No automatic reattachment',
     'or keyword matching is performed — choose by id when a past image is relevant.',
+    'Earlier messages marked "[Image attached to this message …]" are text-only replays:',
+    'the image is NOT in your context now, even if that turn was analyzed before. When the',
+    'latest request refers to, follows up on, or needs details of an earlier image, fetch it',
+    'with `conversation_image_get` BEFORE answering. Do not answer visual details from',
+    'earlier replies alone, and never say no image was provided when it is listed here.',
     ...lines,
   ].join('\n');
 }
