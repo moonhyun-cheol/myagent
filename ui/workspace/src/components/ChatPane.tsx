@@ -914,6 +914,16 @@ export function ChatPane() {
                 ...(message.mode ? { mode: message.mode } : {}),
                 ...(message.image_urls?.length ? { image_urls: message.image_urls } : {}),
                 ...(message.reasoning?.content?.trim() ? { reasoning: message.reasoning } : {}),
+                // 작업기록: tool rows + interleaved order. Local cancel bindings are PC-specific.
+                ...(message.tool_activity?.length
+                  ? {
+                      tool_activity: message.tool_activity.map((row) => {
+                        const { cancelSessionId: _cancel, cancelRequested: _requested, ...rest } = row;
+                        return rest;
+                      }),
+                    }
+                  : {}),
+                ...(message.work_timeline?.length ? { work_timeline: message.work_timeline } : {}),
               })),
             },
           };
