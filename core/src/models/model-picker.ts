@@ -33,7 +33,11 @@ import {
   resolvePremiumInputThreshold,
   type ModelCostTier,
 } from './model-pricing.js';
-import { canPersistRemoteModelContexts, hasRemoteModelContexts } from '../providers/model-context-limits.js';
+import {
+  canPersistRemoteModelContexts,
+  hasRemoteModelContexts,
+  usedContextLimitsFallback,
+} from '../providers/model-context-limits.js';
 
 export interface ModelPickerOption {
   value: string;
@@ -523,6 +527,49 @@ export function warmModelContextIfMissing(providerStore: ProviderStore): boolean
   return true;
 }
 
+const MODEL_CONTEXT_WARM_RETRY_MS = 10 * 60_000;
+const modelContextWarmAttempts = new Map<string, number>();
+const modelContextWarmInFlight = new Map<string, Promise<void>>();
+
+/**
+ * Background /models fetch for the model a turn is about to use when its context window is
+ * still unknown (released after the persisted table was written, or the last listing failed).
+ * Without this such a model stays at the 128k fallback until a manual refresh.
+ *
+ * Never blocks the turn: the first steps may still budget against 128k, and later steps pick
+ * up the real window as soon as the listing lands (budgets are resolved per request).
+ * Throttled per provider+model so a model the provider never describes is not asked every turn.
+ */
+export function warmModelContextForModel(
+  providerStore: ProviderStore,
+  providerId: string,
+  modelId: string | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  const model = String(modelId ?? '').trim();
+  if (!model || !usedContextLimitsFallback(model)) return false;
+  if (providerStore.getDefinition(providerId)?.custom !== true) return false;
+  const key = `${providerId}\n${model}`;
+  const last = modelContextWarmAttempts.get(key);
+  if (last !== undefined && now - last < MODEL_CONTEXT_WARM_RETRY_MS) return false;
+  modelContextWarmAttempts.set(key, now);
+  // An in-flight listing for this provider (or the all-provider pricing warm-up) already covers it.
+  if (pricingWarm || modelContextWarmInFlight.has(providerId)) return true;
+  const run = warmRemoteModelCache(providerStore, providerId)
+    .catch(() => undefined)
+    .finally(() => {
+      modelContextWarmInFlight.delete(providerId);
+    });
+  modelContextWarmInFlight.set(providerId, run);
+  return true;
+}
+
+/** Verify hook: forget per-model warm-up attempts. */
+export function resetModelContextWarmForTest(): void {
+  modelContextWarmAttempts.clear();
+  modelContextWarmInFlight.clear();
+}
+
 export async function warmRemoteModelCache(
   providerStore: ProviderStore,
   providerId?: string,
@@ -547,7 +594,16 @@ export async function resolveChatModelAsync(
     const ollama = providerStore.resolveProvider('ollama');
     if (ollama) await listOllamaModelNames(ollama.baseUrl);
   }
-  return resolveChatModel(preference, registry, overrides, providerStore, opts);
+  const resolved = resolveChatModel(preference, registry, overrides, providerStore, opts);
+  if (resolved.route.type === 'provider') {
+    try {
+      // Fire-and-forget: a turn must never wait on (or fail because of) the model listing.
+      warmModelContextForModel(providerStore, resolved.route.providerId, resolved.route.modelId);
+    } catch {
+      /* context window lookup is best-effort */
+    }
+  }
+  return resolved;
 }
 
 export function resolveChatModel(

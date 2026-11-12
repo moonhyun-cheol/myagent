@@ -94,6 +94,61 @@ try {
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(fetches, 1, 'single background listing');
 
+  // 9. Per-model warm: a model whose window is unknown triggers one background listing even
+  //    when other windows are already persisted (model released after the table was written).
+  limits.setRemoteModelContextFileForTest(file);
+  picker.resetModelContextWarmForTest();
+  assert.equal(limits.hasRemoteModelContexts(), true);
+  const NEW_MODEL = 'vendor/released-later';
+  const t0 = 1_000_000;
+  fetches = 0;
+  assert.equal(picker.warmModelContextForModel(fakeStore, 'custom', MODEL, t0), false, 'known window -> no fetch');
+  assert.equal(picker.warmModelContextForModel(fakeStore, 'custom', '', t0), false, 'no model id -> no fetch');
+  assert.equal(
+    picker.warmModelContextForModel({ ...fakeStore, getDefinition: () => ({ custom: false }) }, 'openai', NEW_MODEL, t0),
+    false,
+    'non-custom provider -> no fetch',
+  );
+  assert.equal(picker.warmModelContextForModel(fakeStore, 'custom', NEW_MODEL, t0), true, 'unknown model warms');
+  assert.equal(picker.warmModelContextForModel(fakeStore, 'custom', NEW_MODEL, t0 + 60_000), false, 'throttled per model');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fetches, 1, 'one listing for the unknown model');
+  assert.equal(picker.warmModelContextForModel(fakeStore, 'custom', NEW_MODEL, t0 + 11 * 60_000), true, 'retried after cooldown');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fetches, 2);
+  limits.rememberRemoteModelContext(NEW_MODEL, 500_000);
+  assert.equal(
+    picker.warmModelContextForModel(fakeStore, 'custom', NEW_MODEL, t0 + 60 * 60_000),
+    false,
+    'no fetch once the window is known',
+  );
+
+  // 10. A chat turn resolving its model triggers the warm-up without waiting for it.
+  picker.resetModelContextWarmForTest();
+  fetches = 0;
+  const turnStore = {
+    ...fakeStore,
+    listDefinitions: () => [{ id: 'custom', custom: true }],
+    getDefaultId: () => 'custom',
+    resolveProvider: (_id, modelId) => ({ def: { name: 'Custom' }, modelId, baseUrl: 'http://127.0.0.1:9' }),
+  };
+  const registry = { load: () => ({ models: [], default_llm_id: null }) };
+  const TURN_MODEL = 'vendor/turn-model';
+  const resolved = await picker.resolveChatModelAsync(
+    `provider:custom@${encodeURIComponent(TURN_MODEL)}`,
+    registry,
+    {},
+    turnStore,
+  );
+  assert.equal(resolved.route.type, 'provider');
+  assert.equal(resolved.route.modelId, TURN_MODEL);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fetches, 1, 'turn start warms the unknown model in the background');
+  await picker.resolveChatModelAsync(`provider:custom@${encodeURIComponent(TURN_MODEL)}`, registry, {}, turnStore);
+  await picker.resolveChatModelAsync(`provider:custom@${encodeURIComponent(MODEL)}`, registry, {}, turnStore);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(fetches, 1, 'no repeat for the same model, none for a known model');
+
   console.log('verify-model-context-persist: OK');
 } finally {
   limits.setRemoteModelContextFileForTest(undefined);
