@@ -216,7 +216,7 @@ export function ConfirmModal() {
                   type="button"
                   className={
                     option.danger
-                      ? 'min-w-[80px] rounded-xl border border-red-400/35 bg-red-950/40 px-3.5 py-2.5 text-xs font-semibold text-red-100 transition-colors hover:bg-red-950/65'
+                      ? 'min-w-[80px] rounded-xl border border-danger/40 bg-danger/10 px-3.5 py-2.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/20'
                       : option.id === 'save'
                         ? 'min-w-[80px] rounded-xl bg-accent px-3.5 py-2.5 text-xs font-semibold text-ink shadow-[0_0_0_1px_rgba(45,212,191,0.2)] transition-colors hover:bg-accent/90'
                         : 'min-w-[80px] rounded-xl border border-line bg-panel-2/80 px-3.5 py-2.5 text-xs font-medium text-muted transition-colors hover:border-accent/50 hover:bg-panel-2 hover:text-text'

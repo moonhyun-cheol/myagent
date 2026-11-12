@@ -195,7 +195,7 @@ export function GeminiNavSidebar({
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${configured ? 'bg-emerald-400' : 'bg-muted/50'}`} />
             <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-text">MY OpenRouter · {configured ? '연결됨' : '설정 필요'}</span>
-            <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[9px] text-muted">개인 {personalCount}</span>
+            <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-muted">개인 {personalCount}</span>
           </button>
         </div>
       ) : null}
@@ -250,12 +250,12 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
             <h2 className="text-[11px] font-semibold text-text">작업 뉴스피드</h2>
           </div>
           {unreadCount > 0 ? (
-            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[9px] font-bold text-white">{unreadCount}</span>
+            <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{unreadCount}</span>
           ) : null}
           <button
             type="button"
             onClick={() => onOpenFeed()}
-            className="ml-auto rounded-md border border-line bg-white/70 p-1.5 text-muted transition hover:border-accent/40 hover:text-accent"
+            className="ml-auto rounded-md border border-line bg-panel p-1.5 text-muted transition hover:border-accent/40 hover:text-accent"
             aria-label="작업 뉴스피드 크게 보기"
             title="크게 보기"
           >
@@ -266,7 +266,7 @@ function AutomationSidebarSummary({ unreadCount, onOpenFeed }: { unreadCount: nu
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3" aria-label="자동화 작업 뉴스피드">
-        {loadError ? <p className="rounded-lg border border-red-200 bg-red-50 p-2 text-[10px] text-red-700">{loadError}</p> : null}
+        {loadError ? <p className="rounded-lg border border-danger/30 bg-danger/10 p-2 text-[10px] text-danger">{loadError}</p> : null}
         {!loadError && items.length === 0 ? <p className="px-1 text-[10px] text-muted">전달된 자동화 자료가 없습니다.</p> : null}
         {items.map((item) => (
           <AutomationFeedMessage
@@ -307,7 +307,7 @@ function AutomationFeedMessage({
 }) {
   const promotableUrl = typeof browserUrl === 'string' && /^https?:\/\//i.test(browserUrl) ? browserUrl : null;
   return (
-    <div className="rounded-xl border border-line bg-white/75 p-2.5 shadow-sm transition hover:border-accent/45 hover:bg-accent/5">
+    <div className="rounded-xl border border-line bg-panel p-2.5 shadow-sm transition hover:border-accent/45 hover:bg-accent/5">
       <button
         type="button"
         onClick={onOpen}
@@ -315,20 +315,20 @@ function AutomationFeedMessage({
         aria-label={`${title} 뉴스피드에서 보기`}
       >
       <div className="flex items-center justify-between gap-2">
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-bold text-white ${tone === 'error' ? 'bg-red-600' : tone === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold text-white ${tone === 'error' ? 'bg-red-600' : tone === 'warning' ? 'bg-amber-500' : 'bg-emerald-600'}`}>
           {tone === 'success' ? <CheckCircle size={11} weight="fill" /> : <Clock size={11} />}
           {label}
         </span>
-        <time className="text-[9px] text-muted">{time}</time>
+        <time className="text-[10px] text-muted">{time}</time>
       </div>
       <p className="mt-2 truncate text-[11px] font-semibold text-text">{title}</p>
-        <p className="mt-0.5 text-[9px] text-accent">뉴스피드에서 보기</p>
+        <p className="mt-0.5 text-[10px] text-accent">뉴스피드에서 보기</p>
       </button>
       {promotableUrl ? (
         <button
           type="button"
           onClick={() => promoteInAppBrowserTab(promotableUrl)}
-          className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md bg-sky-700 px-2 py-1.5 text-[9px] font-bold text-white hover:bg-sky-800"
+          className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-md bg-sky-700 px-2 py-1.5 text-[10px] font-bold text-white hover:bg-sky-800"
         >
           <Eye size={11} weight="bold" />
           에이전트 백그라운드 작업 · 탭으로 보기
@@ -356,7 +356,7 @@ function DockIcon({ icon: IconComponent, label, active, badgeCount = 0, onClick 
     >
       <IconComponent size={16} weight={active ? 'bold' : 'regular'} />
       {badgeCount > 0 ? (
-        <span className="absolute -right-1.5 -top-1.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
+        <span className="absolute -right-1.5 -top-1.5 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
           {badgeCount > 99 ? '99+' : badgeCount}
         </span>
       ) : null}

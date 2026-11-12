@@ -79,8 +79,13 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 /* Compatibility for existing status text while components adopt semantic tokens. */
 :where(.text-red-100,.text-red-200,.text-red-300,.text-red-400,.text-red-600,.text-red-700,.text-rose-300,.text-rose-700) { color: var(--color-danger); }
 :where(.text-amber-50,.text-amber-100,.text-amber-200,.text-amber-300,.text-amber-400,.text-yellow-300) { color: var(--color-warning); }
-:where(.text-sky-200,.text-sky-300,.text-blue-300) { color: var(--color-info); }
-:where(.text-emerald-300,.text-emerald-400,.text-green-300) { color: var(--color-success); }
+:where(.text-sky-100,.text-sky-200,.text-sky-300,.text-blue-300) { color: var(--color-info); }
+:where(.text-emerald-200,.text-emerald-300,.text-emerald-400,.text-green-300) { color: var(--color-success); }
+/* Opacity-suffixed light tints (e.g. text-amber-100/90) are distinct classes; map them by prefix. */
+:where([class*='text-red-100/'],[class*='text-red-200/'],[class*='text-red-300/'],[class*='text-red-400/']) { color: color-mix(in srgb, var(--color-danger) 92%, transparent); }
+:where([class*='text-amber-100/'],[class*='text-amber-200/'],[class*='text-amber-300/'],[class*='text-amber-400/']) { color: color-mix(in srgb, var(--color-warning) 92%, transparent); }
+:where([class*='text-sky-100/'],[class*='text-sky-200/'],[class*='text-sky-300/']) { color: color-mix(in srgb, var(--color-info) 92%, transparent); }
+:where([class*='text-emerald-200/'],[class*='text-emerald-300/'],[class*='text-emerald-400/']) { color: color-mix(in srgb, var(--color-success) 92%, transparent); }
 :is([class~='bg-accent'],[class~='bg-accent-dim']):is([class~='text-ink'],[class~='text-white']) { color: var(--color-on-accent); }
 :root[data-theme='dark'] :is([class~='bg-[#fafbf8]'],[class~='bg-[#d7dcd9]']) { background: var(--color-panel); }
 @container (max-width: 900px) {

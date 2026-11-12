@@ -1655,7 +1655,7 @@ export function ChatPane() {
         </div>
       </div>
       {apiError ? (
-        <div className="border-b border-line bg-red-950/40 px-5 py-2 text-[12px] text-red-300">
+        <div className="border-b border-danger/30 bg-danger/10 px-5 py-2 text-[12px] text-danger">
           {apiError}
         </div>
       ) : null}
@@ -2053,10 +2053,10 @@ export function ChatPane() {
                 <aside
                   className={`max-w-[92%] rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
                     turn.applicationNotice.kind === 'continuation'
-                      ? 'border-amber-500/30 bg-amber-500/5 text-amber-100/90'
+                      ? 'border-warning/35 bg-warning/5 text-warning'
                       : turn.applicationNotice.kind === 'debug'
-                        ? 'border-sky-500/30 bg-sky-500/5 text-sky-100/90'
-                        : 'border-red-500/30 bg-red-500/5 text-red-100/90'
+                        ? 'border-info/35 bg-info/5 text-info'
+                        : 'border-danger/35 bg-danger/5 text-danger'
                   }`}
                   aria-label="애플리케이션 안내"
                 >
@@ -2081,9 +2081,9 @@ export function ChatPane() {
             );
           })}
           {openGateText && !busy ? (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-100/90">
+            <div className="flex items-start gap-2 rounded-xl border border-warning/35 bg-warning/5 px-3 py-2 text-sm text-text">
               <div className="min-w-0">
-                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-amber-200/80">
+                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-warning">
                   Exit Gate · 1
                 </p>
                 <p className="mt-0.5 leading-snug">{openGateText}</p>
@@ -2106,7 +2106,7 @@ export function ChatPane() {
                   </span>
                 </div>
                 {openGateText ? (
-                  <p className="mt-0.5 text-[11px] text-amber-200/80">Exit Gate: {openGateText}</p>
+                  <p className="mt-0.5 text-[11px] text-warning">Exit Gate: {openGateText}</p>
                 ) : null}
               </div>
             </div>
@@ -2139,7 +2139,7 @@ export function ChatPane() {
               {contextBudget.compressed ? <span className="text-amber-300">압축됨</span> : null}
             </div>
           ) : null}          {pasteHint ? (
-            <p className="mb-2 text-[11px] text-amber-300/90">{pasteHint}</p>
+            <p className="mb-2 text-[11px] text-warning">{pasteHint}</p>
           ) : null}
           {selectedModelPremium ? (
             <div className="premium-model-banner" role="status" data-testid="premium-model-banner">
