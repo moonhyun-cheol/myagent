@@ -179,6 +179,7 @@
     "sync:product-facts": "node tools/sync-product-facts.mjs",
     "sync:agent-runtime-facts": "node tools/sync-agent-runtime-facts.mjs",
     "verify:workspace-behavior": "node tools/verify-workspace-behavior.mjs",
+    "verify:plan-build-handoff": "node tools/verify-plan-build-handoff.mjs",
     "test:e2e": "playwright test -c tools/e2e/playwright.config.ts",
     "verify:e2e": "node tools/verify-e2e.mjs",
     "admin:keygen": "node tools/cqr-admin.mjs keygen",

@@ -36,6 +36,7 @@ import { useConversationDisplayPreferences } from '../lib/conversationDisplayPre
 import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
+import { PlanBuildDialog } from './PlanBuildDialog';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import {
   listSelectableSkills,
@@ -302,6 +303,7 @@ export function ChatPane() {
   const openGateText = useWorkspaceStore((s) => s.openGateText);
   const sendAiMessage = useWorkspaceStore((s) => s.sendAiMessage);
   const buildFromPlan = useWorkspaceStore((s) => s.buildFromPlan);
+  const [planBuildTurnId, setPlanBuildTurnId] = useState<string | null>(null);
   const messageQueue = useWorkspaceStore((s) => s.messageQueue);
   const queueReviewSessions = useWorkspaceStore((s) => s.queueReviewSessions);
   const updateQueuedMessage = useWorkspaceStore((s) => s.updateQueuedMessage);
@@ -1975,7 +1977,7 @@ export function ChatPane() {
                     <button
                       type="button"
                       data-testid="plan-build-button"
-                      onClick={() => void buildFromPlan(turn.id)}
+                      onClick={() => setPlanBuildTurnId(turn.id)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-accent/60 bg-accent/12 px-3 py-1.5 text-sm font-semibold text-accent-dim transition-colors hover:bg-accent/20 hover:border-accent"
                     >
                       <Hammer size={15} weight="bold" />
@@ -1984,8 +1986,32 @@ export function ChatPane() {
                     <span className="text-[11px] text-muted">
                       {turn.planConstraintsLocked === false
                         ? 'P0 미추출 · 그래도 Build 가능'
-                        : 'Agent 모드로 PLAN 구현'}
+                        : '새 Agent 대화에서 PLAN 구현'}
                     </span>
+                    {planBuildTurnId === turn.id ? (
+                      <PlanBuildDialog
+                        modelOptions={modelOptions}
+                        currentModel={selectedModel}
+                        currentReasoning={activeExecutionPolicy.reasoning}
+                        onCancel={() => setPlanBuildTurnId(null)}
+                        onConfirm={async (choice) => {
+                          await buildFromPlan(turn.id, choice);
+                          setPlanBuildTurnId(null);
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+                {turn.role === 'assistant' && turn.planBuilt && turn.planBuiltSessionId ? (
+                  <div className="mt-3 border-t border-line/60 pt-3 text-[12px] text-muted">
+                    <button
+                      type="button"
+                      data-testid="plan-build-open-session"
+                      onClick={() => void loadChatSession(turn.planBuiltSessionId!)}
+                      className="font-semibold text-accent-dim hover:underline"
+                    >
+                      구현 대화 열기 →
+                    </button>
                   </div>
                 ) : null}
               </div>

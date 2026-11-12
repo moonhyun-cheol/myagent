@@ -136,6 +136,8 @@ export interface SessionMessage {
   thought?: string;
   workspace_behavior?: WorkspaceBehavior;
   plan_constraints_locked?: boolean;
+  /** Plan reply already handed off to this Build conversation. */
+  plan_built_session_id?: string;
   tool_activity?: import('../types').ToolActivity[];
   /** Interleaved response/tool order (CQR_PA #6); absent on legacy messages. */
   work_timeline?: import('../types').WorkTimelineItem[];
@@ -1049,6 +1051,40 @@ export async function setSessionPreferredModel(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `선호 모델 저장 실패 (${res.status})`);
   return data as SessionRecord;
+}
+
+/**
+ * Plan → Build: new Agent conversation (same folder) with its own model / reasoning.
+ * The server carries only the PLAN block and the Locked P0; `build_message` is sent as
+ * the first message of the new conversation.
+ */
+export async function createPlanBuildHandoff(
+  sessionId: string,
+  body: { model: string; reasoning: ReasoningLevel },
+): Promise<{
+  rec: SessionRecord;
+  workspaceRootProjectId: string | null;
+  buildMessage: string;
+  planConstraintsLocked: boolean;
+}> {
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/plan-build-handoff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.session?.id || typeof data.build_message !== 'string') {
+    throw new Error(data.message || data.error || `Build 대화 만들기 실패 (${res.status})`);
+  }
+  const { workspace_root_project_id: rootId, ...rec } = data.session as SessionRecord & {
+    workspace_root_project_id?: string | null;
+  };
+  return {
+    rec: rec as SessionRecord,
+    workspaceRootProjectId: rootId ?? null,
+    buildMessage: data.build_message,
+    planConstraintsLocked: data.plan_constraints_locked === true,
+  };
 }
 
 export async function summarizeSession(

@@ -79,9 +79,13 @@ assert.match(planSkill, /harness 비진입|agent-run-loop/);
 
 const uiBuild = read('ui/workspace/src/lib/plan-build.ts');
 assert.match(uiBuild, /workspace_behavior !== 'plan'/);
+assert.match(uiBuild, /plan_built_session_id/);
 assert.doesNotMatch(uiBuild, /looksLikePlan/);
+// Build prompt lives only in facts: the server handoff composes the new chat's first message.
+assert.doesNotMatch(uiBuild, /PLAN_BUILD_USER_MESSAGE/);
 const prompt = loadPlanBuildPrompt(root);
-assert.ok(uiBuild.includes(prompt), 'UI PLAN_BUILD_USER_MESSAGE must match facts build_prompt');
+assert.match(prompt, /^아래 PLAN/);
+assert.match(read('core/src/sessions/plan-build-handoff.ts'), /loadPlanBuildPrompt/);
 
 const sample = extractLockedConstraintsFromText(`PLAN:
 - 목표: test

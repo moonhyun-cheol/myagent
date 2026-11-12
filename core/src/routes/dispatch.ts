@@ -3009,6 +3009,35 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, sessionStore.publicRecord(rec));
       }
 
+      const planBuildHandoffMatch = url.pathname.match(/^\/sessions\/([^/]+)\/plan-build-handoff$/);
+      if (planBuildHandoffMatch && method === 'POST') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const sourceId = decodeURIComponent(planBuildHandoffMatch[1]);
+        if (activeChatRunInfo(sourceId)) {
+          return sendJson(res, 409, { error: 'CHAT_RUN_BUSY', message: '진행 중인 작업이 끝난 뒤 Build하세요.' });
+        }
+        const body = JSON.parse(await readBody(req)) as { model?: unknown; reasoning?: unknown };
+        const { createPlanBuildHandoff } = await import('../sessions/plan-build-handoff.js');
+        const out = createPlanBuildHandoff({
+          sessionStore,
+          cqrRoot,
+          sourceSessionId: sourceId,
+          model: body.model,
+          reasoning: body.reasoning,
+        });
+        if (!out.ok) return sendJson(res, out.status, { error: out.error, message: out.message });
+        if (out.session.project_id) projectStore.touch(out.session.project_id);
+        return sendJson(res, 201, {
+          session: {
+            ...sessionStore.publicRecord(out.session),
+            workspace_root_project_id: projectStore.resolveWorkspaceRootId(out.session.project_id ?? null),
+          },
+          build_message: out.build_message,
+          plan_constraints_locked: out.plan_constraints_locked,
+        });
+      }
+
       const sessionWorkspaceMatch = url.pathname.match(/^\/sessions\/([^/]+)\/workspace$/);
       const sessionArchiveMatch = url.pathname.match(/^\/sessions\/([^/]+)\/archive$/);
       if (sessionArchiveMatch && method === 'PUT') {

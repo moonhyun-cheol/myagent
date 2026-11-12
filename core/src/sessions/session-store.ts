@@ -726,6 +726,17 @@ export class SessionStore {
     return rec;
   }
 
+  /** Mark the latest Plan reply as handed off to `builtSessionId` (Build offer stays hidden on reload). */
+  markPlanBuilt(id: string, builtSessionId: string): boolean {
+    const rec = this.load(id);
+    const last = rec?.messages[rec.messages.length - 1];
+    const target = sanitizeId(builtSessionId);
+    if (!rec || !last || last.role !== 'assistant' || !target) return false;
+    last.plan_built_session_id = target;
+    this.save(rec);
+    return true;
+  }
+
   setExecutionPolicy(id: string, policy: ExecutionPolicy): SessionRecord | null {
     const rec = this.load(id);
     if (!rec) return null;

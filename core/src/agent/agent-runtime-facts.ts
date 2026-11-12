@@ -67,7 +67,7 @@ const DEFAULT_MUTATING = [
 
 /** Fallback when facts file missing — keep in sync with sync-agent-runtime-facts.mjs */
 export const DEFAULT_PLAN_BUILD_PROMPT =
-  '위 PLAN을 Agent 모드로 구현해 주세요. Locked P0·대상 파일·단계만 따르고, Exit Gate 1개만 닫으세요. PLAN에 없는 리팩터·범위 확장 금지. verify로 증거를 남기세요.';
+  '아래 PLAN을 Agent 모드로 구현해 주세요. Locked P0·대상 파일·단계만 따르고, Exit Gate 1개만 닫으세요. PLAN에 없는 리팩터·범위 확장 금지. verify로 증거를 남기세요.';
 
 function defaultsDir(cqrRoot: string): string[] {
   return [

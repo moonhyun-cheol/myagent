@@ -79,6 +79,8 @@ export interface SessionMessage {
   workspace_behavior?: ExecutionPolicy['workspace_behavior'];
   /** Plan reply: whether locked P0 constraints were extracted. */
   plan_constraints_locked?: boolean;
+  /** Plan reply already handed off to this Build conversation (hides the Build offer). */
+  plan_built_session_id?: string;
   /**
    * Provider-reported token usage for this exact assistant response.
    * `input_tokens` maps to the preceding user request, `output_tokens` to this
