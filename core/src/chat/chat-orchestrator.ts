@@ -7,6 +7,7 @@ import {
   buildAttachmentContext,
   collectAttachmentImageDataUrls,
   resolveAttachmentContextIds,
+  historyReferenceOnlyIds,
 } from '../attachments/text-extract.js';
 import type { ModelRegistry } from '../models/model-registry.js';
 import type { ProviderStore } from '../providers/provider-store.js';
@@ -475,6 +476,11 @@ export class ChatOrchestrator {
     const attachmentContextIds = resolveAttachmentContextIds(
       req.attachments ?? [],
       this.sessionStore.load(sessionId)?.messages ?? [],
+      6,
+      (id) => {
+        const rec = this.attachments.get(id, sessionId);
+        return rec ? { name: rec.original_name, mime: rec.mime } : null;
+      },
     );
     const hasAttachments = attachmentContextIds.length > 0;
     const initialRoute = this.resolveRouting(
@@ -671,7 +677,13 @@ export class ChatOrchestrator {
           this.attachments,
           sessionId,
           12_000,
-          { cqrRoot: this.cqrRoot },
+          {
+            cqrRoot: this.cqrRoot,
+            // File tools (markitdown_convert) exist only with a bound folder; web-only keeps bodies.
+            referenceOnlyIds: workspaceAgentAvailable
+              ? historyReferenceOnlyIds(req.attachments ?? [], attachmentContextIds)
+              : [],
+          },
         ),
         imageDataUrls: collectAttachmentImageDataUrls(
           req.attachments ?? [],
@@ -817,6 +829,11 @@ export class ChatOrchestrator {
     const attachmentContextIds = resolveAttachmentContextIds(
       req.attachments ?? [],
       this.sessionStore.load(sessionId)?.messages ?? [],
+      6,
+      (id) => {
+        const rec = this.attachments.get(id, sessionId);
+        return rec ? { name: rec.original_name, mime: rec.mime } : null;
+      },
     );
     const hasAttachments = attachmentContextIds.length > 0;
     const initialRoute = this.resolveRouting(
@@ -1060,7 +1077,13 @@ export class ChatOrchestrator {
               this.attachments,
               sessionId,
               12_000,
-              { cqrRoot: this.cqrRoot },
+              {
+                cqrRoot: this.cqrRoot,
+                // File tools (markitdown_convert) exist only with a bound folder; web-only keeps bodies.
+                referenceOnlyIds: workspaceAgentAvailable
+                  ? historyReferenceOnlyIds(req.attachments ?? [], attachmentContextIds)
+                  : [],
+              },
             ),
             imageDataUrls: collectAttachmentImageDataUrls(
               req.attachments ?? [],

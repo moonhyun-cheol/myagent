@@ -1,12 +1,15 @@
 import {
   Archive,
+  ArrowBendUpRight,
   Brain,
   CaretDown,
+  CaretLeft,
   CaretRight,
   CaretUp,
   ChatTeardropText,
   CircleNotch,
   DotsThree,
+  Export,
   FolderPlus,
   FolderSimple,
   HardDrives,
@@ -17,9 +20,10 @@ import {
   Trash,
   TreeStructure,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { durableSetItem } from '../lib/durableUiState';
+import { removePinnedInstructions } from '../lib/pinnedInstructions';
 import {
   archiveSession,
   createProject,
@@ -33,6 +37,8 @@ import {
   getStoredSessionId,
   setDevWorkspace,
   setPinnedSessionIds,
+  setSessionProject as saveSessionProject,
+  setSessionWorkspaceProject as saveSessionWorkspaceProject,
   updateProject,
   type ProjectColor,
   type ProjectKind,
@@ -43,6 +49,7 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { choiceDialog, confirmDialog, promptDialog } from '../lib/confirmDialog';
 import { pickPortableSessionFile } from '../lib/sessionImport';
+import { exportPortableSession } from '../lib/sessionExport';
 import { FolderBrowserModal } from './FolderBrowserModal';
 import { openUserMemoryPanel, UserMemoryPanelHost } from './UserMemoryPanel';
 import { openScopeSettings, ScopeSettingsModalHost } from './ScopeSettingsModal';
@@ -185,6 +192,292 @@ function useSidebarMenuShortcuts(
   }, [menuOpen, onDelete, onNewChat]);
 }
 
+/** One menu row for every sidebar context menu (same spacing, hover, and danger style). */
+function SidebarMenuItem({ icon, danger = false, disabled = false, title, onClick, children }: {
+  icon: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] ${
+        disabled ? 'cursor-not-allowed opacity-45' : 'hover:bg-ink'
+      } ${danger ? 'text-red-300' : ''}`}
+    >
+      <span className="flex shrink-0 items-center">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+    </button>
+  );
+}
+
+/** Shared menu for 작업폴더 · 폴더 · 프로젝트 so wording, order, and dividers cannot drift apart. */
+function NodeMenuItems({
+  kind,
+  labelColor,
+  pinned,
+  close,
+  onPickColor,
+  onImport,
+  onTogglePin,
+  onRename,
+  onSettings,
+  onMemory,
+  onDelete,
+  onNewChat,
+  onAddFolder,
+}: {
+  kind: ProjectKind;
+  labelColor: ProjectColor;
+  pinned: boolean;
+  close: () => void;
+  onPickColor: (color: ProjectColor) => void;
+  onImport: () => void;
+  onTogglePin: () => void;
+  onRename: () => void;
+  onSettings: () => void;
+  onMemory: () => void;
+  onDelete: () => void;
+  onNewChat: () => void;
+  onAddFolder?: () => void;
+}) {
+  const kindLabel = kind === 'workspace_root' ? '작업폴더' : kind === 'folder' ? '폴더' : '프로젝트';
+  const run = (action: () => void) => () => { close(); action(); };
+  return (
+    <>
+      <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
+      <div className="grid grid-cols-8 gap-1 px-2 pb-2">
+        {PROJECT_COLORS.map((color) => (
+          <button key={color} type="button" title={`${color} 라벨`} aria-label={`${color} 라벨`} className={`h-4 w-4 rounded-full border ${labelColor === color ? 'border-text' : 'border-transparent'}`} style={{ backgroundColor: PROJECT_COLOR_HEX[color] }} onClick={run(() => onPickColor(color))} />
+        ))}
+      </div>
+      <div className="border-t border-line pt-1">
+        <SidebarMenuItem icon={<Archive size={13} />} onClick={run(onImport)}>세션 가져오기</SidebarMenuItem>
+        <SidebarMenuItem icon={<PushPin size={13} weight={pinned ? 'fill' : 'regular'} />} onClick={run(onTogglePin)}>{pinned ? '고정 해제' : '상단에 고정'}</SidebarMenuItem>
+        <SidebarMenuItem icon={<PencilSimple size={13} />} onClick={run(onRename)}>이름 변경</SidebarMenuItem>
+        <SidebarMenuItem icon={<SlidersHorizontal size={13} />} onClick={run(onSettings)}>{kindLabel} 설정</SidebarMenuItem>
+        <SidebarMenuItem icon={<Brain size={13} />} onClick={run(onMemory)}>{kindLabel} 지식·메모리</SidebarMenuItem>
+        <SidebarMenuItem icon={<Trash size={13} />} danger onClick={run(onDelete)}>삭제 D</SidebarMenuItem>
+      </div>
+      <div className="mt-1 border-t border-line pt-1">
+        <SidebarMenuItem icon={<ChatTeardropText size={13} />} onClick={run(onNewChat)}>새 대화 N</SidebarMenuItem>
+        {onAddFolder ? (
+          <SidebarMenuItem icon={<FolderPlus size={13} />} onClick={run(onAddFolder)}>하위 폴더</SidebarMenuItem>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+/** A place a conversation can live in the sidebar; `id: null` is 개인 작업. */
+interface SessionDestination {
+  id: string | null;
+  label: string;
+  depth: number;
+  kind: ProjectKind | 'standalone';
+}
+
+/** Conversation-row actions owned by the tree, so rows at any depth share one implementation. */
+interface SessionRowActions {
+  destinations: SessionDestination[];
+  workspaceRoots: { id: string; title: string }[];
+  newChat: (projectId: string | null) => void;
+  move: (session: SessionSummary, projectId: string | null) => void;
+  bindWorkspace: (session: SessionSummary, workspaceProjectId: string | null) => void;
+  exportSession: (session: SessionSummary) => void;
+}
+
+const SessionRowActionsContext = createContext<SessionRowActions | null>(null);
+
+/** 개인 작업 chats have no files unless a folder or allowed path was attached to that chat. */
+function sessionHasOwnFileAccess(session: SessionSummary): boolean {
+  return !session.project_id && Boolean(session.workspace_project_id || session.allowed_paths?.length);
+}
+
+function SessionMenuItems({ session, pinned, busy, close, onTogglePin, onRename, onDelete }: {
+  session: SessionSummary;
+  pinned?: boolean;
+  busy: boolean;
+  close: () => void;
+  onTogglePin?: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const actions = useContext(SessionRowActionsContext);
+  const [view, setView] = useState<'main' | 'move' | 'bind'>('main');
+  const run = (action: () => void) => () => { close(); action(); };
+  const standalone = !session.project_id;
+  const busyTitle = busy ? '진행 중인 작업이 끝난 뒤 변경하세요' : undefined;
+
+  if (view === 'move' && actions) {
+    return (
+      <>
+        <SidebarMenuItem icon={<CaretLeft size={13} />} onClick={() => setView('main')}>다른 위치로 이동</SidebarMenuItem>
+        <p className="px-2 pb-1 text-[10px] leading-4 text-muted">파일 접근 범위는 새 위치를 따릅니다.</p>
+        <div className="border-t border-line pt-1">
+          {actions.destinations.map((destination) => (
+            <SidebarMenuItem
+              key={destination.id ?? '__standalone__'}
+              icon={<span style={{ paddingLeft: destination.depth * 8 }}><TreeKindIcon kind={destination.kind} /></span>}
+              disabled={(session.project_id ?? null) === destination.id}
+              title={destination.label}
+              onClick={run(() => actions.move(session, destination.id))}
+            >
+              {destination.label}
+            </SidebarMenuItem>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  if (view === 'bind' && actions) {
+    return (
+      <>
+        <SidebarMenuItem icon={<CaretLeft size={13} />} onClick={() => setView('main')}>작업폴더 연결</SidebarMenuItem>
+        <p className="px-2 pb-1 text-[10px] leading-4 text-muted">이 대화에만 파일 접근을 엽니다. 대화 위치는 개인 작업에 그대로 남습니다.</p>
+        <div className="border-t border-line pt-1">
+          {actions.workspaceRoots.length === 0 ? (
+            <p className="px-2 py-1.5 text-[11px] text-muted">등록된 작업폴더가 없습니다.</p>
+          ) : null}
+          {actions.workspaceRoots.map((root) => (
+            <SidebarMenuItem
+              key={root.id}
+              icon={<TreeKindIcon kind="workspace_root" />}
+              disabled={session.workspace_project_id === root.id}
+              title={root.title}
+              onClick={run(() => actions.bindWorkspace(session, root.id))}
+            >
+              {root.title}
+            </SidebarMenuItem>
+          ))}
+          {session.workspace_project_id ? (
+            <SidebarMenuItem icon={<FolderSimple size={13} />} onClick={run(() => actions.bindWorkspace(session, null))}>연결 해제</SidebarMenuItem>
+          ) : null}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {onTogglePin ? (
+        <SidebarMenuItem icon={<PushPin size={13} weight={pinned ? 'fill' : 'regular'} />} onClick={run(onTogglePin)}>{pinned ? '대화 고정 해제' : '이 묶음에 대화 고정'}</SidebarMenuItem>
+      ) : null}
+      <SidebarMenuItem
+        icon={<SlidersHorizontal size={13} />}
+        onClick={run(() => openScopeSettings({ kind: 'session', id: session.id, title: session.title || '제목 없음', preferredModel: session.preferred_model, allowedPaths: session.allowed_paths, projectId: session.project_id ?? null }))}
+      >
+        대화 설정
+      </SidebarMenuItem>
+      <SidebarMenuItem icon={<Brain size={13} />} onClick={run(() => openUserMemoryPanel({ sessionId: session.id, projectId: session.project_id ?? null, title: session.title || '제목 없음' }))}>대화 메모리</SidebarMenuItem>
+      <SidebarMenuItem icon={<PencilSimple size={13} />} onClick={run(onRename)}>이름 변경</SidebarMenuItem>
+      {actions && !session.archived ? (
+        <div className="mt-1 border-t border-line pt-1">
+          <SidebarMenuItem icon={<ArrowBendUpRight size={13} />} disabled={busy} title={busyTitle} onClick={() => setView('move')}>다른 위치로 이동…</SidebarMenuItem>
+          {standalone ? (
+            <SidebarMenuItem icon={<FolderSimple size={13} />} disabled={busy} title={busyTitle} onClick={() => setView('bind')}>{session.workspace_project_id ? '작업폴더 연결 변경…' : '작업폴더 연결…'}</SidebarMenuItem>
+          ) : null}
+          <SidebarMenuItem icon={<Export size={13} />} onClick={run(() => actions.exportSession(session))}>내보내기</SidebarMenuItem>
+        </div>
+      ) : null}
+      <div className="mt-1 border-t border-line pt-1">
+        <SidebarMenuItem
+          icon={<Archive size={13} weight={session.archived ? 'fill' : 'regular'} />}
+          onClick={run(() => {
+            void archiveSession(session.id, !session.archived)
+              .then(() => window.dispatchEvent(new Event('cqr:workspace-tree-changed')))
+              .catch(() => { /* keep current state on failure */ });
+          })}
+        >
+          {session.archived ? '보관 해제' : '보관'}
+        </SidebarMenuItem>
+        <SidebarMenuItem icon={<Trash size={13} />} danger onClick={run(onDelete)}>삭제 D</SidebarMenuItem>
+      </div>
+      {actions && !session.archived ? (
+        <div className="mt-1 border-t border-line pt-1">
+          <SidebarMenuItem icon={<ChatTeardropText size={13} />} onClick={run(() => actions.newChat(session.project_id ?? null))}>새 대화 N</SidebarMenuItem>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** 개인 작업 header: collapse toggle plus the same right-click menu pattern as other groups. */
+function StandaloneHeader({ collapsed, onToggle, onNewChat, onImport }: {
+  collapsed: boolean;
+  onToggle: () => void;
+  onNewChat: () => void;
+  onImport: () => void;
+}) {
+  const menuId = 'standalone-root';
+  const { menuOpen, setMenuOpen, openMenu, toggleMenu } = useExclusiveSidebarMenu(menuId);
+  const menuAnchorRef = useRef<HTMLButtonElement>(null);
+  useSidebarMenuShortcuts(menuOpen, () => { setMenuOpen(false); onNewChat(); }, undefined);
+  const run = (action: () => void) => () => { setMenuOpen(false); action(); };
+  return (
+    <div
+      className="group flex h-8 items-center gap-0.5 rounded-md pr-1 text-[12px] text-muted transition hover:bg-ink hover:text-text"
+      data-sidebar-menu-id={menuId}
+      data-testid="standalone-header"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openMenu();
+      }}
+    >
+      <button
+        type="button"
+        className="flex h-full min-w-0 flex-1 items-center gap-1 rounded-md px-1 text-left"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
+        title={collapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
+      >
+        {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
+        <TreeKindIcon kind="standalone" color={PROJECT_COLOR_HEX.gray} title="개인 작업" />
+        <span className="font-medium">개인 작업</span>
+      </button>
+      <button
+        type="button"
+        className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+        title="개인 작업에 새 대화"
+        aria-label="개인 작업에 새 대화"
+        onClick={onNewChat}
+      >
+        <Plus size={12} weight="bold" />
+      </button>
+      <div className="relative">
+        <button
+          ref={menuAnchorRef}
+          type="button"
+          className="rounded p-1 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+          title="더보기"
+          aria-label="개인 작업 더보기"
+          onClick={toggleMenu}
+        >
+          <DotsThree size={14} weight="bold" />
+        </button>
+        <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-48">
+          <p className="px-2 py-1 text-[10px] leading-4 text-muted">파일 접근 없음 · Agent는 웹 도구만. 파일이 필요하면 대화에 작업폴더를 연결하세요.</p>
+          <div className="border-t border-line pt-1">
+            <SidebarMenuItem icon={<ChatTeardropText size={13} />} onClick={run(onNewChat)}>새 대화 N</SidebarMenuItem>
+            <SidebarMenuItem icon={<Archive size={13} />} onClick={run(onImport)}>세션 가져오기</SidebarMenuItem>
+            <SidebarMenuItem icon={<Brain size={13} />} onClick={run(() => openUserMemoryPanel({ title: '개인 작업' }))}>메모리 관리 · 보관함</SidebarMenuItem>
+            <SidebarMenuItem icon={collapsed ? <CaretDown size={13} /> : <CaretRight size={13} />} onClick={run(onToggle)}>{collapsed ? '펼치기' : '접기'}</SidebarMenuItem>
+          </div>
+        </SidebarMenuPopup>
+      </div>
+    </div>
+  );
+}
+
 function loadCollapsed(): Set<string> {
   try {
     const current = localStorage.getItem(COLLAPSED_KEY);
@@ -240,6 +533,9 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const loadChatSession = useWorkspaceStore((s) => s.loadChatSession);
   const requestHistoryFocus = useWorkspaceStore((s) => s.requestHistoryFocus);
+  const setActiveSessionProject = useWorkspaceStore((s) => s.setSessionProject);
+  const setActiveSessionWorkspaceProject = useWorkspaceStore((s) => s.setSessionWorkspaceProject);
+  const refreshExplorer = useWorkspaceStore((s) => s.refreshExplorer);
 
   const refresh = useCallback(async () => {
     try {
@@ -403,10 +699,67 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     if (file) await importPortableSession(file, projectId);
   };
 
-  const onNewChatIn = async (id: string) => {
+  const onNewChatIn = async (id: string | null) => {
     // The sidebar location is the only input; the core derives the workspace folder from it.
     await startNewChat(id);
     onChatOpened?.();
+  };
+
+  /** Move a conversation to another sidebar location; the server re-derives its file scope there. */
+  const moveSession = async (session: SessionSummary, projectId: string | null) => {
+    try {
+      if (session.id === activeSessionId) {
+        await setActiveSessionProject(projectId);
+        await refreshExplorer();
+      } else {
+        await saveSessionProject(session.id, projectId);
+      }
+      await refresh();
+      onMessage?.('대화를 옮겼습니다. 파일 접근 범위는 새 위치를 따릅니다.');
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : '대화 이동 실패');
+    }
+  };
+
+  /** Attach or detach a registered workspace folder for one 개인 작업 conversation. */
+  const bindSessionWorkspace = async (session: SessionSummary, workspaceProjectId: string | null) => {
+    try {
+      if (session.id === activeSessionId) await setActiveSessionWorkspaceProject(workspaceProjectId);
+      else await saveSessionWorkspaceProject(session.id, workspaceProjectId);
+      await refresh();
+      onMessage?.(workspaceProjectId ? '이 대화에 작업폴더를 연결했습니다.' : '이 대화의 작업폴더 연결을 해제했습니다.');
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : '작업폴더 연결 변경 실패');
+    }
+  };
+
+  const exportSession = async (session: SessionSummary) => {
+    try {
+      await exportPortableSession(session.id);
+      onMessage?.('호환 가능한 JSON 세션 파일로 내보냈습니다.');
+    } catch (err) {
+      onMessage?.(err instanceof Error ? err.message : '세션 내보내기 실패');
+    }
+  };
+
+  const sessionDestinations = useMemo(() => {
+    const out: SessionDestination[] = [{ id: null, label: '개인 작업', depth: 0, kind: 'standalone' }];
+    const walk = (node: WorkspaceNode, depth: number) => {
+      out.push({ id: node.id, label: node.title, depth, kind: node.kind });
+      (node.children ?? []).forEach((child) => walk(child, depth + 1));
+    };
+    (tree?.workspace_trees ?? []).forEach((node) => walk(node, 0));
+    (tree?.projects ?? []).forEach((project) => out.push({ id: project.id, label: project.title, depth: 0, kind: 'project' }));
+    return out;
+  }, [tree]);
+
+  const sessionRowActions: SessionRowActions = {
+    destinations: sessionDestinations,
+    workspaceRoots: (tree?.workspace_trees ?? []).map((node) => ({ id: node.id, title: node.title })),
+    newChat: (projectId) => void onNewChatIn(projectId),
+    move: (session, projectId) => void moveSession(session, projectId),
+    bindWorkspace: (session, workspaceProjectId) => void bindSessionWorkspace(session, workspaceProjectId),
+    exportSession: (session) => void exportSession(session),
   };
 
   const openSession = async (id: string, _projectId: string | null) => {
@@ -454,6 +807,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     if (!ok) return;
     try {
       await deleteSession(id);
+      removePinnedInstructions(id);
       if (activeSessionId === id || getStoredSessionId() === id) {
         clearActiveChat();
       }
@@ -477,9 +831,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       const sub = preview.folders > 0 ? ` (하위 폴더 ${preview.folders}개 포함)` : '';
       if (preview.sessions === 0) {
         const memoryNote = preview.memories > 0
-          ? preview.target
-            ? `\n지식·메모리 ${preview.memories}개는 ${targetLabel}(으)로 옮겨집니다.`
-            : `\n지식·메모리 ${preview.memories}개도 함께 삭제됩니다.`
+          ? `\n프로젝트 메모리 ${preview.memories}개는 출처를 유지해 보관됩니다. 복원 전에는 자동 적용되지 않습니다.`
           : '';
         const ok = await confirmDialog({
           title: `${label} 삭제`,
@@ -490,9 +842,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         if (!ok) return;
       } else {
         const memoryNote = preview.memories > 0
-          ? preview.target
-            ? ` 지식·메모리 ${preview.memories}개도 함께 옮겨집니다.`
-            : ` 지식·메모리 ${preview.memories}개는 개인 작업에 둘 곳이 없어 삭제됩니다.`
+          ? ` 프로젝트 메모리 ${preview.memories}개는 기본 선택에서 보관되며 복원 전에는 자동 적용되지 않습니다.`
           : '';
         const choice = await choiceDialog({
           title: `${label} 삭제`,
@@ -509,7 +859,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         if (choice === 'delete') {
           const sure = await confirmDialog({
             title: '대화 영구 삭제',
-            message: `대화 ${preview.sessions}개를 되돌릴 수 없게 삭제합니다. 계속할까요?`,
+            message: `대화 ${preview.sessions}개와 프로젝트 메모리 ${preview.memories}개를 되돌릴 수 없게 삭제합니다. 계속할까요?`,
             danger: true,
             confirmLabel: '영구 삭제',
             allowEnterConfirm: false,
@@ -596,8 +946,10 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       .map((project) => ({ id: project.id, kind: 'project' as const, project })),
   ], pinnedNodes);
   const standaloneCollapsed = collapsed.has(STANDALONE_COLLAPSED_ID) && !q;
+  const standaloneSessions = pinnedFirst((tree?.standalone_sessions ?? []).filter(matchSession), pinned);
 
   return (
+    <SessionRowActionsContext.Provider value={sessionRowActions}>
     <div className={embedded ? "border-t border-line" : "flex h-full min-h-0 flex-col"}>
       <div className="group flex h-9 shrink-0 items-center border-b border-line px-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">워크스페이스</p>
@@ -624,26 +976,21 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
       </div>
 
       <div className={embedded ? "flex flex-col px-2 py-1.5" : "flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-1.5"}>
-        {(tree?.standalone_sessions ?? []).filter(matchSession).length > 0 ? (
+        {tree && (!q || standaloneSessions.length > 0) ? (
           <div className="mb-1">
-            <button
-              type="button"
-              className="flex h-8 w-full items-center gap-1 rounded-md px-1 text-left text-[12px] text-muted transition hover:bg-ink hover:text-text"
-              onClick={() => toggle(STANDALONE_COLLAPSED_ID)}
-              aria-expanded={!standaloneCollapsed}
-              aria-label={standaloneCollapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
-              title={standaloneCollapsed ? '개인 작업 펼치기' : '개인 작업 접기'}
-            >
-              {standaloneCollapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
-              <TreeKindIcon kind="standalone" color={PROJECT_COLOR_HEX.gray} title="개인 작업" />
-              <span className="font-medium">개인 작업</span>
-            </button>
+            <StandaloneHeader
+              collapsed={standaloneCollapsed}
+              onToggle={() => toggle(STANDALONE_COLLAPSED_ID)}
+              onNewChat={() => void onNewChatIn(null)}
+              onImport={() => void chooseAndImportSession(null)}
+            />
             {!standaloneCollapsed ? (
               <div className="ml-[11px] border-l border-line/70 pl-1">
+                {standaloneSessions.length === 0 ? (
+                  <p className="py-1.5 pl-5 text-[11px] text-muted" data-testid="standalone-empty">대화가 없습니다. + 를 눌러 새 대화를 시작하세요.</p>
+                ) : null}
                 <SessionPreviewList
-                  sessions={[...(tree?.standalone_sessions ?? [])]
-                    .filter(matchSession)
-                    .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)))}
+                  sessions={standaloneSessions}
                   activeSessionId={activeSessionId}
                   indent={20}
                   pinnedSessionIds={pinned}
@@ -721,6 +1068,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
                   onDeleteSession={(id) => void onDeleteSession(id)}
                   onToggleSessionPin={togglePin}
                   onNewChat={() => void onNewChatIn(p.id)}
+                  onImportSession={() => void chooseAndImportSession(p.id)}
                   onRename={() => void onRenameNode({
                     id: p.id,
                     title: p.title,
@@ -762,6 +1110,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
         onSelect={(path) => void onPickWorkspace(path)}
       />
     </div>
+    </SessionRowActionsContext.Provider>
   );
 }
 
@@ -917,31 +1266,21 @@ function TreeNode({
             <DotsThree size={14} weight="bold" />
           </button>
           <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-44">
-              <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
-              <div className="grid grid-cols-8 gap-1 px-2 pb-2">
-                {PROJECT_COLORS.map((color) => (
-                  <button key={color} type="button" title={`${color} 라벨`} aria-label={`${color} 라벨`} className={`h-4 w-4 rounded-full border ${labelColor === color ? 'border-text' : 'border-transparent'}`} style={{ backgroundColor: PROJECT_COLOR_HEX[color] }} onClick={() => { setLabelColor(color); setMenuOpen(false); onChangeColor(node.id, color); }} />
-                ))}
-              </div>
-              <div className="border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onImportSession(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Archive size={13} />세션 가져오기</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={isPinned ? 'fill' : 'regular'} />{isPinned ? '고정 해제' : '상단에 고정'}</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onRenameNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 변경</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />{node.kind === 'workspace_root' ? '작업폴더 설정' : node.kind === 'folder' ? '폴더 설정' : '프로젝트 설정'}</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: node.id, title: node.title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />{node.kind === 'workspace_root' ? '작업폴더 지식·메모리' : node.kind === 'folder' ? '폴더 지식·메모리' : '프로젝트 지식·메모리'}</button>
-                <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onDeleteNode(node); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
-              </div>
-              <div className="mt-1 border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                  <ChatTeardropText size={13} />새 대화 N
-                </button>
-                {isContainer ? (
-                  <button type="button" onClick={() => { setMenuOpen(false); onAddFolder(node.id); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink">
-                    <FolderPlus size={13} />하위 폴더
-                  </button>
-                ) : null}
-              </div>
+              <NodeMenuItems
+                kind={node.kind}
+                labelColor={labelColor}
+                pinned={isPinned}
+                close={() => setMenuOpen(false)}
+                onPickColor={(color) => { setLabelColor(color); onChangeColor(node.id, color); }}
+                onImport={() => onImportSession(node.id)}
+                onTogglePin={() => onTogglePin(node.id)}
+                onRename={() => onRenameNode(node)}
+                onSettings={() => openScopeSettings({ kind: node.kind === 'workspace_root' ? 'workspace' : 'project', id: node.id, title: node.title, preferredModel: node.preferred_model, allowedPaths: node.allowed_paths })}
+                onMemory={() => openUserMemoryPanel({ projectId: node.id, title: node.title })}
+                onDelete={() => onDeleteNode(node)}
+                onNewChat={() => onNewChat(node.id)}
+                onAddFolder={isContainer ? () => onAddFolder(node.id) : undefined}
+              />
           </SidebarMenuPopup>
         </div>
       </div>
@@ -1012,6 +1351,7 @@ function ProjectBlock({
   onDeleteSession,
   onToggleSessionPin,
   onNewChat,
+  onImportSession,
   onRename,
   onDelete,
   onTogglePin,
@@ -1035,6 +1375,7 @@ function ProjectBlock({
   onDeleteSession: (id: string) => void;
   onToggleSessionPin: (id: string) => void;
   onNewChat: () => void;
+  onImportSession: () => void;
   onRename: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
@@ -1081,21 +1422,20 @@ function ProjectBlock({
             <DotsThree size={14} weight="bold" />
           </button>
           <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-44">
-              <p className="px-2 py-1 text-[10px] text-muted">컬러 라벨</p>
-              <div className="grid grid-cols-8 gap-1 px-2 pb-2">
-                {PROJECT_COLORS.map((nextColor) => (
-                  <button key={nextColor} type="button" title={`${nextColor} 라벨`} aria-label={`${nextColor} 라벨`} className={`h-4 w-4 rounded-full border ${labelColor === nextColor ? 'border-text' : 'border-transparent'}`} style={{ backgroundColor: PROJECT_COLOR_HEX[nextColor] }} onClick={() => { setLabelColor(nextColor); setMenuOpen(false); onChangeColor(nextColor); }} />
-                ))}
-              </div>
-              <div className="border-t border-line pt-1">
-                <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '고정 해제' : '상단에 고정'}</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onNewChat(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><ChatTeardropText size={13} />새 대화 N</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'project', id, title, preferredModel, allowedPaths }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />프로젝트 설정</button>
-                <button type="button" onClick={() => { setMenuOpen(false); openUserMemoryPanel({ projectId: id, title }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><Brain size={13} />프로젝트 지식·메모리</button>
-                <button type="button" disabled title="보관 기능은 준비 중입니다" className="flex w-full cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-muted opacity-45"><Archive size={13} />보관 (준비 중)</button>
-                <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
-              </div>
+              <NodeMenuItems
+                kind="project"
+                labelColor={labelColor}
+                pinned={pinned}
+                close={() => setMenuOpen(false)}
+                onPickColor={(nextColor) => { setLabelColor(nextColor); onChangeColor(nextColor); }}
+                onImport={onImportSession}
+                onTogglePin={onTogglePin}
+                onRename={onRename}
+                onSettings={() => openScopeSettings({ kind: 'project', id, title, preferredModel, allowedPaths })}
+                onMemory={() => openUserMemoryPanel({ projectId: id, title })}
+                onDelete={onDelete}
+                onNewChat={onNewChat}
+              />
           </SidebarMenuPopup>
         </div>
       </div>
@@ -1111,8 +1451,6 @@ function ProjectBlock({
           onTogglePin={onToggleSessionPin}
         />
       ) : null}
-      {/* silence unused id when collapsed-only */}
-      <span className="hidden">{id}</span>
     </div>
   );
 }
@@ -1263,9 +1601,13 @@ function SessionRow({
   const menuAnchorRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const rowActions = useContext(SessionRowActionsContext);
+  const ownFileAccess = sessionHasOwnFileAccess(session);
   useSidebarMenuShortcuts(
     menuOpen,
-    undefined,
+    rowActions && !session.archived
+      ? () => { setMenuOpen(false); rowActions.newChat(session.project_id ?? null); }
+      : undefined,
     () => { setMenuOpen(false); onDelete(); },
   );
   const beginRename = () => {
@@ -1330,6 +1672,16 @@ function SessionRow({
           ●
         </span>
       ) : null}
+      {ownFileAccess ? (
+        <span
+          className="shrink-0 text-muted"
+          data-testid="session-file-access-badge"
+          title={session.allowed_paths?.length ? '이 대화에 허용 경로가 지정됨 · 파일 접근 가능' : '이 대화에 작업폴더가 연결됨 · 파일 접근 가능'}
+          aria-label="파일 접근 가능"
+        >
+          <FolderSimple size={11} weight="fill" />
+        </span>
+      ) : null}
       {onTogglePin ? (
         <button
           type="button"
@@ -1352,26 +1704,16 @@ function SessionRow({
         >
           <DotsThree size={14} weight="bold" />
         </button>
-        <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-36">
-            {onTogglePin ? (
-              <button type="button" onClick={() => { setMenuOpen(false); onTogglePin(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PushPin size={13} weight={pinned ? 'fill' : 'regular'} />{pinned ? '대화 고정 해제' : '이 묶음에 대화 고정'}</button>
-            ) : null}
-            <button type="button" onClick={() => { setMenuOpen(false); openScopeSettings({ kind: 'session', id: session.id, title: session.title || '제목 없음', preferredModel: session.preferred_model, allowedPaths: session.allowed_paths, projectId: session.project_id ?? session.workspace_project_id }); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><SlidersHorizontal size={13} />대화 설정</button>
-            <button type="button" onClick={() => { setMenuOpen(false); beginRename(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"><PencilSimple size={13} />이름 수정</button>
-            <button
-              type="button"
-              onClick={async () => {
-                setMenuOpen(false);
-                try {
-                  await archiveSession(session.id, !session.archived);
-                  window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
-                } catch { /* keep current state on failure */ }
-              }}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-ink"
-            >
-              <Archive size={13} weight={session.archived ? 'fill' : 'regular'} />{session.archived ? '보관 해제' : '보관'}
-            </button>
-            <button type="button" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-red-300 hover:bg-ink"><Trash size={13} />삭제 D</button>
+        <SidebarMenuPopup open={menuOpen} menuId={menuId} anchorRef={menuAnchorRef} widthClass="w-48">
+            <SessionMenuItems
+              session={session}
+              pinned={pinned}
+              busy={phase === 'running'}
+              close={() => setMenuOpen(false)}
+              onTogglePin={onTogglePin}
+              onRename={beginRename}
+              onDelete={onDelete}
+            />
         </SidebarMenuPopup>
       </div>
     </div>

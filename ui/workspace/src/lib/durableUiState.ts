@@ -13,7 +13,9 @@ export const DURABLE_UI_KEYS: readonly string[] = [
   'my-agent-workspace-session',
   'my-agent-workspace-pinned-sessions',
   'my-agent-workspace-pinned-nodes',
+  // v1 = former app-wide list, kept only so its migration/removal reaches ui-state.json.
   'my-agent-pinned-instructions-v1',
+  'my-agent-pinned-instructions-v2',
   'myagent.minimize-to-tray-on-close',
   'myagent.update-auto-check',
   'myagent.update-poll-interval-ms',

@@ -141,6 +141,22 @@ export function resolveWorkspaceRootForSession(
   return resolveWorkspaceRootsForSession(sessionStore, projectStore, sessionId)[0] ?? null;
 }
 
+/**
+ * Root for media requests (`GET /fs/workspace-raw`).
+ * A request that names a conversation (header or `?session=`) reads only that
+ * conversation's root; the PC-wide default applies only when no conversation is named.
+ */
+export function resolveWorkspaceRootForMediaRequest(
+  sessionStore: SessionStore,
+  projectStore: ProjectStore,
+  sessionId: string | null | undefined,
+  defaultRoot: string | null | undefined,
+): string | null {
+  const id = sessionId?.trim();
+  if (id) return resolveWorkspaceRootForSession(sessionStore, projectStore, id);
+  return defaultRoot?.trim() || null;
+}
+
 function buildDocumentCollaborationContext(
   sessionStore: SessionStore,
   projectStore: ProjectStore,

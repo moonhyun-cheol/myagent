@@ -9,10 +9,12 @@ import {
   resolveMemoryProjectId,
   resolveRequestedModelForSession,
   resolveSessionContextScope,
+  resolveWorkspaceRootForMediaRequest,
   resolveWorkspaceRootForSession,
   resolveWorkspaceRootsForSession,
 } from '../core/dist/chat/session-context.js';
 import { needsHumanApproval } from '../core/dist/agent/tool-approval.js';
+import { validateScopeAllowedPaths } from '../core/dist/sessions/scope-path-validation.js';
 
 const root = process.cwd();
 const temp = mkdtempSync(path.join(os.tmpdir(), 'cqr-session-workspace-'));
@@ -112,6 +114,38 @@ try {
   sessions.ensure('legacy', { project_id: workspace.id });
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'legacy'), path.resolve(workspaceDir));
 
+  // Media requests that name a conversation read only that conversation's root.
+  // A 개인 작업 chat has none, so the PC-wide default must not be substituted.
+  sessions.ensure('solo');
+  assert.equal(resolveWorkspaceRootForMediaRequest(sessions, projects, 'solo', outsideDir), null);
+  assert.equal(resolveWorkspaceRootForMediaRequest(sessions, projects, 'legacy', outsideDir), path.resolve(workspaceDir));
+  assert.equal(resolveWorkspaceRootForMediaRequest(sessions, projects, null, outsideDir), outsideDir);
+  assert.equal(resolveWorkspaceRootForMediaRequest(sessions, projects, '', null), null);
+
+  // Conversation allowed paths: any absolute folder is accepted, but it must pass the
+  // same guard as a folder binding (exists, is a directory, NAS consent).
+  const missingDir = path.join(temp, 'missing-dir');
+  assert.deepEqual(validateScopeAllowedPaths([extraDir, ` ${extraDir} `, ''], { allowNas: false }), {
+    ok: true,
+    roots: [extraDir],
+  });
+  const missing = validateScopeAllowedPaths([extraDir, missingDir], { allowNas: false });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.error, 'ALLOWED_PATH_NOT_ALLOWED');
+  assert.equal(missing.path, missingDir);
+  const relative = validateScopeAllowedPaths(['relative\\dir'], { allowNas: false });
+  assert.equal(relative.ok, false);
+  assert.equal(relative.error, 'INVALID_ALLOWED_PATH');
+  const nas = validateScopeAllowedPaths(['\\\\nas-host\\share\\folder'], { allowNas: false });
+  assert.equal(nas.ok, false);
+  assert.equal(nas.error, 'ALLOWED_PATH_NOT_ALLOWED');
+  assert.equal(validateScopeAllowedPaths('C:\\x', { allowNas: false }).ok, false);
+  // An entry already stored on the conversation does not block a later save.
+  assert.deepEqual(validateScopeAllowedPaths([missingDir], { allowNas: false, existing: [missingDir] }), {
+    ok: true,
+    roots: [missingDir],
+  });
+
   // Public SSE thought deltas are normalized onto the matching assistant
   // response, survive disk reload, and stay separate from model-facing content.
   sessions.beginAssistantThought('chat-a');
@@ -152,6 +186,10 @@ try {
   assert.match(client, /X-CQR-Session/);
   assert.ok(dispatch.includes("url.pathname.match(/^\\/sessions\\/([^/]+)\\/workspace$/)"));
   assert.match(dispatch, /workspaceRootForRequest/);
+  assert.match(dispatch, /resolveWorkspaceRootForMediaRequest\(/);
+  assert.doesNotMatch(dispatch, /workspaceRootForRequest\(\)\s*\|\|/);
+  assert.match(dispatch, /validateScopeAllowedPaths\(body\.allowed_paths/);
+  assert.doesNotMatch(store, /membershipProjectId \?\? rec\.workspace_project_id/);
   assert.match(orchestrator, /type: 'tool_complete'/);
   assert.match(orchestrator, /this\.sessionStore\.beginAssistantThought\(sessionId\)/);
   assert.match(orchestrator, /this\.sessionStore\.appendAssistantThought\(sessionId, text\)/);

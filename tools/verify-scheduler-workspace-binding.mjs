@@ -51,28 +51,22 @@ try {
   assert.deepEqual(fromRoot.workspace_roots, [path.resolve(wsA)], 'falls back to the tool workspace root');
   unregisterPersonalSchedulerRuntime(root, runtime);
 
-  // 5. Tool approvals: decision model in delegate mode with the instruction as user request.
-  const seen = [];
-  const verdicts = ['allow', 'ask_user'];
+  // 5. Tool approvals: free pass — no decision-model review and no card (nobody is watching).
   const hooks = createSchedulerDecisionHooks({
     providerStore: {},
     cqrRoot: root,
     sessionId: 'automation-x',
     instruction: 'start the dev servers with start.ps1',
-    review: async (input) => {
-      seen.push({ mode: input.mode, userMessage: input.userMessage });
-      return { decision: verdicts.shift(), confidence: 0.9, reason: 'r', reviewer: 'fake/decision' };
-    },
     reviewBudget: async ({ facts }) => ({
       verdict: facts.stepsUsed === 999 ? 'stop_ask_user' : 'continue',
       confidence: 0.9, reason: 'b', instruction: '', reviewer: 'fake/budget',
     }),
   });
   const req = { id: '1', tool: 'run_terminal', summary: 'pwsh start.ps1', argsPreview: '{}', danger: false, delegable: true };
-  assert.deepEqual(await hooks.onToolApproval(req), { approved: true, by: 'reviewer', reviewer: 'fake/decision' });
-  assert.equal((await hooks.onToolApproval(req)).approved, false, 'ask_user is denied — nobody is watching');
-  assert.deepEqual(seen.map((s) => s.mode), ['delegate', 'delegate']);
-  assert.equal(seen[0].userMessage, 'start the dev servers with start.ps1');
+  assert.deepEqual(await hooks.onToolApproval(req), {
+    approved: true, by: 'policy', reviewer: 'scheduler-free-pass', snapshot: 'best_effort',
+  });
+  assert.equal(hooks.decisions[0].reviewer, 'scheduler-free-pass');
 
   // 6. Step budget: continue → extend within auto cap; cap reached / stop → stop (never waits).
   const facts = { stepsUsed: 100, stepLimit: 100, elapsedMs: 60_000, trigger: 'steps' };
@@ -83,9 +77,9 @@ try {
   assert.ok(capped.stopReason);
   const stopped = await hooks.onStepBudgetExhausted({ facts: { ...facts, stepsUsed: 999 }, workingModelId: 'm', autoGrantsUsed: 0 });
   assert.equal(stopped.extend, 0);
-  assert.deepEqual(hooks.decisions.map((d) => d.decision), ['allow', 'deny', 'extend', 'stop', 'stop']);
+  assert.deepEqual(hooks.decisions.map((d) => d.decision), ['allow', 'extend', 'stop', 'stop']);
 
-  console.log(JSON.stringify({ ok: true, checks: ['normalize', 'keep/unbind', 'persist', 'upsert-binding', 'decision-approval', 'step-budget'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['normalize', 'keep/unbind', 'persist', 'upsert-binding', 'free-pass-approval', 'step-budget'] }));
 } finally {
   service.close();
   rmSync(root, { recursive: true, force: true });

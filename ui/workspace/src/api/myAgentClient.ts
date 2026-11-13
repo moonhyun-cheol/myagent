@@ -812,12 +812,15 @@ export interface UserMemoryEntry {
   created_at: string;
   updated_at: string;
   reviewed_at?: string | null;
+  archived_at?: string | null;
+  origin_project_id?: string | null;
+  origin_project_title?: string | null;
 }
 
 export async function listUserMemory(
   projectId?: string | null,
   sessionId?: string | null,
-): Promise<{ global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[] }> {
+): Promise<{ global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[]; archived: UserMemoryEntry[] }> {
   const params = new URLSearchParams();
   if (projectId) params.set('project_id', projectId);
   if (sessionId) params.set('session_id', sessionId);
@@ -825,7 +828,15 @@ export async function listUserMemory(
   const res = await fetch(`/memory${q}`, { cache: 'no-store' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `메모리 로드 실패 (${res.status})`);
-  return data as { global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[] };
+  return data as { global: UserMemoryEntry[]; project: UserMemoryEntry[]; session: UserMemoryEntry[]; archived: UserMemoryEntry[] };
+}
+
+export async function restoreUserMemory(id: string, target: { scope: 'project' | 'session'; id: string }): Promise<void> {
+  const res = await fetch(`/memory/${encodeURIComponent(id)}/restore`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(target),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `메모리 복원 실패 (${res.status})`);
 }
 
 export async function addUserMemory(body: {
@@ -1600,14 +1611,17 @@ export async function setSessionExecutionPolicy(
   return data as SessionRecord;
 }
 
+export type SessionWorkspaceTarget = string | null | { folder_path: string };
+
 export async function setSessionWorkspaceProject(
   sessionId: string,
-  workspaceProjectId: string | null,
+  workspaceProjectId: SessionWorkspaceTarget,
 ): Promise<SessionRecord> {
   const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/workspace`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_project_id: workspaceProjectId }),
+    body: JSON.stringify(typeof workspaceProjectId === 'object' && workspaceProjectId !== null
+      ? workspaceProjectId : { workspace_project_id: workspaceProjectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `작업 폴더 연결 실패 (${res.status})`);

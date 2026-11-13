@@ -23,10 +23,12 @@ const server = await createServer({ root, configFile: false, plugins: [react(), 
     import React from 'react';
     import {createRoot} from 'react-dom/client';
     import {UserMemoryPanelHost, openUserMemoryPanel} from '/src/components/UserMemoryPanel.tsx';
+    import {ProjectsTree} from '/src/components/ProjectsTree.tsx';
     import {ConfirmModal} from '/src/components/ConfirmModal.tsx';
     import '/src/index.css';
     window.openMemory = openUserMemoryPanel;
-    createRoot(document.getElementById('root')).render(<><UserMemoryPanelHost/><ConfirmModal/></>);
+    const sidebar = new URLSearchParams(location.search).has('sidebar');
+    createRoot(document.getElementById('root')).render(<>{sidebar ? <ProjectsTree/> : <UserMemoryPanelHost/>}<ConfirmModal/></>);
   `; },
   configureServer(server) {
     server.middlewares.use('/__memory-test', async (_req, res) => {
@@ -44,7 +46,7 @@ try {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   let failRead = false, failWrite = false, delayRead = 0;
-  await page.route('**/memory{,/**,?*}', async (route) => {
+  await page.route(/\/memory(?:\/|\?|$)/, async (route) => {
     const req = route.request(); const url = new URL(req.url());
     try {
       if (req.method() === 'GET') {
@@ -55,7 +57,9 @@ try {
         return await route.fulfill({ json: data });
       }
       if (failWrite) return await route.fulfill({ status: 500, json: { message: '저장 테스트 오류' } });
+      if (req.method() === 'DELETE') return await route.fulfill({ json: { ok: store.remove(decodeURIComponent(url.pathname.split('/').pop())) } });
       const body = req.postDataJSON();
+      if (url.pathname.endsWith('/restore')) return await route.fulfill({ json: store.restore(decodeURIComponent(url.pathname.split('/')[2]), body) });
       if (url.pathname === '/memory/batch') return await route.fulfill({ json: { changed: store.batch(body) } });
       if (req.method() === 'PUT') return await route.fulfill({ json: store.update(decodeURIComponent(url.pathname.split('/').pop()), body) });
       return await route.fulfill({ status: 201, json: store.add(body) });
@@ -66,7 +70,10 @@ try {
   const open = (sessionId = 'chat-a') => page.evaluate((sessionId) => window.openMemory({ sessionId, projectId: 'project-a', title: '테스트' }), sessionId);
   await open();
   const dialog = page.getByRole('dialog', { name: '메모리 관리', exact: true });
-  const expectText = async (text) => { await dialog.getByText(text, { exact: true }).waitFor(); };
+  const expectText = async (text) => {
+    try { await dialog.getByText(text, { exact: true }).waitFor({ timeout: 10_000 }); }
+    catch (err) { console.error('UI state:', (await dialog.innerText()).slice(-2200)); throw err; }
+  };
   await expectText('66개 검색됨');
   assert.equal(await dialog.getByRole('listitem').count(), 30);
   await dialog.getByRole('button', { name: '다음', exact: true }).click();
@@ -148,7 +155,53 @@ try {
   await page.waitForTimeout(800);
   await expectText('65개 검색됨');
   assert.equal(await dialog.getByText('챗 전용 기억', { exact: true }).count(), 0);
+  // Archived knowledge is a separate view; restore is explicit and pending stays pending.
+  await page.setViewportSize({ width: 1280, height: 850 });
+  const archived = store.add({ scope: 'project', project_id: 'deleted', text: '보관된 프로젝트 지식' });
+  const proposal = store.propose({ scope: 'project', project_id: 'deleted', text: '보관된 미승인 제안' });
+  store.archiveProjects([{ id: 'deleted', title: '삭제된 프로젝트' }]);
+  await dialog.getByRole('button', { name: '새로고침', exact: true }).click();
+  await expectText('65개 검색됨');
+  await dialog.getByRole('button', { name: '보관 메모리 (2)', exact: true }).click();
+  await expectText('2개 검색됨');
+  assert.equal(await dialog.getByRole('button', { name: '추가', exact: true }).isDisabled(), true);
+  await dialog.getByText('보관된 프로젝트 지식', { exact: true }).click();
+  await expectText('보관 출처: 삭제된 프로젝트');
+  assert.equal(await dialog.getByLabel('메모리 본문').isDisabled(), true);
+  await dialog.getByLabel('보관 메모리 복원 위치').selectOption('session');
+  await dialog.getByRole('button', { name: '선택한 범위에 복원', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '취소', exact: true }).click();
+  assert.ok(store.get(archived.id).archived_at);
+  await dialog.getByRole('button', { name: '선택한 범위에 복원', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '복원', exact: true }).click();
+  await expectText('메모리를 선택한 범위에 복원했습니다.');
+  assert.equal(store.get(archived.id).session_id, 'chat-b');
+  assert.equal(store.get(archived.id).archived_at, null);
+  assert.match(store.formatForPrompt(null, 'chat-b'), /보관된 프로젝트 지식/);
+  await dialog.getByText('보관된 미승인 제안', { exact: true }).click();
+  assert.equal(await dialog.getByRole('button', { name: '승인', exact: true }).count(), 0);
+  await dialog.getByRole('button', { name: '보관 메모리 영구 삭제', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '영구 삭제', exact: true }).click();
+  await expectText('보관 메모리를 영구 삭제했습니다.');
+  assert.equal(store.get(proposal.id), null);
+  await dialog.getByRole('button', { name: '닫기', exact: true }).click();
+  await page.route(/\/workspace\?/, (route) => route.fulfill({ json: {
+    workspace_trees: [], projects: [], move_targets: [], archived_sessions: [],
+    standalone_sessions: [{ id: 'sidebar-chat', title: '테스트 대화', project_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }],
+  } }));
+  await page.goto(`http://127.0.0.1:${port}/__memory-test?sidebar=1`);
+  await page.getByRole('button', { name: '개인 작업 더보기', exact: true }).click();
+  await page.getByText('메모리 관리 · 보관함', { exact: true }).click();
+  await dialog.waitFor();
+  await dialog.getByRole('button', { name: '보관 메모리 (0)', exact: true }).click();
+  await dialog.getByRole('button', { name: '닫기', exact: true }).click();
+  await page.getByRole('button', { name: '테스트 대화 더보기', exact: true }).click();
+  await page.getByText('대화 메모리', { exact: true }).click();
+  await dialog.waitFor();
+  await expectText('챗: 테스트 대화');
   assert.deepEqual(errors, []);
+  console.log('PASS sidebar memory entry: personal menu -> archive manager, conversation menu -> session memory');
+  console.log('PASS archived memory UI: separate list/provenance/read-only, restore cancel/confirm, prompt isolation, pending approval guard, permanent delete');
   console.log('PASS memory UI: pagination/search/filters/sort, explicit edit save, write retry, batch disable/move/delete + cancel, duplicate prevention, dirty close guard, responsive detail, reload failure/recovery, late-response isolation');
 } finally {
   await browser?.close();

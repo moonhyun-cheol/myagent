@@ -38,23 +38,66 @@ function isVisualAttachment(name: string, mime: string): boolean {
  * upload, restore the most recent user-provided document from durable session
  * history. Historical images/videos stay catalog-only to avoid silently
  * resending large vision payloads on every turn.
+ *
+ * Visual-only turns never hide documents: when the current upload is only
+ * images/videos (needs `describe` to tell), the most recent earlier document
+ * set is appended, and the backward scan skips history turns whose attachments
+ * were all visual. The appended set only looks back
+ * `VISUAL_TURN_DOC_LOOKBACK_USER_TURNS` user turns so a stale document from a
+ * different topic does not resurface next to a new screenshot.
  */
 export function resolveAttachmentContextIds(
   requestedIds: string[],
   messages: Array<Pick<SessionMessage, 'role' | 'attachments'>>,
   maxFiles = 6,
+  describe?: (id: string) => { name: string; mime: string } | null | undefined,
 ): string[] {
+  const cap = Math.max(1, maxFiles);
   const current = [...new Set(requestedIds.map((id) => String(id || '').trim()).filter(Boolean))];
-  if (current.length) return current.slice(0, Math.max(1, maxFiles));
+  if (current.length) {
+    const currentVisualOnly = Boolean(describe) && current.every((id) => {
+      const meta = describe!(id);
+      return Boolean(meta) && isVisualAttachment(meta!.name, meta!.mime);
+    });
+    if (!currentVisualOnly) return current.slice(0, cap);
+    const docs = latestHistoryDocumentIds(messages, VISUAL_TURN_DOC_LOOKBACK_USER_TURNS)
+      .filter((id) => !current.includes(id));
+    return [...current, ...docs].slice(0, cap);
+  }
+  return latestHistoryDocumentIds(messages).slice(0, cap);
+}
 
+/** User turns (before the current one) searched for documents next to a visual-only upload. */
+export const VISUAL_TURN_DOC_LOOKBACK_USER_TURNS = 3;
+
+/**
+ * Ids restored from history next to a current upload (not uploaded this turn).
+ * Tool-capable runs pass these to `buildAttachmentContext` as reference-only so the
+ * body is re-read on demand instead of being resent on every screenshot turn.
+ * A follow-up without any upload keeps the legacy full-body restore (returns []).
+ */
+export function historyReferenceOnlyIds(requestedIds: string[], contextIds: string[]): string[] {
+  const current = new Set(requestedIds.map((id) => String(id || '').trim()).filter(Boolean));
+  if (!current.size) return [];
+  return contextIds.filter((id) => !current.has(id));
+}
+
+function latestHistoryDocumentIds(
+  messages: Array<Pick<SessionMessage, 'role' | 'attachments'>>,
+  maxUserTurns = Number.POSITIVE_INFINITY,
+): string[] {
+  let userTurns = 0;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.role !== 'user' || !message.attachments?.length) continue;
-    return [...new Set(message.attachments
+    if (message.role !== 'user') continue;
+    userTurns += 1;
+    if (userTurns > maxUserTurns) break;
+    if (!message.attachments?.length) continue;
+    const docs = [...new Set(message.attachments
       .filter((attachment) => !isVisualAttachment(attachment.name, attachment.mime))
       .map((attachment) => attachment.id.trim())
-      .filter(Boolean))]
-      .slice(0, Math.max(1, maxFiles));
+      .filter(Boolean))];
+    if (docs.length) return docs;
   }
   return [];
 }
@@ -109,14 +152,30 @@ export async function buildAttachmentContext(
   attachments: AttachmentService,
   sessionId: string,
   maxChars = 12000,
-  opts?: { cqrRoot?: string },
+  opts?: { cqrRoot?: string; referenceOnlyIds?: string[] },
 ): Promise<string> {
   const parts: string[] = [];
   let total = 0;
+  const referenceOnly = new Set(opts?.referenceOnlyIds ?? []);
 
   for (const id of attachmentIds) {
     const rec = attachments.get(id, sessionId);
     if (!rec) continue;
+    if (referenceOnly.has(id)) {
+      const chunk = [
+        `### ${rec.original_name}`,
+        '[이전 턴 문서 첨부 — 참조만, 본문 미포함]',
+        `attachment_id: ${rec.id}`,
+        `stored_path: ${rec.stored_path}`,
+        '이번 요청에는 이미지/영상만 새로 첨부되어 이 문서 본문은 다시 넣지 않았습니다.',
+        '이번 질문이 이 문서와 관련 있으면 markitdown_convert에 위 stored_path 절대경로를 넣어 다시 읽고, 관련 없으면 무시하세요.',
+        '',
+      ].join('\n');
+      if (total + chunk.length > maxChars) break;
+      parts.push(chunk);
+      total += chunk.length;
+      continue;
+    }
     const bytes = attachments.readBytes(id, sessionId);
     if (!bytes) continue;
 

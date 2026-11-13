@@ -68,7 +68,8 @@ import { quickVerifyGguf, deepVerifyWithServer } from '../inference/llama-backen
 import { probePlaywright } from '../browser/playwright-probe.js';
 import { browserNavigateViaMcp, browserScreenshotViaMcp, getPlaywrightMcpDiagnostics } from '../browser/playwright-mcp-bridge.js';
 import { parseChatRequest } from '../chat/chat-orchestrator.js';
-import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
+import { resolveWorkspaceRootForMediaRequest, resolveWorkspaceRootForSession } from '../chat/session-context.js';
+import { validateScopeAllowedPaths } from '../sessions/scope-path-validation.js';
 import { clientAbortSignal } from '../chat/abort.js';
 import { activeChatRunInfo, beginChatRun, cancelChatRun, chatRunStopDetail, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
 import { ProjectStoreError } from '../projects/project-store.js';
@@ -1026,14 +1027,14 @@ export async function dispatchApiRequest(
         const rel = (url.searchParams.get('path') ?? '').trim();
         if (!rel) return sendJson(res, 400, { error: 'PATH_REQUIRED' });
         const overrides = loadUserOverrides(userConfigPath);
-        const querySessionId = url.searchParams.get('session')?.trim() || '';
-        const root =
-          workspaceRootForRequest()
-          || (querySessionId
-            ? resolveWorkspaceRootForSession(sessionStore, projectStore, querySessionId)
-            : null)
-          || overrides.dev_workspace_root?.trim()
-          || null;
+        // <img>/<video> cannot send the session header, so `?session=` names the conversation.
+        // Either form limits the read to that conversation's root; 개인 작업 has none.
+        const root = resolveWorkspaceRootForMediaRequest(
+          sessionStore,
+          projectStore,
+          sessionFromReq(req) || url.searchParams.get('session'),
+          overrides.dev_workspace_root,
+        );
         if (!root) {
           return sendJson(res, 400, { error: 'NO_DEV_WORKSPACE', message: '작업 폴더를 먼저 연결하세요.' });
         }
@@ -2197,27 +2198,46 @@ export async function dispatchApiRequest(
           if (!projectStore.isDeletable(pid)) {
             return sendJson(res, 404, { error: 'NOT_FOUND' });
           }
-          // Default is lift: chats (and knowledge, when a parent exists) move one
-          // level up instead of vanishing. Only mode=delete removes them for good.
+          // Lift preserves chats and archives knowledge without automatically broadening its scope.
           const hardDelete = url.searchParams.get('mode') === 'delete';
           const descendantIds = projectStore.collectDescendantIds(pid);
           const allIds = [pid, ...descendantIds];
           const parent = rec.parent_id ? projectStore.get(rec.parent_id) : null;
           const liftTarget = parent?.id ?? null;
+          const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
+          // Persist memories first; never swallow a preservation failure after deleting the location.
+          const archivedAt = new Date().toISOString();
           if (!hardDelete) {
-            for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
+            memoryStore.archiveProjects(allIds.map((id) => ({ id, title: projectStore.pathLabel(id) })), archivedAt);
           } else {
-            for (const id of allIds) sessionStore.deleteAllInProject(id);
+            // Fail closed before anything is deleted when the memory store cannot be read.
+            memoryStore.countByProject(allIds);
           }
-          const ok = projectStore.delete(pid);
-          if (ok) {
+          let ok = false;
+          try {
+            if (!hardDelete) {
+              for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
+            } else {
+              for (const id of allIds) sessionStore.deleteAllInProject(id);
+            }
+            ok = projectStore.delete(pid);
+          } finally {
+            // The location survived: its knowledge must stay active, not sit in the archive.
+            if (!ok && !hardDelete) {
+              try {
+                memoryStore.unarchiveProjects(allIds, archivedAt);
+              } catch {
+                /* the original failure is the one to report */
+              }
+            }
+          }
+          let memoryCleanupFailed = false;
+          if (ok && hardDelete) {
             try {
-              const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
-              if (!hardDelete && liftTarget) memoryStore.reassignProject(allIds, liftTarget);
-              // Top-level nodes have no parent scope; 개인 작업 has no place for project knowledge.
               memoryStore.removeByProject(allIds);
             } catch {
-              /* memory cleanup must never block project deletion */
+              // The project is already gone; report success and flag the leftover entries.
+              memoryCleanupFailed = true;
             }
           }
           if (ok && projectStore.resolveKind(rec) === 'workspace_root' && rec.folder_path) {
@@ -2227,7 +2247,7 @@ export async function dispatchApiRequest(
               saveUserOverrides(userConfigPath, { dev_workspace_root: undefined }, cqrRoot);
             }
           }
-          return sendJson(res, ok ? 200 : 404, { ok });
+          return sendJson(res, ok ? 200 : 404, { ok, ...(memoryCleanupFailed ? { memory_cleanup_failed: true } : {}) });
         }
       }
 
@@ -2440,8 +2460,20 @@ export async function dispatchApiRequest(
             return sendJson(res, 201, entry);
           }
           if (method === 'POST' && url.pathname === '/memory/batch') {
+            license.assertWritable();
             const body = JSON.parse(await readBody(req));
             return sendJson(res, 200, { changed: memoryStore.batch(body) });
+          }
+          const restoreMemoryMatch = url.pathname.match(/^\/memory\/([^/]+)\/restore$/);
+          if (restoreMemoryMatch && method === 'POST') {
+            license.assertWritable();
+            const body = JSON.parse(await readBody(req)) as { scope?: string; id?: string };
+            if (typeof body.id !== 'string' || (body.scope !== 'project' && body.scope !== 'session')
+              || (body.scope === 'project' ? projectStore.get(body.id)?.id !== body.id : sessionStore.load(body.id)?.id !== body.id)) {
+              return sendJson(res, 400, { error: 'INVALID_TARGET', message: '현재 존재하는 프로젝트 또는 대화를 선택하세요.' });
+            }
+            const entry = memoryStore.restore(decodeURIComponent(restoreMemoryMatch[1]), { scope: body.scope, id: body.id });
+            return sendJson(res, entry ? 200 : 404, entry ?? { error: 'NOT_FOUND' });
           }
           const memoryActionMatch = url.pathname.match(/^\/memory\/([^/]+)\/(approve|reject)$/);
           if (memoryActionMatch && method === 'POST') {
@@ -2990,6 +3022,22 @@ export async function dispatchApiRequest(
           preferred_model?: string | null;
           allowed_paths?: string[];
         };
+        if (body.allowed_paths !== undefined) {
+          const current = sessionStore.load(sessionSettingsMatch[1]);
+          if (!current) return sendJson(res, 404, { error: 'NOT_FOUND' });
+          const checked = validateScopeAllowedPaths(body.allowed_paths, {
+            allowNas: hasNasWriteConsent(getOverrides()),
+            existing: current.allowed_paths ?? [],
+          });
+          if (!checked.ok) {
+            return sendJson(res, checked.error === 'INVALID_ALLOWED_PATH' ? 400 : 403, {
+              error: checked.error,
+              path: checked.path,
+              message: checked.message,
+            });
+          }
+          body.allowed_paths = checked.roots;
+        }
         const rec = sessionStore.setScopeSettings(sessionSettingsMatch[1], body);
         if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
         return sendJson(res, 200, sessionStore.getSummary(rec));
@@ -3058,11 +3106,29 @@ export async function dispatchApiRequest(
       if (sessionWorkspaceMatch && method === 'PUT') {
         license.assertWritable();
         license.assertFeature('chat');
-        const body = JSON.parse(await readBody(req)) as { workspace_project_id?: string | null };
-        if (!Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')) {
+        const body = JSON.parse(await readBody(req)) as { workspace_project_id?: string | null; folder_path?: unknown };
+        const hasFolderPath = Object.prototype.hasOwnProperty.call(body, 'folder_path');
+        if (!hasFolderPath && !Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')) {
           return sendJson(res, 400, { error: 'WORKSPACE_PROJECT_ID_REQUIRED' });
         }
-        const workspaceProjectId = String(body.workspace_project_id ?? '').trim() || null;
+        if (!sessionStore.load(sessionWorkspaceMatch[1])) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        let workspaceProjectId = String(body.workspace_project_id ?? '').trim() || null;
+        if (hasFolderPath) {
+          if (Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')
+            || typeof body.folder_path !== 'string' || !body.folder_path.trim()
+            || !path.isAbsolute(body.folder_path.trim())) {
+            return sendJson(res, 400, { error: 'INVALID_WORKSPACE_PATH', message: '연결할 폴더의 전체 경로를 입력하세요.' });
+          }
+          const folderPath = body.folder_path.trim();
+          try {
+            assertDevWorkspaceRoot(folderPath, { allowNas: hasNasWriteConsent(getOverrides()) });
+          } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            return sendJson(res, 403, { error: 'WORKSPACE_NOT_ALLOWED', message });
+          }
+          // Register for reuse without changing the PC-wide default or chat ownership.
+          workspaceProjectId = projectStore.upsertWorkspaceRoot(folderPath).id;
+        }
         if (workspaceProjectId) {
           const workspaceProject = projectStore.get(workspaceProjectId);
           if (

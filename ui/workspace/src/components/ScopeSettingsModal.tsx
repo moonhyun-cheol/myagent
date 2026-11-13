@@ -134,8 +134,12 @@ export function ScopeSettingsModalHost() {
           </section>
 
           <section className="border-b border-line py-5">
-            <label className="mb-2 block text-sm font-semibold text-text" htmlFor="scope-allowed-paths">수정 허용 경로</label>
-            <p className="mb-3 text-xs leading-5 text-muted">에이전트가 기본 승인 범위로 사용할 절대 경로를 한 줄에 하나씩 입력합니다. 첫 경로는 상대경로 기준점이며, 목록 밖 쓰기는 별도 승인을 요청합니다. 비워 두면 {detail.kind === 'session' ? '소속 프로젝트·작업폴더' : '연결된 작업폴더'} 경계를 따릅니다.</p>
+            <label className="mb-2 block text-sm font-semibold text-text" htmlFor="scope-allowed-paths">작업 범위 (허용 경로)</label>
+            <p className="mb-3 text-xs leading-5 text-muted">에이전트가 읽고 쓸 폴더를 절대 경로로 한 줄에 하나씩 입력합니다. 첫 경로가 이 {label}의 작업 폴더(상대경로 기준점)가 되고, 목록 밖 쓰기는 별도 승인을 요청합니다. {detail.kind === 'session'
+              ? detail.projectId
+                ? '비워 두면 소속 프로젝트·작업폴더 경계를 따릅니다. 입력하면 작업폴더 연결보다 이 목록이 우선합니다.'
+                : '개인 작업 대화는 비워 두면 파일 접근이 없습니다(작업폴더를 연결한 경우 그 폴더만). 입력하면 작업폴더 연결보다 이 목록이 우선합니다.'
+              : '비워 두면 연결된 작업폴더 경계를 따릅니다.'}{detail.kind === 'session' ? ' 존재하는 폴더만 저장되며, NAS 경로는 사용 허가가 필요합니다.' : ''}</p>
             <textarea
               id="scope-allowed-paths"
               value={paths}

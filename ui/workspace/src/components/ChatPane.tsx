@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { isVideoMediaUrl } from '../lib/mediaUrl';
+import { exportPortableSession } from '../lib/sessionExport';
 import { isPremiumModelRef } from '../lib/modelCost';
 import { modelSwitchBefore, videoIdsFromPicker } from '../lib/modelSwitch';
 import { PremiumCostBadge } from './PremiumCostBadge';
@@ -37,10 +38,10 @@ import { createPortal } from 'react-dom';
 import type { ChatTurn } from '../types';
 import { ToolActivityLog } from './ToolActivityLog';
 import { PlanBuildDialog } from './PlanBuildDialog';
+import { FolderBrowserModal } from './FolderBrowserModal';
 import { ASSET_MIME, useWorkspaceStore } from '../store/workspaceStore';
 import {
   listSelectableSkills,
-  fetchSession,
   fetchWorkspaceTree,
   getStoredSessionId,
   retrieveVideoJob,
@@ -602,6 +603,21 @@ export function ChatPane() {
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const [workspaceSaving, setWorkspaceSaving] = useState(false);
   const [workspacePromptText, setWorkspacePromptText] = useState<string | null>(null);
+  const [workspaceFolderOpen, setWorkspaceFolderOpen] = useState(false);
+  const [workspaceFolderError, setWorkspaceFolderError] = useState<string | null>(null);
+  const workspaceFolderSavingRef = useRef(false);
+  const workspaceFolderSessionRef = useRef(activeSessionId);
+  useEffect(() => {
+    const previousSession = workspaceFolderSessionRef.current;
+    workspaceFolderSessionRef.current = activeSessionId;
+    // Keep errors visible when the empty composer creates its own session, but
+    // dismiss the picker on navigation so a retry cannot bind a different chat.
+    if (previousSession === null && workspaceFolderSavingRef.current
+      && activeSessionId === composerSessionPromotionId) return;
+    setWorkspaceFolderOpen(false);
+    setWorkspaceFolderError(null);
+    setWorkspacePromptText(null);
+  }, [activeSessionId, activeProjectId, composerSessionPromotionId]);
   const contextFiles = useMemo(
     () => flattenWorkspaceFiles(files, { includeFolders: true }),
     [files],
@@ -625,7 +641,8 @@ export function ChatPane() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchWorkspaceTree()
+    const refresh = () => {
+      void fetchWorkspaceTree()
       .then((tree) => {
         if (cancelled) return;
         const scopedIds: string[] = [];
@@ -652,8 +669,12 @@ export function ChatPane() {
           setProjectOptions([]);
         }
       });
+    };
+    refresh();
+    window.addEventListener('cqr:workspace-tree-changed', refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener('cqr:workspace-tree-changed', refresh);
     };
   }, [activeSessionId, activeProjectId]);
 
@@ -817,6 +838,40 @@ export function ChatPane() {
     window.setTimeout(() => setPasteHint(null), 3500);
   }, []);
 
+  const openWorkspaceFolder = () => {
+    closePolicy();
+    setWorkspaceFolderError(null);
+    setWorkspaceFolderOpen(true);
+  };
+  const connectWorkspaceFolder = async (folderPath: string) => {
+    if (workspaceFolderSavingRef.current || busy) return;
+    const sessionId = activeSessionId;
+    const projectId = activeProjectId;
+    const pendingText = workspacePromptText;
+    workspaceFolderSavingRef.current = true;
+    setWorkspaceSaving(true);
+    setWorkspaceFolderError(null);
+    try {
+      await setSessionWorkspaceProject({ folder_path: folderPath });
+      window.dispatchEvent(new Event('cqr:workspace-tree-changed'));
+      setWorkspaceFolderOpen(false);
+      setWorkspacePromptText(null);
+      const current = useWorkspaceStore.getState();
+      const sameChat = current.activeSessionId === sessionId || (!sessionId
+        && current.activeSessionId === current.composerSessionPromotionId && current.activeProjectId === projectId);
+      if (sameChat && pendingText !== null) {
+        setDraft('');
+        setMessageReferences([]);
+        void sendAiMessage(pendingText);
+      }
+    } catch (error) {
+      setWorkspaceFolderError(error instanceof Error ? error.message : String(error));
+    } finally {
+      workspaceFolderSavingRef.current = false;
+      setWorkspaceSaving(false);
+    }
+  };
+
   const openSessionMenu = (e: ReactMouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('[data-chat-bubble="true"]')) return;
@@ -895,45 +950,7 @@ export function ChatPane() {
         label: '대화 세션 출력',
         disabled: !activeSessionId || busy || sessionActionBusy,
         onSelect: () => runSessionAction(async () => {
-          const session = await fetchSession(activeSessionId!);
-          const payload = {
-            format: 'cqr-pa-conversation-session',
-            version: 1,
-            exported_at: new Date().toISOString(),
-            conversation: {
-              id: session.id,
-              title: session.title,
-              created_at: session.created_at,
-              updated_at: session.updated_at,
-              // Sidebar ids are local to this PC; import places the chat where the user picks.
-              messages: session.messages.map((message) => ({
-                role: message.role,
-                content: message.content,
-                at: message.at,
-                ...(message.model ? { model: message.model } : {}),
-                ...(message.mode ? { mode: message.mode } : {}),
-                ...(message.image_urls?.length ? { image_urls: message.image_urls } : {}),
-                ...(message.reasoning?.content?.trim() ? { reasoning: message.reasoning } : {}),
-                // 작업기록: tool rows + interleaved order. Local cancel bindings are PC-specific.
-                ...(message.tool_activity?.length
-                  ? {
-                      tool_activity: message.tool_activity.map((row) => {
-                        const { cancelSessionId: _cancel, cancelRequested: _requested, ...rest } = row;
-                        return rest;
-                      }),
-                    }
-                  : {}),
-                ...(message.work_timeline?.length ? { work_timeline: message.work_timeline } : {}),
-              })),
-            },
-          };
-          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = `${session.title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'conversation'}.cqr-session.json`;
-          anchor.click();
-          window.setTimeout(() => URL.revokeObjectURL(url), 0);
+          await exportPortableSession(activeSessionId!);
           flashPasteHint('호환 가능한 JSON 세션 파일로 출력했습니다.');
         }),
       },
@@ -1355,6 +1372,16 @@ export function ChatPane() {
       <SessionAttachmentGallery key={activeSessionId ?? 'none'} sessionId={activeSessionId}
         onOpen={(url, name) => openImagePreview({ src: url, title: name, prompt: '' })}
         onMenu={(e, url, name) => openImageMenu(e, url, name, '')} />
+      {workspaceFolderOpen ? createPortal(
+        <FolderBrowserModal open busy={workspaceSaving} errorMessage={workspaceFolderError}
+          onClose={() => {
+            if (workspaceFolderSavingRef.current) return;
+            setWorkspaceFolderOpen(false);
+            policyTriggerRef.current?.focus();
+          }}
+          onSelect={(folderPath) => void connectWorkspaceFolder(folderPath)} />,
+        document.body,
+      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -1377,10 +1404,15 @@ export function ChatPane() {
           >
             <p className="text-base font-semibold text-text">이 채팅에 작업폴더를 연결할까요?</p>
             <p className="mt-2 text-sm leading-6 text-muted">
-              파일을 읽거나 수정하려면 등록된 작업폴더를 이 채팅에 명시적으로 연결해야 합니다.
+              파일을 읽거나 수정하려면 작업폴더를 이 채팅에 명시적으로 연결해야 합니다. 새 폴더도 바로 지정할 수 있습니다.
               선택한 권한은 다른 채팅에 적용되지 않습니다.
             </p>
             <div className="mt-4 space-y-2">
+              <button type="button" data-testid="workspace-access-add-folder" disabled={workspaceSaving || busy}
+                onClick={openWorkspaceFolder}
+                className="flex w-full items-center gap-2 rounded-xl border border-accent/50 px-3 py-2.5 text-left text-sm text-text disabled:opacity-50">
+                <Plus size={16} /> 새 작업폴더 지정
+              </button>
               {workspaceOptions.map((workspace) => (
                 <button
                   key={workspace.id}
@@ -1552,7 +1584,7 @@ export function ChatPane() {
           aria-haspopup="dialog" aria-controls={policyOpen && policyTarget === 'chat-workspace-select' ? policyId : undefined}
           aria-expanded={policyOpen && policyTarget === 'chat-workspace-select'}
           aria-label={activeWorkspaceProjectId ? `작업 폴더: ${workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.title ?? '연결됨'}` : '작업폴더 연결'}
-          title={workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '이 채팅에 등록 작업폴더 연결'}
+          title={workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '기존 또는 새 작업폴더를 이 채팅에 연결'}
         >
           <FolderSimple size={16} aria-hidden="true" />
           <span>{activeWorkspaceProjectId ? (workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.title ?? '작업폴더 연결됨') : '작업폴더 연결'}</span>
@@ -1579,7 +1611,7 @@ export function ChatPane() {
             {policySaving ? <p role="status" className="mt-2 text-xs text-muted">저장 중…</p> : null}
             {policyError ? <p role="alert" className="mt-2 text-xs text-red-700">{policyError}</p> : null}
             {busy ? <p className="mt-2 text-xs text-muted">응답 생성 중에는 변경할 수 없습니다.</p> : null}
-            {policyTarget === 'chat-workspace-select' ? (
+            {policyTarget === 'chat-workspace-select' ? (<>
               <label className="mt-4 block text-xs font-medium text-text">
                 연결할 작업 폴더
                 <select data-testid="chat-workspace-select" value={activeWorkspaceProjectId ?? ''}
@@ -1595,9 +1627,14 @@ export function ChatPane() {
                   {activeWorkspaceProjectId && !workspaceOptions.some((w) => w.id === activeWorkspaceProjectId) ? <option value={activeWorkspaceProjectId}>현재 연결된 작업폴더 · 목록에 없음</option> : null}
                   {workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.title}</option>)}
                 </select>
-                <span className="mt-2 block break-all text-[11px] leading-5 text-muted">{workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '등록된 작업 폴더의 파일 접근 범위를 연결합니다. 스킬은 자동 적용하지 않습니다.'}</span>
+                <span className="mt-2 block break-all text-[11px] leading-5 text-muted">{workspaceOptions.find((w) => w.id === activeWorkspaceProjectId)?.path ?? '목록에 없는 폴더는 아래에서 새로 지정하세요. 스킬은 자동 적용하지 않습니다.'}</span>
               </label>
-            ) : policyTarget === 'chat-workspace-behavior' ? (<>
+              <button type="button" data-testid="chat-workspace-add-folder" disabled={busy || workspaceSaving}
+                onClick={openWorkspaceFolder}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-accent/50 px-3 py-2 text-sm text-text disabled:opacity-50">
+                <Plus size={16} /> 새 작업폴더 지정
+              </button>
+            </>) : policyTarget === 'chat-workspace-behavior' ? (<>
               <PolicyChoices testId="chat-workspace-behavior" label="작업 방식 선택"
                 value={activeExecutionPolicy.workspace_behavior ?? 'agent'} disabled={busy || policySaving}
                 options={[

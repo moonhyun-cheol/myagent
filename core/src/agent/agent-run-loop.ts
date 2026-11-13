@@ -729,7 +729,19 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
       saveTurnContextRecord(opts.cqrRoot, opts.sessionId, {
         key: turnContextKey(opts.history?.[opts.history.length - 1]?.at, opts.userMessage ?? ''),
         context: ctx.content,
-        ...(typeof lastUser.content === 'string' ? { user: lastUser.content } : {}),
+        // Image turns carry an array; keep the text part (attachment-wrapped message) so
+        // replay does not drop same-turn document context. Images stay catalog-only.
+        ...(typeof lastUser.content === 'string'
+          ? { user: lastUser.content }
+          : Array.isArray(lastUser.content)
+            ? (() => {
+                const text = lastUser.content
+                  .map((part) => (part && part.type === 'text' && typeof part.text === 'string' ? part.text : ''))
+                  .filter(Boolean)
+                  .join('\n\n');
+                return text ? { user: text } : {};
+              })()
+            : {}),
       });
     }
   }

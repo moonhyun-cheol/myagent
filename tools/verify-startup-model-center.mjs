@@ -83,7 +83,7 @@ assert.match(settings, /<ModelManagementModal open embedded/);
 const chatPane = read('ui/workspace/src/components/ChatPane.tsx');
 assert.doesNotMatch(chatPane, /settings-autopilot-mode|settings-approval-delegation-mode|setAgentAutopilot|setApprovalDelegation/);
 assert.doesNotMatch(chatPane, /const MODES|setAiMode|>텍스트<|>코드<|>이미지</, 'composer must use one unified input');
-assert.match(chatPane, /할 일 입력… \(@ 또는 피커로 파일 컨텍스트\)/);
+assert.match(chatPane, /메시지 또는 작업 요청… \(@로 파일 첨부\)/);
 const workspaceStore = read('ui/workspace/src/store/workspaceStore.ts');
 assert.doesNotMatch(workspaceStore, /get\(\)\.aiMode|job\.mode\b|mapAiModeToApi|postChat/);
 assert.match(workspaceStore, /const primaryMode = job\.skillMode \|\| 'chat'/);
@@ -101,7 +101,7 @@ assert.ok(
 assert.deepEqual(
   curateConfig.pinned_suffixes,
   [
-    'openai.gpt-5.6-sol',
+    'openai.gpt-6.1-sol',
     'openai.gpt-5.6-luna',
     'anthropic.claude-fable-5.1',
     'anthropic.claude-opus-5',

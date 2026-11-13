@@ -67,6 +67,7 @@ import {
   type SessionActiveRun,
   type SessionMessage,
   type SessionRecord,
+  type SessionWorkspaceTarget,
   type ExecutionPolicy,
   type EffectiveExecutionPolicy,
   type WorkspaceFsTreeNode,
@@ -560,7 +561,7 @@ interface WorkspaceState {
   goBrowserForward: () => void;
   setSelectedModel: (model: string) => Promise<void>;
   setExecutionPolicy: (policy: Partial<ExecutionPolicy>) => Promise<void>;
-  setSessionWorkspaceProject: (workspaceProjectId: string | null) => Promise<void>;
+  setSessionWorkspaceProject: (workspaceProjectId: SessionWorkspaceTarget) => Promise<void>;
   setSessionProject: (projectId: string | null) => Promise<void>;
   setModelOptions: (models: PickerModel[]) => void;
   /** Reload /models/picker into the chat header dropdown. Returns option count. */
@@ -1299,7 +1300,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             }
           : undefined;
       // Sent as a separate field so history, retries and regeneration never contain or duplicate it.
-      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions();
+      // Scoped to the job's own conversation: a queued run must not pick up the chat now on screen.
+      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions(sid);
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';
@@ -2437,7 +2439,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const membershipProjectId = rec.project_id ?? null;
         const workspaceRootProjectId = rec.workspace_binding_explicit
           ? rec.workspace_project_id ?? null
-          : await resolveWorkspaceRootProjectId(membershipProjectId ?? rec.workspace_project_id ?? null);
+          // Same rule as the server: without an explicit binding only the sidebar location counts.
+          : await resolveWorkspaceRootProjectId(membershipProjectId);
         if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
