@@ -2,6 +2,96 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "default-model-gpt-6-1-sol",
+      "status": "development",
+      "title": "기본 모델을 GPT 6.1 Sol로 변경",
+      "detail": "OpenAI·OpenRouter의 기본 모델이 GPT 6.1 Sol이 되고 모델 목록의 GPT 5.6 Sol 자리를 대신합니다. 기본 모델·예약 작업·승인 판단 모델 등에 GPT 5.6 Sol을 저장해 두었다면 업데이트 후 한 번만 자동으로 GPT 6.1 Sol로 바뀌며, 그 뒤에 직접 고른 모델은 그대로 둡니다.",
+      "area": "core",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/config/defaults/providers.json", "core/config/defaults/openwebui-model-curate.json", "core/src/config/retired-model-migration.ts", "core/src/providers/provider-store.ts"]
+    },
+    {
+      "id": "approval-review-45s-cap",
+      "status": "development",
+      "title": "승인 자동 판단은 최대 45초, 넘으면 승인 카드로",
+      "detail": "승인 자동 판단이 재시도를 포함해 전체 45초를 넘기면 더 기다리지 않고 평소처럼 승인 카드를 띄워 직접 고르게 합니다. 판단 모델이 느리거나 응답하지 않아 작업이 오래 멈춰 있던 문제를 막습니다.",
+      "area": "core",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/agent/approval-auto-review.ts"]
+    },
+    {
+      "id": "agent-web-only-without-workspace",
+      "status": "development",
+      "title": "작업 폴더 없는 대화에서도 Agent로 웹 작업",
+      "detail": "작업 폴더를 연결하지 않은 대화에서 Agent를 고르면 브라우저, 웹 파일 저장, 이미지 보기, 예약 작업, 작업 기록 같은 웹 전용 도구만으로 작업합니다. 파일 수정이나 터미널 도구는 쓰지 않으며, 받은 파일은 대화별 임시 폴더에 저장됩니다.",
+      "area": "core",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/agent/agent-tool-pack.ts", "core/src/agent/agent-tool-execute.ts", "core/src/chat/modes/workspace-agent.ts", "ui/workspace/src/components/ChatPane.tsx"]
+    },
+    {
+      "id": "plan-build-handoff",
+      "status": "development",
+      "title": "Plan에서 Build를 누르면 새 Agent 대화로 넘김",
+      "detail": "Plan 대화의 Build를 누르면 모델과 추론 수준을 고른 뒤, 같은 작업 폴더의 새 Agent 대화로 최신 계획(PLAN)과 꼭 지킬 조건만 넘겨 바로 시작합니다. 계획을 고친 경우에도 전체 계획이 넘어가고, 계획이 없거나 덜 끝났으면 Build를 막습니다. 원래 Plan 대화에는 넘긴 대화로 가는 링크가 남습니다.",
+      "area": "chat",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/sessions/plan-build-handoff.ts", "core/src/routes/dispatch.ts", "ui/workspace/src/components/PlanBuildDialog.tsx", "ui/workspace/src/lib/plan-build.ts"]
+    },
+    {
+      "id": "usage-six-months",
+      "status": "development",
+      "title": "사용량을 최근 6개월 월별로 보기",
+      "detail": "설정 → 사용량의 기간이 90일에서 최근 6개월(6개월 전 같은 날부터)로 바뀌고, 월별 막대 그래프와 월별 요약 표가 추가됩니다. 달을 누르면 그 달의 상세를 볼 수 있고, 기간에 일부만 걸린 첫 달은 「일부」로 표시됩니다.",
+      "area": "ui",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["ui/workspace/src/components/SettingsUsagePage.tsx"]
+    },
+    {
+      "id": "session-export-work-history",
+      "status": "development",
+      "title": "대화 내보내기·가져오기에 작업 기록 포함",
+      "detail": "대화를 내보낼 때 답변별 도구 사용 기록과 작업 타임라인도 함께 저장되고, 가져오면 그대로 다시 보입니다. 가져온 기록은 개수와 길이를 제한하고 민감한 값은 가리며, 진행 중이던 항목은 취소됨으로 표시합니다. 예전에 내보낸 파일도 그대로 가져올 수 있습니다.",
+      "area": "chat",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/sessions/session-store.ts", "ui/workspace/src/components/ChatPane.tsx"]
+    },
+    {
+      "id": "premium-model-input-price",
+      "status": "development",
+      "title": "고비용($) 표시 기준을 입력 가격으로 변경",
+      "detail": "모델 선택 목록의 고비용($) 표시가 출력 가격 대신 입력 가격 기준(100만 토큰당 4달러 이상)으로 붙습니다.",
+      "area": "ui",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/models/model-pricing.ts", "core/src/models/model-picker.ts", "core/config/defaults/deploy-defaults.json"]
+    },
+    {
+      "id": "image-turn-keeps-documents",
+      "status": "development",
+      "title": "이미지만 보낸 차례에도 앞서 첨부한 문서 유지",
+      "detail": "문서를 첨부한 뒤 이미지만 추가로 보내도 앞서 첨부한 문서를 참고 자료로 계속 사용합니다.",
+      "area": "chat",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/attachments/text-extract.ts", "core/src/chat/chat-orchestrator.ts", "core/src/agent/agent-run-loop.ts"]
+    },
+    {
+      "id": "context-limit-persist",
+      "status": "development",
+      "title": "긴 작업에서 맥락 재정리가 반복되던 문제 수정",
+      "detail": "모델별 맥락 한도를 저장해 두고 재정리 결과 크기에 상한을 두어, 재정리 직후 다시 재정리되며 걸음마다 반복되던 문제를 막습니다. 한도를 모르는 모델은 작업을 막지 않고 뒤에서 받아 옵니다. GPT 6.1 Sol, GPT 6 Astra, Claude Opus 5.5 등 새 모델의 한도도 등록했습니다.",
+      "area": "core",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/providers/model-context-limits.ts", "core/src/agent/agent-context-assembler.ts", "core/config/defaults/model-context-limits.json"]
+    },
+    {
       "id": "pinned-instructions-per-conversation",
       "status": "development",
       "title": "고정 지침을 대화별로 분리",
