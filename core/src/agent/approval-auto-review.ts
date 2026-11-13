@@ -575,7 +575,40 @@ function defaultComplete(): CompleteReview {
   };
 }
 
-export async function reviewToolApproval(input: {
+/**
+ * Hard ceiling for one approval review, all fallback routes included. Each call already has
+ * its own timeout, but the status line must never sit on 「판단 모델 검토 중」 indefinitely if
+ * some await ignores its signal: past this point the user gets the approval card instead.
+ */
+export const APPROVAL_REVIEW_TOTAL_TIMEOUT_MS = 45_000;
+
+type ReviewToolApprovalInput = Parameters<typeof reviewToolApprovalUnbounded>[0] & {
+  /** Tests: override APPROVAL_REVIEW_TOTAL_TIMEOUT_MS. */
+  totalTimeoutMs?: number;
+};
+
+export async function reviewToolApproval(input: ReviewToolApprovalInput): Promise<ApprovalReviewResult> {
+  const started = Date.now();
+  const limitMs = Math.max(1, input.totalTimeoutMs ?? APPROVAL_REVIEW_TOTAL_TIMEOUT_MS);
+  const deadline = new AbortController();
+  const signal = input.signal ? AbortSignal.any([input.signal, deadline.signal]) : deadline.signal;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<ApprovalReviewResult>((resolve) => {
+    timer = setTimeout(() => {
+      deadline.abort();
+      const reason = `판단 시간 초과: ${Math.round(limitMs / 1000)}초 안에 판단 모델이 답하지 않았습니다.`;
+      auditReview(input.cqrRoot, { type: 'approval_review', sessionId: input.sessionId, tool: input.request.tool, ok: false, durationMs: Date.now() - started, detail: `${input.mode ?? 'delegate'}:timeout:${limitMs}` });
+      resolve({ decision: 'ask_user', confidence: 0, reason, reviewer: 'timeout' });
+    }, limitMs);
+  });
+  try {
+    return await Promise.race([reviewToolApprovalUnbounded({ ...input, signal }), timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function reviewToolApprovalUnbounded(input: {
   providerStore: ProviderStore;
   cqrRoot: string;
   sessionId?: string;

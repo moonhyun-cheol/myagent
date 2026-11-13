@@ -191,6 +191,20 @@ try {
   });
   assert.equal(explicitRun.decision, 'allow');
   assert.equal(explicitRun.fallback, undefined);
+  // A reviewer that never answers (and ignores abort) cannot pin 「판단 모델 검토 중」: the
+  // total deadline returns ask_user so the approval card appears.
+  let hungAborted = false;
+  const hungStarted = Date.now();
+  const hung = await reviewer.reviewToolApproval({
+    providerStore: openRouter, cqrRoot: temp, userMessage: 'npm test', request, totalTimeoutMs: 80,
+    decide: ({ signal }) => { signal?.addEventListener('abort', () => { hungAborted = true; }); return new Promise(() => {}); },
+  });
+  assert.equal(hung.decision, 'ask_user');
+  assert.equal(hung.reviewer, 'timeout');
+  assert.match(hung.reason, /판단 시간 초과/);
+  assert.ok(Date.now() - hungStarted < 2_000);
+  assert.equal(hungAborted, true);
+  assert.equal(reviewer.APPROVAL_REVIEW_TOTAL_TIMEOUT_MS, 45_000);
   // microsoft-decision-1 fails -> auto-updating Jev answers (reports the concrete build).
   const jevSeen = [];
   const viaJev = await reviewer.reviewToolApproval({
