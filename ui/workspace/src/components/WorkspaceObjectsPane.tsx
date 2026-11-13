@@ -121,7 +121,8 @@ function RecentAsset({ asset, showDownloadAction }: { asset: WorkspaceAsset; sho
 export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = [], todoError = null }: { showDownloadActions?: boolean; todoItems?: TodoProgressItem[]; todoError?: string | null }) {
   const tabId = useId();
   const [instructionDraft, setInstructionDraft] = useState('');
-  const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(loadPinnedInstructions);
+  const activeSessionId = useWorkspaceStore((state) => state.activeSessionId);
+  const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(() => loadPinnedInstructions(activeSessionId));
   const assets = useWorkspaceStore((state) => state.assets);
   const browserHistory = useWorkspaceStore((state) => state.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((state) => state.browserLoadedUrl);
@@ -143,6 +144,10 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   const lastEditorTabId = useRef(activeEditorTabId);
 
   useEffect(() => { void refreshExplorer(); }, [refreshExplorer]);
+  // Pinned instructions belong to one conversation; reload them whenever the chat changes.
+  useEffect(() => {
+    setPinnedInstructions(loadPinnedInstructions(activeSessionId));
+  }, [activeSessionId]);
   // Opening a file (from any pane) shows it in 「열린 파일」 instead of pushing the other sub-tabs down.
   useEffect(() => {
     if (activeEditorTabId && activeEditorTabId !== lastEditorTabId.current) setActiveTab('open');
@@ -153,9 +158,11 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   }, [openTabCount]);
 
   const savePinnedInstructions = (next: string[]) => {
+    if (!activeSessionId) return;
     setPinnedInstructions(next);
-    persistPinnedInstructions(next);
+    persistPinnedInstructions(activeSessionId, next);
   };
+  const canPinInstruction = Boolean(activeSessionId);
   const openBrowserReference = (url: string) => { navigateBrowser(url); setMode('browser'); };
 
   return (
@@ -214,9 +221,9 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
           {todoItems.length ? <ol className="mt-2 space-y-2" aria-label="현재 작업 할 일 진행 상황">{todoItems.map((item, index) => <li key={item.id} className="flex items-start gap-2 rounded-lg border border-line bg-ink px-3 py-2 text-[11px]"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${item.status === 'done' ? 'border-accent bg-accent text-ink' : item.status === 'blocked' ? 'border-red-400 text-red-300' : item.status === 'active' ? 'border-accent text-accent' : 'border-line text-muted'}`} aria-label={item.status === 'done' ? '완료' : item.status === 'blocked' ? '차단' : item.status === 'active' ? '진행 중' : '대기'}>{item.status === 'done' ? <Check size={10} weight="bold" /> : index + 1}</span><span className="min-w-0 flex-1"><span className={item.status === 'done' ? 'text-muted line-through' : item.status === 'pending' ? 'text-muted' : 'text-text'}>{item.label}</span></span></li>)}</ol> : <EmptyState>{todoError ? '조회가 복구되면 모델 TODO를 표시합니다.' : '모델이 등록한 작업이 없습니다.'}</EmptyState>}
           <div className="mt-5 flex items-center justify-between">
             <h3 className="text-xs font-semibold text-text">고정 지침</h3>
-            <span className="text-[10px] text-muted">대화 전송 시 자동 반영</span>
+            <span className="text-[10px] text-muted">이 대화에만 적용</span>
           </div>
-          <div className="mt-2 flex gap-1"><input value={instructionDraft} onChange={(event) => setInstructionDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && instructionDraft.trim()) { event.preventDefault(); savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); } }} placeholder="현재 작업 동안 기억할 지침 입력 후 Enter" className="min-w-0 flex-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent" /><button type="button" className="rounded-md bg-accent px-2.5 text-[11px] font-semibold text-ink disabled:opacity-40" disabled={!instructionDraft.trim()} onClick={() => { savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); }}>고정</button></div>
+          <div className="mt-2 flex gap-1"><input disabled={!canPinInstruction} value={instructionDraft} onChange={(event) => setInstructionDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && instructionDraft.trim()) { event.preventDefault(); savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); } }} placeholder={canPinInstruction ? '이 대화 동안 기억할 지침 입력 후 Enter' : '첫 메시지를 보낸 뒤 고정할 수 있습니다'} className="min-w-0 flex-1 rounded-md border border-line bg-ink px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent disabled:opacity-50" /><button type="button" className="rounded-md bg-accent px-2.5 text-[11px] font-semibold text-ink disabled:opacity-40" disabled={!canPinInstruction || !instructionDraft.trim()} onClick={() => { savePinnedInstructions([...pinnedInstructions, instructionDraft.trim()]); setInstructionDraft(''); }}>고정</button></div>
           {pinnedInstructions.map((instruction, index) => <div key={`${instruction}-${index}`} className="mt-2 flex items-start gap-2 rounded-md border border-line bg-ink/50 px-2.5 py-2 text-[11px] text-text"><span className="min-w-0 flex-1">{instruction}</span><button type="button" className="text-muted hover:text-red-300" onClick={() => savePinnedInstructions(pinnedInstructions.filter((_, itemIndex) => itemIndex !== index))}>삭제</button></div>)}
         </div> : null}
       </div>

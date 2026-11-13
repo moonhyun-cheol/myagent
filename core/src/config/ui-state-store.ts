@@ -15,6 +15,8 @@ export const UI_STATE_KEYS: readonly string[] = [
   'my-agent-workspace-pinned-sessions',
   'my-agent-workspace-pinned-nodes',
   'my-agent-pinned-instructions-v1',
+  // Per-conversation pinned instructions: `{ [sessionId]: string[] }`.
+  'my-agent-pinned-instructions-v2',
   'myagent.minimize-to-tray-on-close',
   'myagent.update-auto-check',
   'myagent.update-poll-interval-ms',

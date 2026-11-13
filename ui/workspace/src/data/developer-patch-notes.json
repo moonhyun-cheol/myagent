@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "pinned-instructions-per-conversation",
+      "status": "development",
+      "title": "고정 지침을 대화별로 분리",
+      "detail": "작업 패널 → 할 일의 고정 지침이 그 지침을 넣은 대화에만 적용됩니다. 다른 대화나 새 대화에는 더 이상 들어가지 않고, 대화를 바꾸면 목록도 그 대화 것으로 바뀝니다. 앱을 다시 켜도 유지되고 대화를 삭제하면 함께 지워집니다. 기존에 저장돼 있던 고정 지침은 마지막으로 열어 둔 대화로 옮겨집니다. 새 대화에서는 첫 메시지를 보낸 뒤 고정할 수 있습니다.",
+      "area": "chat",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["ui/workspace/src/lib/pinnedInstructions.ts", "ui/workspace/src/components/WorkspaceObjectsPane.tsx", "ui/workspace/src/store/workspaceStore.ts", "core/src/config/ui-state-store.ts"]
+    },
+    {
       "id": "chat-new-workspace-folder",
       "status": "development",
       "title": "대화 안에서 새 작업폴더 바로 지정",

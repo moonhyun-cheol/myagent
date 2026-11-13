@@ -1300,7 +1300,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             }
           : undefined;
       // Sent as a separate field so history, retries and regeneration never contain or duplicate it.
-      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions();
+      // Scoped to the job's own conversation: a queued run must not pick up the chat now on screen.
+      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions(sid);
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';

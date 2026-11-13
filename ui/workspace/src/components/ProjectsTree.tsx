@@ -23,6 +23,7 @@ import {
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { durableSetItem } from '../lib/durableUiState';
+import { removePinnedInstructions } from '../lib/pinnedInstructions';
 import {
   archiveSession,
   createProject,
@@ -806,6 +807,7 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
     if (!ok) return;
     try {
       await deleteSession(id);
+      removePinnedInstructions(id);
       if (activeSessionId === id || getStoredSessionId() === id) {
         clearActiveChat();
       }
