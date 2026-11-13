@@ -537,6 +537,29 @@ export class ProviderStore {
     if (changed) this.persistSecrets(vault);
   }
 
+  /**
+   * Rewrite saved connection models that match a retired product default
+   * (`{ providerId: { oldModel: newModel } }`). Returns the provider ids changed.
+   */
+  migrateSavedModelIds(map: Record<string, Record<string, string>>): string[] {
+    if (!existsSync(this.vaultPath)) return [];
+    const vault = this.loadVault();
+    const changed: string[] = [];
+    for (const [id, entry] of Object.entries(vault.entries)) {
+      const current = entry.model_id?.trim();
+      const next = current ? map[id]?.[current] : undefined;
+      if (!next || next === current) continue;
+      entry.model_id = next;
+      entry.updated_at = new Date().toISOString();
+      changed.push(id);
+    }
+    if (changed.length) {
+      // Keep rows this run could not decrypt (transient OS key-store failure) untouched.
+      this.persistSecrets(vault, { preserveRawIds: Object.keys(this.readRawVaultFile()?.entries ?? {}) });
+    }
+    return changed;
+  }
+
   private toPublic(def: ProviderDefinition, vault: ProviderVaultFile): ProviderPublicStatus {
     const entry = vault.entries[def.id];
     const usableEntry = entry && this.isUsableEntry(def.id, entry) ? entry : undefined;

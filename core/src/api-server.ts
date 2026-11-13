@@ -6,6 +6,7 @@ import { ensureShippedProductPlugins } from './agent/agent-plugin-store.js';
 import { FileLicenseGate } from './license/file-license-gate.js';
 import { AttachmentService } from './attachments/attachment-service.js';
 import { loadUserOverrides } from './config/user-overrides.js';
+import { migrateRetiredModelDefaults } from './config/retired-model-migration.js';
 import { ModelRegistry } from './models/model-registry.js';
 import { ModelUploadService } from './models/model-upload.js';
 import { ProviderStore } from './providers/provider-store.js';
@@ -118,6 +119,17 @@ export async function createApiServer(port: number) {
   );
   boot.lap('attach_models');
   const providerStore = new ProviderStore(path.join(paths.vaultDir, 'provider-keys.json'), cqrRoot);
+  try {
+    // Saved picks of a retired default model (e.g. GPT 5.6 Sol) follow the new default once.
+    const moved = migrateRetiredModelDefaults({ userConfigPath, cqrRoot, providerStore });
+    if (moved.applied.length) {
+      startLog(
+        `model-migration applied=${moved.applied.join(',')} overrides=${moved.overrides_changed.join(',') || '-'} providers=${moved.providers_changed.join(',') || '-'}`,
+      );
+    }
+  } catch (e: unknown) {
+    startLog(`model-migration failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const projectStore = new ProjectStore(path.join(paths.dataDir, 'projects'), cqrRoot);
   const userSkillStore = new UserSkillStore(path.join(paths.dataDir, 'skills'), cqrRoot);
   boot.lap('provider_project_skill');

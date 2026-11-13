@@ -17,6 +17,7 @@
     "verify:responses-vault": "node tools/verify-responses-vault.mjs",
     "verify:company-openrouter": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-company-openrouter.mjs",
     "verify:os-secret-store": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-os-secret-store.mjs",
+    "verify:retired-model-migration": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-retired-model-migration.mjs",
     "verify:prompt-cache": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-prompt-cache.mjs",
     "verify:local-nops-user-id": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-nops-user-id.mjs",
     "verify:windows-permissions": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-windows-permissions.mjs",

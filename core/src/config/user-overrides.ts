@@ -65,6 +65,8 @@ export interface UserOverrides {
   work_kit_catalog_feed_url?: string;
   /** Default model for personal scheduler runs (reasoning disabled). */
   scheduler_default_model?: string;
+  /** One-time retired-default model migrations already applied (see retired-model-migration.ts). */
+  model_migrations?: string[];
 }
 const DEFAULT_MAX = 20 * 1024 * 1024;
 const DEFAULT_MODEL_MAX = 32 * 1024 * 1024 * 1024;
