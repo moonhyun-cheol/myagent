@@ -1,26 +1,20 @@
 {
   "version": 1,
-  "generated_at": "2026-11-13T04:34:28.096Z",
+  "generated_at": "2026-11-13T04:36:10.335Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
     "shell": "shell/CqrPa.Shell",
     "core_src": "core/src",
     "api_dispatch": "core/src/routes/dispatch.ts",
-    "rulebook": "../RULEBOOK/MY_CUSTOM_CODEX/docs",
-    "rulebook_canonical": "../RULEBOOK/MY_CUSTOM_CODEX",
+    "rulebook": null,
+    "rulebook_canonical": null,
     "agents_md": "AGENTS.md",
     "ui_facts": "core/config/defaults/ui-facts.json",
     "skill_toggle": "ui/workspace/src/components/ChatPane.tsx"
   },
   "memory_files": [
-    "AGENTS.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/00_PROJECT_BRIEF.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/01_CURRENT_STATUS.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/02_ALWAYS_ON_RULES.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/03_RULE_INDEX.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/specs/technical/01-architecture.md",
-    "../RULEBOOK/MY_CUSTOM_CODEX/docs/specs/technical/04-interface-api.md"
+    "AGENTS.md"
   ],
   "api": {
     "source": "core/src/routes/dispatch.ts",
