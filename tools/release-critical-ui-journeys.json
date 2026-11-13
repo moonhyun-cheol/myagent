@@ -3,6 +3,18 @@
   "policy": "A UI surface may be merged, replaced, or removed only after every preserved capability is exercised through its replacement. Add new release-critical interactions here with an outcome-level verifier.",
   "journeys": [
     {
+      "id": "chat-new-workspace-folder",
+      "surface": "chat",
+      "verification": "browser",
+      "verifier": "tools/verify-chat-new-workspace-folder.mjs",
+      "preserves": [
+        "new and existing conversations can select unregistered folders by path or browsing",
+        "cancel and invalid paths preserve the draft and current folder binding",
+        "folder selection keeps conversation ownership and other conversations unchanged",
+        "the permission prompt can connect a new folder before sending the pending message"
+      ]
+    },
+    {
       "id": "unified-intermediate-work",
       "surface": "chat",
       "verification": "browser",

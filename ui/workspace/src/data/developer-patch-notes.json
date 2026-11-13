@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "chat-new-workspace-folder",
+      "status": "development",
+      "title": "대화 안에서 새 작업폴더 바로 지정",
+      "detail": "새 대화와 기존 대화의 작업폴더 연결 화면에서 목록에 없는 폴더도 경로를 붙여넣거나 탐색해 바로 연결할 수 있습니다. 대화 내용과 소속은 유지되고 다른 대화의 작업폴더는 바뀌지 않습니다. 잘못된 경로는 오류를 보여 주고 다시 선택할 수 있습니다.",
+      "area": "ui",
+      "created_at": "2026-11-13",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["ui/workspace/src/components/ChatPane.tsx", "ui/workspace/src/components/FolderBrowserModal.tsx", "core/src/routes/dispatch.ts"]
+    },
+    {
       "id": "deleted-location-memory-preservation",
       "status": "development",
       "title": "묶음을 지워도 메모리는 보관하고 필요한 곳에 복원",

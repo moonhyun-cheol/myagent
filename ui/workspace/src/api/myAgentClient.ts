@@ -1611,14 +1611,17 @@ export async function setSessionExecutionPolicy(
   return data as SessionRecord;
 }
 
+export type SessionWorkspaceTarget = string | null | { folder_path: string };
+
 export async function setSessionWorkspaceProject(
   sessionId: string,
-  workspaceProjectId: string | null,
+  workspaceProjectId: SessionWorkspaceTarget,
 ): Promise<SessionRecord> {
   const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/workspace`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_project_id: workspaceProjectId }),
+    body: JSON.stringify(typeof workspaceProjectId === 'object' && workspaceProjectId !== null
+      ? workspaceProjectId : { workspace_project_id: workspaceProjectId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `작업 폴더 연결 실패 (${res.status})`);

@@ -67,6 +67,7 @@ import {
   type SessionActiveRun,
   type SessionMessage,
   type SessionRecord,
+  type SessionWorkspaceTarget,
   type ExecutionPolicy,
   type EffectiveExecutionPolicy,
   type WorkspaceFsTreeNode,
@@ -560,7 +561,7 @@ interface WorkspaceState {
   goBrowserForward: () => void;
   setSelectedModel: (model: string) => Promise<void>;
   setExecutionPolicy: (policy: Partial<ExecutionPolicy>) => Promise<void>;
-  setSessionWorkspaceProject: (workspaceProjectId: string | null) => Promise<void>;
+  setSessionWorkspaceProject: (workspaceProjectId: SessionWorkspaceTarget) => Promise<void>;
   setSessionProject: (projectId: string | null) => Promise<void>;
   setModelOptions: (models: PickerModel[]) => void;
   /** Reload /models/picker into the chat header dropdown. Returns option count. */

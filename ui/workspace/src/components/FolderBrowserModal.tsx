@@ -6,6 +6,8 @@ interface FolderBrowserModalProps {
   open: boolean;
   onClose: () => void;
   onSelect: (path: string) => void;
+  busy?: boolean;
+  errorMessage?: string | null;
 }
 
 /** Normalize Explorer / PowerShell pasted paths: quotes, file://, trailing slashes. */
@@ -33,7 +35,7 @@ function normalizePastedPath(raw: string): string {
   return s;
 }
 
-export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserModalProps) {
+export function FolderBrowserModal({ open, onClose, onSelect, busy = false, errorMessage }: FolderBrowserModalProps) {
   const [data, setData] = useState<FsBrowseResult | null>(null);
   const [pathDraft, setPathDraft] = useState('');
   const [error, setError] = useState('');
@@ -64,9 +66,21 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
     return () => window.clearTimeout(t);
   }, [open, load]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || busy) return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, busy, onClose]);
+
   if (!open) return null;
 
   const goToDraft = () => {
+    if (busy) return;
     const next = normalizePastedPath(pathDraft);
     if (!next) {
       setError('경로를 입력하세요');
@@ -77,6 +91,7 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
   };
 
   const useDraftOrCurrent = () => {
+    if (busy) return;
     const next = normalizePastedPath(pathDraft) || data?.path?.trim() || '';
     if (!next) {
       setError('폴더를 선택하세요');
@@ -87,7 +102,7 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-line bg-panel shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-label="새 작업폴더 지정" data-testid="folder-browser-dialog" className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-line bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm font-semibold">폴더 추가</p>
@@ -97,6 +112,7 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
             type="button"
             className="rounded-md p-1.5 text-muted hover:bg-ink hover:text-text"
             onClick={onClose}
+            disabled={busy}
             aria-label="닫기"
           >
             <X size={16} />
@@ -111,6 +127,8 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
             <input
               ref={pathInputRef}
               type="text"
+              aria-label="폴더 경로"
+              disabled={busy}
               value={pathDraft}
               spellCheck={false}
               autoComplete="off"
@@ -133,7 +151,7 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
             />
             <button
               type="button"
-              disabled={loading || !pathDraft.trim()}
+              disabled={busy || loading || !pathDraft.trim()}
               onClick={goToDraft}
               className="shrink-0 rounded-lg border border-line px-2.5 py-2 text-[11px] text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:opacity-40"
             >
@@ -145,7 +163,7 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
         <div className="flex gap-2 border-b border-line px-3 py-2">
           <button
             type="button"
-            disabled={!data?.parent || loading}
+            disabled={busy || !data?.parent || loading}
             onClick={() => void load(data?.parent ?? undefined)}
             className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-[11px] text-muted enabled:hover:text-text disabled:opacity-40"
           >
@@ -154,22 +172,24 @@ export function FolderBrowserModal({ open, onClose, onSelect }: FolderBrowserMod
           </button>
           <button
             type="button"
-            disabled={loading || (!normalizePastedPath(pathDraft) && !data?.path)}
+            disabled={busy || loading || (!normalizePastedPath(pathDraft) && !data?.path)}
             onClick={useDraftOrCurrent}
             className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-ink disabled:opacity-40"
           >
             <FolderOpen size={13} weight="bold" />
-            이 폴더 사용
+            {busy ? '연결 중…' : '이 폴더 사용'}
           </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {errorMessage ? <p role="alert" className="px-2 py-3 text-xs text-red-400">{errorMessage}</p> : null}
           {error ? <p className="px-2 py-3 text-xs text-red-400">{error}</p> : null}
           {loading && !data ? <p className="px-2 py-3 text-xs text-muted">불러오는 중…</p> : null}
           {data?.entries?.map((e) => (
             <button
               key={e.path}
               type="button"
+              disabled={busy || loading}
               onClick={() => void load(e.path)}
               className="mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] text-muted hover:bg-ink hover:text-text"
             >

@@ -3082,11 +3082,29 @@ export async function dispatchApiRequest(
       if (sessionWorkspaceMatch && method === 'PUT') {
         license.assertWritable();
         license.assertFeature('chat');
-        const body = JSON.parse(await readBody(req)) as { workspace_project_id?: string | null };
-        if (!Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')) {
+        const body = JSON.parse(await readBody(req)) as { workspace_project_id?: string | null; folder_path?: unknown };
+        const hasFolderPath = Object.prototype.hasOwnProperty.call(body, 'folder_path');
+        if (!hasFolderPath && !Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')) {
           return sendJson(res, 400, { error: 'WORKSPACE_PROJECT_ID_REQUIRED' });
         }
-        const workspaceProjectId = String(body.workspace_project_id ?? '').trim() || null;
+        if (!sessionStore.load(sessionWorkspaceMatch[1])) return sendJson(res, 404, { error: 'NOT_FOUND' });
+        let workspaceProjectId = String(body.workspace_project_id ?? '').trim() || null;
+        if (hasFolderPath) {
+          if (Object.prototype.hasOwnProperty.call(body, 'workspace_project_id')
+            || typeof body.folder_path !== 'string' || !body.folder_path.trim()
+            || !path.isAbsolute(body.folder_path.trim())) {
+            return sendJson(res, 400, { error: 'INVALID_WORKSPACE_PATH', message: '연결할 폴더의 전체 경로를 입력하세요.' });
+          }
+          const folderPath = body.folder_path.trim();
+          try {
+            assertDevWorkspaceRoot(folderPath, { allowNas: hasNasWriteConsent(getOverrides()) });
+          } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            return sendJson(res, 403, { error: 'WORKSPACE_NOT_ALLOWED', message });
+          }
+          // Register for reuse without changing the PC-wide default or chat ownership.
+          workspaceProjectId = projectStore.upsertWorkspaceRoot(folderPath).id;
+        }
         if (workspaceProjectId) {
           const workspaceProject = projectStore.get(workspaceProjectId);
           if (
