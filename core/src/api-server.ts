@@ -191,8 +191,9 @@ export async function createApiServer(port: number) {
         reviewerPreference: loadUserOverrides(userConfigPath).approval_reviewer_model,
       });
       try {
-        // Workspace binding: without roots the temporary chat has no tool runtime and the
-        // model can only answer "no tools". A vanished folder fails the run explicitly.
+        // Workspace binding: without roots the temporary chat has no file tools and runs on
+        // the web tool pack only (browser, web download, scheduler, task history).
+        // A vanished folder fails the run explicitly.
         const boundRoots = task.workspace_roots ?? [];
         if (boundRoots.length) {
           const present = boundRoots.filter((root) => existsSync(root));
