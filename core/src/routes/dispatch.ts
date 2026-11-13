@@ -68,7 +68,8 @@ import { quickVerifyGguf, deepVerifyWithServer } from '../inference/llama-backen
 import { probePlaywright } from '../browser/playwright-probe.js';
 import { browserNavigateViaMcp, browserScreenshotViaMcp, getPlaywrightMcpDiagnostics } from '../browser/playwright-mcp-bridge.js';
 import { parseChatRequest } from '../chat/chat-orchestrator.js';
-import { resolveWorkspaceRootForSession } from '../chat/session-context.js';
+import { resolveWorkspaceRootForMediaRequest, resolveWorkspaceRootForSession } from '../chat/session-context.js';
+import { validateScopeAllowedPaths } from '../sessions/scope-path-validation.js';
 import { clientAbortSignal } from '../chat/abort.js';
 import { activeChatRunInfo, beginChatRun, cancelChatRun, chatRunStopDetail, executeChatRun, ChatRunConflict, validChatRunId } from '../chat/chat-runs.js';
 import { ProjectStoreError } from '../projects/project-store.js';
@@ -1026,14 +1027,14 @@ export async function dispatchApiRequest(
         const rel = (url.searchParams.get('path') ?? '').trim();
         if (!rel) return sendJson(res, 400, { error: 'PATH_REQUIRED' });
         const overrides = loadUserOverrides(userConfigPath);
-        const querySessionId = url.searchParams.get('session')?.trim() || '';
-        const root =
-          workspaceRootForRequest()
-          || (querySessionId
-            ? resolveWorkspaceRootForSession(sessionStore, projectStore, querySessionId)
-            : null)
-          || overrides.dev_workspace_root?.trim()
-          || null;
+        // <img>/<video> cannot send the session header, so `?session=` names the conversation.
+        // Either form limits the read to that conversation's root; 개인 작업 has none.
+        const root = resolveWorkspaceRootForMediaRequest(
+          sessionStore,
+          projectStore,
+          sessionFromReq(req) || url.searchParams.get('session'),
+          overrides.dev_workspace_root,
+        );
         if (!root) {
           return sendJson(res, 400, { error: 'NO_DEV_WORKSPACE', message: '작업 폴더를 먼저 연결하세요.' });
         }
@@ -2197,29 +2198,24 @@ export async function dispatchApiRequest(
           if (!projectStore.isDeletable(pid)) {
             return sendJson(res, 404, { error: 'NOT_FOUND' });
           }
-          // Default is lift: chats (and knowledge, when a parent exists) move one
-          // level up instead of vanishing. Only mode=delete removes them for good.
+          // Lift preserves chats and archives knowledge without automatically broadening its scope.
           const hardDelete = url.searchParams.get('mode') === 'delete';
           const descendantIds = projectStore.collectDescendantIds(pid);
           const allIds = [pid, ...descendantIds];
           const parent = rec.parent_id ? projectStore.get(rec.parent_id) : null;
           const liftTarget = parent?.id ?? null;
+          const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
+          // Persist memories first; never swallow a preservation failure after deleting the location.
+          if (!hardDelete) {
+            memoryStore.archiveProjects(allIds.map((id) => ({ id, title: projectStore.pathLabel(id) })));
+          }
           if (!hardDelete) {
             for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
           } else {
             for (const id of allIds) sessionStore.deleteAllInProject(id);
           }
           const ok = projectStore.delete(pid);
-          if (ok) {
-            try {
-              const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
-              if (!hardDelete && liftTarget) memoryStore.reassignProject(allIds, liftTarget);
-              // Top-level nodes have no parent scope; 개인 작업 has no place for project knowledge.
-              memoryStore.removeByProject(allIds);
-            } catch {
-              /* memory cleanup must never block project deletion */
-            }
-          }
+          if (ok && hardDelete) memoryStore.removeByProject(allIds);
           if (ok && projectStore.resolveKind(rec) === 'workspace_root' && rec.folder_path) {
             const overrides = loadUserOverrides(userConfigPath);
             const active = overrides.dev_workspace_root?.trim();
@@ -2440,8 +2436,20 @@ export async function dispatchApiRequest(
             return sendJson(res, 201, entry);
           }
           if (method === 'POST' && url.pathname === '/memory/batch') {
+            license.assertWritable();
             const body = JSON.parse(await readBody(req));
             return sendJson(res, 200, { changed: memoryStore.batch(body) });
+          }
+          const restoreMemoryMatch = url.pathname.match(/^\/memory\/([^/]+)\/restore$/);
+          if (restoreMemoryMatch && method === 'POST') {
+            license.assertWritable();
+            const body = JSON.parse(await readBody(req)) as { scope?: string; id?: string };
+            if (typeof body.id !== 'string' || (body.scope !== 'project' && body.scope !== 'session')
+              || (body.scope === 'project' ? projectStore.get(body.id)?.id !== body.id : sessionStore.load(body.id)?.id !== body.id)) {
+              return sendJson(res, 400, { error: 'INVALID_TARGET', message: '현재 존재하는 프로젝트 또는 대화를 선택하세요.' });
+            }
+            const entry = memoryStore.restore(decodeURIComponent(restoreMemoryMatch[1]), { scope: body.scope, id: body.id });
+            return sendJson(res, entry ? 200 : 404, entry ?? { error: 'NOT_FOUND' });
           }
           const memoryActionMatch = url.pathname.match(/^\/memory\/([^/]+)\/(approve|reject)$/);
           if (memoryActionMatch && method === 'POST') {
@@ -2990,6 +2998,22 @@ export async function dispatchApiRequest(
           preferred_model?: string | null;
           allowed_paths?: string[];
         };
+        if (body.allowed_paths !== undefined) {
+          const current = sessionStore.load(sessionSettingsMatch[1]);
+          if (!current) return sendJson(res, 404, { error: 'NOT_FOUND' });
+          const checked = validateScopeAllowedPaths(body.allowed_paths, {
+            allowNas: hasNasWriteConsent(getOverrides()),
+            existing: current.allowed_paths ?? [],
+          });
+          if (!checked.ok) {
+            return sendJson(res, checked.error === 'INVALID_ALLOWED_PATH' ? 400 : 403, {
+              error: checked.error,
+              path: checked.path,
+              message: checked.message,
+            });
+          }
+          body.allowed_paths = checked.roots;
+        }
         const rec = sessionStore.setScopeSettings(sessionSettingsMatch[1], body);
         if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
         return sendJson(res, 200, sessionStore.getSummary(rec));

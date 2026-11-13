@@ -2437,7 +2437,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const membershipProjectId = rec.project_id ?? null;
         const workspaceRootProjectId = rec.workspace_binding_explicit
           ? rec.workspace_project_id ?? null
-          : await resolveWorkspaceRootProjectId(membershipProjectId ?? rec.workspace_project_id ?? null);
+          // Same rule as the server: without an explicit binding only the sidebar location counts.
+          : await resolveWorkspaceRootProjectId(membershipProjectId);
         if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);

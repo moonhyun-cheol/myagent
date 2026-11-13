@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // update 66: the sidebar location is the only scope source (files, knowledge, location note),
-// and deleting a folder lifts its chats and knowledge one level up instead of losing them.
+// and deleting a folder lifts chats while archiving knowledge without broadening its scope.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -60,24 +60,25 @@ try {
   // Legacy string call still works.
   assert.match(memory.formatForPrompt(b.id), /B-only knowledge/);
 
-  // Delete B (lift): chats and knowledge move to A, folder link cleared.
+  // Delete B (lift): chats move to A; knowledge is archived, never injected into A.
   const idsB = [b.id, ...projects.collectDescendantIds(b.id)];
   assert.equal(sessions.countInProjects(idsB), 1);
   assert.equal(memory.countByProject(idsB), 1);
+  assert.equal(memory.archiveProjects(idsB.map((id) => ({ id, title: projects.pathLabel(id) }))), 1);
   assert.equal(sessions.moveAllInProject(b.id, a.id), 1);
-  assert.equal(memory.reassignProject(idsB, a.id), 1);
-  memory.removeByProject(idsB);
   assert.ok(projects.delete(b.id));
   assert.equal(sessions.load('c-b').project_id, a.id);
-  assert.equal(memory.countByProject([a.id]), 1);
+  assert.equal(memory.countByProject([a.id]), 0);
+  assert.equal(memory.list().archived.length, 1);
+  assert.doesNotMatch(memory.formatForPrompt(a.id), /B-only knowledge/);
   assert.equal(resolveWorkspaceRootForSession(sessions, projects, 'c-b'), path.resolve(wsDir));
 
-  // Duplicate knowledge collapses on lift.
+  // Equal text in a deleted location remains archived rather than silently collapsed.
   memory.add({ scope: 'project', project_id: ws.id, text: 'dup' });
   memory.add({ scope: 'project', project_id: a.id, text: 'dup' });
-  memory.reassignProject([a.id], ws.id);
-  memory.removeByProject([a.id]);
-  assert.equal(memory.countByProject([ws.id]), 3); // root knowledge + B-only + dup
+  memory.archiveProjects([{ id: a.id, title: projects.pathLabel(a.id) }]);
+  assert.equal(memory.countByProject([ws.id]), 2); // root knowledge + dup
+  assert.equal(memory.list().archived.length, 2);
 
   // Delete workspace root (lift to 개인 작업): chat stops seeing the folder.
   sessions.setWorkspaceProject('c-b', ws.id);
@@ -103,7 +104,8 @@ try {
   assert.doesNotMatch(tree, /startNewChat\([^)]*,/);
   const pane = ui('components/ChatPane.tsx');
   assert.doesNotMatch(pane, /workspace_project_id: session\.workspace_project_id/);
-  assert.match(pane, /reasoning: message\.reasoning/);
+  assert.match(pane, /exportPortableSession/);
+  assert.match(ui('lib/sessionExport.ts'), /reasoning: message\.reasoning/);
   assert.doesNotMatch(ui('components/GeminiNavSidebar.tsx'), /startNewChat\([^)]*,/);
 
   console.log('verify-location-scope: ok');

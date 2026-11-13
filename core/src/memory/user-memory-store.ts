@@ -7,7 +7,7 @@
  * Manual entries are user-authored. Model proposals stay pending until approved.
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 export type MemoryScope = 'global' | 'project' | 'session';
@@ -36,6 +36,10 @@ export interface MemoryEntry {
   created_at: string;
   updated_at: string;
   reviewed_at?: string | null;
+  /** Archived entries retain their approval/activation state but never enter prompts. */
+  archived_at?: string | null;
+  origin_project_id?: string | null;
+  origin_project_title?: string | null;
 }
 
 export interface MemoryBatchInput {
@@ -83,7 +87,7 @@ function lifecycle(entry: MemoryEntry): MemoryLifecycle {
 }
 
 function isPromptEligible(entry: MemoryEntry): boolean {
-  return entry.enabled && lifecycle(entry) === 'active';
+  return !entry.archived_at && entry.enabled && lifecycle(entry) === 'active';
 }
 
 export class UserMemoryStore {
@@ -96,16 +100,17 @@ export class UserMemoryStore {
   list(
     projectId?: string | null,
     sessionId?: string | null,
-  ): { global: MemoryEntry[]; project: MemoryEntry[]; session: MemoryEntry[] } {
+  ): { global: MemoryEntry[]; project: MemoryEntry[]; session: MemoryEntry[]; archived: MemoryEntry[] } {
     const index = this.loadIndex();
-    const global = index.entries.filter((e) => e.scope === 'global');
+    const archived = index.entries.filter((e) => !!e.archived_at);
+    const global = index.entries.filter((e) => !e.archived_at && e.scope === 'global');
     const project = projectId
-      ? index.entries.filter((e) => e.scope === 'project' && e.project_id === projectId)
+      ? index.entries.filter((e) => !e.archived_at && e.scope === 'project' && e.project_id === projectId)
       : [];
     const session = sessionId
-      ? index.entries.filter((e) => e.scope === 'session' && e.session_id === sessionId)
+      ? index.entries.filter((e) => !e.archived_at && e.scope === 'session' && e.session_id === sessionId)
       : [];
-    return { global, project, session };
+    return { global, project, session, archived };
   }
 
   get(id: string): MemoryEntry | null {
@@ -132,7 +137,7 @@ export class UserMemoryStore {
     }
     const index = this.loadIndex();
     const scopeEntries = index.entries.filter(
-      (e) => e.scope === input.scope
+      (e) => !e.archived_at && e.scope === input.scope
         && (input.scope !== 'project' || e.project_id === input.project_id)
         && (input.scope !== 'session' || e.session_id === input.session_id),
     );
@@ -203,7 +208,7 @@ export class UserMemoryStore {
     }
     const index = this.loadIndex();
     const scopeEntries = index.entries.filter(
-      (e) => e.scope === input.scope
+      (e) => !e.archived_at && e.scope === input.scope
         && (input.scope !== 'project' || e.project_id === input.project_id)
         && (input.scope !== 'session' || e.session_id === input.session_id),
     );
@@ -246,7 +251,7 @@ export class UserMemoryStore {
   approve(id: string, patch: { text?: string } = {}): MemoryEntry | null {
     const index = this.loadIndex();
     const entry = index.entries.find((e) => e.id === id);
-    if (!entry || lifecycle(entry) !== 'pending') return null;
+    if (!entry || entry.archived_at || lifecycle(entry) !== 'pending') return null;
     if (patch.text !== undefined) {
       const text = patch.text.trim();
       if (!text) throw new UserMemoryStoreError('EMPTY_TEXT', 'Memory text is required');
@@ -277,7 +282,7 @@ export class UserMemoryStore {
   reject(id: string): MemoryEntry | null {
     const index = this.loadIndex();
     const entry = index.entries.find((e) => e.id === id);
-    if (!entry || lifecycle(entry) !== 'pending') return null;
+    if (!entry || entry.archived_at || lifecycle(entry) !== 'pending') return null;
     const now = new Date().toISOString();
     entry.status = 'rejected';
     entry.enabled = false;
@@ -293,6 +298,7 @@ export class UserMemoryStore {
     const index = this.loadIndex();
     const stale = index.entries.filter((entry) =>
       entry.scope === 'project'
+      && !entry.archived_at
       && lifecycle(entry) === 'pending'
       && entry.source_session_id === sourceSessionId
       && entry.project_id !== projectId);
@@ -316,6 +322,7 @@ export class UserMemoryStore {
     const index = this.loadIndex();
     const entry = index.entries.find((e) => e.id === id);
     if (!entry) return null;
+    if (entry.archived_at) throw new UserMemoryStoreError('ARCHIVED_LOCKED', '보관 메모리는 먼저 저장 범위를 선택해 복원하세요.');
     if (lifecycle(entry) === 'pending' || lifecycle(entry) === 'rejected') {
       throw new UserMemoryStoreError('PENDING_LOCKED', '승인/거절이 필요한 후보는 일반 수정할 수 없습니다.');
     }
@@ -349,6 +356,9 @@ export class UserMemoryStore {
       e.scope === 'project' ? !input.project_id || e.project_id !== input.project_id
         : e.scope === 'session' ? !input.session_id || e.session_id !== input.session_id : e.scope !== 'global')) {
       throw new UserMemoryStoreError('STALE_SELECTION', '선택한 항목이 없거나 현재 범위 밖에 있습니다. 새로고침하세요.');
+    }
+    if (selected.some((e) => !!e.archived_at)) {
+      throw new UserMemoryStoreError('ARCHIVED_LOCKED', '보관 메모리는 개별 복원 또는 영구 삭제로 관리하세요.');
     }
     if (input.action !== 'delete' && selected.some((e) => lifecycle(e) === 'pending' || lifecycle(e) === 'rejected')) {
       throw new UserMemoryStoreError('PENDING_LOCKED', '대기/거절 후보는 승인·거절 또는 삭제로만 처리하세요.');
@@ -399,14 +409,55 @@ export class UserMemoryStore {
     return true;
   }
 
-  /** Remove project-scope entries when their project is deleted. */
+  /** Preserve before deleting a location. Failure must abort the deletion. */
+  archiveProjects(projects: MemoryScopeRef[]): number {
+    const titles = new Map(projects.map((p) => [p.id, p.title ?? p.id]));
+    const index = this.loadIndex();
+    let changed = 0;
+    const now = new Date().toISOString();
+    for (const entry of index.entries) {
+      if (entry.archived_at || entry.scope !== 'project' || !entry.project_id || !titles.has(entry.project_id)) continue;
+      entry.origin_project_id ??= entry.project_id;
+      entry.origin_project_title ??= titles.get(entry.project_id);
+      entry.archived_at = now;
+      entry.updated_at = now;
+      changed++;
+    }
+    if (changed) this.saveIndex(index);
+    return changed;
+  }
+
+  /** Explicit restoration preserves identity, approval and activation state, never globalizes. */
+  restore(id: string, target: { scope: 'project' | 'session'; id: string }): MemoryEntry | null {
+    if (!target || !['project', 'session'].includes(target.scope) || !target.id?.trim()) {
+      throw new UserMemoryStoreError('INVALID_TARGET', '복원할 프로젝트 또는 대화를 선택하세요.');
+    }
+    const index = this.loadIndex();
+    const entry = index.entries.find((e) => e.id === id && !!e.archived_at);
+    if (!entry) return null;
+    const destination = index.entries.filter((e) => !e.archived_at && e.scope === target.scope
+      && (target.scope === 'project' ? e.project_id === target.id : e.session_id === target.id));
+    if (destination.length >= MAX_ENTRIES_PER_SCOPE) throw new UserMemoryStoreError('SCOPE_FULL', '대상 메모리 범위가 가득 찼습니다.');
+    if (destination.some((e) => normalizeForDedupe(e.text) === normalizeForDedupe(entry.text))) {
+      throw new UserMemoryStoreError('DUPLICATE_TEXT', '대상 범위에 같은 메모리가 있습니다.');
+    }
+    entry.scope = target.scope;
+    entry.project_id = target.scope === 'project' ? target.id : null;
+    entry.session_id = target.scope === 'session' ? target.id : null;
+    entry.archived_at = null;
+    entry.updated_at = new Date().toISOString();
+    this.saveIndex(index);
+    return entry;
+  }
+
+  /** Remove project-scope entries only for an explicitly confirmed permanent deletion. */
   removeByProject(projectIds: string[]): number {
     if (!projectIds.length) return 0;
     const ids = new Set(projectIds);
     const index = this.loadIndex();
     const before = index.entries.length;
     index.entries = index.entries.filter(
-      (e) => !(e.scope === 'project' && e.project_id && ids.has(e.project_id)),
+      (e) => !(!e.archived_at && e.scope === 'project' && e.project_id && ids.has(e.project_id)),
     );
     const removed = before - index.entries.length;
     if (removed > 0) this.saveIndex(index);
@@ -415,7 +466,7 @@ export class UserMemoryStore {
 
   countByProject(projectIds: string[]): number {
     const ids = new Set(projectIds);
-    return this.loadIndex().entries.filter((e) => e.scope === 'project' && e.project_id && ids.has(e.project_id)).length;
+    return this.loadIndex().entries.filter((e) => !e.archived_at && e.scope === 'project' && e.project_id && ids.has(e.project_id)).length;
   }
 
   /** Lift project-scope entries of deleted nodes into the surviving parent (duplicates collapse). */
@@ -431,7 +482,7 @@ export class UserMemoryStore {
     let moved = 0;
     const kept: MemoryEntry[] = [];
     for (const e of index.entries) {
-      if (e.scope === 'project' && e.project_id && ids.has(e.project_id)) {
+      if (!e.archived_at && e.scope === 'project' && e.project_id && ids.has(e.project_id)) {
         const key = normalizeForDedupe(e.text);
         if (existing.has(key)) continue;
         existing.add(key);
@@ -549,16 +600,22 @@ export class UserMemoryStore {
     if (!existsSync(this.indexPath)) return { version: 1, entries: [] };
     try {
       const parsed = JSON.parse(readFileSync(this.indexPath, 'utf8')) as MemoryIndex;
-      if (!parsed || !Array.isArray(parsed.entries)) return { version: 1, entries: [] };
+      if (!parsed || !Array.isArray(parsed.entries)) throw new Error('Invalid memory index');
       return parsed;
     } catch {
-      return { version: 1, entries: [] };
+      throw new UserMemoryStoreError('MEMORY_READ_FAILED', '메모리를 읽지 못해 작업을 중단했습니다. 원본 파일을 확인하세요.');
     }
   }
 
   private saveIndex(index: MemoryIndex): void {
     mkdirSync(path.dirname(this.indexPath), { recursive: true });
-    writeFileSync(this.indexPath, JSON.stringify(index, null, 2), 'utf8');
+    const temporary = `${this.indexPath}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, JSON.stringify(index, null, 2), 'utf8');
+      renameSync(temporary, this.indexPath);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
   }
 }
 
