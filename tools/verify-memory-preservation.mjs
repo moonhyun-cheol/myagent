@@ -57,6 +57,15 @@ try {
   assert.throws(() => store.restore(clash.id, { scope: 'project', id: 'full' }), (e) => e.code === 'SCOPE_FULL');
   assert.equal(new UserMemoryStore(path.join(dir, 'unit')).list().archived.length, 1);
   assert.equal(store.remove(clash.id), true);
+  // Undo is scoped to the stamp of one archive call.
+  const stamp = '2026-01-01T00:00:00.000Z';
+  const undo = store.add({ scope: 'project', project_id: 'undo', text: 'undo me' });
+  assert.equal(store.archiveProjects([{ id: 'undo' }], stamp), 1);
+  assert.equal(store.unarchiveProjects(['undo'], 'other-stamp'), 0);
+  assert.equal(store.formatForPrompt('undo'), '');
+  assert.equal(store.unarchiveProjects(['undo'], stamp), 1);
+  assert.equal(store.get(undo.id).archived_at, null);
+  assert.match(store.formatForPrompt('undo'), /undo me/);
   writeFileSync(path.join(dir, 'unit/user-memory.json'), '{broken');
   assert.throws(() => store.archiveProjects([{ id: 'old' }]), (e) => e.code === 'MEMORY_READ_FAILED');
   assert.equal(readFileSync(path.join(dir, 'unit/user-memory.json'), 'utf8'), '{broken');
@@ -107,6 +116,27 @@ try {
   const hardNote = memory.add({ scope: 'project', project_id: hard.id, text: 'delete explicitly' });
   assert.equal((await call(`/projects/${hard.id}?mode=delete`, 'DELETE')).status, 200);
   assert.equal(memory.get(hardNote.id), null);
+  // A failed chat move leaves the location in place, so its knowledge must stay active.
+  const stay = projectStore.create({ title: 'Move fails', kind: 'project' });
+  sessionStore.ensure('stay-chat', { project_id: stay.id });
+  const stayNote = memory.add({ scope: 'project', project_id: stay.id, text: 'still active after failed delete' });
+  sessionStore.moveAllInProject = () => { throw new Error('simulated move failure'); };
+  const stayRes = await call(`/projects/${stay.id}`, 'DELETE');
+  delete sessionStore.moveAllInProject;
+  assert.notEqual(stayRes.status, 200);
+  assert.ok(projectStore.get(stay.id));
+  assert.equal(sessionStore.load('stay-chat').project_id, stay.id);
+  assert.equal(memory.get(stayNote.id).archived_at, null, 'archive is undone when the location survives');
+  assert.match(memory.formatForPrompt(stay.id), /still active after failed delete/);
+  // Permanent delete: a memory cleanup failure after the project is gone is flagged, not a 500.
+  const flagged = projectStore.create({ title: 'Cleanup fails', kind: 'project' });
+  memory.add({ scope: 'project', project_id: flagged.id, text: 'left behind' });
+  memory.saveIndex = () => { throw new Error('simulated write failure'); };
+  const flaggedRes = await call(`/projects/${flagged.id}?mode=delete`, 'DELETE');
+  delete memory.saveIndex;
+  assert.equal(flaggedRes.status, 200);
+  assert.equal(flaggedRes.data.memory_cleanup_failed, true);
+  assert.ok(!projectStore.get(flagged.id));
   const fail = projectStore.create({ title: 'Must survive', kind: 'project' });
   sessionStore.ensure('survive-chat', { project_id: fail.id });
   const saveIndex = memory.saveIndex;
@@ -120,7 +150,11 @@ try {
   assert.notEqual((await call(`/projects/${fail.id}`, 'DELETE')).status, 200);
   assert.ok(projectStore.get(fail.id));
   assert.equal(sessionStore.load('survive-chat').project_id, fail.id);
-  console.log('PASS memory preservation: identity/provenance/lifecycle, prompt isolation, explicit restore, dedupe/capacity, corrupt-store fail-closed, real HTTP deletion/restore/read-only, parent isolation, permanent-delete opt-in');
+  // Permanent delete also fails closed on an unreadable store, before chats or the project go.
+  assert.notEqual((await call(`/projects/${fail.id}?mode=delete`, 'DELETE')).status, 200);
+  assert.ok(projectStore.get(fail.id));
+  assert.equal(sessionStore.load('survive-chat').project_id, fail.id);
+  console.log('PASS memory preservation: identity/provenance/lifecycle, prompt isolation, explicit restore, dedupe/capacity, corrupt-store fail-closed, real HTTP deletion/restore/read-only, parent isolation, permanent-delete opt-in, archive undo on failed delete, permanent-delete fail-closed + cleanup flag');
 } finally {
   if (server) await new Promise((resolve) => server.close(resolve));
   rmSync(dir, { recursive: true, force: true });

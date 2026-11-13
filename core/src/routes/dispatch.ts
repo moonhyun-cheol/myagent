@@ -2206,16 +2206,40 @@ export async function dispatchApiRequest(
           const liftTarget = parent?.id ?? null;
           const memoryStore = getUserMemoryStore(path.dirname(path.dirname(userConfigPath)));
           // Persist memories first; never swallow a preservation failure after deleting the location.
+          const archivedAt = new Date().toISOString();
           if (!hardDelete) {
-            memoryStore.archiveProjects(allIds.map((id) => ({ id, title: projectStore.pathLabel(id) })));
-          }
-          if (!hardDelete) {
-            for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
+            memoryStore.archiveProjects(allIds.map((id) => ({ id, title: projectStore.pathLabel(id) })), archivedAt);
           } else {
-            for (const id of allIds) sessionStore.deleteAllInProject(id);
+            // Fail closed before anything is deleted when the memory store cannot be read.
+            memoryStore.countByProject(allIds);
           }
-          const ok = projectStore.delete(pid);
-          if (ok && hardDelete) memoryStore.removeByProject(allIds);
+          let ok = false;
+          try {
+            if (!hardDelete) {
+              for (const id of allIds) sessionStore.moveAllInProject(id, liftTarget);
+            } else {
+              for (const id of allIds) sessionStore.deleteAllInProject(id);
+            }
+            ok = projectStore.delete(pid);
+          } finally {
+            // The location survived: its knowledge must stay active, not sit in the archive.
+            if (!ok && !hardDelete) {
+              try {
+                memoryStore.unarchiveProjects(allIds, archivedAt);
+              } catch {
+                /* the original failure is the one to report */
+              }
+            }
+          }
+          let memoryCleanupFailed = false;
+          if (ok && hardDelete) {
+            try {
+              memoryStore.removeByProject(allIds);
+            } catch {
+              // The project is already gone; report success and flag the leftover entries.
+              memoryCleanupFailed = true;
+            }
+          }
           if (ok && projectStore.resolveKind(rec) === 'workspace_root' && rec.folder_path) {
             const overrides = loadUserOverrides(userConfigPath);
             const active = overrides.dev_workspace_root?.trim();
@@ -2223,7 +2247,7 @@ export async function dispatchApiRequest(
               saveUserOverrides(userConfigPath, { dev_workspace_root: undefined }, cqrRoot);
             }
           }
-          return sendJson(res, ok ? 200 : 404, { ok });
+          return sendJson(res, ok ? 200 : 404, { ok, ...(memoryCleanupFailed ? { memory_cleanup_failed: true } : {}) });
         }
       }
 

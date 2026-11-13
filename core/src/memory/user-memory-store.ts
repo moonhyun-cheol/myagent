@@ -409,18 +409,40 @@ export class UserMemoryStore {
     return true;
   }
 
-  /** Preserve before deleting a location. Failure must abort the deletion. */
-  archiveProjects(projects: MemoryScopeRef[]): number {
+  /**
+   * Preserve before deleting a location. Failure must abort the deletion.
+   * `at` stamps this archive so `unarchiveProjects` can undo exactly this call.
+   */
+  archiveProjects(projects: MemoryScopeRef[], at: string = new Date().toISOString()): number {
     const titles = new Map(projects.map((p) => [p.id, p.title ?? p.id]));
     const index = this.loadIndex();
     let changed = 0;
-    const now = new Date().toISOString();
+    const now = at;
     for (const entry of index.entries) {
       if (entry.archived_at || entry.scope !== 'project' || !entry.project_id || !titles.has(entry.project_id)) continue;
       entry.origin_project_id ??= entry.project_id;
       entry.origin_project_title ??= titles.get(entry.project_id);
       entry.archived_at = now;
       entry.updated_at = now;
+      changed++;
+    }
+    if (changed) this.saveIndex(index);
+    return changed;
+  }
+
+  /**
+   * Undo one `archiveProjects(projects, at)` call when the deletion it guarded did not
+   * complete, so a surviving location keeps its knowledge active. Entries archived by
+   * other calls (different stamp) are left alone.
+   */
+  unarchiveProjects(projectIds: string[], at: string): number {
+    if (!projectIds.length || !at) return 0;
+    const ids = new Set(projectIds);
+    const index = this.loadIndex();
+    let changed = 0;
+    for (const entry of index.entries) {
+      if (entry.archived_at !== at || entry.scope !== 'project' || !entry.project_id || !ids.has(entry.project_id)) continue;
+      entry.archived_at = null;
       changed++;
     }
     if (changed) this.saveIndex(index);
@@ -467,36 +489,6 @@ export class UserMemoryStore {
   countByProject(projectIds: string[]): number {
     const ids = new Set(projectIds);
     return this.loadIndex().entries.filter((e) => !e.archived_at && e.scope === 'project' && e.project_id && ids.has(e.project_id)).length;
-  }
-
-  /** Lift project-scope entries of deleted nodes into the surviving parent (duplicates collapse). */
-  reassignProject(fromIds: string[], toId: string): number {
-    if (!fromIds.length) return 0;
-    const ids = new Set(fromIds);
-    const index = this.loadIndex();
-    const existing = new Set(
-      index.entries
-        .filter((e) => e.scope === 'project' && e.project_id === toId)
-        .map((e) => normalizeForDedupe(e.text)),
-    );
-    let moved = 0;
-    const kept: MemoryEntry[] = [];
-    for (const e of index.entries) {
-      if (!e.archived_at && e.scope === 'project' && e.project_id && ids.has(e.project_id)) {
-        const key = normalizeForDedupe(e.text);
-        if (existing.has(key)) continue;
-        existing.add(key);
-        kept.push({ ...e, project_id: toId });
-        moved++;
-        continue;
-      }
-      kept.push(e);
-    }
-    if (kept.length !== index.entries.length || moved > 0) {
-      index.entries = kept;
-      this.saveIndex(index);
-    }
-    return moved;
   }
 
   /** Remove session-scope entries when their conversation is deleted. */
