@@ -32,8 +32,10 @@ export type MarketPipelineFailureStatus =
 
 /**
  * Brief fields the entry accepts as `--product=…` flags (mirrors `FIELD_FLAGS` in the entry).
- * `study` (`trend` | `product`) and `period` (`2024-2026`) select a market/trend study; modules
- * older than that reject the two flags, and the run is retried without them.
+ * `study` (`trend` | `product`) and `period` (`2024-2026`) select a market/trend study; `gender`
+ * (`men` | `women` | `unisex` | `all`) and `style` (`military, workwear`) name the target customer
+ * (the organization module fills CQR's when they are empty). A module older than a flag rejects
+ * it, and the run is retried without the flags it named.
  */
 export const MARKET_BRIEF_FIELDS = [
   'product',
@@ -46,8 +48,9 @@ export const MARKET_BRIEF_FIELDS = [
   'focus',
   'study',
   'period',
+  'gender',
+  'style',
 ] as const;
-const TREND_FIELDS: readonly MarketBriefField[] = ['study', 'period'];
 export type MarketBriefField = (typeof MARKET_BRIEF_FIELDS)[number];
 export type MarketBriefFields = Partial<Record<MarketBriefField, string>>;
 
@@ -66,6 +69,10 @@ export interface MarketEvidenceItem {
   query?: string;
   /** Date the page declares, or the date in front of the search snippet (YYYY-MM-DD). */
   published?: string;
+  /** Last-modified date the page declares, when after `published`. The version read is from then. */
+  updated?: string;
+  /** Trend study: the page is older than the period and names no year of it. */
+  before_period?: boolean;
 }
 
 export interface MarketEvidencePack {
@@ -73,6 +80,8 @@ export interface MarketEvidencePack {
   market?: string;
   session_id?: string;
   brief?: Record<string, unknown>;
+  /** Searches the pipeline ran (`{query, kind}`), shown in the report's method appendix. */
+  queries?: Array<{ query?: string; kind?: string }>;
   stats?: Record<string, unknown>;
   evidence: MarketEvidenceItem[];
 }
@@ -420,11 +429,20 @@ export function marketFieldArgs(fields: MarketBriefFields): string[] {
   return out;
 }
 
-/** argparse of an entry without `--study` / `--period` exits 2 with "unrecognized arguments" and no JSON. */
+/**
+ * Brief fields an older entry rejected: its argparse exits 2 with "unrecognized arguments: --study=…
+ * --gender=…" and no JSON. Only fields that were sent count; [] when the run failed otherwise.
+ */
+export function rejectedFieldFlags(proc: MarketProcOutput, fields: MarketBriefFields): MarketBriefField[] {
+  if (parsePipelineResultJson(proc.stdout)) return [];
+  const line = /unrecognized arguments:(.*)/.exec(proc.stderr ?? '')?.[1] ?? '';
+  const named = new Set([...line.matchAll(/--([a-z][a-z-]*)/g)].map((m) => m[1].replace(/-/g, '_')));
+  return MARKET_BRIEF_FIELDS.filter((name) => named.has(name) && fields[name]?.trim());
+}
+
+/** True when an older entry rejected the trend-study flags (`--study` / `--period`). */
 export function rejectedTrendFlags(proc: MarketProcOutput, fields: MarketBriefFields): boolean {
-  if (!TREND_FIELDS.some((name) => fields[name]?.trim())) return false;
-  if (parsePipelineResultJson(proc.stdout)) return false;
-  return /unrecognized arguments:.*--(?:study|period)\b/.test(proc.stderr ?? '');
+  return rejectedFieldFlags(proc, fields).some((name) => name === 'study' || name === 'period');
 }
 
 function runViaPipelineEntry(ctx: SpawnContext): Promise<MarketProcOutput> {
@@ -556,10 +574,11 @@ export async function runMarketPipeline(opts: {
     stateDir,
   };
   let proc = await spawnImpl(spawnCtx);
-  if (phase === 'research' && rejectedTrendFlags(proc, fields)) {
-    // An organization module older than the market/trend study: run its product study instead.
+  const rejected = phase === 'research' ? rejectedFieldFlags(proc, fields) : [];
+  if (rejected.length) {
+    // An organization module older than these fields (trend study, target customer): run without them.
     const older: MarketBriefFields = { ...fields };
-    for (const name of TREND_FIELDS) delete older[name];
+    for (const name of rejected) delete older[name];
     proc = await spawnImpl({ ...spawnCtx, fields: older });
   }
 

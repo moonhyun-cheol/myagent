@@ -45,7 +45,11 @@ const FIELD_KEYS: Record<MarketBriefField, string[]> = {
   focus: ['초점', '포커스', 'focus'],
   study: ['조사유형', '조사 유형', 'study'],
   period: ['기간', 'period'],
+  gender: ['성별', 'gender'],
+  style: ['스타일', '세그먼트', 'style', 'segment'],
 };
+
+const GENDERS = new Set(['men', 'women', 'unisex', 'all']);
 
 /** Fields the user wrote inline as `키: 값` in the brief. */
 export function inlineBriefFields(brief: string): Set<MarketBriefField> {
@@ -77,7 +81,7 @@ export function buildBriefPrompt(ctx: MarketBriefContext): { system: string; use
     `Today is ${today}.`,
     'Return ONE JSON object and nothing else:',
     '{"action":"research|followup|clarify","product":"","product_en":"","category":"","season":"",',
-    '"channel":"","price_band":"","competitors":[],"focus":"","study":"","period":"","question":""}',
+    '"channel":"","price_band":"","competitors":[],"focus":"","study":"","period":"","gender":"","style":"","question":""}',
     '',
     'Rules:',
     '- action "followup": the message asks about, reformats, summarizes, filters or continues the',
@@ -98,6 +102,11 @@ export function buildBriefPrompt(ctx: MarketBriefContext): { system: string; use
     '    competitors or prices without a period; "" when unclear.',
     `  - period: the years the user asked about as "YYYY-YYYY" (or "YYYY"), counted from today: "최근 3년" is`,
     `    "${year - 2}-${year}", "작년" is "${year - 1}". "" when the user named no period. A season (2027 FW) is not a period.`,
+    '  - gender: "men", "women", "unisex" or "all" only when the user states who it is for (남성, 여성용, 공용,',
+    '    성별 무관); "" otherwise.',
+    '  - style: English style words the user states for the target customer (밀리터리 -> "military", 워크웨어 ->',
+    '    "workwear", 택티컬 -> "tactical"), comma separated; "" otherwise. Leave gender and style empty when',
+    '    the user does not state them: the research then uses CQR\'s own customer.',
     '- Never invent values the user did not state, except the English translations above.',
   ].join('\n');
   const history = ctx.recent
@@ -138,6 +147,8 @@ function fieldValue(name: MarketBriefField, value: unknown): string {
     return study === 'trend' || study === 'product' ? study : '';
   }
   if (name === 'period') return periodValue(text);
+  if (name === 'gender') return GENDERS.has(text.toLowerCase()) ? text.toLowerCase() : '';
+  if (name === 'style') return /[^\x00-\x7F’]/.test(text) ? '' : text.toLowerCase();
   return text;
 }
 

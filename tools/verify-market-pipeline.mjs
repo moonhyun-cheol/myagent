@@ -314,11 +314,23 @@ const PACK = {
   assert.equal(s.dropped.length, 4);
   assert.equal(synthesisFindingCount(s), 4);
   const md = renderSynthesisMarkdown({ pack: PACK, synthesis: s, model: 'test-model', packPath: 'C:/out/research_report.md' });
-  assert.match(md, /## 소비자 불만·페인 포인트/);
+  assert.match(md, /^# 미국 시장조사 — 카고바지\n\n> 미국 웹 근거 3건\(본문 3·요약문 0\)을 앱 LLM\(test-model\)이 종합했습니다\./);
+  assert.ok(md.includes('>\n> 조사 범위: 카고바지(tactical cargo pants) — '), 'a short scope line under the header');
+  // A product study starts from buyers' complaints; sections without evidence are left out.
+  assert.deepEqual(
+    [...md.matchAll(/^## (.+)$/gm)].map((m) => m[1]),
+    ['1. 핵심 요약', '2. 소비자 불만', '3. 경쟁 제품·가격', '4. 시장 동인·제약', '5. 확인 필요', '부록 — 조사 방법·근거'],
+  );
+  assert.ok(md.includes('**시장 동향**\n\n- 2030년 $17.9 billion 전망 [\\[E4\\]](<https://m.example/a>)'));
+  assert.ok(md.includes('- Amazon 리뷰 본문 미확인\n- 근거를 찾지 못해 생략한 항목: 핵심 수치, 성장 요인, 제약 요인, 기회 가설, 다음 단계'));
+  assert.ok(!md.includes('_근거 부족'), 'no blank section is printed');
+  assert.ok(md.includes('\n\n---\n\n## 부록 — 조사 방법·근거\n\n### 조사 범위·방법\n\n- 조사 범위: 품목: 카고바지 / 검색 영문명: tactical cargo pants'));
+  assert.ok(md.includes('### 검증에서 뺀 항목 4건\n\n유효한 근거 번호 없음 2건 · 인용한 근거에 없는 금액·비율 2건'));
+  assert.ok(md.endsWith('발췌 원문이 담긴 근거 팩: `C:/out/research_report.md`'));
+  assert.ok(!/\n{3,}/.test(md), 'no runs of blank lines');
   assert.match(md, /\| 솔기 터짐 \| 1건 \(1개 사이트\)/);
   assert.ok(md.includes('| [\\[E1\\]](<https://r.example/1>) |'), 'a table citation links to its source page');
   assert.ok(md.includes('- **[E1](<https://r.example/1>)** · 리뷰·불만 · r.example · 본문 — [Cargo pants ripped](<https://r.example/1>)'));
-  assert.match(md, /## 시장 공백 가설\n\n_근거 부족/);
   assert.match(md, /주제와 무관하다고 판단해 종합에서 뺀 근거 1건: E2\(slack\.example\)/);
   assert.ok(!md.includes('https://slack.example/r'), 'off-topic evidence is not listed as a source');
   assert.equal(parseSynthesis('no json', PACK), null);
@@ -369,9 +381,7 @@ const PACK = {
   assert.equal(s.dropped.filter((d) => d.reason === 'year_not_in_evidence').length, 2);
   const md = renderSynthesisMarkdown({ pack: TREND_PACK, synthesis: s, model: 'm' });
   assert.match(md, /^# 미국 시장·트렌드 추이 — 봄버재킷 \(2024-2026\)/);
-  assert.ok(md.includes('## 연도별 추이\n\n### 2024년\n\n- 오버사이즈 봄버 주도 [\\[E1\\]](<https://a.example/1>)'));
-  assert.ok(md.indexOf('## 연도별 추이') < md.indexOf('## 시장·트렌드'), 'timeline comes before the market section');
-  assert.ok(md.indexOf('## 시장·트렌드') < md.indexOf('## 소비자 불만'), 'a trend study reads the market first');
+  assert.ok(md.includes('## 2. 연도별 추이\n\n### 2024년\n\n- 오버사이즈 봄버 주도 [\\[E1\\]](<https://a.example/1>)'));
   assert.match(md, /a\.example · 본문 · 게시일 2024-09-10/);
   assert.match(md, /그해를 다룬 근거 없음 2건/);
   assert.match(md, /조사 유형: 시장·트렌드 추이 \/ 기간: 2024-2026/);
@@ -398,7 +408,12 @@ const PACK = {
     'price lines reach the model even when the page body is cut',
   );
   assert.ok(!prompt.user.includes('[가격 표기 줄]'), 'the page body is cut before the price-line mark');
-  assert.deepEqual(splitDetail('[가격 표기 줄] A $1'), { body: '', priceLines: ' A $1' });
+  assert.deepEqual(splitDetail('[가격 표기 줄] A $1'), { body: '', priceLines: ' A $1', figureLines: '' });
+  assert.deepEqual(splitDetail('Body\n[가격 표기 줄] A $1\n[시장 수치 줄] USD 41.07 Billion'), {
+    body: 'Body\n',
+    priceLines: ' A $1\n',
+    figureLines: ' USD 41.07 Billion',
+  });
   assert.equal(linkHref('javascript:alert(1)'), '');
   assert.equal(linkHref('https://x.example/a(b)|c d'), 'https://x.example/a(b)%7Cc%20d');
   const s = parseSynthesis(
@@ -416,6 +431,178 @@ const PACK = {
   assert.ok(md.includes('- **[E1](<https://x.example/a(b)%7Cc>)** · 경쟁사·가격 · x.example · 본문 — [Best \\[2026\\] bomber\\_jackets | ranked](<https://x.example/a(b)%7Cc>)'));
   assert.ok(md.includes('- **E2** · 시장·트렌드 · y.example · 요약문 — Unsafe'));
   assert.ok(!md.includes('javascript:'));
+}
+
+// --- Target customer, update dates, market figures, dropped findings listed ---
+{
+  const { parseSynthesis, renderSynthesisMarkdown, buildSynthesisPrompt, moneyKeys, itemAboutYear } = synthMod;
+  assert.deepEqual(moneyKeys('USD 41.07 Billion, US$2.5 bn, $45.40 billion'), ['41.07b', '2.5b', '45.4b']);
+  const updatedItem = { id: 'E1', kind: 'competitor', title: 'Best bombers', url: 'https://e.example/a', domain: 'e.example', source: '본문', excerpt: 'x', published: '2016-08-25', updated: '2026-01-20' };
+  assert.ok(itemAboutYear(updatedItem, '2026') && !itemAboutYear(updatedItem, '2016'), 'the version read is from the update year');
+  const PACK2 = {
+    market: 'US',
+    brief: { product: '봄버재킷', product_en: 'bomber jacket', study: 'trend', period: '2024-2026', gender: 'men', style: 'military, workwear' },
+    stats: { years: [2024, 2025, 2026] },
+    evidence: [
+      updatedItem,
+      { id: 'E2', kind: 'review', title: 'B-3 reviews', url: 'https://p.example/r', domain: 'p.example', source: '본문', excerpt: 'Pricey but worth it.', published: '2010-12-08', before_period: true },
+      { id: 'E3', kind: 'market', title: 'US outerwear market', url: 'https://m.example/us', domain: 'm.example', source: '본문', excerpt: 'Outerwear jackets', detail: 'Outerwear jackets segment.\n[시장 수치 줄] Base year 2024 USD 41.07 Billion | Forecast CAGR 3.37%', published: '2025-10-30', updated: '2026-04-21' },
+    ],
+  };
+  const prompt = buildSynthesisPrompt(PACK2);
+  assert.match(prompt.user, /타깃 성별: 남성 \/ 타깃 스타일: military, workwear/);
+  assert.match(prompt.user, /게시일: 2016-08-25\n수정일: 2026-01-20/);
+  assert.match(prompt.user, /조사 기간 이전 글/);
+  assert.match(prompt.user, /시장 수치 줄\(페이지가 적은 시장 규모·성장률\): Base year 2024 USD 41.07 Billion \| Forecast CAGR 3.37%/);
+  assert.match(prompt.system, /forecast/);
+  const s = parseSynthesis(
+    JSON.stringify({
+      summary: [],
+      market: [
+        { text: '미국 아우터 시장 2024년 $41.07 billion, CAGR 3.37% 전망', cites: ['E3'] },
+        { text: '미국 아우터 시장 $60 billion', cites: ['E3'] },
+      ],
+      competitors: [{ brand: 'Alpha', product: 'MA-1', price: '$200', text: '클래식', cites: ['E1'] }],
+      timeline: [{ year: '2026', text: '봄버 재부상', cites: ['E1'] }, { year: '2024', text: '가격 불만', cites: ['E2'] }],
+      pains: [], gaps: [], unknowns: [],
+    }),
+    PACK2,
+  );
+  assert.deepEqual(s.market.map((m) => m.cites.join()), ['E3'], 'USD … Billion in the item supports $… billion');
+  assert.deepEqual(s.timeline.map((t) => t.year), ['2026'], 'an updated page counts for its update year; an older page for none');
+  const md = renderSynthesisMarkdown({ pack: PACK2, synthesis: s, model: 'm' });
+  assert.ok(md.includes('e.example · 본문 · 게시일 2016-08-25 · 수정일 2026-01-20 — '));
+  assert.ok(md.includes('p.example · 본문 · 게시일 2010-12-08 · 조사 기간 이전 글 — '));
+  assert.ok(md.includes('- [시장 동향] 미국 아우터 시장 $60 billion — 인용한 근거에 없는 금액·비율: $60 billion'));
+  assert.ok(md.includes('- [경쟁 제품·가격] '), 'each dropped finding is listed with its section');
+  assert.ok(md.includes('- [연도별 추이] 가격 불만 · 2024 — 그해를 다룬 근거 없음'));
+}
+
+// --- Report layout: key figures, study-type order, price band, next steps, appendix ---
+{
+  const { parseSynthesis, renderSynthesisMarkdown, buildSynthesisPrompt } = synthMod;
+  const LAYOUT_PACK = {
+    market: 'US',
+    brief: { product: '봄버재킷', product_en: 'bomber jacket', study: 'trend', period: '2024-2026', gender: 'men', style: 'military, workwear' },
+    queries: [{ query: "men's bomber jacket trend 2025", kind: 'market' }, { query: 'US outerwear market size', kind: 'market' }],
+    stats: {
+      years: [2024, 2025, 2026], queries: 2, results: 20, off_market_dropped: 1, listing_dropped: 0, off_target_dropped: 2,
+      off_topic_dropped: 3, fetch_attempted: 4, fetch_ok: 3, evidence_by_year: { 2024: 1, 2025: 1, 2026: 2 },
+    },
+    evidence: [
+      { id: 'E1', kind: 'market', title: 'US outerwear market', url: 'https://m.example/us', domain: 'm.example', source: '본문', excerpt: 'United States outerwear market', detail: 'The U.S. outerwear market.\n[시장 수치 줄] USD 41.07 Billion in 2024 | USD 54.91 Billion by 2033 | CAGR 3.37%', published: '2025-10-30' },
+      { id: 'E2', kind: 'market', title: 'Bomber jacket sales', url: 'https://d.example/b', domain: 'd.example', source: '본문', excerpt: 'Amazon bomber jacket sales peaked at 20,500 units in October 2025.', published: '2026-08-25' },
+      { id: 'E3', kind: 'competitor', title: 'Best bomber jackets 2026', url: 'https://g.example/best', domain: 'g.example', source: '본문', excerpt: 'Picks', detail: '[가격 표기 줄] Calvin Klein Bomber $80 | Carhartt Relaxed Fit Bomber $125 | Alpha Industries MA-1 $200', updated: '2026-01-20' },
+      { id: 'E4', kind: 'review', title: 'MA-1 too slim', url: 'https://r.example/ma1', domain: 'r.example', source: '요약문', excerpt: 'The MA-1 runs slim; hard to layer over a sweater.', published: '2024-11-02' },
+    ],
+  };
+  const prompt = buildSynthesisPrompt(LAYOUT_PACK);
+  assert.match(prompt.system, /Leave\s+the numbers to figures/);
+  assert.match(prompt.system, /seasonality/);
+  const s = parseSynthesis(
+    JSON.stringify({
+      summary: [{ text: '봄버는 2024~2026년 내내 스테디 아우터', cites: ['E2', 'E3'] }],
+      figures: [
+        { metric: 'Amazon US 봄버재킷 월 판매량(최고)', value: '20,500개', year: '2025', geo: 'Amazon US', basis: '추정', cites: ['E2'] },
+        { metric: '미국 아우터 시장 매출', value: 'USD 54.91 Billion', year: '2033', geo: '미국', basis: '추정', cites: ['E1'] },
+        { metric: '미국 아우터 시장 매출', value: 'USD 41.07 Billion', year: '2024', geo: 'United States', basis: '추정', cites: ['E1'] },
+        { metric: '봄버 시장', value: 'USD 99 Billion', year: '2030', geo: '글로벌', basis: '전망', cites: ['E1'] },
+        { metric: 'MA-1 핏', value: '슬림', geo: '', cites: ['E4'] },
+      ],
+      timeline: [{ year: '2026', text: '봄버 재부상', cites: ['E3'] }],
+      drivers: [{ text: '가을·겨울 수요', cites: ['E2'] }],
+      restraints: [],
+      market: [],
+      competitors: [
+        { brand: 'Calvin Klein', product: 'Bomber', price: '$80', text: '저가', cites: ['E3'] },
+        { brand: 'Carhartt', product: 'Relaxed Fit Bomber', price: '$125', text: '워크웨어', cites: ['E3'] },
+        { brand: 'Alpha Industries', product: 'MA-1', price: '$200', text: '클래식', cites: ['E3'] },
+        { brand: 'Schott', product: 'B-3', price: '', text: '가죽', cites: ['E3'] },
+      ],
+      pains: [{ pain: '슬림핏', text: '레이어링이 어려움', cites: ['E4'] }],
+      gaps: [{ text: '레이어링되는 MA-1형', cites: ['E4'] }],
+      actions: [{ text: 'Carhartt Relaxed Fit 봄버와 핏 비교', cites: ['E3'] }],
+      sources: { E1: 'research', E2: 'data', E3: 'media', E4: 'community', E9: 'media' },
+      unknowns: ['미국 봄버재킷 단일 시장 규모'],
+    }),
+    LAYOUT_PACK,
+  );
+  assert.equal(s.figures.length, 3, 'a value not in the cited item, or without a number, is not a figure');
+  const md = renderSynthesisMarkdown({ pack: LAYOUT_PACK, synthesis: s, model: 'm', sessionId: 'sess9' });
+  assert.ok(md.startsWith('# 미국 시장·트렌드 추이 — 봄버재킷 (2024-2026)\n\n> 미국 웹 근거 4건(본문 3·요약문 1)을 앱 LLM(m)이 종합했습니다. '));
+  assert.ok(md.includes('코드가 뺐습니다(1건).\n>\n> 조사 범위: 봄버재킷(bomber jacket) · 2024-2026 · 타깃 남성 · military, workwear — '));
+  assert.deepEqual(
+    [...md.matchAll(/^## (.+)$/gm)].map((m) => m[1]),
+    [
+      '1. 핵심 요약', '2. 연도별 추이', '3. 시장 동인·제약', '4. 경쟁 제품·가격', '5. 소비자 불만',
+      '6. CQR 기회 가설·다음 단계', '7. 확인 필요', '부록 — 조사 방법·근거',
+    ],
+    'a trend study reads the market first',
+  );
+  assert.ok(
+    md.includes(
+      '| 지표 | 값 | 지역 | 기준 | 근거 |\n|---|---|---|---|---|\n' +
+        '| 미국 아우터 시장 매출 | USD 41.07 Billion | 미국 | 2024 추정 | [\\[E1\\]](<https://m.example/us>) |\n' +
+        '| 미국 아우터 시장 매출 | USD 54.91 Billion | 미국 | 2033 전망 | [\\[E1\\]](<https://m.example/us>) |\n' +
+        '| Amazon US 봄버재킷 월 판매량(최고) | 20,500개 | Amazon US | 2025 추정 | [\\[E2\\]](<https://d.example/b>) |',
+    ),
+    'US figures first, oldest year first; a future year is a forecast',
+  );
+  assert.ok(md.indexOf('| 지표 |') < md.indexOf('## 2. 연도별 추이'), 'the figures table sits under the summary');
+  assert.match(md, /_리서치 기관 수치는 기관별 추정치/);
+  assert.ok(md.includes('### 2025년\n\n_이 해에 게시됐거나 이 해를 다룬 근거가 없습니다._'));
+  assert.ok(md.includes('## 3. 시장 동인·제약\n\n**성장 요인**\n\n- 가을·겨울 수요 [\\[E2\\]](<https://d.example/b>)\n\n## 4.'), 'an empty block is left out');
+  assert.ok(md.includes('## 4. 경쟁 제품·가격\n\n**가격대** 가격이 확인된 3개 제품 · 최저 $80 · 중앙값 $125 · 최고 $200 ($50–99 1개, $100–199 1개, $200–399 1개)\n\n| 브랜드 |'));
+  assert.ok(md.includes('| Schott | B-3 | — | 가죽 |'));
+  assert.match(md, /_가격 칸의 —는/);
+  assert.ok(md.includes('**기회 가설**\n\n- 레이어링되는 MA-1형 [\\[E4\\]](<https://r.example/ma1>)\n\n**다음 단계**\n\n1. Carhartt Relaxed Fit 봄버와 핏 비교 [\\[E3\\]](<https://g.example/best>)'));
+  assert.ok(md.includes('- 미국 봄버재킷 단일 시장 규모\n- 근거를 찾지 못해 생략한 항목: 제약 요인'));
+  assert.ok(md.includes('- 수집: 미국 웹 검색 2회 → 결과 20건 → 제외 미국 외 출처 1건, 다른 성별 대상 2건, 주제와 무관 3건 → 본문 수집 3/4건 → 채택 근거 4건'));
+  assert.ok(md.includes('- 연도별 근거: 2024년 1건 · 2025년 1건 · 2026년 2건'));
+  assert.ok(md.includes("- 검색어: `men's bomber jacket trend 2025` · `US outerwear market size`"));
+  assert.match(md, /\*\*한계\*\*\n\n- 공개 웹 자료만/);
+  assert.ok(md.includes('· 시장·트렌드 · m.example(리서치 기관 요약) · 본문 · 게시일 2025-10-30 — '), 'each source carries its type');
+  assert.ok(md.includes('- [핵심 수치] 봄버 시장 · USD 99 Billion · 2030 · 글로벌 · 전망 — 인용한 근거에 없는 금액·비율: USD 99 Billion'));
+  assert.ok(md.endsWith('세션 `sess9`'));
+  assert.ok(md.indexOf('## 7. 확인 필요') < md.indexOf('\n---\n'), 'the appendix comes last');
+  assert.ok(!md.includes('_근거 부족'));
+}
+
+// --- Brief step: target customer fields ---
+{
+  const { parseBriefDecision, inlineBriefFields } = briefMod;
+  const base = { explicit: false, hasPreviousReport: false, brief: '' };
+  const d = parseBriefDecision('{"action":"research","product":"봄버재킷","product_en":"bomber jacket","gender":"Men","style":"Military, Workwear"}', base);
+  assert.deepEqual(d.fields, { product: '봄버재킷', product_en: 'bomber jacket', gender: 'men', style: 'military, workwear' });
+  const bad = parseBriefDecision('{"action":"research","product":"봄버재킷","product_en":"bomber jacket","gender":"남성","style":"밀리터리"}', base);
+  assert.deepEqual(bad.fields, { product: '봄버재킷', product_en: 'bomber jacket' }, 'non-normalized values are left to the pipeline');
+  assert.deepEqual([...inlineBriefFields('성별: 남성 / 스타일: 밀리터리')].sort(), ['gender', 'style']);
+  const prompt = briefMod.buildBriefPrompt({ message: 'm', brief: 'm', explicit: false, hasPreviousReport: false, recent: [], today: '2026-11-16' });
+  assert.match(prompt.system, /"gender":"","style":""/);
+  assert.match(prompt.system, /CQR's own customer/);
+}
+
+// --- An older module rejects --gender/--style: only those are dropped, the trend study stays ---
+{
+  const seen = [];
+  const r = await runMarketPipeline({
+    cqrRoot: 'C:/app',
+    phase: 'research',
+    brief: 'b',
+    fields: { product: '봄버재킷', product_en: 'bomber jacket', study: 'trend', gender: 'men', style: 'military' },
+    capabilityOverride: readyCapability(),
+    spawnOverride: (ctx) => {
+      seen.push(marketFieldArgs(ctx.fields));
+      return seen.length === 1
+        ? { status: 2, stdout: '', stderr: 'market_research.py: error: unrecognized arguments: --gender=men --style=military' }
+        : { status: 0, stdout: json({ ok: true, pipeline: 'market_research', phase: 'research', session_id: 's' }), stderr: '' };
+    },
+    readReportOverride: () => ({ markdown: '# pack', mtimeMs: 2_000_000 }),
+    readPackOverride: () => null,
+    nowOverride: 1_000_000,
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen[1], ['--product=봄버재킷', '--product-en=bomber jacket', '--study=trend']);
 }
 
 // --- Mode handler: follow-up, clarify, synthesis, fallback to the pack ---
