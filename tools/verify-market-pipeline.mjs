@@ -316,6 +316,8 @@ const PACK = {
   const md = renderSynthesisMarkdown({ pack: PACK, synthesis: s, model: 'test-model', packPath: 'C:/out/research_report.md' });
   assert.match(md, /## 소비자 불만·페인 포인트/);
   assert.match(md, /\| 솔기 터짐 \| 1건 \(1개 사이트\)/);
+  assert.ok(md.includes('| [\\[E1\\]](<https://r.example/1>) |'), 'a table citation links to its source page');
+  assert.ok(md.includes('- **[E1](<https://r.example/1>)** · 리뷰·불만 · r.example · 본문 — [Cargo pants ripped](<https://r.example/1>)'));
   assert.match(md, /## 시장 공백 가설\n\n_근거 부족/);
   assert.match(md, /주제와 무관하다고 판단해 종합에서 뺀 근거 1건: E2\(slack\.example\)/);
   assert.ok(!md.includes('https://slack.example/r'), 'off-topic evidence is not listed as a source');
@@ -367,12 +369,53 @@ const PACK = {
   assert.equal(s.dropped.filter((d) => d.reason === 'year_not_in_evidence').length, 2);
   const md = renderSynthesisMarkdown({ pack: TREND_PACK, synthesis: s, model: 'm' });
   assert.match(md, /^# 미국 시장·트렌드 추이 — 봄버재킷 \(2024-2026\)/);
-  assert.match(md, /## 연도별 추이\n\n### 2024년\n\n- 오버사이즈 봄버 주도 \[E1\]/);
+  assert.ok(md.includes('## 연도별 추이\n\n### 2024년\n\n- 오버사이즈 봄버 주도 [\\[E1\\]](<https://a.example/1>)'));
   assert.ok(md.indexOf('## 연도별 추이') < md.indexOf('## 시장·트렌드'), 'timeline comes before the market section');
   assert.ok(md.indexOf('## 시장·트렌드') < md.indexOf('## 소비자 불만'), 'a trend study reads the market first');
   assert.match(md, /a\.example · 본문 · 게시일 2024-09-10/);
   assert.match(md, /그해를 다룬 근거 없음 2건/);
   assert.match(md, /조사 유형: 시장·트렌드 추이 \/ 기간: 2024-2026/);
+}
+
+// --- Citation links, and price lines that a long page body must not push out of the prompt ---
+{
+  const { parseSynthesis, renderSynthesisMarkdown, buildSynthesisPrompt, linkHref, splitDetail } = synthMod;
+  const LINK_PACK = {
+    market: 'US',
+    brief: { product: '봄버재킷', product_en: 'bomber jacket' },
+    evidence: [
+      {
+        id: 'E1', kind: 'competitor', title: 'Best [2026] bomber_jackets | ranked', url: 'https://x.example/a(b)|c',
+        domain: 'x.example', source: '본문', excerpt: 'Carhartt bomber',
+        detail: `${'Long page text. '.repeat(150)}\n[가격 표기 줄] Carhartt Rugged Flex Bomber Jacket $125 Amazon | Calvin Klein Bomber $80`,
+      },
+      { id: 'E2', kind: 'market', title: 'Unsafe', url: 'javascript:alert(1)', domain: 'y.example', source: '요약문', excerpt: 'Bombers are back.' },
+    ],
+  };
+  const prompt = buildSynthesisPrompt(LINK_PACK);
+  assert.ok(
+    prompt.user.includes('가격 표기 줄(페이지의 제품명과 가격): Carhartt Rugged Flex Bomber Jacket $125 Amazon | Calvin Klein Bomber $80'),
+    'price lines reach the model even when the page body is cut',
+  );
+  assert.ok(!prompt.user.includes('[가격 표기 줄]'), 'the page body is cut before the price-line mark');
+  assert.deepEqual(splitDetail('[가격 표기 줄] A $1'), { body: '', priceLines: ' A $1' });
+  assert.equal(linkHref('javascript:alert(1)'), '');
+  assert.equal(linkHref('https://x.example/a(b)|c d'), 'https://x.example/a(b)%7Cc%20d');
+  const s = parseSynthesis(
+    JSON.stringify({
+      summary: [{ text: '봄버 복귀', cites: ['E1', 'E2'] }],
+      competitors: [{ brand: 'Carhartt', product: 'Rugged Flex Bomber', price: '$125', text: '워크웨어', cites: ['E1'] }],
+      pains: [], market: [], gaps: [], unknowns: [],
+    }),
+    LINK_PACK,
+  );
+  assert.equal(s.competitors[0]?.price, '$125');
+  const md = renderSynthesisMarkdown({ pack: LINK_PACK, synthesis: s, model: 'm' });
+  assert.ok(md.includes('- 봄버 복귀 [\\[E1\\]](<https://x.example/a(b)%7Cc>)[E2]'), 'a citation links to its page; a non-http URL stays plain');
+  assert.ok(md.includes('| $125 | 워크웨어 | [\\[E1\\]](<https://x.example/a(b)%7Cc>) |'));
+  assert.ok(md.includes('- **[E1](<https://x.example/a(b)%7Cc>)** · 경쟁사·가격 · x.example · 본문 — [Best \\[2026\\] bomber\\_jackets | ranked](<https://x.example/a(b)%7Cc>)'));
+  assert.ok(md.includes('- **E2** · 시장·트렌드 · y.example · 요약문 — Unsafe'));
+  assert.ok(!md.includes('javascript:'));
 }
 
 // --- Mode handler: follow-up, clarify, synthesis, fallback to the pack ---
@@ -427,7 +470,7 @@ const PACK = {
   });
   assert.deepEqual(fieldsSeen, { product: '카고바지', product_en: 'tactical cargo pants' });
   assert.match(res.content, /^# 미국 시장조사 — 카고바지/);
-  assert.match(res.content, /솔기 불만 \[E1\]/);
+  assert.ok(res.content.includes('솔기 불만 [\\[E1\\]](<https://r.example/1>)'));
   assert.equal(res.model, 'org/market_research · gpt-test');
   assert.ok(!res.content.includes('타당성'), 'no closed next-step footer');
   assert.equal(statuses.length, 3);

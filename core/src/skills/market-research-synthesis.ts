@@ -11,6 +11,7 @@
  * - A market/trend study (`brief.study === 'trend'`) adds a year-by-year timeline. A timeline
  *   finding keeps only the cited items published in its year or naming its year; with none left
  *   (or a year outside the study period) it is dropped, so a statement cannot move between years.
+ * - Every citation is rendered as a link to its source page, so `[E17]` opens that page.
  */
 import { extractJsonObject } from './market-research-brief.js';
 import type { MarketEvidenceItem, MarketEvidencePack } from './market-pipeline-runner.js';
@@ -49,8 +50,11 @@ export interface MarketSynthesis {
 
 const KIND_LABEL: Record<string, string> = { review: '리뷰·불만', competitor: '경쟁사·가격', market: '시장·트렌드' };
 const ITEM_CHARS = 1800;
+const PRICE_LINE_CHARS = 600;
 const MAX_FINDINGS = 8;
 const MAX_TIMELINE = 16;
+/** evidence_pack.py appends the page's "product name $price" lines to `detail` after this mark. */
+const PRICE_LINE_MARK = '[가격 표기 줄]';
 
 /** True for a market/trend study pack (`study: trend`). */
 export function isTrendPack(pack: MarketEvidencePack): boolean {
@@ -84,6 +88,33 @@ function clean(text: unknown, max = 400): string {
   return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim().slice(0, max) : '';
 }
 
+/**
+ * Split `detail` into the page text and its price lines. They are cut to length separately, so
+ * a long page body can never push the product-price pairs out of the prompt.
+ */
+export function splitDetail(detail: unknown): { body: string; priceLines: string } {
+  const text = typeof detail === 'string' ? detail : '';
+  const at = text.indexOf(PRICE_LINE_MARK);
+  return at < 0 ? { body: text, priceLines: '' } : { body: text.slice(0, at), priceLines: text.slice(at + PRICE_LINE_MARK.length) };
+}
+
+/** An http(s) URL safe inside `(<…>)` and inside a table cell; '' for anything else. */
+export function linkHref(url: unknown): string {
+  if (typeof url !== 'string' || !url.trim()) return '';
+  try {
+    const u = new URL(url.trim());
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+    return u.href.replace(/[<>|\s]/g, (c) => encodeURIComponent(c));
+  } catch {
+    return '';
+  }
+}
+
+/** Escape text used as link text so brackets or emphasis marks in a page title cannot break the link. */
+function linkText(text: string): string {
+  return text.replace(/[\\`*_[\]<>]/g, '\\$&');
+}
+
 function briefLine(pack: MarketEvidencePack): string {
   const b = pack.brief ?? {};
   const parts: string[] = [];
@@ -110,7 +141,8 @@ export function packScope(pack: MarketEvidencePack): string {
 }
 
 function itemText(item: MarketEvidenceItem): string {
-  const body = clean(item.detail, ITEM_CHARS) || clean(item.excerpt, ITEM_CHARS);
+  const { body: detailBody, priceLines } = splitDetail(item.detail);
+  const body = clean(detailBody, ITEM_CHARS) || clean(item.excerpt, ITEM_CHARS);
   const prices = [...new Set([...(item.prices ?? []), ...(item.page_prices ?? [])])];
   return [
     `[${item.id}] ${KIND_LABEL[item.kind] ?? item.kind} · ${item.domain} · ${item.source === '본문' ? '본문' : '검색 요약문'}`,
@@ -118,6 +150,7 @@ function itemText(item: MarketEvidenceItem): string {
     `제목: ${clean(item.title, 160)}`,
     `내용: ${body}`,
     prices.length ? `가격 표기: ${prices.join(', ')}` : '',
+    priceLines.trim() ? `가격 표기 줄(페이지의 제품명과 가격): ${clean(priceLines, PRICE_LINE_CHARS)}` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -161,6 +194,8 @@ export function buildSynthesisPrompt(pack: MarketEvidencePack): { system: string
     '- competitors: a brand/product with its price only when the cited item states that price for',
     '  that product. Leave price "" otherwise. A price for another thing (a guitar, a fashion house',
     '  bag in a trend article, a shipping threshold) is not a competitor price.',
+    '- 가격 표기 줄 pairs product names with prices as shown on the page ("Carhartt … Bomber $125").',
+    '  A price next to a product name there counts as stated for that product.',
     '- Write every dollar amount and percentage exactly as it appears in the cited items.',
     '- market: US market size, growth or trend statements only. gaps: hypotheses, each grounded in',
     '  cited pains or competitor facts.',
@@ -305,10 +340,6 @@ function cell(text: string): string {
   return text.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
 }
 
-function cites(ids: string[]): string {
-  return ids.map((id) => `[${id}]`).join('');
-}
-
 const EMPTY = '_근거 부족 — 이 항목을 뒷받침하는 근거를 찾지 못했습니다._';
 
 export function renderSynthesisMarkdown(args: {
@@ -320,6 +351,14 @@ export function renderSynthesisMarkdown(args: {
 }): string {
   const { pack, synthesis: s, model } = args;
   const byId = new Map(pack.evidence.map((e) => [e.id, e]));
+  // `[E17]` links to the cited page; an item without a usable URL stays plain text.
+  const cites = (ids: string[]) =>
+    ids
+      .map((id) => {
+        const href = linkHref(byId.get(id)?.url);
+        return href ? `[\\[${id}\\]](<${href}>)` : `[${id}]`;
+      })
+      .join('');
   const relevant = pack.evidence.filter((e) => !s.irrelevant.includes(e.id));
   const bodyCount = relevant.filter((e) => e.source === '본문').length;
   const trend = isTrendPack(pack);
@@ -402,7 +441,10 @@ export function renderSynthesisMarkdown(args: {
   out.push('', '## 근거 목록', '');
   for (const e of relevant) {
     const published = e.published ? ` · 게시일 ${e.published}` : '';
-    out.push(`- **${e.id}** · ${KIND_LABEL[e.kind] ?? e.kind} · ${e.domain} · ${e.source === '본문' ? '본문' : '요약문'}${published} — [${cell(e.title)}](${e.url})`);
+    const href = linkHref(e.url);
+    const id = href ? `[${e.id}](<${href}>)` : e.id;
+    const title = href ? `[${linkText(clean(e.title, 300))}](<${href}>)` : cell(e.title);
+    out.push(`- **${id}** · ${KIND_LABEL[e.kind] ?? e.kind} · ${e.domain} · ${e.source === '본문' ? '본문' : '요약문'}${published} — ${title}`);
   }
   if (s.irrelevant.length) {
     out.push(
