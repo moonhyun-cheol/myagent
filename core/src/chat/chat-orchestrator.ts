@@ -101,7 +101,7 @@ import {
 import { matchMarketResearchSlash } from '../skills/market-pipeline-capability.js';
 import { shouldAutoRouteSizeGuide } from '../skills/size-guide-capability.js';
 import { appendBrandManualIfNeeded } from '../providers/brand-manual-context.js';
-import { handleMarketResearchMode } from './modes/market-research.js';
+import { handleMarketResearchMode, type MarketResearchLlm } from './modes/market-research.js';
 import type { ProjectStore } from '../projects/project-store.js';
 import { normalizeMode, statusLabelForMode } from './chat-request.js';
 import { buildWorkspaceContext } from './session-context.js';
@@ -580,6 +580,7 @@ export class ChatOrchestrator {
         sessionId,
         message,
         routing,
+        llm: this.marketResearchLlm(resolved, sessionId),
       });
       if (pipelineReply) return pipelineReply;
       // Fall through to org skill LLM chat with CQR_MARKET_INJECT.
@@ -987,12 +988,21 @@ export class ChatOrchestrator {
         });
         userAlreadyAppended = true;
         sseEvent(res, { type: 'status', text: statusLabelForMode('org:market_research') });
+        const marketResolved = await resolveChatModelAsync(
+          resolveRequestedModelForSession(this.sessionStore, this.projectStore, sessionId, req.model),
+          this.modelRegistry,
+          loadUserOverrides(this.configPath),
+          this.providerStore,
+          { mode: routing.mode, hasAttachments },
+        );
         const pipelineReply = await handleMarketResearchMode({
           cqrRoot: this.cqrRoot,
           sessionStore: this.sessionStore,
           sessionId,
           message,
           routing,
+          llm: this.marketResearchLlm(marketResolved, sessionId),
+          onStatus: (text) => sseEvent(res, { type: 'status', text }),
         });
         if (pipelineReply) {
           sseEvent(res, { type: 'meta', routing: pipelineReply.routing, model: pipelineReply.model });
@@ -1760,6 +1770,27 @@ export class ChatOrchestrator {
       if (failModel) sseEvent(res, { type: 'done', model: resolved.display, mode: routing.mode });
       sseDone(res);
     }
+  }
+
+  /**
+   * One-shot calls of the chat model for /심층리서치 (brief fields, then evidence synthesis).
+   * Same provider choice as deep research: the selected provider model, else the default one.
+   * No history and no session id, so the chat's Responses continuation state is not touched.
+   */
+  private marketResearchLlm(resolved: ResolvedModelRoute, sessionId: string): MarketResearchLlm | null {
+    const providerId =
+      resolved.route.type === 'provider' ? resolved.route.providerId : this.providerStore.getDefaultId();
+    if (!providerId) return null;
+    const modelId = resolved.route.type === 'provider' ? resolved.route.modelId : undefined;
+    return async (system, user, opts) => {
+      const out = await withLlmUsageContext({ cqrRoot: this.cqrRoot, sessionId, providerId }, () =>
+        this.cloudChat.complete(providerId, user, undefined, [], system, {
+          modelId,
+          ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        }),
+      );
+      return { content: out.content, model: out.model };
+    };
   }
 
   private async runChatModel(

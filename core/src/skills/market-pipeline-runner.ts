@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   getMarketPipelineCapability,
   type MarketPipelineCapability,
@@ -11,20 +11,62 @@ export type MarketResearchPhase = 'research' | 'feasibility' | 'plan';
 
 /**
  * Failure kinds surfaced to the user. The organization-module entry
- * (`pipelines/market_research.py`) emits `missing_deps` / `missing_api_key` /
- * `pipeline_failed` / `no_session` / `error` as the last stdout JSON line; the
- * host adds `no_python` / `no_org_module` / `no_script` / `empty_brief`.
+ * (`pipelines/market_research.py`) emits `missing_deps` / `missing_api_key` / `pipeline_failed` /
+ * `no_session` / `needs_brief` / `insufficient_evidence` / `unavailable` / `error` as its stdout
+ * JSON; the host adds `no_python` / `no_org_module` / `no_script` / `empty_brief`.
+ * For `needs_brief` / `insufficient_evidence` / `unavailable` the entry's `error` is the guidance.
  */
 export type MarketPipelineFailureStatus =
   | 'missing_deps'
   | 'missing_api_key'
   | 'pipeline_failed'
   | 'no_session'
+  | 'needs_brief'
+  | 'insufficient_evidence'
+  | 'unavailable'
   | 'no_python'
   | 'no_org_module'
   | 'no_script'
   | 'empty_brief'
   | 'error';
+
+/** Brief fields the entry accepts as `--product=…` flags (mirrors `FIELD_FLAGS` in the entry). */
+export const MARKET_BRIEF_FIELDS = [
+  'product',
+  'product_en',
+  'category',
+  'season',
+  'channel',
+  'price_band',
+  'competitors',
+  'focus',
+] as const;
+export type MarketBriefField = (typeof MARKET_BRIEF_FIELDS)[number];
+export type MarketBriefFields = Partial<Record<MarketBriefField, string>>;
+
+/** One evidence item of `evidence_pack.json` (schema `cqr.market_research.evidence_pack/1`). */
+export interface MarketEvidenceItem {
+  id: string;
+  kind: string;
+  title: string;
+  url: string;
+  domain: string;
+  source: string;
+  excerpt: string;
+  detail?: string;
+  prices?: string[];
+  page_prices?: string[];
+  query?: string;
+}
+
+export interface MarketEvidencePack {
+  schema?: string;
+  market?: string;
+  session_id?: string;
+  brief?: Record<string, unknown>;
+  stats?: Record<string, unknown>;
+  evidence: MarketEvidenceItem[];
+}
 
 export interface MarketPipelineRunResult {
   ok: boolean;
@@ -33,6 +75,10 @@ export interface MarketPipelineRunResult {
   markdown?: string;
   session_id?: string;
   output_dir?: string;
+  /** `evidence_pack` for /심층리서치 (no synthesis inside the pipeline). */
+  report_kind?: string;
+  /** Parsed `evidence_pack.json` of this run, when the entry wrote one. */
+  evidence_pack?: MarketEvidencePack;
   /** 'ok' on success, otherwise the failure kind. */
   status?: MarketPipelineFailureStatus | 'ok';
   /** User-facing message (shown directly unless used_fallback_chat). */
@@ -93,6 +139,18 @@ export function readReportFile(outputDir: string, phase: MarketResearchPhase): M
   }
 }
 
+/** `evidence_pack.json` written by this run's research phase, or null. */
+export function readEvidencePack(outputDir: string): MarketEvidencePack | null {
+  const p = path.join(outputDir, 'evidence_pack.json');
+  if (!existsSync(p)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(p, 'utf8')) as MarketEvidencePack;
+    return parsed && Array.isArray(parsed.evidence) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Extract the pipeline contract JSON from stdout. The entry prints a pretty
  * (indent=2) JSON object — top-level braces sit alone at column 0, nested
@@ -134,6 +192,9 @@ function normalizeFailureStatus(raw: unknown): MarketPipelineFailureStatus {
     case 'pipeline_failed':
     case 'no_session':
     case 'no_python':
+    case 'needs_brief':
+    case 'insufficient_evidence':
+    case 'unavailable':
       return s;
     default:
       return 'error';
@@ -179,6 +240,12 @@ export function marketFailureMessage(
       ]);
     case 'no_session':
       return pErr || '활성 시장조사 세션이 없습니다. 먼저 /타당성 을 실행한 뒤 /기획서(승인) 으로 이어가세요.';
+    case 'needs_brief':
+      return pErr || '조사할 품목이나 카테고리를 찾지 못해 검색하지 않았습니다. 예: /심층리서치 품목: 스키바지 / 영문명: ski pants / 시즌: 2027 FW';
+    case 'insufficient_evidence':
+      return pErr || '브리프 주제에 맞는 미국 시장 근거가 부족해 리포트를 만들지 않았습니다.';
+    case 'unavailable':
+      return pErr || '이 단계는 지금 사용할 수 없습니다. /심층리서치 까지만 제공합니다.';
     case 'pipeline_failed':
       return join([
         '시장조사 파이프라인이 리포트를 생성하지 못했습니다.',
@@ -223,6 +290,7 @@ export function interpretMarketPipelineResult(args: {
         markdown: freshReport.markdown,
         session_id: sid,
         output_dir: outputDir,
+        report_kind: typeof parsed.report_kind === 'string' ? parsed.report_kind : undefined,
         status: 'ok',
       };
     }
@@ -289,16 +357,70 @@ interface SpawnContext {
   capability: MarketPipelineCapability;
   phase: MarketResearchPhase;
   brief: string;
+  fields: MarketBriefFields;
   outputDir: string;
   stateDir: string;
 }
 
-function runViaPipelineEntry(ctx: SpawnContext): MarketProcOutput {
-  const { capability, phase, brief, outputDir, stateDir } = ctx;
-  const r = spawnSync(capability.python!, [capability.pipeline_entry!, phase, brief, '--output-dir', outputDir], {
+const PIPELINE_TIMEOUT_MS = 600_000;
+
+/**
+ * Run a child process without blocking the event loop (the research phase takes 30–80 s;
+ * `spawnSync` froze every other request and the SSE status line for that long).
+ */
+function spawnCollect(
+  command: string,
+  args: string[],
+  opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number },
+): Promise<MarketProcOutput> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const child = spawn(command, args, { cwd: opts.cwd, env: opts.env, windowsHide: true });
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-200_000);
+    });
+    const finish = (status: number | null, note = '') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr: note ? `${stderr}\n${note}` : stderr });
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(null, `시간 초과(${Math.round((opts.timeoutMs ?? PIPELINE_TIMEOUT_MS) / 1000)}초)로 중단했습니다.`);
+    }, opts.timeoutMs ?? PIPELINE_TIMEOUT_MS);
+    child.on('error', (e) => finish(null, e.message));
+    child.on('close', (code) => finish(code));
+  });
+}
+
+/** `--product=값` flags; `=` keeps values that start with `-` or `$` intact. */
+export function marketFieldArgs(fields: MarketBriefFields): string[] {
+  const out: string[] = [];
+  for (const name of MARKET_BRIEF_FIELDS) {
+    const value = fields[name]?.replace(/\s+/g, ' ').trim();
+    if (value) out.push(`--${name.replace(/_/g, '-')}=${value}`);
+  }
+  return out;
+}
+
+function runViaPipelineEntry(ctx: SpawnContext): Promise<MarketProcOutput> {
+  const { capability, phase, brief, fields, outputDir, stateDir } = ctx;
+  // The entry creates the output folder itself, and only after its brief gate passed.
+  // argparse reads a value starting with "-" as an option; a leading space keeps it positional
+  // (the entry strips it). A "--" separator is rejected by the entry's parser.
+  const positional = brief.startsWith('-') ? ` ${brief}` : brief;
+  const args = [capability.pipeline_entry!, phase, positional, '--output-dir', outputDir];
+  if (phase === 'research') args.push(...marketFieldArgs(fields));
+  return spawnCollect(capability.python!, args, {
     cwd: capability.org_root!,
-    encoding: 'utf8',
-    timeout: 600_000,
     env: {
       ...process.env,
       CQR_MANAGER_ROOT: capability.org_root!,
@@ -306,12 +428,10 @@ function runViaPipelineEntry(ctx: SpawnContext): MarketProcOutput {
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     },
-    windowsHide: true,
   });
-  return { status: r.status, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') };
 }
 
-function runViaPs1(ctx: SpawnContext): MarketProcOutput {
+function runViaPs1(ctx: SpawnContext): Promise<MarketProcOutput> {
   const { capability, phase, brief, stateDir } = ctx;
   const script = capability.script!;
   const cmd =
@@ -320,46 +440,42 @@ function runViaPs1(ctx: SpawnContext): MarketProcOutput {
       : phase === 'feasibility'
         ? ['pipeline', 'start', brief]
         : ['pipeline', 'approve', brief];
-  const r = spawnSync(
-    'powershell',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...cmd],
-    {
-      cwd: path.dirname(path.dirname(script)),
-      encoding: 'utf8',
-      timeout: 600_000,
-      env: {
-        ...process.env,
-        CQR_MANAGER_ROOT: capability.org_root!,
-        CQR_MARKET_STATE_DIR: stateDir,
-        CQR_PIPELINE_PYTHON: capability.python!,
-        PYTHONIOENCODING: 'utf-8',
-        PYTHONUTF8: '1',
-      },
-      windowsHide: true,
+  return spawnCollect('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, ...cmd], {
+    cwd: path.dirname(path.dirname(script)),
+    env: {
+      ...process.env,
+      CQR_MANAGER_ROOT: capability.org_root!,
+      CQR_MARKET_STATE_DIR: stateDir,
+      CQR_PIPELINE_PYTHON: capability.python!,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
     },
-  );
-  return { status: r.status, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') };
+  });
 }
 
-function defaultSpawn(ctx: SpawnContext): MarketProcOutput {
-  mkdirSync(ctx.outputDir, { recursive: true });
+function defaultSpawn(ctx: SpawnContext): Promise<MarketProcOutput> {
   if (ctx.capability.pipeline_entry) return runViaPipelineEntry(ctx);
   return runViaPs1(ctx);
 }
 
-export function runMarketPipeline(opts: {
+export async function runMarketPipeline(opts: {
   cqrRoot: string;
   phase: MarketResearchPhase;
   brief: string;
+  /** Structured brief fields (research only); passed as flags, they win over the sentence. */
+  fields?: MarketBriefFields;
   sessionId?: string;
   /** Test seams. */
   capabilityOverride?: MarketPipelineCapability;
-  spawnOverride?: (ctx: SpawnContext) => MarketProcOutput;
+  spawnOverride?: (ctx: SpawnContext) => MarketProcOutput | Promise<MarketProcOutput>;
   readReportOverride?: (outputDir: string, phase: MarketResearchPhase) => MarketReportFile | null;
+  readPackOverride?: (outputDir: string) => MarketEvidencePack | null;
   nowOverride?: number;
-}): MarketPipelineRunResult {
+}): Promise<MarketPipelineRunResult> {
   const phase = opts.phase;
   const brief = opts.brief.trim();
+  const fields = opts.fields ?? {};
+  const hasFields = MARKET_BRIEF_FIELDS.some((name) => fields[name]?.trim());
   const capability = opts.capabilityOverride ?? getMarketPipelineCapability(opts.cqrRoot);
 
   // Genuinely cannot run → fall through to org skill LLM chat (CQR_MARKET_INJECT),
@@ -385,7 +501,7 @@ export function runMarketPipeline(opts: {
     };
   }
 
-  if (!brief && phase !== 'plan') {
+  if (!brief && !(phase === 'research' && hasFields) && phase !== 'plan') {
     return {
       ok: false,
       phase,
@@ -415,10 +531,22 @@ export function runMarketPipeline(opts: {
   const startedAtMs = opts.nowOverride ?? Date.now();
 
   const spawnImpl = opts.spawnOverride ?? defaultSpawn;
-  const proc = spawnImpl({ capability, phase, brief: brief || '(approve)', outputDir, stateDir });
+  const proc = await spawnImpl({
+    capability,
+    phase,
+    brief: brief || (phase === 'plan' ? '(approve)' : ''),
+    fields,
+    outputDir,
+    stateDir,
+  });
 
   const readReport = opts.readReportOverride ?? readReportFile;
   const report = readReport(outputDir, phase);
 
-  return interpretMarketPipelineResult({ phase, capability, outputDir, proc, report, startedAtMs });
+  const result = interpretMarketPipelineResult({ phase, capability, outputDir, proc, report, startedAtMs });
+  if (result.ok && phase === 'research') {
+    const pack = (opts.readPackOverride ?? readEvidencePack)(outputDir);
+    if (pack) result.evidence_pack = pack;
+  }
+  return result;
 }
