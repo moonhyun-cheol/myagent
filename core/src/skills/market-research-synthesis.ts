@@ -8,6 +8,9 @@
  * - A finding that fails either check is dropped and counted; a section left empty says so.
  * - Pain frequency is the number of distinct evidence items (and sites) behind it, counted by
  *   code, not a percentage estimated by the model.
+ * - A market/trend study (`brief.study === 'trend'`) adds a year-by-year timeline. A timeline
+ *   finding keeps only the cited items published in its year or naming its year; with none left
+ *   (or a year outside the study period) it is dropped, so a statement cannot move between years.
  */
 import { extractJsonObject } from './market-research-brief.js';
 import type { MarketEvidenceItem, MarketEvidencePack } from './market-pipeline-runner.js';
@@ -24,6 +27,11 @@ export interface SynthesisCompetitor extends SynthesisFinding {
   product: string;
   price: string;
 }
+export interface SynthesisTimeline extends SynthesisFinding {
+  year: string;
+}
+
+export type SynthesisDropReason = 'no_valid_citation' | 'unsupported_figure' | 'year_not_in_evidence';
 
 export interface MarketSynthesis {
   irrelevant: string[];
@@ -32,14 +40,45 @@ export interface MarketSynthesis {
   competitors: SynthesisCompetitor[];
   market: SynthesisFinding[];
   gaps: SynthesisFinding[];
+  /** Year-by-year findings of a market/trend study, oldest year first; empty otherwise. */
+  timeline: SynthesisTimeline[];
   unknowns: string[];
   /** Findings removed by the checks, with the reason. */
-  dropped: Array<{ section: string; text: string; reason: 'no_valid_citation' | 'unsupported_figure' }>;
+  dropped: Array<{ section: string; text: string; reason: SynthesisDropReason }>;
 }
 
 const KIND_LABEL: Record<string, string> = { review: '리뷰·불만', competitor: '경쟁사·가격', market: '시장·트렌드' };
 const ITEM_CHARS = 1800;
 const MAX_FINDINGS = 8;
+const MAX_TIMELINE = 16;
+
+/** True for a market/trend study pack (`study: trend`). */
+export function isTrendPack(pack: MarketEvidencePack): boolean {
+  return pack.brief?.study === 'trend';
+}
+
+/** Years the pipeline searched for a trend study, oldest first. */
+export function packYears(pack: MarketEvidencePack): string[] {
+  const fromStats = pack.stats?.years;
+  const years = Array.isArray(fromStats) ? fromStats.map(String) : [];
+  const period = pack.brief?.period;
+  if (!years.length && typeof period === 'string') {
+    const m = /(20\d\d)(?:\s*-\s*(20\d\d))?/.exec(period);
+    if (m) for (let y = Number(m[1]); y <= Number(m[2] ?? m[1]); y++) years.push(String(y));
+  }
+  return [...new Set(years.filter((y) => /^20\d\d$/.test(y)))].sort();
+}
+
+/** Published that year, or the item's text names the year. Mirrors `about_year` in evidence_pack.py. */
+export function itemAboutYear(item: MarketEvidenceItem, year: string): boolean {
+  if ((item.published ?? '').startsWith(year)) return true;
+  return new RegExp(`(?<!\\d)${year}(?!\\d)`).test(`${item.title} ${item.excerpt} ${item.detail ?? ''}`);
+}
+
+function periodLabel(pack: MarketEvidencePack): string {
+  const years = packYears(pack);
+  return !years.length ? '' : years.length === 1 ? years[0] : `${years[0]}-${years[years.length - 1]}`;
+}
 
 function clean(text: unknown, max = 400): string {
   return typeof text === 'string' ? text.replace(/\s+/g, ' ').trim().slice(0, max) : '';
@@ -60,6 +99,8 @@ function briefLine(pack: MarketEvidencePack): string {
   add('가격대', b.price_band);
   add('경쟁사', b.competitors);
   add('초점', b.focus);
+  if (b.study === 'trend') add('조사 유형', '시장·트렌드 추이');
+  add('기간', b.study === 'trend' ? periodLabel(pack) : b.period);
   return parts.join(' / ');
 }
 
@@ -73,6 +114,7 @@ function itemText(item: MarketEvidenceItem): string {
   const prices = [...new Set([...(item.prices ?? []), ...(item.page_prices ?? [])])];
   return [
     `[${item.id}] ${KIND_LABEL[item.kind] ?? item.kind} · ${item.domain} · ${item.source === '본문' ? '본문' : '검색 요약문'}`,
+    item.published ? `게시일: ${item.published}` : '',
     `제목: ${clean(item.title, 160)}`,
     `내용: ${body}`,
     prices.length ? `가격 표기: ${prices.join(', ')}` : '',
@@ -82,6 +124,19 @@ function itemText(item: MarketEvidenceItem): string {
 }
 
 export function buildSynthesisPrompt(pack: MarketEvidencePack): { system: string; user: string } {
+  const trend = isTrendPack(pack);
+  const years = packYears(pack);
+  const trendSchema = trend ? [' "timeline":[{"year":"YYYY","text":"그해 미국 시장·트렌드에서 일어난 일","cites":["E…"]}],'] : [];
+  const trendRules = trend
+    ? [
+        `- This is a market/trend study of ${years.join(', ') || 'recent years'}. summary: the overall direction`,
+        '  across the period (what grew, faded or changed), each point cited.',
+        `- timeline: for each year (${years.join(', ')}), what the evidence says happened that year: demand,`,
+        '  styles, materials, colors, prices, brands. Cite only items published that year (게시일) or that',
+        '  name that year; never move a statement to another year. No item for a year without such evidence;',
+        '  say so in unknowns instead.',
+      ]
+    : [];
   const system = [
     'You are a market researcher for CQR, a US apparel brand (tactical, outdoor, workwear).',
     'You get web evidence about the US market, each item with an id like E3. Write the findings',
@@ -93,6 +148,7 @@ export function buildSynthesisPrompt(pack: MarketEvidencePack): { system: string
     ' "competitors":[{"brand":"","product":"","price":"","text":"강점·약점·포지션","cites":["E…"]}],',
     ' "market":[{"text":"","cites":["E…"]}],',
     ' "gaps":[{"text":"CQR이 노릴 수 있는 공백 가설","cites":["E…"]}],',
+    ...trendSchema,
     ' "unknowns":["근거로 확인할 수 없었던 것"]}',
     '',
     'Rules:',
@@ -109,6 +165,7 @@ export function buildSynthesisPrompt(pack: MarketEvidencePack): { system: string
     '- market: US market size, growth or trend statements only. gaps: hypotheses, each grounded in',
     '  cited pains or competitor facts.',
     '- At most 8 items per section. An empty list is fine when the evidence does not support one.',
+    ...trendRules,
   ].join('\n');
   const user = [
     `조사 범위: ${briefLine(pack) || packScope(pack)}`,
@@ -161,7 +218,12 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
       .map((e) => [e.title, e.excerpt, e.detail, ...(e.prices ?? []), ...(e.page_prices ?? [])].join(' '))
       .join(' ');
 
-  function check<T extends SynthesisFinding>(section: string, list: unknown, build: (o: Record<string, unknown>) => T): T[] {
+  function check<T extends SynthesisFinding>(
+    section: string,
+    list: unknown,
+    build: (o: Record<string, unknown>) => T,
+    opts: { limit?: number; scope?: (item: T, ids: string[]) => string[] } = {},
+  ): T[] {
     const out: T[] = [];
     for (const entry of Array.isArray(list) ? list : []) {
       if (!entry || typeof entry !== 'object') continue;
@@ -173,6 +235,13 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
         dropped.push({ section, text: shown.slice(0, 160), reason: 'no_valid_citation' });
         continue;
       }
+      if (opts.scope) {
+        item.cites = opts.scope(item, item.cites);
+        if (!item.cites.length) {
+          dropped.push({ section, text: shown.slice(0, 160), reason: 'year_not_in_evidence' });
+          continue;
+        }
+      }
       const cited = sourceText(item.cites);
       const money = new Set(moneyKeys(cited));
       const percents = new Set(percentKeys(cited));
@@ -183,10 +252,27 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
         continue;
       }
       out.push(item);
-      if (out.length >= MAX_FINDINGS) break;
+      if (out.length >= (opts.limit ?? MAX_FINDINGS)) break;
     }
     return out;
   }
+
+  const years = packYears(pack);
+  const timeline = isTrendPack(pack)
+    ? check(
+        'timeline',
+        obj.timeline,
+        (o) => ({ year: (/20\d\d/.exec(clean(o.year, 20)) ?? [''])[0], text: clean(o.text), cites: [] }),
+        {
+          limit: MAX_TIMELINE,
+          // Only items of that year count; a year outside the study period has none.
+          scope: (item, ids) =>
+            item.year && (!years.length || years.includes(item.year))
+              ? ids.filter((id) => itemAboutYear(byId.get(id)!, item.year))
+              : [],
+        },
+      ).sort((a, b) => a.year.localeCompare(b.year))
+    : [];
 
   const finding = (o: Record<string, unknown>): SynthesisFinding => ({ text: clean(o.text), cites: [] });
   const pains = check('pains', obj.pains, (o) => ({ pain: clean(o.pain, 60), text: clean(o.text), cites: [] }));
@@ -204,6 +290,7 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
     })),
     market: check('market', obj.market, finding),
     gaps: check('gaps', obj.gaps, finding),
+    timeline,
     unknowns: (Array.isArray(obj.unknowns) ? obj.unknowns : []).map((u) => clean(u, 300)).filter(Boolean).slice(0, 8),
     dropped,
   };
@@ -211,7 +298,7 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
 
 /** Findings that survived the checks. Zero means the synthesis produced nothing usable. */
 export function synthesisFindingCount(s: MarketSynthesis): number {
-  return s.summary.length + s.pains.length + s.competitors.length + s.market.length + s.gaps.length;
+  return s.summary.length + s.pains.length + s.competitors.length + s.market.length + s.gaps.length + s.timeline.length;
 }
 
 function cell(text: string): string {
@@ -235,12 +322,15 @@ export function renderSynthesisMarkdown(args: {
   const byId = new Map(pack.evidence.map((e) => [e.id, e]));
   const relevant = pack.evidence.filter((e) => !s.irrelevant.includes(e.id));
   const bodyCount = relevant.filter((e) => e.source === '본문').length;
+  const trend = isTrendPack(pack);
+  const period = periodLabel(pack);
   const out: string[] = [
-    `# 미국 시장조사 — ${packScope(pack)}`,
+    trend ? `# 미국 시장·트렌드 추이 — ${packScope(pack)}${period ? ` (${period})` : ''}` : `# 미국 시장조사 — ${packScope(pack)}`,
     '',
     `> 미국 웹 근거 ${relevant.length}건(본문 ${bodyCount}건, 검색 요약문 ${relevant.length - bodyCount}건)을 ` +
       `앱 LLM(${model})이 종합했습니다. 모든 항목에 근거 번호가 붙어 있고, 근거에 없는 번호나 근거에 없는 ` +
-      `금액·비율이 든 항목은 코드가 뺐습니다${s.dropped.length ? `(${s.dropped.length}건)` : ''}.`,
+      `금액·비율이 든 항목은 코드가 뺐습니다${s.dropped.length ? `(${s.dropped.length}건)` : ''}.` +
+      (trend ? ' 연도별 항목은 그해에 게시됐거나 그해를 다룬 근거만 인용합니다.' : ''),
   ];
   const scope = briefLine(pack);
   if (scope) out.push('', `- 조사 범위: ${scope}`);
@@ -249,41 +339,70 @@ export function renderSynthesisMarkdown(args: {
   out.push('', '## 핵심 요약', '');
   out.push(...(s.summary.length ? s.summary.map((f) => `- ${f.text} ${cites(f.cites)}`) : [EMPTY]));
 
-  out.push('', '## 소비자 불만·페인 포인트', '');
-  if (s.pains.length) {
-    out.push('| 페인 | 근거 수 | 내용 | 근거 |', '|---|---|---|---|');
-    for (const p of s.pains) {
-      const sites = new Set(p.cites.map((id) => byId.get(id)?.domain)).size;
-      out.push(`| ${cell(p.pain || '-')} | ${p.cites.length}건 (${sites}개 사이트) | ${cell(p.text)} | ${cites(p.cites)} |`);
+  const timelineSection = () => {
+    out.push('', '## 연도별 추이');
+    const years = packYears(pack);
+    for (const year of years.length ? years : [...new Set(s.timeline.map((t) => t.year))]) {
+      const items = s.timeline.filter((t) => t.year === year);
+      out.push('', `### ${year}년`, '');
+      out.push(...(items.length ? items.map((t) => `- ${t.text} ${cites(t.cites)}`) : ['_근거 부족 — 이 해에 게시됐거나 이 해를 다룬 근거가 없습니다._']));
     }
-    out.push('', '_근거 수는 이 불만을 언급한 근거 건수입니다. 표본이 작아 비율로 읽으면 안 됩니다._');
-  } else {
-    out.push(EMPTY);
-  }
-
-  out.push('', '## 경쟁 제품·가격', '');
-  if (s.competitors.length) {
-    out.push('| 브랜드 | 제품 | 가격 | 메모 | 근거 |', '|---|---|---|---|---|');
-    for (const c of s.competitors) {
-      out.push(`| ${cell(c.brand || '-')} | ${cell(c.product || '-')} | ${cell(c.price || '확인 필요')} | ${cell(c.text)} | ${cites(c.cites)} |`);
+  };
+  const painSection = () => {
+    out.push('', '## 소비자 불만·페인 포인트', '');
+    if (s.pains.length) {
+      out.push('| 페인 | 근거 수 | 내용 | 근거 |', '|---|---|---|---|');
+      for (const p of s.pains) {
+        const sites = new Set(p.cites.map((id) => byId.get(id)?.domain)).size;
+        out.push(`| ${cell(p.pain || '-')} | ${p.cites.length}건 (${sites}개 사이트) | ${cell(p.text)} | ${cites(p.cites)} |`);
+      }
+      out.push('', '_근거 수는 이 불만을 언급한 근거 건수입니다. 표본이 작아 비율로 읽으면 안 됩니다._');
+    } else {
+      out.push(EMPTY);
     }
+  };
+  const competitorSection = () => {
+    out.push('', '## 경쟁 제품·가격', '');
+    if (s.competitors.length) {
+      out.push('| 브랜드 | 제품 | 가격 | 메모 | 근거 |', '|---|---|---|---|---|');
+      for (const c of s.competitors) {
+        out.push(`| ${cell(c.brand || '-')} | ${cell(c.product || '-')} | ${cell(c.price || '확인 필요')} | ${cell(c.text)} | ${cites(c.cites)} |`);
+      }
+    } else {
+      out.push(EMPTY);
+    }
+  };
+  const marketSection = () => {
+    out.push('', '## 시장·트렌드', '');
+    out.push(...(s.market.length ? s.market.map((f) => `- ${f.text} ${cites(f.cites)}`) : [EMPTY]));
+  };
+  // A trend study reads the market first; a product study starts from buyers' complaints.
+  if (trend) {
+    timelineSection();
+    marketSection();
+    competitorSection();
+    painSection();
   } else {
-    out.push(EMPTY);
+    painSection();
+    competitorSection();
+    marketSection();
   }
-
-  out.push('', '## 시장·트렌드', '');
-  out.push(...(s.market.length ? s.market.map((f) => `- ${f.text} ${cites(f.cites)}`) : [EMPTY]));
 
   out.push('', '## 시장 공백 가설', '');
   out.push(...(s.gaps.length ? s.gaps.map((f) => `- (가설) ${f.text} ${cites(f.cites)}`) : [EMPTY]));
 
   out.push('', '## 확인 필요', '');
-  const unknowns = [...s.unknowns, '페르소나·세그먼트·시장 규모 추정·가격 전략은 웹 근거만으로 확정하지 않습니다.'];
+  const unknowns = [
+    ...s.unknowns,
+    ...(trend ? ['연도별 판매량·검색량 같은 수치 추이는 웹 기사 근거만으로 확정하지 않습니다.'] : []),
+    '페르소나·세그먼트·시장 규모 추정·가격 전략은 웹 근거만으로 확정하지 않습니다.',
+  ];
   out.push(...unknowns.map((u) => `- ${u}`));
 
   out.push('', '## 근거 목록', '');
   for (const e of relevant) {
-    out.push(`- **${e.id}** · ${KIND_LABEL[e.kind] ?? e.kind} · ${e.domain} · ${e.source === '본문' ? '본문' : '요약문'} — [${cell(e.title)}](${e.url})`);
+    const published = e.published ? ` · 게시일 ${e.published}` : '';
+    out.push(`- **${e.id}** · ${KIND_LABEL[e.kind] ?? e.kind} · ${e.domain} · ${e.source === '본문' ? '본문' : '요약문'}${published} — [${cell(e.title)}](${e.url})`);
   }
   if (s.irrelevant.length) {
     out.push(
@@ -293,11 +412,13 @@ export function renderSynthesisMarkdown(args: {
     );
   }
   if (s.dropped.length) {
-    const noCite = s.dropped.filter((d) => d.reason === 'no_valid_citation').length;
-    const figure = s.dropped.length - noCite;
+    const count = (reason: SynthesisDropReason) => s.dropped.filter((d) => d.reason === reason).length;
+    const year = count('year_not_in_evidence');
     out.push(
       '',
-      `검증에서 뺀 항목 ${s.dropped.length}건: 유효한 근거 번호 없음 ${noCite}건, 근거에 없는 금액·비율 ${figure}건.`,
+      `검증에서 뺀 항목 ${s.dropped.length}건: 유효한 근거 번호 없음 ${count('no_valid_citation')}건, ` +
+        `근거에 없는 금액·비율 ${count('unsupported_figure')}건` +
+        (year ? `, 그해를 다룬 근거 없음 ${year}건.` : '.'),
     );
   }
   if (args.packPath) out.push('', `발췌 원문이 담긴 근거 팩: \`${args.packPath}\``);

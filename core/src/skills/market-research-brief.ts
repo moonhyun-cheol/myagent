@@ -29,6 +29,8 @@ export interface MarketBriefContext {
   hasPreviousReport: boolean;
   /** Last turns of this chat, oldest first. */
   recent: Array<{ role: string; content: string }>;
+  /** Today as YYYY-MM-DD (test seam; defaults to the local date). Turns "최근 3년" into years. */
+  today?: string;
 }
 
 /** Inline keys per field; mirrors `FIELD_KEYS` in the organization pipeline (evidence_pack.py). */
@@ -41,6 +43,8 @@ const FIELD_KEYS: Record<MarketBriefField, string[]> = {
   price_band: ['가격대', '가격', 'price_band', 'price'],
   competitors: ['경쟁사', 'competitors', 'competitor'],
   focus: ['초점', '포커스', 'focus'],
+  study: ['조사유형', '조사 유형', 'study'],
+  period: ['기간', 'period'],
 };
 
 /** Fields the user wrote inline as `키: 값` in the brief. */
@@ -58,13 +62,22 @@ export function inlineBriefFields(brief: string): Set<MarketBriefField> {
 
 const MAX_FIELD_CHARS = 160;
 
+function localToday(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function buildBriefPrompt(ctx: MarketBriefContext): { system: string; user: string } {
+  const today = ctx.today || localToday();
+  const year = Number(today.slice(0, 4)) || new Date().getFullYear();
   const system = [
     'You turn a chat request into a structured brief for US market research. The company is CQR,',
     'a US apparel brand (tactical, outdoor, workwear). The research searches the US web in English.',
+    `Today is ${today}.`,
     'Return ONE JSON object and nothing else:',
     '{"action":"research|followup|clarify","product":"","product_en":"","category":"","season":"",',
-    '"channel":"","price_band":"","competitors":[],"focus":"","question":""}',
+    '"channel":"","price_band":"","competitors":[],"focus":"","study":"","period":"","question":""}',
     '',
     'Rules:',
     '- action "followup": the message asks about, reformats, summarizes, filters or continues the',
@@ -80,6 +93,11 @@ export function buildBriefPrompt(ctx: MarketBriefContext): { system: string; use
     '    "outdoor apparel"); used to search market-size reports.',
     '  - season, channel, price_band (like "$40-90"), focus (English keywords): only what the user stated.',
     '  - competitors: only brands the user named. Never add brands the user did not name.',
+    '  - study: "trend" when the user asks how the market or trends moved over time (추이, 트렌드 변화,',
+    '    연도별, 최근 N년, a range of years); "product" when the user asks about one product\'s complaints,',
+    '    competitors or prices without a period; "" when unclear.',
+    `  - period: the years the user asked about as "YYYY-YYYY" (or "YYYY"), counted from today: "최근 3년" is`,
+    `    "${year - 2}-${year}", "작년" is "${year - 1}". "" when the user named no period. A season (2027 FW) is not a period.`,
     '- Never invent values the user did not state, except the English translations above.',
   ].join('\n');
   const history = ctx.recent
@@ -115,7 +133,20 @@ function fieldValue(name: MarketBriefField, value: unknown): string {
   const text = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_FIELD_CHARS);
   // The US search name must be English: a Korean value would search Korean pages.
   if (name === 'product_en' || name === 'category') return /[^\x00-\x7F’]/.test(text) ? '' : text;
+  if (name === 'study') {
+    const study = text.toLowerCase();
+    return study === 'trend' || study === 'product' ? study : '';
+  }
+  if (name === 'period') return periodValue(text);
   return text;
+}
+
+/** "2024-2026" / "2026 ~ 2024" / "2025" as "YYYY-YYYY" or "YYYY"; anything else is dropped (the pipeline reads the sentence). */
+export function periodValue(text: string): string {
+  const m = /^(20\d\d)\s*년?(?:\s*[-–~]\s*(20\d\d)\s*년?)?$/.exec(text.trim());
+  if (!m) return '';
+  const years = [Number(m[1]), Number(m[2] ?? m[1])].sort((a, b) => a - b);
+  return years[0] === years[1] ? String(years[0]) : `${years[0]}-${years[1]}`;
 }
 
 /**

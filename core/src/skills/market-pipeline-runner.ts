@@ -30,7 +30,11 @@ export type MarketPipelineFailureStatus =
   | 'empty_brief'
   | 'error';
 
-/** Brief fields the entry accepts as `--product=…` flags (mirrors `FIELD_FLAGS` in the entry). */
+/**
+ * Brief fields the entry accepts as `--product=…` flags (mirrors `FIELD_FLAGS` in the entry).
+ * `study` (`trend` | `product`) and `period` (`2024-2026`) select a market/trend study; modules
+ * older than that reject the two flags, and the run is retried without them.
+ */
 export const MARKET_BRIEF_FIELDS = [
   'product',
   'product_en',
@@ -40,7 +44,10 @@ export const MARKET_BRIEF_FIELDS = [
   'price_band',
   'competitors',
   'focus',
+  'study',
+  'period',
 ] as const;
+const TREND_FIELDS: readonly MarketBriefField[] = ['study', 'period'];
 export type MarketBriefField = (typeof MARKET_BRIEF_FIELDS)[number];
 export type MarketBriefFields = Partial<Record<MarketBriefField, string>>;
 
@@ -57,6 +64,8 @@ export interface MarketEvidenceItem {
   prices?: string[];
   page_prices?: string[];
   query?: string;
+  /** Date the page declares, or the date in front of the search snippet (YYYY-MM-DD). */
+  published?: string;
 }
 
 export interface MarketEvidencePack {
@@ -411,6 +420,13 @@ export function marketFieldArgs(fields: MarketBriefFields): string[] {
   return out;
 }
 
+/** argparse of an entry without `--study` / `--period` exits 2 with "unrecognized arguments" and no JSON. */
+export function rejectedTrendFlags(proc: MarketProcOutput, fields: MarketBriefFields): boolean {
+  if (!TREND_FIELDS.some((name) => fields[name]?.trim())) return false;
+  if (parsePipelineResultJson(proc.stdout)) return false;
+  return /unrecognized arguments:.*--(?:study|period)\b/.test(proc.stderr ?? '');
+}
+
 function runViaPipelineEntry(ctx: SpawnContext): Promise<MarketProcOutput> {
   const { capability, phase, brief, fields, outputDir, stateDir } = ctx;
   // The entry creates the output folder itself, and only after its brief gate passed.
@@ -531,14 +547,21 @@ export async function runMarketPipeline(opts: {
   const startedAtMs = opts.nowOverride ?? Date.now();
 
   const spawnImpl = opts.spawnOverride ?? defaultSpawn;
-  const proc = await spawnImpl({
+  const spawnCtx: SpawnContext = {
     capability,
     phase,
     brief: brief || (phase === 'plan' ? '(approve)' : ''),
     fields,
     outputDir,
     stateDir,
-  });
+  };
+  let proc = await spawnImpl(spawnCtx);
+  if (phase === 'research' && rejectedTrendFlags(proc, fields)) {
+    // An organization module older than the market/trend study: run its product study instead.
+    const older: MarketBriefFields = { ...fields };
+    for (const name of TREND_FIELDS) delete older[name];
+    proc = await spawnImpl({ ...spawnCtx, fields: older });
+  }
 
   const readReport = opts.readReportOverride ?? readReportFile;
   const report = readReport(outputDir, phase);

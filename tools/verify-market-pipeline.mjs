@@ -203,6 +203,44 @@ assert.deepEqual(marketFieldArgs({ product: '슬랙스', price_band: '$40-90', f
   '--product=슬랙스',
   '--price-band=$40-90',
 ]);
+assert.deepEqual(marketFieldArgs({ period: '2024-2026', product_en: 'bomber jacket', study: 'trend' }), [
+  '--product-en=bomber jacket',
+  '--study=trend',
+  '--period=2024-2026',
+]);
+
+// --- A module older than the trend study rejects --study/--period: retried without them ---
+{
+  const seen = [];
+  const r = await runMarketPipeline({
+    cqrRoot: 'C:/app',
+    phase: 'research',
+    brief: '최근 3년간의 봄버재킷 시장 및 트렌드, 추이 분석',
+    fields: { product: '봄버재킷', product_en: 'bomber jacket', study: 'trend', period: '2024-2026' },
+    capabilityOverride: readyCapability(),
+    spawnOverride: (ctx) => {
+      seen.push(marketFieldArgs(ctx.fields));
+      return seen.length === 1
+        ? { status: 2, stdout: '', stderr: 'usage: market_research.py [-h] ...\nmarket_research.py: error: unrecognized arguments: --study=trend --period=2024-2026' }
+        : { status: 0, stdout: json({ ok: true, pipeline: 'market_research', phase: 'research', session_id: 's' }), stderr: '' };
+    },
+    readReportOverride: () => ({ markdown: '# pack', mtimeMs: 2_000_000 }),
+    readPackOverride: () => null,
+    nowOverride: 1_000_000,
+  });
+  assert.equal(r.ok, true, 'older module still runs its product study');
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1], ['--product=봄버재킷', '--product-en=bomber jacket']);
+  // Any other failure is not retried.
+  const once = [];
+  await runMarketPipeline({
+    cqrRoot: 'C:/app', phase: 'research', brief: 'x', fields: { product: 'a', product_en: 'a', study: 'trend' },
+    capabilityOverride: readyCapability(),
+    spawnOverride: () => { once.push(1); return { status: 1, stdout: '', stderr: 'Traceback: boom' }; },
+    readReportOverride: () => null,
+  });
+  assert.equal(once.length, 1, 'only the unknown-flag error is retried');
+}
 
 // --- Brief step ---
 {
@@ -223,6 +261,19 @@ assert.deepEqual(marketFieldArgs({ product: '슬랙스', price_band: '$40-90', f
   assert.deepEqual(inline.fields, { category: 'outdoor apparel', competitors: 'Burton, Patagonia' });
   assert.deepEqual([...inlineBriefFields('품목: 스키바지 / 영문명: ski pants / 가격대: $90')].sort(), ['price_band', 'product', 'product_en']);
   assert.equal(parseBriefDecision('not json', base), null);
+  // Trend study: study and period are normalized; anything else is dropped (the pipeline reads the sentence).
+  const trend = parseBriefDecision(
+    '{"action":"research","product":"봄버재킷","product_en":"bomber jacket","category":"men\'s outerwear","study":"Trend","period":"2026 ~ 2024"}',
+    { ...base, hasPreviousReport: false },
+  );
+  assert.equal(trend.action, 'research');
+  assert.deepEqual(trend.fields, { product: '봄버재킷', product_en: 'bomber jacket', category: "men's outerwear", study: 'trend', period: '2024-2026' });
+  const loose = parseBriefDecision('{"action":"research","product":"봄버재킷","product_en":"bomber jacket","study":"history","period":"최근 3년"}', base);
+  assert.deepEqual(loose.fields, { product: '봄버재킷', product_en: 'bomber jacket' });
+  assert.deepEqual([...inlineBriefFields('기간: 2024-2026 / 조사유형: trend')].sort(), ['period', 'study']);
+  const prompt = briefMod.buildBriefPrompt({ message: 'm', brief: 'm', explicit: false, hasPreviousReport: false, recent: [], today: '2026-11-16' });
+  assert.match(prompt.system, /Today is 2026-11-16\./);
+  assert.match(prompt.system, /"최근 3년" is\s+"2024-2026", "작년" is "2025"/);
 }
 
 // --- Synthesis checks ---
@@ -269,6 +320,59 @@ const PACK = {
   assert.match(md, /주제와 무관하다고 판단해 종합에서 뺀 근거 1건: E2\(slack\.example\)/);
   assert.ok(!md.includes('https://slack.example/r'), 'off-topic evidence is not listed as a source');
   assert.equal(parseSynthesis('no json', PACK), null);
+  assert.deepEqual(s.timeline, [], 'a product study has no timeline');
+  assert.ok(!synthMod.buildSynthesisPrompt(PACK).system.includes('timeline'));
+}
+
+// --- Trend study: timeline findings may only cite items of their year ---
+{
+  const { parseSynthesis, renderSynthesisMarkdown, buildSynthesisPrompt } = synthMod;
+  const TREND_PACK = {
+    market: 'US',
+    brief: { product: '봄버재킷', product_en: 'bomber jacket', study: 'trend', period: '2024-2026' },
+    stats: { years: [2024, 2025, 2026] },
+    evidence: [
+      { id: 'E1', kind: 'market', title: 'Bomber jackets are back', url: 'https://a.example/1', domain: 'a.example', source: '본문', excerpt: 'Oversized bombers led the fall collections.', published: '2024-09-10' },
+      { id: 'E2', kind: 'market', title: 'Bomber jacket trend 2025', url: 'https://b.example/2', domain: 'b.example', source: '요약문', excerpt: 'Suede bombers are the pick of the year.' },
+      { id: 'E3', kind: 'market', title: 'Bomber jacket market', url: 'https://c.example/3', domain: 'c.example', source: '본문', excerpt: 'Sales grew 4% a year.', published: '2026-02-01' },
+    ],
+  };
+  const prompt = buildSynthesisPrompt(TREND_PACK);
+  assert.match(prompt.system, /"timeline"/);
+  assert.match(prompt.system, /2024, 2025, 2026/);
+  assert.match(prompt.user, /게시일: 2024-09-10/);
+  const s = parseSynthesis(
+    JSON.stringify({
+      summary: [{ text: '오버사이즈에서 스웨이드로 이동', cites: ['E1', 'E2'] }],
+      timeline: [
+        { year: '2025', text: '스웨이드 봄버', cites: ['E2', 'E1'] },
+        { year: '2024', text: '오버사이즈 봄버 주도', cites: ['E1'] },
+        { year: '2026', text: '오버사이즈 지속', cites: ['E1'] },
+        { year: '2023년', text: '예전 이야기', cites: ['E1'] },
+        { year: '2026', text: '판매 연 4% 성장', cites: ['E3'] },
+      ],
+      market: [],
+      pains: [],
+      competitors: [],
+      gaps: [],
+      unknowns: [],
+    }),
+    TREND_PACK,
+  );
+  assert.deepEqual(
+    s.timeline.map((t) => [t.year, t.cites.join(',')]),
+    [['2024', 'E1'], ['2025', 'E2'], ['2026', 'E3']],
+    'cites of another year are removed; findings left without one are dropped',
+  );
+  assert.equal(s.dropped.filter((d) => d.reason === 'year_not_in_evidence').length, 2);
+  const md = renderSynthesisMarkdown({ pack: TREND_PACK, synthesis: s, model: 'm' });
+  assert.match(md, /^# 미국 시장·트렌드 추이 — 봄버재킷 \(2024-2026\)/);
+  assert.match(md, /## 연도별 추이\n\n### 2024년\n\n- 오버사이즈 봄버 주도 \[E1\]/);
+  assert.ok(md.indexOf('## 연도별 추이') < md.indexOf('## 시장·트렌드'), 'timeline comes before the market section');
+  assert.ok(md.indexOf('## 시장·트렌드') < md.indexOf('## 소비자 불만'), 'a trend study reads the market first');
+  assert.match(md, /a\.example · 본문 · 게시일 2024-09-10/);
+  assert.match(md, /그해를 다룬 근거 없음 2건/);
+  assert.match(md, /조사 유형: 시장·트렌드 추이 \/ 기간: 2024-2026/);
 }
 
 // --- Mode handler: follow-up, clarify, synthesis, fallback to the pack ---
