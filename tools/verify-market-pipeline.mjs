@@ -334,6 +334,26 @@ const PACK = {
   assert.match(md, /주제와 무관하다고 판단해 종합에서 뺀 근거 1건: E2\(slack\.example\)/);
   assert.ok(!md.includes('https://slack.example/r'), 'off-topic evidence is not listed as a source');
   assert.equal(parseSynthesis('no json', PACK), null);
+  // A price band ("$80대") is supported by a cited amount inside it; a band with no amount inside is not.
+  const band = parseSynthesis(
+    JSON.stringify({
+      competitors: [
+        { brand: '5.11', product: 'Peak', price: '$89.49', text: '$80대 중가 포지션', cites: ['E3'] },
+        { brand: '5.11', product: 'Peak', price: '$89.49', text: '$89대 리스팅', cites: ['E3'] },
+        { brand: '5.11', product: 'Peak', price: '$89.49', text: '$30대 저가', cites: ['E3'] },
+      ],
+    }),
+    PACK,
+  );
+  assert.deepEqual(band.competitors.map((c) => c.text), ['$80대 중가 포지션', '$89대 리스팅']);
+  assert.deepEqual(band.dropped.map((d) => d.figures), [['$30']]);
+  // Items found without the target gender or without a date are flagged to the model and in the appendix.
+  const flagged = { ...PACK, evidence: PACK.evidence.map((e) => (e.id === 'E4' ? { ...e, all_genders: true, undated: true } : e)) };
+  const flaggedPrompt = synthMod.buildSynthesisPrompt(flagged).user;
+  assert.ok(flaggedPrompt.includes('성별 구분 없는 검색 결과(전 성별 시장)'));
+  assert.ok(flaggedPrompt.includes('게시일 확인 불가: 연도별 추이의 근거로 쓰지 말고'));
+  const flaggedMd = renderSynthesisMarkdown({ pack: flagged, synthesis: s, model: 'm' });
+  assert.ok(flaggedMd.includes(' · 게시일 확인 불가 · 성별 구분 없는 검색 결과'));
   assert.deepEqual(s.timeline, [], 'a product study has no timeline');
   assert.ok(!synthMod.buildSynthesisPrompt(PACK).system.includes('timeline'));
 }

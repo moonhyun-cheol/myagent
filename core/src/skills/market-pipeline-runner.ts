@@ -73,6 +73,10 @@ export interface MarketEvidenceItem {
   updated?: string;
   /** Trend study: the page is older than the period and names no year of it. */
   before_period?: boolean;
+  /** Trend study: no date was found (page, snippet or URL) and the text names no year of the period. */
+  undated?: boolean;
+  /** Found by a query without the target gender (market size): may cover every gender. */
+  all_genders?: boolean;
 }
 
 export interface MarketEvidencePack {

@@ -283,6 +283,10 @@ function itemText(item: MarketEvidenceItem): string {
     item.published ? `게시일: ${item.published}` : '',
     item.updated ? `수정일: ${item.updated} (읽은 내용은 이 날짜 판본)` : '',
     item.before_period ? '조사 기간 이전 글: 기간의 흐름·연도별 추이의 근거로 쓰지 말 것' : '',
+    item.undated ? '게시일 확인 불가: 연도별 추이의 근거로 쓰지 말고, 현재 시장의 근거로도 약하게 볼 것' : '',
+    item.all_genders
+      ? '성별 구분 없는 검색 결과(전 성별 시장): 브랜드·가격을 타깃 성별 제품과 직접 비교하지 말 것'
+      : '',
     `제목: ${clean(item.title, 160)}`,
     `내용: ${body}`,
     prices.length ? `가격 표기: ${prices.join(', ')}` : '',
@@ -351,6 +355,11 @@ export function buildSynthesisPrompt(pack: MarketEvidencePack): { system: string
     '  competitor facts, and checked against the competitor facts (no "gap" a cited product already fills).',
     '- 조사 범위 names the target customer (타깃 성별, 타깃 스타일). Write the gaps for that customer. An item',
     '  about another customer (women\'s fashion in a menswear study) may show the overall trend; say so.',
+    '- Items marked 성별 구분 없는 검색 결과 may cover every gender (a store\'s whole category). Give their',
+    '  figures with that scope, and never set their brands or prices against the target customer\'s products',
+    '  in a comparison, price gap or gap hypothesis.',
+    '- Items marked 게시일 확인 불가 have no known date: weak evidence for the present, never for a year.',
+    '- A price band may be written as "$30대" only when a cited item states a price inside it ($30.00-39.99).',
     '- 수정일 is the date of the version that was read; an item whose newest date is years old is weaker',
     '  evidence for the present.',
     '- figures: every market size, growth rate (CAGR), sales volume or revenue, search volume and share',
@@ -449,10 +458,40 @@ function usd(value: number): string {
   return `$${value % 1 ? value.toFixed(2) : String(value)}`;
 }
 
+/** Unit amounts (no billion/million scale) in `text`: "$36.99" -> 36.99. */
+function unitMoneyValues(text: string): number[] {
+  const out: number[] = [];
+  for (const m of String(text ?? '').matchAll(MONEY_RE)) {
+    if (!m[3]) out.push(Number(`${m[1].replace(/,/g, '')}.${m[2] ?? '0'}`));
+  }
+  return out;
+}
+
+// "$30대" / "$30s": a price band, not an exact amount.
+const BAND_SUFFIX_RE = /^\s?(?:대|s(?![a-z]))/i;
+
+/**
+ * A band written as "$30대" covers $30.00–39.99 ("$100대" $100–199, "$37대" $37.00–37.99). It is
+ * supported when a cited unit amount falls inside it.
+ */
+function bandSupported(m: RegExpMatchArray, shown: string, values: number[]): boolean {
+  if (m[3] || m[2] || m.index == null) return false;
+  if (!BAND_SUFFIX_RE.test(shown.slice(m.index + m[0].length))) return false;
+  const whole = m[1].replace(/,/g, '');
+  const lo = Number(whole);
+  const zeros = /0*$/.exec(whole)?.[0].length ?? 0;
+  const width = 10 ** Math.min(zeros, Math.max(whole.length - 1, 0));
+  return values.some((v) => v >= lo && v < lo + width);
+}
+
 /** Amounts and percentages written in `shown` that are not in the cited text, as written. */
-function unsupportedFigures(shown: string, money: Set<string>, percents: Set<string>): string[] {
+function unsupportedFigures(shown: string, money: Set<string>, percents: Set<string>, values: number[] = []): string[] {
   const out: string[] = [];
-  for (const m of shown.matchAll(MONEY_RE)) if (moneyKeys(m[0]).some((k) => !money.has(k))) out.push(m[0].trim());
+  for (const m of shown.matchAll(MONEY_RE)) {
+    if (!moneyKeys(m[0]).some((k) => !money.has(k))) continue;
+    if (bandSupported(m, shown, values)) continue;
+    out.push(m[0].trim());
+  }
   for (const m of shown.matchAll(PERCENT_RE)) if (!percents.has(String(Number(m[1])))) out.push(m[0].trim());
   return [...new Set(out)];
 }
@@ -511,7 +550,7 @@ export function parseSynthesis(raw: string, pack: MarketEvidencePack): MarketSyn
         }
       }
       const cited = sourceText(item.cites);
-      const figures = unsupportedFigures(shown, new Set(moneyKeys(cited)), new Set(percentKeys(cited)));
+      const figures = unsupportedFigures(shown, new Set(moneyKeys(cited)), new Set(percentKeys(cited)), unitMoneyValues(cited));
       if (figures.length) {
         dropped.push({ section, text: shown.slice(0, 160), reason: 'unsupported_figure', figures });
         continue;
@@ -848,7 +887,11 @@ export function renderSynthesisMarkdown(args: {
   out.push('', '### 근거 목록', '');
   for (const e of relevant) {
     const dates = datesText(e);
-    const published = (dates ? ` · ${dates}` : '') + (e.before_period ? ' · 조사 기간 이전 글' : '');
+    const published =
+      (dates ? ` · ${dates}` : '') +
+      (e.before_period ? ' · 조사 기간 이전 글' : '') +
+      (e.undated ? ' · 게시일 확인 불가' : '') +
+      (e.all_genders ? ' · 성별 구분 없는 검색 결과' : '');
     const href = linkHref(e.url);
     const id = href ? `[${e.id}](<${href}>)` : e.id;
     const title = href ? `[${linkText(clean(e.title, 300))}](<${href}>)` : cell(e.title);
