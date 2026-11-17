@@ -40,6 +40,8 @@ data/_agent_eval/
 data/_model_bakeoff/**
 !data/_model_bakeoff/summary.json
 data/agent-run-meta/
+data/agent-turn-context/
+data/evidence-runs/
 data/agent-plugins/
 data/task-ledger/
 data/scheduler/
