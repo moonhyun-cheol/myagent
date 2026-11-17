@@ -52,6 +52,23 @@ export interface CheckpointMeta {
   label?: string;
   fileCount: number;
   paths: string[];
+  /**
+   * Requested paths that did not exist when they were snapshotted. Only these are
+   * safe to delete on rollback (they were created by the mutation). Missing on
+   * checkpoints written before this field existed.
+   */
+  absentPaths?: string[];
+  /**
+   * Requested paths that existed but could not be stored (over MAX_FILE_BYTES, a
+   * directory, blocked). Rollback can neither restore nor delete them.
+   */
+  skippedPaths?: string[];
+  /**
+   * Renames/moves this run performed. The two paths of a pair are one change:
+   * rolling back only the new path would delete the file without restoring the old
+   * path. Rollback expands a requested path to its pair partners.
+   */
+  movePairs?: Array<{ from: string; to: string }>;
 }
 
 function toPosix(p: string): string {
@@ -115,6 +132,28 @@ function copyRel(
   }
 }
 
+type SnapshotOutcome = 'saved' | 'absent' | 'skipped';
+
+/** Store one path, or record why it holds no copy (did not exist vs. could not be stored). */
+function snapshotRel(
+  workspaceRoot: string,
+  destRoot: string,
+  rel: string,
+  guard?: { allowNas?: boolean },
+): SnapshotOutcome {
+  if (copyRel(workspaceRoot, destRoot, rel)) return 'saved';
+  try {
+    const abs = resolveDevWorkspaceRelPath(workspaceRoot, rel, guard);
+    return existsSync(abs) ? 'skipped' : 'absent';
+  } catch {
+    return 'skipped';
+  }
+}
+
+function normalizeCheckpointRel(p: unknown): string {
+  return toPosix(String(p || '').replace(/\\/g, '/')).replace(/^\.\//, '');
+}
+
 export function createWorkspaceCheckpoint(
   workspaceRoot: string,
   cqrRoot: string,
@@ -150,9 +189,14 @@ export function createWorkspaceCheckpoint(
   }
 
   const saved: string[] = [];
-  for (const rel of paths) {
-    if (isRuntimeCheckpointPath(rel)) continue;
-    if (copyRel(root, filesDir, rel)) saved.push(rel);
+  const absent: string[] = [];
+  const skipped: string[] = [];
+  for (const rel of [...new Set(paths)]) {
+    if (!rel || isRuntimeCheckpointPath(rel)) continue;
+    const outcome = snapshotRel(root, filesDir, rel, opts?.guard);
+    if (outcome === 'saved') saved.push(rel);
+    else if (outcome === 'absent') absent.push(rel);
+    else skipped.push(rel);
   }
 
   const meta: CheckpointMeta = {
@@ -162,9 +206,123 @@ export function createWorkspaceCheckpoint(
     label: opts?.label,
     fileCount: saved.length,
     paths: saved,
+    absentPaths: absent,
+    skippedPaths: skipped,
   };
   writeFileSync(path.join(base, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8');
   return meta;
+}
+
+/**
+ * Add not-yet-covered paths to an existing checkpoint, before they are mutated.
+ * A path keeps its first recorded state: already saved, absent or skipped paths are
+ * left alone (re-snapshotting would store content the run already changed).
+ * Returns the updated meta, or null when the checkpoint no longer exists.
+ */
+export function extendWorkspaceCheckpoint(
+  workspaceRoot: string,
+  cqrRoot: string,
+  checkpointId: string,
+  opts: {
+    sessionKey?: string;
+    paths: string[];
+    guard?: { allowNas?: boolean };
+  },
+): CheckpointMeta | null {
+  const root = normalizeWorkspacePath(workspaceRoot);
+  const sessionKey = opts.sessionKey?.trim() || 'default';
+  const base = path.join(checkpointRoot(cqrRoot, sessionKey), checkpointId);
+  const metaPath = path.join(base, 'meta.json');
+  const filesDir = path.join(base, 'files');
+  if (!checkpointId || !existsSync(metaPath)) return null;
+  let meta: CheckpointMeta;
+  try {
+    meta = JSON.parse(readFileSync(metaPath, 'utf8')) as CheckpointMeta;
+  } catch {
+    return null;
+  }
+
+  const saved = new Set((meta.paths ?? []).map((p) => toPosix(p)));
+  const absent = new Set((meta.absentPaths ?? []).map((p) => toPosix(p)));
+  const skipped = new Set((meta.skippedPaths ?? []).map((p) => toPosix(p)));
+  let changed = false;
+  for (const raw of opts.paths) {
+    const rel = normalizeCheckpointRel(raw);
+    if (!rel || isRuntimeCheckpointPath(rel)) continue;
+    if (saved.has(rel) || absent.has(rel) || skipped.has(rel)) continue;
+    const outcome = snapshotRel(root, filesDir, rel, opts.guard);
+    if (outcome === 'saved') saved.add(rel);
+    else if (outcome === 'absent') absent.add(rel);
+    else skipped.add(rel);
+    changed = true;
+  }
+  if (!changed) return meta;
+
+  const next: CheckpointMeta = {
+    ...meta,
+    fileCount: saved.size,
+    paths: [...saved],
+    absentPaths: [...absent],
+    skippedPaths: [...skipped],
+  };
+  writeFileSync(metaPath, JSON.stringify(next, null, 2), 'utf8');
+  return next;
+}
+
+/**
+ * Record renames/moves that succeeded, so a partial rollback of either path also
+ * rolls back the other one. Returns false when the checkpoint no longer exists.
+ */
+export function recordCheckpointMovePairs(
+  cqrRoot: string,
+  checkpointId: string,
+  opts: { sessionKey?: string; moves: Array<{ from: string; to: string }> },
+): boolean {
+  const sessionKey = opts.sessionKey?.trim() || 'default';
+  const metaPath = path.join(checkpointRoot(cqrRoot, sessionKey), checkpointId, 'meta.json');
+  if (!checkpointId || !existsSync(metaPath)) return false;
+  let meta: CheckpointMeta;
+  try {
+    meta = JSON.parse(readFileSync(metaPath, 'utf8')) as CheckpointMeta;
+  } catch {
+    return false;
+  }
+  const pairs = [...(meta.movePairs ?? [])];
+  let changed = false;
+  for (const move of opts.moves) {
+    const from = normalizeCheckpointRel(move.from);
+    const to = normalizeCheckpointRel(move.to);
+    if (!from || !to || from === to) continue;
+    if (pairs.some((p) => p.from === from && p.to === to)) continue;
+    pairs.push({ from, to });
+    changed = true;
+  }
+  if (changed) {
+    writeFileSync(metaPath, JSON.stringify({ ...meta, movePairs: pairs }, null, 2), 'utf8');
+  }
+  return true;
+}
+
+/** Requested paths plus every path linked to them through recorded renames/moves. */
+function expandWithMovePartners(
+  wanted: string[],
+  pairs: Array<{ from: string; to: string }>,
+): string[] {
+  const out = new Set(wanted);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const pair of pairs) {
+      const from = toPosix(pair.from);
+      const to = toPosix(pair.to);
+      if (out.has(from) !== out.has(to)) {
+        out.add(from);
+        out.add(to);
+        grew = true;
+      }
+    }
+  }
+  return [...out];
 }
 
 export function listWorkspaceCheckpoints(
@@ -195,11 +353,20 @@ export function rollbackWorkspaceCheckpoint(
     confirm?: boolean;
     guard?: { allowNas?: boolean };
     /**
-     * When set: restore overlapping checkpoint paths, and **delete** requested
-     * paths that were not in the snapshot (new files from this mutate).
+     * When set: restore overlapping checkpoint paths, and **delete** only requested
+     * paths the checkpoint recorded as absent (new files from this mutate). A path
+     * the checkpoint knows nothing about is left untouched and reported as skipped:
+     * it may be a pre-existing file that was never snapshotted.
+     * A path that was renamed/moved brings its pair partner along (see movePairs).
      * When omitted: restore every path in the checkpoint only (legacy full restore).
      */
     paths?: string[];
+    /**
+     * Full rollback only (no `paths`): also delete the paths the checkpoint recorded
+     * as absent, i.e. files the run created (rename/move destinations included).
+     * Checkpoints written before `absentPaths` existed delete nothing.
+     */
+    removeCreated?: boolean;
   },
 ): string {
   if (opts?.confirm !== true) {
@@ -228,22 +395,29 @@ export function rollbackWorkspaceCheckpoint(
 
   const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as CheckpointMeta;
   const ckSet = new Set(meta.paths.map((p) => toPosix(p)));
-  const wanted = Array.isArray(opts?.paths)
-    ? [
-        ...new Set(
-          opts.paths
-            .map((p) => toPosix(String(p || '').replace(/\\/g, '/')).replace(/^\.\//, ''))
-            .filter(Boolean),
-        ),
-      ]
+  const absentSet = new Set((meta.absentPaths ?? []).map((p) => toPosix(p)));
+  const requested = Array.isArray(opts?.paths)
+    ? [...new Set(opts.paths.map((p) => normalizeCheckpointRel(p)).filter(Boolean))]
     : null;
+  // A rename is one change with two paths: never roll back just one side of it.
+  const wanted = requested ? expandWithMovePartners(requested, meta.movePairs ?? []) : null;
+  const pairedPaths = requested && wanted ? wanted.filter((p) => !requested.includes(p)) : [];
 
   const restoreList = wanted
     ? wanted.filter((p) => ckSet.has(p))
     : meta.paths.map((p) => toPosix(p));
+  const removeCreated = !wanted && opts?.removeCreated === true;
   const deleteList = wanted
-    ? wanted.filter((p) => !ckSet.has(p) && !isRuntimeCheckpointPath(p))
-    : [];
+    ? wanted.filter((p) => !ckSet.has(p) && absentSet.has(p) && !isRuntimeCheckpointPath(p))
+    : removeCreated
+      ? [...absentSet].filter((p) => !ckSet.has(p) && !isRuntimeCheckpointPath(p))
+      : [];
+  // Neither stored nor known-absent: never delete (would destroy a pre-existing file).
+  const skippedPaths = wanted
+    ? wanted.filter((p) => !ckSet.has(p) && !absentSet.has(p))
+    : removeCreated
+      ? (meta.skippedPaths ?? []).map((p) => toPosix(p))
+      : [];
 
   let restored = 0;
   for (const rel of restoreList) {
@@ -282,8 +456,11 @@ export function rollbackWorkspaceCheckpoint(
       restored,
       deleted,
       deleted_paths: deletedPaths,
+      skipped: skippedPaths.length,
+      skipped_paths: skippedPaths,
+      paired_paths: pairedPaths,
       total: restoreList.length + deleteList.length,
-      requested: wanted ?? undefined,
+      requested: requested ?? undefined,
       partial: Boolean(wanted),
       label: meta.label,
     },
@@ -412,7 +589,16 @@ export function previewCheckpointDiff(
   const before = clip(beforeFull);
   const after = clip(afterFull);
   const hunks = buildLineDiffHunks(beforeFull, afterFull);
-  const isNew = !existsSync(snapPath) && afterFull != null;
+  let absentAtSnapshot = false;
+  try {
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as CheckpointMeta;
+    absentAtSnapshot = (meta.absentPaths ?? []).some((p) => toPosix(p) === rel);
+  } catch {
+    absentAtSnapshot = false;
+  }
+  // No stored copy and not recorded as absent → the before-state is unknown, not "new".
+  const unprotected = !existsSync(snapPath) && !absentAtSnapshot;
+  const isNew = absentAtSnapshot && afterFull != null;
   const isDeleted = existsSync(snapPath) && afterFull == null;
 
   return JSON.stringify(
@@ -427,6 +613,7 @@ export function previewCheckpointDiff(
       changed: beforeFull !== afterFull,
       in_checkpoint: existsSync(snapPath),
       is_new: isNew,
+      unprotected,
       is_deleted_on_disk: isDeleted,
       diff_lines: hunks.lines,
       diff_added: hunks.added,

@@ -544,11 +544,19 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'workspace_rollback',
       description:
-        'Restore files from a prior workspace_checkpoint. Requires confirm=true (or UI Accept). Does not use git reset/stash.',
+        'Undo file changes back to a checkpoint (workspace_checkpoint, or the automatic one taken before this conversation\'s edits). Restores stored files and deletes files created after the checkpoint; a renamed file returns to its old path. Pass paths to undo only some files. An unknown or empty checkpoint_id returns the available ids. Requires confirm=true (or UI Accept). Does not use git reset/stash.',
       parameters: {
         type: 'object',
         properties: {
-          checkpoint_id: { type: 'string', description: 'Checkpoint id from workspace_checkpoint' },
+          checkpoint_id: {
+            type: 'string',
+            description: 'Checkpoint id. Leave empty to list the ids available in this conversation.',
+          },
+          paths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional relative paths to undo. Omit to undo everything in the checkpoint.',
+          },
           confirm: {
             type: 'boolean',
             description: 'Must be true after user approved rollback',

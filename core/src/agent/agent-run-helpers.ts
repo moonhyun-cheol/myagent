@@ -501,6 +501,99 @@ export function pushToolResultMessage(
   });
 }
 
+/**
+ * Every path an apply_patch call names, including move destinations
+ * (`files[].new_path`, `*** Move to:`). Header matching mirrors parsePatchText.
+ */
+function collectPatchTargetPaths(args: Record<string, unknown>, push: (p: unknown) => void): void {
+  if (Array.isArray(args.files)) {
+    for (const f of args.files) {
+      if (f && typeof f === 'object') {
+        push((f as { path?: unknown }).path);
+        push((f as { new_path?: unknown }).new_path);
+      }
+    }
+  }
+  if (typeof args.patch === 'string') {
+    for (const m of args.patch.matchAll(/^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$/gim)) {
+      push(m[1]);
+    }
+    for (const m of args.patch.matchAll(/^\*\*\*\s*(?:Move|Rename) (?:File|to):\s*(.+?)\s*$/gim)) {
+      push(m[1]);
+    }
+  }
+}
+
+/**
+ * Paths a successful mutating call changed on disk. This is the change-review list,
+ * and reject only rolls back paths on it — so a rename/move must report BOTH the old
+ * and the new path, or reject deletes the new one without restoring the old one.
+ */
+export function collectMutatedPathsForTool(
+  toolName: string,
+  args: Record<string, unknown>,
+): string[] {
+  const out: string[] = [];
+  const push = (p: unknown) => {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim().replace(/\\/g, '/'));
+  };
+  if (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'delete_file') {
+    push(args.path);
+  } else if (toolName === 'rename_file') {
+    push(args.path);
+    push(args.new_path ?? args.to);
+  } else if (toolName === 'apply_patch') {
+    push(args.path);
+    push(args.new_path);
+    collectPatchTargetPaths(args, push);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * Old → new path pairs of a rename/move call. Recorded on the checkpoint after the
+ * call succeeds so that rejecting one path of the pair also rolls back the other.
+ */
+export function collectMovePairsForTool(
+  toolName: string,
+  args: Record<string, unknown>,
+): Array<{ from: string; to: string }> {
+  const out: Array<{ from: string; to: string }> = [];
+  const norm = (p: unknown) => (typeof p === 'string' ? p.trim().replace(/\\/g, '/') : '');
+  const push = (fromRaw: unknown, toRaw: unknown) => {
+    const from = norm(fromRaw);
+    const to = norm(toRaw);
+    if (from && to && from !== to && !out.some((m) => m.from === from && m.to === to)) {
+      out.push({ from, to });
+    }
+  };
+  if (toolName === 'rename_file') {
+    push(args.path, args.new_path ?? args.to);
+  } else if (toolName === 'apply_patch') {
+    push(args.path, args.new_path);
+    if (Array.isArray(args.files)) {
+      for (const f of args.files) {
+        if (f && typeof f === 'object') {
+          push((f as { path?: unknown }).path, (f as { new_path?: unknown }).new_path);
+        }
+      }
+    }
+    if (typeof args.patch === 'string') {
+      let current = '';
+      for (const line of args.patch.split(/\r?\n/)) {
+        const header = line.match(/^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$/i);
+        if (header) {
+          current = header[1];
+          continue;
+        }
+        const move = line.match(/^\*\*\*\s*(?:Move|Rename) (?:File|to):\s*(.+?)\s*$/i);
+        if (move && current) push(current, move[1]);
+      }
+    }
+  }
+  return out;
+}
+
 /** Prefer patch/edit target paths; never fall back to whole-tree snapshots. */
 export function collectAutoCheckpointPaths(
   toolName: string,
@@ -513,16 +606,8 @@ export function collectAutoCheckpointPaths(
   };
   push(args.path);
   push(args.new_path);
-  if (Array.isArray(args.files)) {
-    for (const f of args.files) {
-      if (f && typeof f === 'object') push((f as { path?: unknown }).path);
-    }
-  }
-  if (typeof args.patch === 'string') {
-    for (const m of args.patch.matchAll(/^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s+(.+)$/gm)) {
-      push(m[1]?.trim());
-    }
-  }
+  if (toolName === 'rename_file') push(args.to);
+  collectPatchTargetPaths(args, push);
   if (
     !out.length
     && (toolName === 'apply_patch' || toolName === 'edit_file' || toolName === 'write_file')

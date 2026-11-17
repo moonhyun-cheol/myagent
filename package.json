@@ -132,6 +132,7 @@
     "verify:git-tools": "node tools/verify-git-tools.mjs",
     "verify:agent-plugins": "node tools/verify-agent-plugins.mjs",
     "verify:parity-p1": "node tools/verify-parity-p1.mjs",
+    "verify:mutate-reject-e2e": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-mutate-reject-e2e.mjs",
     "verify:plugin-e2e": "node tools/verify-plugin-e2e.mjs",
     "verify:plugin-loop": "node tools/verify-plugin-loop-audit.mjs",
     "verify:plugin-addons": "node tools/verify-plugin-addons-loop.mjs",

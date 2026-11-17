@@ -107,6 +107,8 @@ import {
 import {
   clearOldCheckpoints,
   createWorkspaceCheckpoint,
+  extendWorkspaceCheckpoint,
+  recordCheckpointMovePairs,
 } from './agent-checkpoint.js';
 import { appendAgentAuditEvent } from './agent-audit-ledger.js';
 import { isAuditedWebTool, recordWebActionAudit } from './web-action-audit.js';
@@ -116,6 +118,8 @@ import {
 } from './agent-run-types.js';
 import {
   collectAutoCheckpointPaths,
+  collectMovePairsForTool,
+  collectMutatedPathsForTool,
   estimateChatPayloadChars,
   extractToolCodeSnippet,
   isOwuiOrGatewayError,
@@ -1140,7 +1144,17 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           .filter((p) => !covered.has(p));
         if (fresh.length) {
           try {
-            const meta = createWorkspaceCheckpoint(state.opts.workspaceRoot, state.opts.cqrRoot, {
+            // One checkpoint per run: the UI receives a single id, and rollback only
+            // knows the paths stored under it. Extend it instead of replacing it.
+            const extended = state.lastAutoCheckpointId
+              ? extendWorkspaceCheckpoint(
+                  state.opts.workspaceRoot,
+                  state.opts.cqrRoot,
+                  state.lastAutoCheckpointId,
+                  { sessionKey: state.opts.sessionId ?? 'default', paths: fresh, guard: state.guard },
+                )
+              : null;
+            const meta = extended ?? createWorkspaceCheckpoint(state.opts.workspaceRoot, state.opts.cqrRoot, {
               sessionKey: state.opts.sessionId ?? 'default',
               label: `before-model-approval:${approvedByReviewer}`.slice(0, 120),
               paths: fresh, guard: state.guard,
@@ -1177,17 +1191,33 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
       }
 
-      if (isMutatingAgentTool(execCall.function.name) && !state.autoCheckpointTaken) {
+      // Snapshot every target before its first mutation, into the run's single
+      // checkpoint. Covering only the first mutating call left later files out, and
+      // rejecting the change then deleted those pre-existing files.
+      if (isMutatingAgentTool(execCall.function.name)) {
         try {
+          const firstAttempt = !state.autoCheckpointTaken;
           const focusPaths = collectAutoCheckpointPaths(
             execCall.function.name,
             args,
-            state.successfulReadsThisRun,
+            firstAttempt ? state.successfulReadsThisRun : new Set<string>(),
           );
-          if (!focusPaths.length) {
-            state.reportStatus(
-              'checkpoint skipped: 대상 경로 없음 (전체 폴더 스냅샷 생략 — 지연 방지)',
-            );
+          const extended = state.lastAutoCheckpointId && focusPaths.length
+            ? extendWorkspaceCheckpoint(
+                state.opts.workspaceRoot,
+                state.opts.cqrRoot,
+                state.lastAutoCheckpointId,
+                { sessionKey: state.opts.sessionId ?? 'default', paths: focusPaths, guard: state.guard },
+              )
+            : null;
+          if (extended) {
+            /* covered by the existing checkpoint */
+          } else if (!focusPaths.length) {
+            if (firstAttempt) {
+              state.reportStatus(
+                'checkpoint skipped: 대상 경로 없음 (전체 폴더 스냅샷 생략 — 지연 방지)',
+              );
+            }
             state.autoCheckpointTaken = true;
           } else {
             const meta = createWorkspaceCheckpoint(state.opts.workspaceRoot, state.opts.cqrRoot, {
@@ -1397,28 +1427,27 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           && typeof args.path === 'string'
         ) {
           state.readGate.noteWritten(args.path);
-          state.mutatedPathsThisRun.add(normalizeAgentPath(args.path));
           // Cursor-like: do not sticky-open workspace:build Exit Gate on every src mutate.
           // Same-turn outcome may still nudge once; next turns are not hijacked.
-        } else if (execCall.function.name === 'apply_patch') {
-          if (typeof args.path === 'string') {
-            state.mutatedPathsThisRun.add(normalizeAgentPath(args.path));
+        }
+        // Change-review list. rename_file and apply_patch moves add both the old and the
+        // new path: reject only rolls back listed paths, and listing just one side lost
+        // the file (new path deleted, old path never restored).
+        for (const p of collectMutatedPathsForTool(execCall.function.name, args)) {
+          state.mutatedPathsThisRun.add(normalizeAgentPath(p));
+        }
+        // A rename is one change with two rows in the review list. Tell the checkpoint,
+        // so rejecting only the new path restores the old one instead of losing the file.
+        const movePairs = collectMovePairsForTool(execCall.function.name, args);
+        if (movePairs.length && state.lastAutoCheckpointId) {
+          try {
+            recordCheckpointMovePairs(state.opts.cqrRoot, state.lastAutoCheckpointId, {
+              sessionKey: state.opts.sessionId ?? 'default',
+              moves: movePairs,
+            });
+          } catch {
+            /* best effort: full reject still covers both paths */
           }
-          if (Array.isArray(args.files)) {
-            for (const f of args.files) {
-              if (f && typeof f === 'object' && typeof (f as { path?: string }).path === 'string') {
-                const p = (f as { path: string }).path;
-                state.mutatedPathsThisRun.add(normalizeAgentPath(p));
-              }
-            }
-          }
-          const patchText = typeof args.patch === 'string' ? args.patch : '';
-          for (const m of patchText.matchAll(/\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*([^\n]+)/gi)) {
-            const p = m[1]?.trim();
-            if (p) state.mutatedPathsThisRun.add(normalizeAgentPath(p));
-          }
-        } else if (execCall.function.name === 'delete_file' && typeof args.path === 'string') {
-          state.mutatedPathsThisRun.add(normalizeAgentPath(args.path));
         }
         if (isMutatingAgentTool(execCall.function.name)) {
           // Disk write landed (even if SYNTAX_BROKEN). Silent verify / syntax repair still run.

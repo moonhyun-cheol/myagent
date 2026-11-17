@@ -938,12 +938,48 @@ async function executeAgentToolInner(
             output: 'ERROR: cqrRoot missing — cannot rollback',
           };
         }
-        const checkpointId = String(args.checkpoint_id ?? args.id ?? '');
+        const checkpointId = String(args.checkpoint_id ?? args.id ?? '').trim();
         const confirm = args.confirm === true;
+        const sessionKey = ctx?.sessionId ?? 'default';
+        const paths = Array.isArray(args.paths)
+          ? args.paths.map((p) => String(p)).filter((p) => p.trim())
+          : [];
+        // Auto checkpoints are never shown to the model, so an unknown or empty id
+        // answers with the ids this conversation can roll back to.
+        const known = listWorkspaceCheckpoints(cqrRoot, sessionKey);
+        if (!known.some((m) => m.id === checkpointId)) {
+          return {
+            label: 'workspace_rollback',
+            output: JSON.stringify(
+              {
+                ok: false,
+                error: checkpointId
+                  ? `checkpoint not found: ${checkpointId}`
+                  : 'checkpoint_id required',
+                available_checkpoints: known
+                  .slice(-5)
+                  .reverse()
+                  .map((m) => ({
+                    id: m.id,
+                    created_at: m.createdAt,
+                    label: m.label,
+                    stored_files: m.fileCount,
+                    created_paths: (m.absentPaths ?? []).length,
+                  })),
+                hint: 'Pick an id from available_checkpoints (newest first) and call again.',
+              },
+              null,
+              2,
+            ),
+          };
+        }
+        // No paths: undo the whole checkpoint, including files created after it.
+        // With paths: undo only those (a renamed file brings its other path along).
         const output = rollbackWorkspaceCheckpoint(workspaceRoot, cqrRoot, checkpointId, {
-          sessionKey: ctx?.sessionId ?? 'default',
+          sessionKey,
           confirm,
           guard,
+          ...(paths.length ? { paths } : { removeCreated: true }),
         });
         return { label: `rollback ${checkpointId}`, output };
       }
