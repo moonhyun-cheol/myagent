@@ -864,8 +864,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   let mutatedOkRun = false;
   let planDeferRetries = 0;
   let autopilotEmptyAfterMutate = 0;
-  let pendingPluginInvoke: string[] = [];
-  let pluginInvokeForceCount = 0;
   let ideEditNudgeCount = 0;
   let targetMissNudgeCount = 0;
   let evidenceDiagOk: DiagnosticsEvidenceStatus = null;
@@ -951,8 +949,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     mutatedOkRun,
     planDeferRetries,
     autopilotEmptyAfterMutate,
-    pendingPluginInvoke,
-    pluginInvokeForceCount,
     ideEditNudgeCount,
     targetMissNudgeCount,
     evidenceDiagOk,

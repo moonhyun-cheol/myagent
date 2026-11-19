@@ -2,12 +2,14 @@
  * End-to-end verify: local plugin feature add on a PC.
  *
  * Covers more than tool-engine smoke:
- *  1) User-message → work mode + tool pack + system note (LLM is steered to tools)
- *  2) Safety: ASK strips install; confirm; reserved/shadow; write-risk invoke
+ *  1) Tool catalog + system note (tool choice is the model's; no runtime NL work mode)
+ *  2) Safety: read_only pack / Plan behavior block install; confirm; reserved/shadow; write-risk invoke
  *  3) REST plane (same handlers UI would call: list / template install / enable)
  *  4) Scripted "good agent" multi-tool path list → install → use
  *  5) Scripted "chat-only bad agent" fails criterion (detected)
  *  6) Full runCodeAgent + mock OpenAI API tool_calls (LLM wire → tools → disk → use)
+ *  6b) Model installs then stops → runtime does not auto-invoke the plugin
+ *  7) UI: Settings → 플러그인 page + client APIs
  *
  * Usage: node tools/verify-plugin-e2e.mjs
  */
@@ -38,6 +40,15 @@ function record(id, ok, detail = '') {
 
 function dist(rel) {
   return join(productRoot, 'core', 'dist', rel);
+}
+
+/** Temp cleanup must not fail the run (Windows may briefly lock child-process dirs). */
+function cleanupDir(p) {
+  try {
+    rmSync(p, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`WARN  cleanup skipped: ${p} (${e?.code || e?.message || e})`);
+  }
 }
 
 function ensureBuild() {
@@ -78,7 +89,6 @@ async function loadMods() {
     store: await import(pathToFileURL(dist('agent/agent-plugin-store.js')).href + `?t=${Date.now()}`),
     reg: await import(pathToFileURL(dist('agent/agent-tool-registry.js')).href + `?t=${Date.now()}`),
     exec: await import(pathToFileURL(dist('agent/agent-tool-execute.js')).href + `?t=${Date.now()}`),
-    work: await import(pathToFileURL(dist('agent/agent-work-mode.js')).href + `?t=${Date.now()}`),
     pack: await import(pathToFileURL(dist('agent/agent-tool-pack.js')).href + `?t=${Date.now()}`),
     helpers: await import(pathToFileURL(dist('agent/agent-run-helpers.js')).href + `?t=${Date.now()}`),
     verify: await import(pathToFileURL(dist('agent/verify-loop.js')).href + `?t=${Date.now()}`),
@@ -296,18 +306,11 @@ async function main() {
 
   // --- 1) Intent / routing / system notes ---
   {
-    const mode = m.work.classifyAgentWorkMode(USER, { codeSession: true });
-    const mut = m.work.mutationsAllowedForMode(mode, USER);
-    const toolPack = m.pack.classifyAgentToolPack(USER, false);
+    // Work mode comes from execution_policy.workspace_behavior, never from message text.
     record(
-      'intent.work_mode_agent',
-      mode === 'agent' && mut === true,
-      `mode=${mode} mut=${mut}`,
-    );
-    record(
-      'intent.tool_pack_code',
-      toolPack === 'web_dev' || toolPack === 'files',
-      `pack=${toolPack}`,
+      'intent.no_runtime_nl_work_mode',
+      !existsSync(join(productRoot, 'core', 'src', 'agent', 'agent-work-mode.ts'))
+        && typeof m.pack.classifyAgentToolPack !== 'function',
     );
 
     const tools = m.reg.getCodeAgentTools(productRoot);
@@ -410,23 +413,42 @@ async function main() {
     );
   }
 
-  // --- 2) Safety / work mode filters ---
+  // --- 2) Safety: read_only pack + Plan behavior ---
   {
-    const all = m.reg.getCodeAgentTools(productRoot);
-    const askTools = m.work.filterToolsForWorkMode(all, 'ask', '설명만 해줘');
-    const askNames = new Set(askTools.map((t) => t.function.name));
+    const roTools = m.pack.getCodeAgentToolsForPack('read_only', false, productRoot);
+    const roNames = new Set(roTools.map((t) => t.function.name));
     record(
-      'safety.ask_hides_plugin_install',
-      !askNames.has('plugin_install') && !askNames.has('plugin_set_enabled'),
+      'safety.read_only_hides_plugin_install',
+      !roNames.has('plugin_install') && !roNames.has('plugin_set_enabled'),
     );
     record(
-      'safety.ask_keeps_plugin_list',
-      askNames.has('plugin_list') && askNames.has('plugin_scaffold'),
+      'safety.read_only_keeps_plugin_list',
+      roNames.has('plugin_list'),
     );
 
-    const agentTools = m.work.filterToolsForWorkMode(all, 'agent', USER);
-    const agentNames = new Set(agentTools.map((t) => t.function.name));
-    record('safety.agent_has_plugin_install', agentNames.has('plugin_install'));
+    const filesNames = new Set(
+      m.pack.getCodeAgentToolsForPack('files', false, productRoot).map((t) => t.function.name),
+    );
+    record('safety.files_pack_has_plugin_install', filesNames.has('plugin_install'));
+
+    const planBlocked = await m.exec.executeAgentTool(
+      productRoot,
+      {
+        id: 'plan1',
+        type: 'function',
+        function: {
+          name: 'plugin_install',
+          arguments: JSON.stringify({ template_id: 'git_history_tree', confirm: true }),
+        },
+      },
+      {},
+      { cqrRoot: productRoot, sessionId: 'plan-e2e', workspaceBehavior: 'plan' },
+    );
+    record(
+      'safety.plan_blocks_plugin_install',
+      /WORKSPACE_BEHAVIOR_READ_ONLY/.test(planBlocked.output),
+      planBlocked.output.slice(0, 100),
+    );
 
     record(
       'safety.plugin_install_is_mutating',
@@ -488,7 +510,7 @@ async function main() {
       );
       record('safety.write_invoke_with_confirm', runOk.ok === true);
     } finally {
-      rmSync(staged.cqrRoot, { recursive: true, force: true });
+      cleanupDir(staged.cqrRoot);
     }
   }
 
@@ -501,11 +523,13 @@ async function main() {
       const list = await (await fetch(`${rest.base}/agent-plugins`)).json();
       record(
         'rest.list_templates',
+        // UI list = product templates only; superseded (git_history_tree → builtin) and
+        // lab_only stay hidden but remain installable by template_id (checked below).
         Array.isArray(list.templates)
-          && list.templates.some((t) => t.id === 'git_history_tree' || t === 'git_history_tree'
-            || (t && (t.id || t) === 'git_history_tree'))
-          || JSON.stringify(list).includes('git_history_tree'),
-        JSON.stringify(list).slice(0, 160),
+          && list.templates.length > 0
+          && list.templates.every((t) => t.surface === 'product')
+          && !list.templates.some((t) => t.id === 'git_history_tree'),
+        JSON.stringify(list.templates?.map((t) => t.id)),
       );
 
       const deny = await (
@@ -551,7 +575,7 @@ async function main() {
       );
     } finally {
       rest?.server?.close();
-      rmSync(staged.cqrRoot, { recursive: true, force: true });
+      cleanupDir(staged.cqrRoot);
     }
   }
 
@@ -597,7 +621,7 @@ async function main() {
         calls.join(','),
       );
     } finally {
-      rmSync(staged.cqrRoot, { recursive: true, force: true });
+      cleanupDir(staged.cqrRoot);
     }
   }
 
@@ -697,24 +721,31 @@ async function main() {
       record('llm_wire.runCodeAgent', false, e?.message || String(e));
     } finally {
       mock?.server?.close();
-      rmSync(staged.cqrRoot, { recursive: true, force: true });
+      cleanupDir(staged.cqrRoot);
     }
   }
 
-  // --- 6b) Install only from mock LLM → runtime auto-exec (명령→설치→실행) ---
+  // --- 6b) Model installs then stops → runtime must NOT auto-invoke the plugin ---
   {
     const staged = stageCqr();
     let mock;
     try {
       let turn = 0;
       const toolTrace = [];
+      const requestBodies = [];
       const server = createServer(async (req, res) => {
         if (req.method === 'POST' && /chat\/completions/.test(req.url || '')) {
           const chunks = [];
           for await (const c of req) chunks.push(c);
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+          requestBodies.push(body);
+          // Answer by request content (not call order): agent-step requests carry tools;
+          // once a tool result is present the model stops without calling the plugin.
+          const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
+          const hasToolResult = (body.messages || []).some((msg) => msg?.role === 'tool');
           turn += 1;
           let message;
-          if (turn === 1) {
+          if (hasTools && !hasToolResult) {
             message = {
               role: 'assistant',
               content: null,
@@ -734,10 +765,10 @@ async function main() {
             };
             toolTrace.push('plugin_install');
           } else {
-            // Model refuses tools — runtime must already have auto-run plugin
+            // Model stops after install; the next step is the model's, not the runtime's.
             message = {
               role: 'assistant',
-              content: '설치 완료 후 히스토리 그래프를 확인했습니다. (auto-exec e2e)',
+              content: '플러그인 git_history_tree 설치를 마쳤습니다. (install-only e2e)',
               tool_calls: [],
             };
           }
@@ -750,7 +781,7 @@ async function main() {
                 {
                   index: 0,
                   message,
-                  finish_reason: turn === 1 ? 'tool_calls' : 'stop',
+                  finish_reason: message.tool_calls?.length ? 'tool_calls' : 'stop',
                 },
               ],
               model: 'mock-plugin-auto',
@@ -808,17 +839,22 @@ async function main() {
       const diskPlugin = existsSync(
         join(staged.cqrRoot, 'data', 'agent-plugins', 'git_history_tree', 'tool.json'),
       );
-      const autoStatus = statuses.some(
-        (s) => /immediate after install|auto after install|empty reply post-install|plugin_git_history/i.test(s),
-      );
-      const graphInAnswer =
-        /graph|히스토리|commits|●|\*|seed/i.test(String(result?.content || ''))
-        || statuses.some((s) => /plugin_git_history_tree|실행 · plugin_/i.test(s));
-      record('command_path.install_disk', diskPlugin);
+      // Any plugin_git_history_tree call in replayed history would be runtime-injected:
+      // the mock never asked for it.
+      const injected = requestBodies.some((b) =>
+        (b.messages || []).some((msg) =>
+          (msg?.tool_calls || []).some((tc) => tc?.function?.name === 'plugin_git_history_tree'),
+        ),
+      ) || statuses.some((s) => /plugin_git_history_tree/.test(s));
       record(
-        'command_path.auto_exec_status',
-        autoStatus || graphInAnswer,
-        statuses.filter((s) => /plugin|Plugin|auto/i.test(s)).slice(0, 5).join(' | '),
+        'command_path.install_disk',
+        diskPlugin,
+        diskPlugin ? '' : `trace=${toolTrace.join(',')} steps=${result?.steps} requests=${requestBodies.length}`,
+      );
+      record(
+        'command_path.no_runtime_auto_exec',
+        !injected,
+        `trace=${toolTrace.join(',')}`,
       );
       record(
         'command_path.final_content',
@@ -829,20 +865,16 @@ async function main() {
       record('command_path.runCodeAgent', false, e?.message || String(e));
     } finally {
       mock?.server?.close();
-      rmSync(staged.cqrRoot, { recursive: true, force: true });
+      cleanupDir(staged.cqrRoot);
     }
   }
 
-  // --- 7) UI surface: client + sidebar plugins panel wired ---
+  // --- 7) UI surface: client + Settings → 플러그인 page wired ---
   {
-    const clientSrc = readFileSync(
-      join(productRoot, 'ui', 'workspace', 'src', 'api', 'cqrClient.ts'),
-      'utf8',
-    );
-    const navSrc = readFileSync(
-      join(productRoot, 'ui', 'workspace', 'src', 'components', 'GeminiNavSidebar.tsx'),
-      'utf8',
-    );
+    const uiSrc = (rel) => readFileSync(join(productRoot, 'ui', 'workspace', 'src', ...rel.split('/')), 'utf8');
+    const clientSrc = uiSrc('api/myAgentClient.ts');
+    const settingsSrc = uiSrc('components/SettingsModal.tsx');
+    const pageSrc = uiSrc('components/SettingsPluginsPage.tsx');
     record(
       'ui.client_list_install_enable',
       /listAgentPlugins/.test(clientSrc)
@@ -850,11 +882,12 @@ async function main() {
         && /setAgentPluginEnabled/.test(clientSrc),
     );
     record(
-      'ui.sidebar_plugins_overlay',
-      /overlay === 'plugins'/.test(navSrc)
-        && /label=\"플러그인\"/.test(navSrc)
-        && /로컬 에이전트 플러그인/.test(navSrc)
-        && /이 PC에 설치/.test(navSrc),
+      'ui.settings_plugins_page',
+      /id: 'plugins'[\s\S]{0,120}label: '플러그인'/.test(settingsSrc)
+        && /SettingsPluginsPage/.test(settingsSrc)
+        && /installAgentPluginFromTemplate/.test(pageSrc)
+        && /setAgentPluginEnabled/.test(pageSrc)
+        && /이 PC에/.test(pageSrc),
     );
   }
 

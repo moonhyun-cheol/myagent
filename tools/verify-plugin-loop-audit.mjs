@@ -74,7 +74,7 @@ async function load() {
     guards: await import(pathToFileURL(dist('agent/tool-content-guards.js')).href + `?t=${Date.now()}`),
     store: await import(pathToFileURL(dist('agent/agent-plugin-store.js')).href + `?t=${Date.now()}`),
     exec: await import(pathToFileURL(dist('agent/agent-tool-execute.js')).href + `?t=${Date.now()}`),
-    work: await import(pathToFileURL(dist('agent/agent-work-mode.js')).href + `?t=${Date.now()}`),
+    pack: await import(pathToFileURL(dist('agent/agent-tool-pack.js')).href + `?t=${Date.now()}`),
     reg: await import(pathToFileURL(dist('agent/agent-tool-registry.js')).href + `?t=${Date.now()}`),
     helpers: await import(pathToFileURL(dist('agent/agent-run-helpers.js')).href + `?t=${Date.now()}`),
   };
@@ -99,19 +99,20 @@ function stage() {
 }
 
 async function checkRisks(m) {
-  // --- R1 model defer / force+auto healing code present ---
+  // --- R1 install→use is the model's next step: no runtime defer-detect / forced invoke ---
   set(
-    'R1.defer_detect',
+    'R1.no_defer_detect',
     'P0',
-    m.guards.contentDefersPluginInvoke('설치 완료. 이제 플러그인을 호출합니다.') === true,
-    'contentDefersPluginInvoke',
+    typeof m.guards.contentDefersPluginInvoke === 'undefined',
+    'no prose "이제 호출합니다" detector',
   );
   set(
-    'R1.force_path_code',
+    'R1.no_forced_invoke',
     'P0',
-    srcHas('core/src/agent/agent-run-step-loop.ts', /pendingPluginInvoke/)
-      && srcHas('core/src/agent/agent-run-step-loop.ts', /Plugin install 후 미호출|빈 응답 \+ pending plugin/),
-    'pending force + empty auto-exec in step-loop',
+    !srcHas('core/src/agent/agent-run-step-loop.ts', /pendingPluginInvoke/)
+      && !srcHas('core/src/agent/agent-run-step-state.ts', /pendingPluginInvoke|pluginInvokeForceCount/)
+      && !srcHas('core/src/agent/agent-run-helpers.ts', /auto-invokes the new plugin/),
+    'no pending/forced plugin invoke in step loop or prompt',
   );
   set(
     'R1.skip_silent_diag_plugin_only',
@@ -181,6 +182,14 @@ async function checkRisks(m) {
   );
   const scTpl = JSON.parse(
     m.store.scaffoldAgentPlugin({
+      id: 'fstat',
+      purpose: 'file_stat 파일 크기 플러그인',
+      risk: 'read',
+    }),
+  );
+  // git_history_tree template is superseded by the builtin tool → never recommended.
+  const scHist = JSON.parse(
+    m.store.scaffoldAgentPlugin({
       id: 'hist',
       purpose: 'git history tree graph ascii',
       risk: 'read',
@@ -205,8 +214,8 @@ async function checkRisks(m) {
   set(
     'R3.scaffold_prefer_template',
     'P0',
-    scTpl.prefer_template_id === 'git_history_tree',
-    scTpl.prefer_template_id || JSON.stringify(scTpl).slice(0, 80),
+    scTpl.prefer_template_id === 'file_stat' && !scHist.prefer_template_id,
+    `file_stat=${scTpl.prefer_template_id} git_history=${scHist.prefer_template_id ?? 'none'}`,
   );
   set('R3.scaffold_api_ok', 'P1', scEcho.ok === true, scEcho.name || '');
 
@@ -246,12 +255,13 @@ async function checkRisks(m) {
 
   // --- R5 UI surface ---
   set(
-    'R5.sidebar_plugins',
+    'R5.settings_plugins',
     'P0',
-    srcHas('ui/workspace/src/components/GeminiNavSidebar.tsx', /label=\"플러그인\"/)
-      && srcHas('ui/workspace/src/api/cqrClient.ts', /listAgentPlugins/)
-      && srcHas('ui/workspace/src/api/cqrClient.ts', /installAgentPluginFromTemplate/),
-    'nav + client APIs',
+    srcHas('ui/workspace/src/components/SettingsModal.tsx', /id: 'plugins'[\s\S]{0,120}label: '플러그인'/)
+      && srcHas('ui/workspace/src/components/SettingsPluginsPage.tsx', /installAgentPluginFromTemplate/)
+      && srcHas('ui/workspace/src/api/myAgentClient.ts', /listAgentPlugins/)
+      && srcHas('ui/workspace/src/api/myAgentClient.ts', /installAgentPluginFromTemplate/),
+    'Settings → 플러그인 + client APIs',
   );
   set(
     'R5.no_marketplace',
@@ -261,14 +271,32 @@ async function checkRisks(m) {
   );
 
   // --- R6 safety ---
-  const all = m.reg.getCodeAgentTools(root);
-  const ask = m.work.filterToolsForWorkMode(all, 'ask', '설명만');
-  const askNames = new Set(ask.map((t) => t.function.name));
+  const ro = m.pack.getCodeAgentToolsForPack('read_only', false, root);
+  const roNames = new Set(ro.map((t) => t.function.name));
   set(
-    'R6.ask_hides_install',
+    'R6.read_only_hides_install',
     'P0',
-    !askNames.has('plugin_install') && askNames.has('plugin_list'),
-    'ASK lock',
+    !roNames.has('plugin_install') && roNames.has('plugin_list'),
+    'read_only pack',
+  );
+  const planBlocked = await m.exec.executeAgentTool(
+    root,
+    {
+      id: 'plan1',
+      type: 'function',
+      function: {
+        name: 'plugin_install',
+        arguments: JSON.stringify({ template_id: 'git_history_tree', confirm: true }),
+      },
+    },
+    {},
+    { cqrRoot: root, sessionId: 'plan-audit', workspaceBehavior: 'plan' },
+  );
+  set(
+    'R6.plan_blocks_install',
+    'P0',
+    /WORKSPACE_BEHAVIOR_READ_ONLY/.test(planBlocked.output),
+    'Plan behavior',
   );
   const s2 = stage();
   try {

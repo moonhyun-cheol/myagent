@@ -138,13 +138,6 @@ export interface AgentRunStepState {
   readBodiesFetchedThisRun: Set<string>;
   /** Cursor-like auto-read heals for read_before_write (cap per run). */
   readBeforeWriteAutoHeals: number;
-  /**
-   * After plugin_install success: tool names that must still be invoked this run
-   * (install-without-use is a common live model failure).
-   */
-  pendingPluginInvoke: string[];
-  /** Force-TOOL_CALL rounds for pendingPluginInvoke (cap 2). */
-  pluginInvokeForceCount: number;
   /** Last auto workspace_checkpoint id this run (for UI Reject). */
   lastAutoCheckpointId: string | null;
   /** Paths already snapshotted before a decision-model-approved mutation (lazy). */
