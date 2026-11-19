@@ -419,7 +419,7 @@ try {
   assert.doesNotMatch(client, /승인 확인|거절 확인|거절 확정|다시 선택/);
   const approvalExecutionIndex = stepLoop.indexOf('const hitl = needsHumanApproval(execCall.function.name');
   const checkpointExecutionIndex = stepLoop.indexOf(
-    'if (isMutatingAgentTool(execCall.function.name) && !state.autoCheckpointTaken)',
+    'if (isMutatingAgentTool(execCall.function.name)) {\n        try {\n          const firstAttempt = !state.autoCheckpointTaken;',
   );
   assert.ok(approvalExecutionIndex >= 0 && checkpointExecutionIndex >= 0);
   assert.ok(

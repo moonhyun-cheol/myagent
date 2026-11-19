@@ -72,7 +72,9 @@ try {
     }),
   });
   const chatData = await chat.json();
-  if (!chat.ok || !String(chatData.content).includes('stub cloud')) {
+  // Chat runs on the soft agent plane (RC-014): the stub reply may come from the tools path.
+  const chatContent = String(chatData.content);
+  if (!chat.ok || !/stub (?:cloud|tools)/.test(chatContent) || !chatContent.includes('hello provider')) {
     console.error('chat via provider failed', chatData);
     process.exit(1);
   }

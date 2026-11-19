@@ -14,7 +14,6 @@ const compressAb = process.argv.includes('--compress-ab');
 const { applyHistoryContextCompress, applyHistoryContentBudget } = await import(
   '../core/dist/chat/history-budget.js'
 );
-const { truncateToolResultForLlm } = await import('../core/dist/agent/agent-run-helpers.js');
 const {
   resolveContextBudgets,
   usedContextLimitsFallback,
@@ -83,21 +82,8 @@ assert.ok(
   'vision/attach debit must reduce historyCompressChars',
 );
 
-const retrievalJson = JSON.stringify({
-  query: 'history-budget',
-  count: 0,
-  hits: [],
-  ok: true,
-  noisyDump: 'x'.repeat(80_000),
-});
-const truncated = truncateToolResultForLlm(retrievalJson, 'search_embeddings', {
-  maxChars: 4_000,
-  modelId: 'openai/gpt-5.6-sol',
-});
-assert.match(truncated, /"count":0/);
-assert.match(truncated, /"hits":\[\]/);
-assert.match(truncated, /"query":"history-budget"/);
-assert.ok(truncated.length < 8_000);
+// truncateToolResultForLlm was removed in update 36 (tool results go to the
+// evidence store), so its check is gone.
 
 // Sticky fold boundary: growing history (one question = user+assistant) must keep the
 // same fold note while the tail fits; before, the boundary moved every question.

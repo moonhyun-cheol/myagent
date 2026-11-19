@@ -131,7 +131,13 @@ async function main() {
     suite: 'catalog',
     item: 'skills_manifest',
     level: 0,
-    result: catalog.skills.length === 3 ? 'pass' : 'fail',
+    // The shipped manifest size changes with org modules; require a non-empty,
+    // duplicate-free manifest that still carries the core web_dev skill.
+    result: catalog.skills.length >= 1
+      && new Set(catalog.skills.map((s) => s.id)).size === catalog.skills.length
+      && catalog.skills.some((s) => s.id === 'web_dev')
+      ? 'pass'
+      : 'fail',
     ms: 0,
     note: catalog.skills.map((s) => s.id).join(','),
   });

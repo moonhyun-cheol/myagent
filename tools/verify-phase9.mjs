@@ -65,7 +65,8 @@ try {
   });
   if (stream.status !== 200) throw new Error(`explicit pick stream ${stream.status}`);
   const body = await stream.text();
-  if (!body.includes('stub stream') && !body.includes('token')) {
+  // Chat runs on the soft agent plane (RC-014), so the stub reply comes from the tools path.
+  if (!body.includes('stub stream') && !body.includes('stub tools') && !body.includes('token')) {
     throw new Error('explicit pick stream empty');
   }
 

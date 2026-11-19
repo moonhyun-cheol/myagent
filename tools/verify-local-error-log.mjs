@@ -38,14 +38,14 @@ try {
   });
 
   const serviceSource = readFileSync(path.join(root, 'core/src/support/error-report-service.ts'), 'utf8');
-  const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ErrorReportMenu.tsx'), 'utf8');
+  // ErrorReportMenu.tsx was replaced by the patch-notes menu (a5aaabb); the client API remains.
+  const client = readFileSync(path.join(root, 'ui/workspace/src/api/myAgentClient.ts'), 'utf8');
   const routes = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   const server = readFileSync(path.join(root, 'core/src/api-server.ts'), 'utf8');
-  for (const source of [serviceSource, ui, routes, server]) {
+  for (const source of [serviceSource, client, routes, server]) {
     assert.doesNotMatch(source, /gmail\.com|sendSmtpMail|ERROR_REPORT_TO|ErrorReportStore/);
   }
-  assert.match(ui, /data\/logs\/error-reports\.jsonl/);
-  assert.match(ui, /지금 기록/);
+  assert.match(client, /fetch\('\/error-report\/send'/);
   assert.match(routes, /MY Agent 수동 오류 기록/);
   console.log('local error log contract: PASS');
 } finally {

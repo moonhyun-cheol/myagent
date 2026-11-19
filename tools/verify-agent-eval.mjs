@@ -655,7 +655,8 @@ async function main() {
       `engine=${cloudIdx?.engine} n=${cloudIdx?.chunks.length}`,
     );
     const cloudDisk = existsSync(embDir)
-      && readdirSync(embDir).some((f) => f.endsWith('.cloud.json'));
+      // Cloud index moved from .cloud.json to the SQLite store (.cloud.sqlite).
+      && readdirSync(embDir).some((f) => f.endsWith('.cloud.sqlite'));
     record('embed.cloud_persist', cloudDisk);
 
     const asyncHits = await searchEmbeddingIndexAsync(embedFix, 'summation integers', {

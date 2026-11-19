@@ -16,7 +16,8 @@ const checkStage = process.argv.includes('--stage') || full;
 const SKIP_DIR = new Set(['.git', 'node_modules', 'logs', 'deploy', 'runtime', 'data', '.cursor']);
 const TEXT_EXT = /\.(ts|js|mjs|cjs|ps1|cs|json|html|css|md|bat)$/i;
 const DEBUG_MARK = '7742/ingest';
-const DEBUG_SKIP = new Set(['tools/predeploy-check.mjs']);
+// Checkers that contain the marker as a search needle, not as instrumentation.
+const DEBUG_SKIP = new Set(['tools/predeploy-check.mjs', 'tools/verify-no-debug-telemetry.mjs']);
 
 let failed = 0;
 let warned = 0;

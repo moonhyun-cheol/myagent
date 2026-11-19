@@ -59,8 +59,9 @@ try {
   assert.match(reasoningUi, /최소/);
   assert.match(reasoningUi, /매우 높음/);
   assert.match(reasoningUi, /최고/);
-  assert.match(reasoningUi, /modelRequiresExplicitReasoningEffort/);
-  assert.match(reasoningUi, /gpt\[-_\. \]\?astra/);
+  // Supported efforts come from the Core picker capability, not a UI model-name table.
+  assert.match(reasoningUi, /if \(capability\) return \[\.\.\.capability\.supported_efforts\]/);
+  assert.doesNotMatch(reasoningUi, /astra/i);
   assert.match(client, /'minimal' \| 'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'/);
   assert.match(client, /body\.execution_policy = opts\.execution_policy/);
   assert.match(workspace, /basePolicy = \{ \.\.\.get\(\)\.activeExecutionPolicy \}/);
