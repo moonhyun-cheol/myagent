@@ -2,20 +2,20 @@
   "algorithm": "RSA-PSS-SHA256",
   "document": {
     "schema": "cqr-pa-update-feed/v1",
-    "update_sequence": 73,
+    "update_sequence": 74,
     "minimum_supported_sequence": 1,
-    "version": "1.1.25",
+    "version": "1.1.26",
     "channel": "stable",
-    "published_at": "2026-11-13T04:37:46.776Z",
+    "published_at": "2026-11-19T04:18:01.420Z",
     "asset": {
       "repository": "moonhyun-cheol/myagent",
-      "release_tag": "update-73",
-      "name": "MYAgent-v1.1.25-delta.zip",
-      "size": 279250929,
-      "sha256": "8bc11caa571485b2a2899ec9ff147a940a54c54f6a8771d3e3fe2f06ad61b2e1"
+      "release_tag": "update-74",
+      "name": "MYAgent-v1.1.26-delta.zip",
+      "size": 279200829,
+      "sha256": "ba2a6a0ad07e0b881b2c5ac2b60f7f1d6257f91f59f0756343dbd96d0be66e7f"
     },
-    "payload_manifest_sha256": "695e6233311d47d1af68bf4ae9e18a6e5590d0f1185a52b4e6c77818168fd292",
+    "payload_manifest_sha256": "cf51aa137e31d2d0fffdf8b59210dd24585ccb32e793dc53424b5ea990a1e6ff",
     "release_notes": ""
   },
-  "signature": "lkHDzsgsqM0HN4oYFnhbyHTFLlVwumhVbAi6wiHT9Fmfy+A4Bfc32X+5NuC7WcpzSfQWIRcsbMePcO50w6GOK10LXRzqdSI0gs+DGm9b+jVkFv/PKkTKJT9yKgBBRoEkHltVizlQnr36K0hg4Dv7CCTliQJ0Wc/b9ZDx+jMXxVZyVbyx26RDaRrBJd7X50Jop2iSAwAsXfT75QQv3cqDPVvhqeqASK4kKXgxX5fft7BsmZe7sNmj4nZ2RlQw21lD6a57u3cN1vb0bttX98Sziqhq4q3MKAMs00fqOeOmIgA/Js+Y3ydRq28HG3ndSHB7yw5dBTjTuMMsgysoz/ahWkcR3tRR8YsErDNyLb6jCC/dF0RGZh6pisSlJ5FA86DOVn17JGr7cLHJAELNae4DYYvdhflypGpoWkjRoTEkXAMOqMdYkMAmAhXC3zgsrvFLvgtWXrmReHedGjp1jzysRHx9ZRQ2eCpM5m826k4jqrAlU6e3g/bEKq7wN5/HV0mS"
+  "signature": "LHWGjswZibKHVpw8+I/canT3wBGj+TBpi3K0PeYeRBWjlGJb/0kkpk7dbHoIk4pFcC2Q6cBD6Ne6v7z9O0TZxCgxXqu9mtGP3xOIW4i6fFhYUgG/foKxs5LukUaFcWm9FtSnYwSU73104OnJPe0Uo3GlyM1GJH6eWbbt3UmnH/7IvjhBgea1QR1kAK+E9swuvhm/lYybKH+EoWxZdAXZW1JgEeyQ4WQrpzZUEtnH+kv6aIAAbbkdEuJhCo5VqV2juMpmLfxuAw44zPd2+KjDxraeP3qzmm2tn6XAjOwJKt0VKQj5KsW/nElTGIlGK0dx5l3luXZBw8ioyEEF5/mdMwBJn2EFiiHhknCpFoc4PsmmOMydHN/hNh9dRtqN/aYWPhed88sjb+nOaXF3P3qpfKahX+ggxYc0mqk1qLRjJfedNeiFfq1AgvbzJJUrAr1b3EVowvhMzSLOddHRrOTKxBbbyAkpHh2UVd2YI5mQgoNW7oT6hCwwYiUK/vqtk9sq"
 }
