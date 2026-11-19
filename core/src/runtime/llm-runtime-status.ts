@@ -2,18 +2,6 @@ import type { ProviderStore } from '../providers/provider-store.js';
 import { loadUserOverrides } from '../config/user-overrides.js';
 import { resolveCodeAgentProvider } from '../chat/modes/workspace-agent.js';
 import { prefersClientToolProtocol } from '../agent/code-agent.js';
-import { resolveInstalledOllamaModel } from '../providers/ollama-models.js';
-
-export interface OllamaRuntimeProbe {
-  configured: boolean;
-  base_url?: string;
-  model_id?: string;
-  reachable: boolean;
-  model_installed: boolean;
-  model_count: number;
-  models_sample: string[];
-  note: string;
-}
 
 export interface OpenRouterRuntimeProbe {
   configured: boolean;
@@ -35,78 +23,12 @@ export interface LlmRuntimeStatus {
   local_only: boolean;
   default_provider_id: string | null;
   code_agent: CodeAgentRuntimeInfo | null;
-  ollama: OllamaRuntimeProbe;
   openrouter: OpenRouterRuntimeProbe;
   /** @deprecated Compatibility alias for older diagnostics readers. */
   openwebui: OpenRouterRuntimeProbe;
-  /** Code agent + configured LLM can run (Ollama model present or OpenRouter reachable when not local_only). */
+  /** Code agent + configured LLM can run (OpenRouter reachable, or a configured personal provider). */
   chat_ready: boolean;
   warnings: string[];
-}
-
-async function probeOllama(
-  providerStore: ProviderStore,
-): Promise<OllamaRuntimeProbe> {
-  const none: OllamaRuntimeProbe = {
-    configured: false,
-    reachable: false,
-    model_installed: false,
-    model_count: 0,
-    models_sample: [],
-    note: 'not configured',
-  };
-  const resolved = providerStore.resolveProvider('ollama');
-  if (!resolved) return none;
-
-  const baseUrl = resolved.baseUrl.replace(/\/v1\/?$/, '');
-  const modelId = resolved.modelId;
-  try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) {
-      return {
-        configured: true,
-        base_url: resolved.baseUrl,
-        model_id: modelId,
-        reachable: false,
-        model_installed: false,
-        model_count: 0,
-        models_sample: [],
-        note: `HTTP ${res.status}`,
-      };
-    }
-    const data = (await res.json()) as { models?: { name?: string }[] };
-    const names = (data.models ?? [])
-      .map((m) => m.name)
-      .filter((n): n is string => Boolean(n));
-    const remapped = resolveInstalledOllamaModel(modelId, names);
-    const installed = Boolean(remapped);
-    return {
-      configured: true,
-      base_url: resolved.baseUrl,
-      model_id: modelId,
-      reachable: true,
-      model_installed: installed,
-      model_count: names.length,
-      models_sample: names.slice(0, 8),
-      note: remapped && remapped !== modelId
-        ? `OK · '${modelId}' → '${remapped}'`
-        : installed
-          ? `OK · ${names.length} models`
-          : `reachable but model '${modelId}' not found (${names.length} installed)`,
-    };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      configured: true,
-      base_url: resolved.baseUrl,
-      model_id: modelId,
-      reachable: false,
-      model_installed: false,
-      model_count: 0,
-      models_sample: [],
-      note: msg.slice(0, 240),
-    };
-  }
 }
 
 async function probeOpenRouter(providerStore: ProviderStore): Promise<OpenRouterRuntimeProbe> {
@@ -168,7 +90,7 @@ async function probeOpenRouter(providerStore: ProviderStore): Promise<OpenRouter
   }
 }
 
-/** OpenRouter/Ollama 경로·코드 에이전트 LLM 상태 (health / Manager). */
+/** OpenRouter 경로·코드 에이전트 LLM 상태 (health / Manager). */
 const LLM_STATUS_CACHE_MS = 15_000;
 let llmStatusCache: { at: number; data: LlmRuntimeStatus } | null = null;
 
@@ -184,7 +106,6 @@ export async function collectLlmRuntimeStatus(
   const localOnly = overrides.local_only === true;
   const warnings: string[] = [];
 
-  const ollama = await probeOllama(providerStore);
   let openrouter: OpenRouterRuntimeProbe;
   if (localOnly) {
     openrouter = {
@@ -218,24 +139,12 @@ export async function collectLlmRuntimeStatus(
     warnings.push('코드 에이전트 LLM 프로바이더를 resolve하지 못했습니다.');
   }
 
-  if (localOnly) {
-    if (!ollama.configured) warnings.push('local_only인데 Ollama가 설정되지 않았습니다.');
-    else if (!ollama.reachable) warnings.push(`Ollama 서버 연결 실패: ${ollama.note}`);
-    else if (!ollama.model_installed) {
-      warnings.push(`Ollama 모델 '${ollama.model_id}' 없음 — ollama pull 또는 Manager에서 모델 변경`);
-    }
-  } else if (codeAgent?.provider_id === 'custom' && !openrouter.reachable) {
-    warnings.push(
-      `MY OpenRouter 불안정: ${openrouter.note} (코드 에이전트는 Ollama로 자동 재시도하지 않음 — MY_AGENT_OLLAMA_FALLBACK=1로만 허용)`,
-    );
+  if (!localOnly && codeAgent?.provider_id === 'custom' && !openrouter.reachable) {
+    warnings.push(`MY OpenRouter 불안정: ${openrouter.note}`);
   }
 
   let chatReady = false;
-  if (localOnly) {
-    chatReady = ollama.configured && ollama.reachable && ollama.model_installed;
-  } else if (codeAgent?.provider_id === 'ollama') {
-    chatReady = ollama.configured && ollama.reachable && ollama.model_installed;
-  } else if (codeAgent?.provider_id === 'custom') {
+  if (codeAgent?.provider_id === 'custom' && !localOnly) {
     chatReady = openrouter.reachable;
   } else if (codeAgent?.provider_id) {
     // Personal / catalog OpenAI-compatible endpoints: key is enough for readiness.
@@ -246,7 +155,6 @@ export async function collectLlmRuntimeStatus(
     local_only: localOnly,
     default_provider_id: providerStore.getDefaultId(),
     code_agent: codeAgent,
-    ollama,
     openrouter,
     openwebui: openrouter,
     chat_ready: chatReady,
@@ -263,7 +171,7 @@ let llmStatusRefresh: Promise<unknown> | null = null;
 
 /**
  * Refresh the cached status in the background when it is missing/stale (single-flight).
- * `/health` uses this so the shell's 2s health probe never waits on Ollama/OpenRouter.
+ * `/health` uses this so the shell's 2s health probe never waits on OpenRouter.
  */
 export function refreshLlmRuntimeStatusInBackground(providerStore: ProviderStore, configPath: string): void {
   if (llmStatusRefresh) return;
@@ -284,7 +192,6 @@ export function compactLlmRuntimeStatus(full: LlmRuntimeStatus): Record<string, 
     chat_ready: full.chat_ready,
     code_agent_provider: full.code_agent?.provider_id ?? null,
     code_agent_model: full.code_agent?.model_id ?? null,
-    ollama_ok: full.ollama.reachable && full.ollama.model_installed,
     openrouter_ok: full.openrouter.skipped ? null : full.openrouter.reachable,
     openwebui_ok: full.openrouter.skipped ? null : full.openrouter.reachable,
     warnings: full.warnings,

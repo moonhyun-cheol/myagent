@@ -351,7 +351,7 @@ export class ProviderStore {
     const toolProtocol = wireApi !== 'chat_completions'
       ? 'native'
       : secret.tool_protocol
-        ?? (def.kind === 'search' || providerId === 'ollama' || def.local_only_ok === true ? 'text' : 'native');
+        ?? (def.kind === 'search' || def.local_only_ok === true ? 'text' : 'native');
     if (def.kind === 'search') {
       if (!baseUrl || !secret.api_key) return null;
       return { def, secret, modelId: modelId || 'search', baseUrl, wireApi, toolProtocol };
@@ -583,13 +583,12 @@ export class ProviderStore {
         wireApi !== 'chat_completions'
           ? 'native'
           : usableEntry?.tool_protocol
-            ?? (def.kind === 'search' || def.id === 'ollama' || def.local_only_ok === true ? 'text' : 'native'),
+            ?? (def.kind === 'search' || def.local_only_ok === true ? 'text' : 'native'),
       tool_protocol_confirmed: Boolean(
         usableEntry?.tool_protocol
         || def.kind === 'search'
         || def.id === 'openai'
-        || def.id === 'anthropic'
-        || def.id === 'ollama',
+        || def.id === 'anthropic',
       ),
       secret_storage: 'local_encrypted',
       secret_backend: this.masterKeyStore.backend,

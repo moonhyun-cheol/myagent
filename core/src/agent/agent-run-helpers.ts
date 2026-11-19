@@ -50,26 +50,6 @@ export const AGENT_REPLY_LANGUAGE_RULE = [
 export const AGENT_REPLY_LANGUAGE_REMINDER =
   '### Reply language\n사용자에게 보이는 답변은 한국어로 작성하세요(사용자가 영어로만 쓰거나 다른 언어를 요청한 경우만 예외). 코드·경로·명령은 원문 유지.';
 
-export function codingTaxSystemLines(): string[] {
-  return [
-    'Mutate rules: read_file (or list_directory for new files) before write/edit/delete/apply_patch — auto-heal may read for you. Prefer edit_file (one) / apply_patch (multi). No chat-only full-file paste. The built-in agent owns IDE mutations so Responses continuity, approvals, cache invalidation, and verification remain in one runtime.',
-    'HITL Accept: delete_file, run_terminal, workspace_rollback, freeform plugin_install (no template_id), plugin_set_enabled (and oversized write/patch), git_commit/pull/push/switch/init, git_branch create, git_restore worktree|both, git_stash pop|drop (still pass confirm=true only when the user asked). Workspace git_* for the bound repo — but public remote inspect (github.com URL + 설명/구조) → run_terminal `git clone --depth 1 <url> .my_agent_remote/<owner>__<repo>` then list/read. Full history asks → `remote_git_inspect` (ensure_full) — never ask for git bundle upload. Never force-push.',
-    'GIT (enterprise/Cursor parity):',
-    '- History/branch tree: use builtin git_history_tree (do not install plugin template git_history_tree).',
-    '- Compare/sync/pull-diff: call git_sync_preview first (fetch+incoming/outgoing/local dirty). Then detail with git_diff/git_show as needed.',
-    '- Apply remote: git_pull confirm=true only after preview and if user wants apply.',
-    '- Publish: git_push confirm=true only when user explicitly asks (never invent push).',
-    '- Commit: git_status/git_diff → git_commit confirm=true (or git_stage then commit).',
-    '- Switch: git_switch confirm=true; dirty tree → git_stash push or commit first.',
-    '- Blame/show/branch list are read-only; branch create/restore worktree need confirm.',
-    'LOCAL PLUGINS (capability plan — fixed order):',
-    '- 1) Prefer matching **builtin** tools already in the catalog.',
-    '- 2) Else install shipped **template** via plugin_install template_id=… confirm=true (no freeform).',
-    '- 3) Else **plugin_scaffold** (purpose-aware) → show purpose+risk → freeform plugin_install (UI Accept required) → call plugin_*.',
-    '- Do not shadow builtins (read_file, git_*). Plugin tool names must start with plugin_. write/network risk tools need confirm=true on invoke.',
-  ];
-}
-
 export function extractToolCodeSnippet(call: AgentToolCall): { label: string; text: string } | null {
   try {
     const args = JSON.parse(call.function.arguments || '{}') as Record<string, unknown>;
@@ -146,7 +126,7 @@ export function buildAgentMessages(
   const hasAttach = Boolean(opts.attachmentContext?.trim());
   const protocolLines = useClientToolProtocol
     ? [
-        'Tools run in-process via TOOL_CALL: lines (see protocol note). Ollama/passthrough-off OWUI must use TOOL_CALL.',
+        'Tools run in-process via TOOL_CALL: lines (see protocol note).',
       ]
     : noFolder
       ? ['Tools run in-process via native API tool_calls.']
@@ -162,15 +142,13 @@ export function buildAgentMessages(
     : selfWorkspace
     ? [
         'MY Agent product workspace (self): product paths such as ui/workspace, core/src and shell/CqrPa.Shell are valid targets here.',
-        'FORBIDDEN: dump ui-target-map / MainWindow.xaml / ChatPane / GeminiNavSidebar unless the user asked to edit those UI targets.',
         'GROUNDING: base file-content claims on a read — read_file in this run, or evidence stored earlier in this session (listed in the turn context; open it with evidence_read) while that file is unchanged.',
       ]
     : [
         'External project workspace — do NOT cite MY Agent paths (ui/workspace, ChatPane, MainWindow.xaml).',
         'GROUNDING: base file-content claims on a read — read_file in this run, or evidence stored earlier in this session (listed in the turn context; open it with evidence_read) while that file is unchanged. Discover via map/search/read (UNC/absolute OK when user points outside).',
       ];
-  // AGENTS.md stays in both self and external memory; the self FORBIDDEN line above already
-  // covers UI-map dumping, so the block is no longer cut at the AGENTS.md heading.
+  // AGENTS.md stays in both self and external memory (never cut at the AGENTS.md heading).
   const memoryForPrompt = String(productMemoryBlock || '');
   const messages: ChatMessage[] = [
     {

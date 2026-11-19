@@ -50,7 +50,6 @@ import {
   unapplyWorkKit,
   type AgentProfile,
 } from '../config/agent-profile-store.js';
-import { testOllamaReachable } from '../inference/local-llama-runtime.js';
 import type { ModelKind } from '../models/types.js';
 import { buildModelPicker, invalidateRemoteModelCache } from '../models/model-picker.js';
 import { testConnection, testNativeToolConnection, listRemoteModels } from '../providers/openai-compatible.js';
@@ -297,7 +296,7 @@ export async function dispatchApiRequest(
         } catch {
           /* ignore */
         }
-        // Liveness probe: never wait on Ollama/OpenRouter here (shell probes use a 2s timeout).
+        // Liveness probe: never wait on OpenRouter here (shell probes use a 2s timeout).
         // Report the last cached status and refresh it in the background.
         const llm = peekLlmRuntimeStatus();
         refreshLlmRuntimeStatusInBackground(providerStore, userConfigPath);
@@ -593,7 +592,6 @@ export async function dispatchApiRequest(
             ...agentAudit,
           },
           deploy_parity: {
-            ollama_configured: configured.includes('ollama'),
             all_skill_features: (
               [
                 'web_dev',
@@ -602,9 +600,7 @@ export async function dispatchApiRequest(
                 'deep_research',
               ] as const
             ).every((f) => lic.features?.includes(f)),
-            ready_for_full_features:
-              lic.mode === 'full' &&
-              configured.includes('ollama'),
+            ready_for_full_features: lic.mode === 'full',
           },
           logs: logFiles.slice(0, 20),
         });
@@ -1664,7 +1660,7 @@ export async function dispatchApiRequest(
           if (ovr.local_only && !isProviderAllowedLocalOnly(providerId, providerStore.listDefinitions())) {
             return sendJson(res, 403, {
               error: 'LOCAL_ONLY_BLOCKED',
-              message: '로컬 전용 모드에서는 Ollama(NAS)만 등록할 수 있습니다.',
+              message: '로컬 전용 모드에서는 로컬 전용으로 표시된 프로바이더만 등록할 수 있습니다.',
             });
           }
           const body = JSON.parse(await readBody(req)) as {
@@ -1748,23 +1744,6 @@ export async function dispatchApiRequest(
         let listErr: string | null = null;
         let listedModels: string[] = [];
 
-        if (providerId === 'ollama') {
-          if (!apiKey || !baseUrl) {
-            return sendJson(res, 400, {
-              provider_id: providerId,
-              ok: false,
-              note: 'API key and Base URL required',
-              error: 'PROVIDER_NOT_CONFIGURED',
-            });
-          }
-          const result = await testOllamaReachable(baseUrl, apiKey);
-          return sendJson(res, result.ok ? 200 : 502, {
-            provider_id: providerId,
-            ok: result.ok,
-            note: result.note,
-          });
-        }
-
         if (def?.custom && apiKey && baseUrl) {
           try {
             listedModels = await listRemoteModels(baseUrl, apiKey);
@@ -1801,7 +1780,7 @@ export async function dispatchApiRequest(
         );
         const { result, selected: selectedWireApi, attempts } = selection;
         const nativeProbe =
-          result.ok && selectedWireApi && def.kind === 'openai_compatible' && providerId !== 'ollama'
+          result.ok && selectedWireApi && def.kind === 'openai_compatible'
             ? await testNativeToolConnection(baseUrl, apiKey, modelId, selectedWireApi)
             : null;
         const nativeRequired = selectedWireApi ? requiresNativeTools(selectedWireApi) : false;

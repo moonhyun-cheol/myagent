@@ -16,7 +16,7 @@ export interface ProviderDefinition {
   compatibility?: ProviderCompatibility;
   docs_url?: string;
   note?: string;
-  /** Allowed when local_only policy is on (e.g. NAS Ollama). */
+  /** Allowed when local_only policy is on (local/NAS endpoint). */
   local_only_ok?: boolean;
   /** Preferred LLM wire protocol. */
   wire_api?: ProviderWireApi;

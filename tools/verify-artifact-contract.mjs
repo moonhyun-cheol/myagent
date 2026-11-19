@@ -63,7 +63,7 @@ try {
     sessionId,
     userMessage: '그게 아니라 웹앱이 아니다. Discord Bot Token 기반 일간 매크로.',
   });
-  assert.equal(resolved?.invalidated, false);
+  assert.ok(resolved, 'saved lock survives a contradicting message');
   assert.equal(resolved?.artifactKind, 'web_spa');
   assert.equal(loadLockedConstraints(tmp, sessionId)?.artifactKind, 'web_spa');
 } finally {

@@ -143,5 +143,5 @@ export function userConfigPath(dataDir: string): string {
 
 export function isProviderAllowedLocalOnly(providerId: string, catalog: { id: string; local_only_ok?: boolean }[]): boolean {
   const def = catalog.find((p) => p.id === providerId);
-  return def?.local_only_ok === true || providerId === 'ollama';
+  return def?.local_only_ok === true;
 }

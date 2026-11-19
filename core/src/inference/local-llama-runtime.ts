@@ -141,21 +141,3 @@ export function getLocalLlamaRuntime(cqrRoot: string): LocalLlamaRuntime {
   }
   return rt;
 }
-
-/** @internal test helper */
-export async function testOllamaReachable(baseUrl: string, apiKey: string): Promise<{ ok: boolean; note: string }> {
-  if (apiKey.startsWith('stub:')) {
-    return { ok: true, note: 'STUB_OLLAMA_OK' };
-  }
-  const root = baseUrl.replace(/\/v1\/?$/, '');
-  try {
-    const res = await fetch(`${root}/api/tags`, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return { ok: false, note: `HTTP ${res.status}` };
-    const data = (await res.json()) as { models?: unknown[] };
-    const count = data.models?.length ?? 0;
-    return { ok: true, note: `OK (${count} models)` };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, note: msg.slice(0, 240) };
-  }
-}

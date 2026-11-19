@@ -131,6 +131,7 @@
     "verify:delta-process-scope": "node tools/verify-delta-process-scope.mjs",
     "verify:git-tools": "node tools/verify-git-tools.mjs",
     "verify:git-terminal-tiers": "node tools/verify-git-terminal-tiers.mjs",
+    "verify:prompt-cleanup": "node tools/verify-prompt-cleanup.mjs",
     "verify:agent-plugins": "node tools/verify-agent-plugins.mjs",
     "verify:parity-p1": "node tools/verify-parity-p1.mjs",
     "verify:mutate-reject-e2e": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-mutate-reject-e2e.mjs",

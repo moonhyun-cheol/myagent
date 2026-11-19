@@ -94,7 +94,7 @@ export function normalizeReasoningEffortForModel(
 }
 
 /**
- * Models that error when reasoning_effort/thinking is sent (e.g. Ollama qwen2.5:7b).
+ * Models that error when reasoning_effort/thinking is sent (e.g. local qwen2.5:7b).
  * Thinking-capable names are allowlisted.
  */
 export function modelRejectsReasoningEffort(modelId?: string | null): boolean {
@@ -180,21 +180,8 @@ export function harnessCompletionExtras(
 ): { reasoningEffort?: string; extraBody?: Record<string, unknown> } {
   const effort = resolveReasoningEffort(env);
   if (!effort) return {};
-  if (opts?.providerId === 'ollama') return {};
   if (modelRejectsReasoningEffort(opts?.modelId)) return {};
   return { reasoningEffort: effort };
-}
-
-/**
- * Code agent may use Ollama only when `local_only` or `MY_AGENT_ALLOW_OLLAMA_CODE=1`.
- * Default off — NAS Ollama is too weak for multi-file mutate (TEXT TOOL_CALL loops).
- */
-export function ollamaAllowedForCodeAgent(
-  env: NodeJS.ProcessEnv = process.env,
-  opts?: { localOnly?: boolean },
-): boolean {
-  if (opts?.localOnly === true) return true;
-  return envFlagOn(env.MY_AGENT_ALLOW_OLLAMA_CODE, false);
 }
 
 /**
@@ -205,14 +192,6 @@ export function ollamaAllowedForCodeAgent(
  */
 export function codingPlanLockEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return envFlagOn(env.MY_AGENT_CODE_PLAN_LOCK, false);
-}
-
-/**
- * Silent OWUI/gateway → Ollama fallback for chat + code-agent. Default off.
- * Opt in: `MY_AGENT_OLLAMA_FALLBACK=1`.
- */
-export function ollamaEmergencyFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return envFlagOn(env.MY_AGENT_OLLAMA_FALLBACK, false);
 }
 
 /**
@@ -231,7 +210,7 @@ export function softStepLatencyWarnMs(env: NodeJS.ProcessEnv = process.env): num
 
 /**
  * Whether OWUI/custom should start on TEXT TOOL_CALL (client protocol).
- * Ollama/local always TEXT. Sticky failures are handled separately.
+ * local_only providers always TEXT. Sticky failures are handled separately.
  * @param forCodeAgent when true, use code OWUI protocol (default api → native tools).
  */
 export function owuiPrefersClientToolProtocol(
@@ -240,7 +219,7 @@ export function owuiPrefersClientToolProtocol(
   env: NodeJS.ProcessEnv = process.env,
   forCodeAgent = false,
 ): boolean {
-  if (providerId === 'ollama' || def.local_only_ok === true) return true;
+  if (def.local_only_ok === true) return true;
   const isOwui = providerId === 'custom' || def.custom === true;
   if (!isOwui) return false;
   const mode = forCodeAgent ? resolveCodeOwuiProtocolMode(env) : resolveOwuiProtocolMode(env);

@@ -11,7 +11,6 @@ import {
 } from '../providers/openai-compatible.js';
 import {
   loadHarnessPolicy,
-  ollamaEmergencyFallbackEnabled,
   resolveCodeReasoningEffortForModel,
   resolveCodeOwuiProtocolMode,
 } from '../providers/harness-policy.js';
@@ -170,7 +169,6 @@ import {
   collectAutoCheckpointPaths,
   estimateChatPayloadChars,
   extractToolCodeSnippet,
-  isOwuiOrGatewayError,
   lastSuccessfulReadPath,
   messagesHadToolRole,
   pushToolResultMessage,
@@ -184,33 +182,6 @@ const TASK_BOOKKEEPING_TOOLS = new Set([
 ]);
 
 export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentResult> {
-  try {
-    return await runCodeAgentInner(opts);
-  } catch (e: unknown) {
-    // Ollama emergency fallback is opt-in only (MY_AGENT_OLLAMA_FALLBACK=1).
-    if (
-      ollamaEmergencyFallbackEnabled()
-      && opts.providerId !== 'ollama'
-      && isOwuiOrGatewayError(e)
-    ) {
-      const ollama = opts.providerStore.resolveProvider('ollama');
-      if (ollama) {
-        opts.onStatus?.('MY OpenRouter unavailable — retrying with Ollama (TOOL_CALL)…');
-        return runCodeAgentInner({
-          ...opts,
-          providerId: 'ollama',
-          modelId: ollama.modelId,
-          // Same user turn re-run on another provider: resume what the failed attempt
-          // persisted without counting it as a user 「이어서」.
-          continuationRetry: true,
-        });
-      }
-    }
-    throw e;
-  }
-}
-
-async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResult> {
   const allowNas = opts.nasWriteConsent === true;
   assertDevWorkspaceRootReadable(opts.workspaceRoot);
   const guard = { allowNas };
@@ -242,7 +213,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   if (!isCodeAgentLlmProvider(opts.providerId, resolved.def)) {
     throw new ProviderError(
       'PROVIDER_NOT_SUPPORTED',
-      'Code agent requires company OpenRouter or a personal API (Models). Ollama is disabled for coding unless MY_AGENT_ALLOW_OLLAMA_CODE=1.',
+      'Code agent requires company OpenRouter or a personal OpenAI-compatible API (Models).',
     );
   }
 
@@ -286,7 +257,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   // Do not infer a required edit from wording. Actual tool calls and disk evidence own completion.
   const ideEditRequest = false;
   // Provider/model configuration owns native vs TEXT. Confirmed native never
-  // demotes in-run; Ollama/legacy providers remain TEXT.
+  // demotes in-run; legacy TEXT providers remain TEXT.
   let toolProtocol: AgentToolProtocol = nativeToolsLocked
     ? 'api'
     : configuredToolProtocol === 'text' || prefersClientToolProtocol(opts.providerId, def) || stickyClientReason
@@ -359,7 +330,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,
     userMessage: opts.userMessage,
-    agentMutateTurn: true,
   });
   const mutatedPathsThisRun = new Set<string>();
   let browserSession: PlaywrightSession | null = null;
@@ -696,9 +666,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     });
     sysInsertAt += 1;
     pushThought(
-      lockedConstraints?.invalidated
-        ? 'P0 제약 · 무효화(방향 정정) — PLAN 재작성 · legacy 격리'
-        : `P0 제약 · mode=${lockedConstraints?.mode ?? 'unknown'} · kind=${lockedConstraints?.artifactKind ?? lockedConstraints?.artifact?.artifactKind ?? 'unknown'}`,
+      `P0 제약 · mode=${lockedConstraints?.mode ?? 'unknown'} · kind=${lockedConstraints?.artifactKind ?? lockedConstraints?.artifact?.artifactKind ?? 'unknown'}`,
     );
   }
   if (opts.extraSystemNotes?.length) {

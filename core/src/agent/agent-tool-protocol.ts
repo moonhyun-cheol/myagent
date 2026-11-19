@@ -4,7 +4,7 @@ import { owuiPrefersClientToolProtocol } from '../providers/harness-policy.js';
 
 /**
  * Select the legacy TEXT TOOL_CALL compatibility protocol.
- * - Ollama / local_only: always TEXT
+ * - local_only providers: always TEXT
  * - Responses / Anthropic Messages: caller locks native tools, so this return
  *   value is ignored and the runtime never renegotiates to TEXT.
  * - Chat Completions: configuration may explicitly retain TEXT compatibility.

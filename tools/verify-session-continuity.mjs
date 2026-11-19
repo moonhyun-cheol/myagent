@@ -263,7 +263,8 @@ try {
   );
   assert.ok(exhaustedBlock.length > 0, 'exhausted branch present');
   assert.doesNotMatch(exhaustedBlock, /clearSessionContinuationState\(/, 'exhaustion must not reset the resume counter');
-  assert.match(loopSrc, /modelId: ollama\.modelId,[\s\S]{0,200}continuationRetry: true/, 'host retry path sets continuationRetry');
+  const orchSrc = readFileSync(path.resolve('core/src/chat/chat-orchestrator.ts'), 'utf8');
+  assert.match(orchSrc, /continuationRetry: attempt > 1/, 'host retry path sets continuationRetry');
   assert.match(loopSrc, /carriedResumeCountOnReplace/, 'host limit replace carries resumeCount');
   assert.match(loopSrc, /CONTINUATION_UNSAVED_NOTICE/, 'host limit does not claim a save it skipped');
 } finally {

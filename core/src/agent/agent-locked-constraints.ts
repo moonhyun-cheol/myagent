@@ -26,8 +26,6 @@ export interface LockedConstraints {
   sources: Record<string, string>;
   requirementChecks: string[];
   rawLines: string[];
-  invalidated?: boolean;
-  invalidateReason?: string;
   /** Product modality contract (ADR-007 extension). */
   artifact?: ArtifactContract;
   artifactKind?: ArtifactKind;
@@ -64,8 +62,10 @@ export function loadLockedConstraints(
   const fp = lockedConstraintsPath(cqrRoot, sessionId);
   if (!existsSync(fp)) return null;
   try {
-    const raw = JSON.parse(readFileSync(fp, 'utf8')) as LockedConstraints;
+    const raw = JSON.parse(readFileSync(fp, 'utf8')) as LockedConstraints & { invalidated?: unknown };
     if (!raw || typeof raw !== 'object') return null;
+    // Records invalidated by the retired direction-reversal path carry no usable P0.
+    if (raw.invalidated === true) return null;
     return normalizeConstraints(raw);
   } catch {
     return null;
@@ -82,20 +82,6 @@ export function saveLockedConstraints(
   mkdirSync(dir, { recursive: true });
   const fp = lockedConstraintsPath(cqrRoot, sessionId);
   writeFileSync(fp, `${JSON.stringify(normalizeConstraints(constraints), null, 2)}\n`, 'utf8');
-}
-
-/** Clear sticky INVALIDATED after code-chip AGENT execute (PLAN rewrite not required). */
-export function clearStickyInvalidation(
-  current: LockedConstraints | null,
-): LockedConstraints | null {
-  if (!current?.invalidated) return current;
-  return {
-    ...current,
-    updatedAt: new Date().toISOString(),
-    invalidated: false,
-    invalidateReason: undefined,
-    rawLines: current.rawLines.filter((l) => !/^INVALIDATED:/i.test(l)).slice(0, 24),
-  };
 }
 
 function emptyConstraints(partial?: Partial<LockedConstraints>): LockedConstraints {
@@ -151,9 +137,6 @@ function normalizeConstraints(raw: Partial<LockedConstraints>): LockedConstraint
     rawLines: Array.isArray(raw.rawLines)
       ? raw.rawLines.map((s) => String(s).trim()).filter(Boolean).slice(0, 24)
       : [],
-    invalidated: raw.invalidated === true,
-    invalidateReason:
-      typeof raw.invalidateReason === 'string' ? raw.invalidateReason.slice(0, 240) : undefined,
     artifact,
     artifactKind: artifact?.artifactKind,
     runtimeSurface: artifact?.runtimeSurface,
@@ -289,47 +272,16 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
   });
 }
 
-export function invalidateLockedConstraints(
-  current: LockedConstraints | null,
-  reason: string,
-): LockedConstraints {
-  const base = current ?? emptyConstraints();
-  return {
-    ...base,
-    updatedAt: new Date().toISOString(),
-    invalidated: true,
-    invalidateReason: reason.slice(0, 240),
-    rawLines: [
-      ...base.rawLines.slice(0, 20),
-      `INVALIDATED: ${reason.slice(0, 200)}`,
-    ],
-  };
-}
-
 /** Resolve only constraints saved by an approved PLAN; chat history is never parsed. */
 export function resolveLockedConstraintsForTurn(opts: {
   cqrRoot: string;
   sessionId?: string;
   userMessage: string;
-  /**
-   * Code-chip AGENT with mutations: sticky INVALIDATED must not force PLAN rewrite
-   * every turn — clear unless this message is an explicit direction reversal.
-   */
-  agentMutateTurn?: boolean;
 }): LockedConstraints | null {
-  let current = loadLockedConstraints(opts.cqrRoot, opts.sessionId);
-
+  const current = loadLockedConstraints(opts.cqrRoot, opts.sessionId);
   // Drop records created by the retired prose inference path.
   if (current?.rawLines.some((line) => /^inferred (?:from user message|artifactKind)/i.test(line))) {
-    current = null;
-  }
-
-  // Code chip / AGENT execute: drop sticky invalidation so UI/thought stops spamming.
-  if (opts.agentMutateTurn && current?.invalidated) {
-    current = clearStickyInvalidation(current);
-    if (current) {
-      saveLockedConstraints(opts.cqrRoot, opts.sessionId, current);
-    }
+    return null;
   }
   return current;
 }
@@ -342,7 +294,7 @@ export function persistConstraintsFromAssistantText(opts: {
 }): LockedConstraints | null {
   const extracted = extractLockedConstraintsFromText(opts.assistantText);
   if (!extracted) return opts.previous ?? null;
-  // Fresh PLAN replaces invalidation; keep/merge artifact from previous + extracted.
+  // Fresh PLAN replaces the previous lock; keep/merge artifact from previous + extracted.
   const artifact = mergeArtifactContracts(opts.previous?.artifact, extracted.artifact ?? emptyArtifactContract());
   const next: LockedConstraints = {
     ...extracted,
@@ -350,8 +302,6 @@ export function persistConstraintsFromAssistantText(opts: {
     artifact,
     artifactKind: artifact.artifactKind,
     runtimeSurface: artifact.runtimeSurface,
-    invalidated: false,
-    invalidateReason: undefined,
   };
   saveLockedConstraints(opts.cqrRoot, opts.sessionId, next);
   return next;
@@ -364,17 +314,6 @@ export function formatLockedConstraintsSystemNote(
   const lines = [
     '## Locked constraints (session P0 — prefer over earlier chat guesses)',
   ];
-  if (constraints.invalidated) {
-    lines.push(
-      'STATUS: INVALIDATED — prior design discarded after user direction correction.',
-      `Reason: ${constraints.invalidateReason || 'direction reversal'}`,
-      'Rewrite PLAN with fresh P0 before any mutate. Do not reuse discarded paths/flow.',
-      'If modality flipped away from web: isolate prior SPA under _web_legacy/ / _legacy/; add those paths to do-not-touch.',
-    );
-    const artNote = formatArtifactContractSystemNote(constraints.artifact);
-    if (artNote) lines.push(artNote.replace(/^## Artifact contract[^\n]*\n/, '### Pending artifact (new direction)\n'));
-    return lines.join('\n');
-  }
   lines.push(`mode: ${constraints.mode}`);
   if (constraints.entry) lines.push(`entry: ${constraints.entry}`);
   if (constraints.doNotTouch.length) {

@@ -93,8 +93,6 @@ const {
   owuiPrefersClientToolProtocol,
   harnessCompletionExtras,
   modelRejectsReasoningEffort,
-  ollamaAllowedForCodeAgent,
-  ollamaEmergencyFallbackEnabled,
 } = await import('../core/dist/providers/harness-policy.js');
 const {
   buildChatCompletionBody,
@@ -341,12 +339,12 @@ function withEnv(patch, fn) {
   });
 }
 
-// omit reasoning_effort for ollama / qwen2.5
+// omit reasoning_effort for local qwen2.5 / llama3
 {
   withEnv({ MY_AGENT_REASONING_EFFORT: 'high' }, () => {
     assert.equal(modelRejectsReasoningEffort('qwen2.5:7b'), true);
     assert.equal(modelRejectsReasoningEffort('qwen2.5-thinking'), false);
-    assert.deepEqual(harnessCompletionExtras(process.env, { providerId: 'ollama', modelId: 'llama3' }), {});
+    assert.deepEqual(harnessCompletionExtras(process.env, { providerId: 'custom', modelId: 'llama3' }), {});
     assert.deepEqual(
       harnessCompletionExtras(process.env, { providerId: 'custom', modelId: 'qwen2.5:7b' }),
       {},
@@ -355,25 +353,6 @@ function withEnv(patch, fn) {
       harnessCompletionExtras(process.env, { providerId: 'openai', modelId: 'gpt-5' }),
       { reasoningEffort: 'high' },
     );
-  });
-}
-
-// Ollama coding + emergency fallback off by default
-{
-  withEnv(
-    {
-      MY_AGENT_ALLOW_OLLAMA_CODE: undefined,
-      MY_AGENT_OLLAMA_FALLBACK: undefined,
-    },
-    () => {
-      assert.equal(ollamaAllowedForCodeAgent(), false);
-      assert.equal(ollamaAllowedForCodeAgent(process.env, { localOnly: true }), true);
-      assert.equal(ollamaEmergencyFallbackEnabled(), false);
-    },
-  );
-  withEnv({ MY_AGENT_ALLOW_OLLAMA_CODE: '1', MY_AGENT_OLLAMA_FALLBACK: '1' }, () => {
-    assert.equal(ollamaAllowedForCodeAgent(), true);
-    assert.equal(ollamaEmergencyFallbackEnabled(), true);
   });
 }
 

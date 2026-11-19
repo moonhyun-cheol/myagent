@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Locked constraints: labelled PLAN fields only, history never parsed, code-chip sticky clear.
+ * Locked constraints: labelled PLAN fields only, history never parsed, retired invalidated records dropped.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,11 +9,10 @@ import path from 'node:path';
 
 const {
   resolveLockedConstraintsForTurn,
-  invalidateLockedConstraints,
   saveLockedConstraints,
   loadLockedConstraints,
-  clearStickyInvalidation,
   extractLockedConstraintsFromText,
+  formatLockedConstraintsSystemNote,
 } = await import('../core/dist/agent/agent-locked-constraints.js');
 
 assert.equal(
@@ -44,21 +43,22 @@ assert.deepEqual(
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cqr-lock-'));
 const sessionId = 'test-code-chip';
 try {
-  const invalidated = invalidateLockedConstraints(null, 'test');
-  saveLockedConstraints(tmp, sessionId, invalidated);
-  assert.equal(loadLockedConstraints(tmp, sessionId)?.invalidated, true);
+  // Records written by the retired direction-reversal path are ignored (no _web_legacy note).
+  fs.mkdirSync(path.join(tmp, 'data', 'agent-constraints'), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmp, 'data', 'agent-constraints', `${sessionId}.json`),
+    JSON.stringify({ mode: 'unknown', invalidated: true, invalidateReason: 'old', rawLines: ['INVALIDATED: old'] }),
+  );
+  assert.equal(loadLockedConstraints(tmp, sessionId), null);
+  assert.equal(resolveLockedConstraintsForTurn({ cqrRoot: tmp, sessionId, userMessage: 'x' }), null);
 
-  const cleared = resolveLockedConstraintsForTurn({
-    cqrRoot: tmp,
-    sessionId,
-    userMessage: 'index.html app.js 수정해줘 즉시 mutate',
-    agentMutateTurn: true,
-  });
-  assert.equal(cleared?.invalidated, false, 'code-chip AGENT clears sticky invalidation');
-  assert.equal(loadLockedConstraints(tmp, sessionId)?.invalidated, false);
+  saveLockedConstraints(tmp, sessionId, structured);
+  const live = resolveLockedConstraintsForTurn({ cqrRoot: tmp, sessionId, userMessage: 'x' });
+  assert.equal(live?.mode, 'modify_existing');
+  const note = formatLockedConstraintsSystemNote(live);
+  assert.doesNotMatch(note, /INVALIDATED|_web_legacy/);
+  assert.match(note, /mode: modify_existing/);
 
-  const still = clearStickyInvalidation(invalidateLockedConstraints(null, 'x'));
-  assert.equal(still?.invalidated, false);
 
   // No saved PLAN lock → earlier assistant prose is never parsed into constraints.
   assert.equal(

@@ -42,7 +42,7 @@ const WEB_DEV_PRODUCT_SELF = [
 
 const WEB_DEV_EXTERNAL = [
   'Dev workspace is an external project — NOT the MY Agent product tree.',
-  'Do NOT cite MY Agent paths (ui/workspace, ChatPane, MainWindow.xaml, ui-target-map.md).',
+  'Do NOT cite MY Agent paths (ui/workspace, ChatPane, MainWindow.xaml).',
   'Discover files via repo map / search / read_file (workspace = chat context; absolute/UNC OK when user points outside).',
   'After edits, verify with tools when relevant; do not force a changed-paths / review-table footer on every turn.',
 ].join('\n');

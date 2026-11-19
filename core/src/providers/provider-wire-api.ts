@@ -16,7 +16,6 @@ export function enforcedProviderWireApi(
   if (def.id === 'openai') return 'responses';
   if (def.id === 'anthropic') return 'messages';
   if (def.id === 'custom') return 'responses';
-  if (def.id === 'ollama') return 'chat_completions';
   if (def.compatibility === 'anthropic') return 'messages';
   // An OpenAI-compatible gateway may expose a Claude-named model through the
   // Responses or Chat Completions shape. The selected endpoint contract wins.

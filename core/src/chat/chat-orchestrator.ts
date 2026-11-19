@@ -1086,16 +1086,6 @@ export class ChatOrchestrator {
               sessionId,
               { cqrRoot: this.cqrRoot },
             ),
-            extraSystemNotes:
-              attempt > 1
-                ? [
-                    [
-                      '## Infra retry — prior attempt may have already written disk',
-                      'Session meta / Exit Gate may list partial paths. Re-read those paths before re-applying the same patch.',
-                      'Close the open Exit Gate; do not cold-start Understanding or full repo diagnosis.',
-                    ].join('\n'),
-                  ]
-                : undefined,
             // Retries re-run this same turn: resume stored progress explicitly instead of
             // relying on the original message matching the 「이어서」 wording.
             continuationRetry: attempt > 1,

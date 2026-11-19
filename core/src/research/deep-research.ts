@@ -60,7 +60,7 @@ export class DeepResearchPipeline {
       summary = [
         '**LLM provider required for deep research.**',
         '',
-        'Register Ollama, company OpenRouter, or another provider under Models → API Providers.',
+        'Register company OpenRouter or another provider under Models → API Providers.',
       ].join('\n');
       steps[1] = 'Desk research (skipped — no LLM)';
     }

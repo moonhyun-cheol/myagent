@@ -6,10 +6,7 @@ import type { ProviderStore } from '../../providers/provider-store.js';
 import type { SessionStore } from '../../sessions/session-store.js';
 import type { ProjectStore } from '../../projects/project-store.js';
 import { loadUserOverrides } from '../../config/user-overrides.js';
-import {
-  ollamaAllowedForCodeAgent,
-  resolveSessionReasoningEffort,
-} from '../../providers/harness-policy.js';
+import { resolveSessionReasoningEffort } from '../../providers/harness-policy.js';
 import {
   normalizeExecutionPolicy,
   resolveWorkspaceBehavior,
@@ -127,9 +124,6 @@ export function resolveCodeAgentProvider(
   resolved: ResolvedModelRoute,
 ): { providerId: string; modelId?: string; display: string } {
   const overrides = loadUserOverrides(configPath);
-  const allowOllama = ollamaAllowedForCodeAgent(process.env, {
-    localOnly: overrides.local_only === true,
-  });
 
   const pick = (providerId: string, modelId?: string, display?: string) => {
     const r = providerStore.resolveProvider(providerId, modelId);
@@ -142,24 +136,23 @@ export function resolveCodeAgentProvider(
   };
 
   if (overrides.local_only) {
-    const ollama = pick('ollama');
-    if (ollama) return ollama;
+    for (const id of providerStore.getConfiguredIds()) {
+      if (providerStore.getDefinition(id)?.local_only_ok !== true) continue;
+      const chosen = pick(id);
+      if (chosen) return chosen;
+    }
     throw new Error(
-      'local_only mode requires Ollama. Configure Ollama in Models, or turn off local_only.',
+      'local_only mode requires a provider marked local_only_ok. Configure one in Models, or turn off local_only.',
     );
   }
 
   if (resolved.route.type === 'provider') {
     const { providerId, modelId } = resolved.route;
-    if (providerId === 'ollama' && !allowOllama) {
-      // Skip — fall through to MY cloud / personal API.
-    } else {
-      const def = providerStore.getDefinition(providerId);
-      // MY cloud, personal APIs, or any selected OpenAI-compatible endpoint.
-      if (def?.kind === 'openai_compatible') {
-        const chosen = pick(providerId, modelId, resolved.display);
-        if (chosen) return chosen;
-      }
+    const def = providerStore.getDefinition(providerId);
+    // MY cloud, personal APIs, or any selected OpenAI-compatible endpoint.
+    if (def?.kind === 'openai_compatible') {
+      const chosen = pick(providerId, modelId, resolved.display);
+      if (chosen) return chosen;
     }
   }
 
@@ -167,7 +160,6 @@ export function resolveCodeAgentProvider(
   if (custom) return custom;
   // Prefer a configured personal provider over failing hard.
   for (const id of providerStore.getConfiguredIds()) {
-    if (id === 'ollama' && !allowOllama) continue;
     const def = providerStore.getDefinition(id);
     if (def?.user_defined) {
       const chosen = pick(id);
@@ -175,17 +167,8 @@ export function resolveCodeAgentProvider(
     }
   }
 
-  if (allowOllama) {
-    if (resolved.route.type === 'provider' && resolved.route.providerId === 'ollama') {
-      const chosen = pick('ollama', resolved.route.modelId, resolved.display);
-      if (chosen) return chosen;
-    }
-    const ollama = pick('ollama');
-    if (ollama) return ollama;
-  }
-
   throw new Error(
-    'Code agent requires company OpenRouter or a personal API (Models). Ollama is disabled for coding — set MY_AGENT_ALLOW_OLLAMA_CODE=1 only if you must.',
+    'Code agent requires company OpenRouter or a personal OpenAI-compatible API (Models).',
   );
 }
 
@@ -290,15 +273,6 @@ export async function runWorkspaceCodeAgent(opts: {
   const lockSystemNotes = [lockNote, backgroundBrowserNote, ...(extraSystemNotes ?? [])].filter(Boolean);
 
   const provider = resolveCodeAgentProvider(configPath, providerStore, resolved);
-  if (
-    resolved.route.type === 'provider'
-    && resolved.route.providerId === 'ollama'
-    && provider.providerId !== 'ollama'
-  ) {
-    callbacks?.onStatus?.(
-      `Ollama skipped for coding — using ${provider.display} (set MY_AGENT_ALLOW_OLLAMA_CODE=1 to force Ollama)`,
-    );
-  }
   const skillMode = resolveLlmSkillMode(routing.mode);
   const systemPrompt = await appendBrandManualIfNeeded(
     cqrRoot,

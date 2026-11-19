@@ -1250,7 +1250,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           execCall.function.name === 'run_diagnostics'
           || execCall.function.name === 'run_tests'
           || (execCall.function.name === 'run_terminal'
-            && /(?:--check|node\s|npm\s+test|pytest|tsc\b|workspace:build)/i.test(execCall.function.arguments || ''))
+            && /(?:--check|node\s|npm\s+(?:test|run\s+(?:test|build|typecheck|lint|verify)\S*)|pytest|tsc\b|workspace:build|dotnet\s+(?:build|test)|cargo\s+(?:test|build|check|clippy)|go\s+(?:test|build|vet))/i.test(execCall.function.arguments || ''))
         ) {
           state.ranVerifyCommand = true;
           const kind =
@@ -1261,7 +1261,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
                 : 'diagnostics';
           const parsed = parseVerifyJson(output);
           if (parsed) {
-            // Prefer explicit command from tool args for workspace:build Exit Gate.
+            // Prefer the explicit command from tool args for the verification witness.
             let command = parsed.command;
             try {
               const rawArgs = JSON.parse(execCall.function.arguments || '{}') as { command?: string };

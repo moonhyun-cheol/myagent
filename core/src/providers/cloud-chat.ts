@@ -6,7 +6,7 @@ import {
   type ChatMessage,
 } from './openai-compatible.js';
 import { resolveResponsesReasoningSummaryPolicy } from './responses-compatible.js';
-import { harnessCompletionExtras, ollamaEmergencyFallbackEnabled } from './harness-policy.js';
+import { harnessCompletionExtras } from './harness-policy.js';
 import type { SessionMessage } from '../sessions/types.js';
 import type { SessionStore } from '../sessions/session-store.js';
 import { ProviderError } from './types.js';
@@ -15,7 +15,6 @@ import {
   workspaceSystemInstruction,
   defaultChatSystemInstruction,
 } from '../chat/chat-context.js';
-import { isOwuiOrGatewayError } from '../agent/code-agent.js';
 
 interface ChatUsageResult {
   content: string;
@@ -115,19 +114,7 @@ export class CloudChatService {
       onThought?: (text: string) => void;
     },
   ): Promise<ChatUsageResult> {
-    try {
-      return await this.completeAt(providerId, userMessage, attachmentContext, history, systemPrompt, opts);
-    } catch (e: unknown) {
-      const fallback = this.resolveOllamaFallback(providerId);
-      if (fallback && isOwuiOrGatewayError(e)) {
-        return this.completeAt(fallback.providerId, userMessage, attachmentContext, history, systemPrompt, {
-          ...opts,
-          modelId: fallback.modelId,
-          imageDataUrls: undefined,
-        });
-      }
-      throw e;
-    }
+    return this.completeAt(providerId, userMessage, attachmentContext, history, systemPrompt, opts);
   }
 
   async completeStream(
@@ -148,41 +135,15 @@ export class CloudChatService {
       onThought?: (text: string) => void;
     },
   ): Promise<ChatUsageResult> {
-    try {
-      return await this.completeStreamAt(
-        providerId,
-        userMessage,
-        attachmentContext,
-        history,
-        onToken,
-        systemPrompt,
-        opts,
-      );
-    } catch (e: unknown) {
-      const fallback = this.resolveOllamaFallback(providerId);
-      if (fallback && isOwuiOrGatewayError(e)) {
-        return this.completeStreamAt(
-          fallback.providerId,
-          userMessage,
-          attachmentContext,
-          history,
-          onToken,
-          systemPrompt,
-          { ...opts, modelId: fallback.modelId, imageDataUrls: undefined },
-        );
-      }
-      throw e;
-    }
-  }
-
-  private resolveOllamaFallback(
-    providerId: string,
-  ): { providerId: string; modelId?: string } | null {
-    if (!ollamaEmergencyFallbackEnabled()) return null;
-    if (providerId === 'ollama') return null;
-    const ollama = this.store.resolveProvider('ollama');
-    if (!ollama) return null;
-    return { providerId: 'ollama', modelId: ollama.modelId };
+    return this.completeStreamAt(
+      providerId,
+      userMessage,
+      attachmentContext,
+      history,
+      onToken,
+      systemPrompt,
+      opts,
+    );
   }
 
   private async completeAt(

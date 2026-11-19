@@ -1008,7 +1008,7 @@ function parseAssistantMessage(message: unknown): {
   return { content, tool_calls, reasoning };
 }
 
-/** Normalize OpenAI / OWUI / Ollama tool_call shapes into AgentToolCallPayload[]. */
+/** Normalize OpenAI / OWUI / local-gateway tool_call shapes into AgentToolCallPayload[]. */
 export function normalizeToolCallPayloads(raw: unknown): AgentToolCallPayload[] {
   if (!Array.isArray(raw) || raw.length === 0) return [];
   const out: AgentToolCallPayload[] = [];
@@ -1176,7 +1176,7 @@ function extractStreamDelta(delta: unknown): {
           name?: string;
           arguments?: string | Record<string, unknown>;
         };
-        // OWUI/Ollama often omit index when only one tool call is streamed.
+        // OWUI/local gateways often omit index when only one tool call is streamed.
         const index = typeof row.index === 'number' && Number.isFinite(row.index)
           ? row.index
           : fallbackIndex;
