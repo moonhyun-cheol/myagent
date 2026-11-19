@@ -5,14 +5,18 @@ import path from 'node:path';
  * Fixed terminal risk tiers (applied before and independent of the decision model).
  *
  * - blocked:  never runs, even with approval (disk format, wiping a drive root, the
- *             workspace root or the user's home folder).
- * - git_tool: git state changes go through the dedicated git_* tools (not a risk call).
- * - severe:   recursive folder delete / database destruction. Runs only after approval of
- *             this exact command; the decision model may approve it only when the user
- *             explicitly commanded it (see approval-auto-review `fixedSeverity`).
+ *             workspace root or the user's home folder, force push).
+ * - severe:   recursive folder delete / database destruction / hard-to-undo git (push,
+ *             reset --hard, clean, discarding checkout/restore, branch -D, ...). Runs only
+ *             after approval of this exact command; the decision model may approve it only
+ *             when the user explicitly commanded it (see approval-auto-review `fixedSeverity`).
  * - normal:   everything else; the decision model judges it as before.
+ *
+ * Git is classified by its parsed subcommand (global options such as `-C`, `-c`,
+ * `--git-dir` are skipped; `git.exe` and full paths count), not by a substring match.
+ * The dedicated git_* tools remain the preferred path for the bound workspace repo.
  */
-export type TerminalRiskTier = 'blocked' | 'git_tool' | 'severe' | 'normal';
+export type TerminalRiskTier = 'blocked' | 'severe' | 'normal';
 
 export interface TerminalRisk {
   tier: TerminalRiskTier;
@@ -28,11 +32,6 @@ const REBUILDABLE_DIRS = new Set([
 
 const DISK_FORMAT_RE = /(?:^|[;&|]\s*)format(?:\.com)?(?:\s+[A-Za-z]:|\s+\/|$)/i;
 
-const GIT_TOOL_RE = /\bgit\s+(?:push|pull|fetch|reset|clean|commit|checkout|switch|stash|restore|add|rebase|merge|cherry-pick|revert|rm|mv|tag\s+-d)\b/i;
-/** `git branch` is fine for listing; create/delete/rename goes through git_branch. */
-const GIT_BRANCH_RE = /\bgit\s+branch\b([^;&|]*)/i;
-const GIT_BRANCH_LIST_FLAGS = /^(?:-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--verbose|--no-color|--color|--merged|--no-merged|--contains|--sort=\S+|--format=\S+)$/i;
-
 const DB_DESTROY_RES: RegExp[] = [
   /\bDROP\s+(?:TABLE|DATABASE|SCHEMA)\b/i,
   /\bTRUNCATE\s+(?:TABLE\s+)?[\w."`[\]]+/i,
@@ -45,25 +44,6 @@ const DB_DESTROY_RES: RegExp[] = [
   /\bprisma\s+(?:migrate\s+reset|db\s+push\s+[^;&|]*--force-reset)\b/i,
 ];
 const DB_FILE_RE = /\.(?:db|sqlite|sqlite3|mdf|ldf)(?:["'\s,;)]|$)/i;
-
-/**
- * Public inspect clones under `.my_agent_remote/` may deepen history / read git metadata via shell.
- * Bound-workspace write/sync still uses dedicated git_* tools (bare `git fetch` stays blocked).
- */
-export function isAllowedCqrRemoteInspectGitShell(command: string): boolean {
-  const t = String(command || '').trim();
-  if (!t || !/\.my_agent_remote[/\\]/i.test(t)) return false;
-  // Prefer `git -C .my_agent_remote/<owner>__<repo> …`
-  const viaDashC =
-    /^git\s+-C\s+(?:["'][^"']*\.my_agent_remote[^"']*["']|\.my_agent_remote[/\\][^\s"';|&]+)\s+/i.test(t);
-  if (!viaDashC) return false;
-  // Read / deepen only — no push/reset/commit/clean.
-  return (
-    /\bfetch\s+--unshallow\b/i.test(t)
-    || /\bfetch\s+(?:--all\b|(?:--tags\b)|(?:--prune\b))/i.test(t)
-    || /\b(?:rev-parse|rev-list|log|shortlog|status|remote|tag|diff|show|blame|branch)\b/i.test(t)
-  );
-}
 
 function splitSegments(command: string): string[] {
   return command.split(/\s*(?:;|&&|\|\||\||\r?\n)\s*/).map((s) => s.trim()).filter(Boolean);
@@ -169,11 +149,152 @@ function isRebuildableTarget(raw: string): boolean {
   return t.split('/').some((part) => REBUILDABLE_DIRS.has(part.toLowerCase()));
 }
 
-function gitBranchNeedsTool(command: string): boolean {
-  const m = GIT_BRANCH_RE.exec(command);
-  if (!m) return false;
-  const args = (m[1] ?? '').trim().split(/\s+/).filter(Boolean);
-  return args.some((a) => !GIT_BRANCH_LIST_FLAGS.test(a));
+// ── git: parsed subcommand → fixed tier ─────────────────────────────────────────────
+
+/** Global git options that take the next token as their value (`-C dir`, `-c k=v`). */
+const GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
+  '-C', '-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--super-prefix',
+  '--exec-path', '--list-cmds', '--attr-source',
+]);
+
+interface ShellToken {
+  value: string;
+  quoted: boolean;
+}
+
+function tokenizeShell(s: string): ShellToken[] {
+  return [...s.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((t) => ({
+    value: (t[1] ?? t[2] ?? t[3] ?? '').replace(/^["'(]+|["')]+$/g, ''),
+    quoted: t[1] !== undefined || t[2] !== undefined,
+  }));
+}
+
+function isGitExecutable(token: string): boolean {
+  const base = token.split(/[\\/]/).pop() ?? '';
+  return /^git(?:\.exe)?$/i.test(base);
+}
+
+export interface GitInvocation {
+  /** Lower-cased subcommand after global options ('' when none). */
+  subcommand: string;
+  args: string[];
+  /** `-c alias.x=...` defines the subcommand inline, so it cannot be classified. */
+  inlineAlias: boolean;
+}
+
+/**
+ * Find git invocations in a shell command: one per segment, wrappers (`&`, `cmd /c`,
+ * `powershell -Command`) and quoted inner commands included.
+ */
+export function parseGitInvocations(command: string, depth = 0): GitInvocation[] {
+  const out: GitInvocation[] = [];
+  for (const segment of splitSegments(command)) {
+    const tokens = tokenizeShell(unwrapSegment(segment));
+    for (let i = 0; i < tokens.length; i += 1) {
+      const tok = tokens[i];
+      // A quoted path to git.exe is the executable; other quoted text may be an inner command.
+      if (tok.quoted && /\s/.test(tok.value) && !isGitExecutable(tok.value)) {
+        if (depth < 2) out.push(...parseGitInvocations(tok.value, depth + 1));
+        continue;
+      }
+      if (!isGitExecutable(tok.value)) continue;
+      let j = i + 1;
+      let inlineAlias = false;
+      while (j < tokens.length && tokens[j].value.startsWith('-')) {
+        const opt = tokens[j].value;
+        const name = opt.split('=')[0];
+        if (GIT_GLOBAL_OPTS_WITH_VALUE.has(name) && !opt.includes('=')) {
+          if (name === '-c' && /^alias\./i.test(tokens[j + 1]?.value ?? '')) inlineAlias = true;
+          j += 2;
+        } else {
+          if (/^--config-env=alias\./i.test(opt)) inlineAlias = true;
+          j += 1;
+        }
+      }
+      out.push({
+        subcommand: (tokens[j]?.value ?? '').toLowerCase(),
+        args: tokens.slice(j + 1).map((t) => t.value),
+        inlineAlias,
+      });
+      // Arguments after the subcommand (commit messages etc.) are not commands.
+      break;
+    }
+  }
+  return out;
+}
+
+function hasLongFlag(args: string[], ...names: string[]): boolean {
+  return args.some((a) => names.includes(a.split('=')[0]));
+}
+
+/** `-f`, `-fu`, `-Df` … (case-sensitive: `-D` ≠ `-d`). */
+function hasShortFlag(args: string[], letter: string): boolean {
+  return args.some((a) => /^-[A-Za-z]+$/.test(a) && a.slice(1).includes(letter));
+}
+
+function gitInvocationRisk(inv: GitInvocation): TerminalRisk | null {
+  if (inv.inlineAlias) return { tier: 'severe', reason: 'git alias defined inline' };
+  const { subcommand: sub, args } = inv;
+  switch (sub) {
+    case 'push': {
+      if (
+        hasLongFlag(args, '--force', '--force-with-lease', '--force-if-includes', '--mirror')
+        || hasShortFlag(args, 'f')
+        || args.some((a) => a.startsWith('+'))
+      ) {
+        return { tier: 'blocked', reason: 'git force push' };
+      }
+      if (hasLongFlag(args, '--delete', '--prune') || hasShortFlag(args, 'd') || args.some((a) => a.startsWith(':'))) {
+        return { tier: 'severe', reason: 'git push deleting a remote ref' };
+      }
+      return { tier: 'severe', reason: 'git push' };
+    }
+    case 'reset':
+      return hasLongFlag(args, '--hard', '--merge', '--keep') ? { tier: 'severe', reason: 'git reset --hard' } : null;
+    case 'clean':
+      return hasLongFlag(args, '--dry-run') || hasShortFlag(args, 'n') ? null : { tier: 'severe', reason: 'git clean' };
+    case 'checkout':
+      return args.includes('--') || args.includes('.') || hasLongFlag(args, '--force') || hasShortFlag(args, 'f')
+        ? { tier: 'severe', reason: 'git checkout discarding working-tree changes' }
+        : null;
+    case 'restore': {
+      const staged = hasLongFlag(args, '--staged') || hasShortFlag(args, 'S');
+      const worktree = hasLongFlag(args, '--worktree') || hasShortFlag(args, 'W');
+      return staged && !worktree ? null : { tier: 'severe', reason: 'git restore discarding working-tree changes' };
+    }
+    case 'switch':
+      return hasLongFlag(args, '--force', '--discard-changes') || hasShortFlag(args, 'f')
+        ? { tier: 'severe', reason: 'git switch discarding changes' }
+        : null;
+    case 'stash':
+      return ['drop', 'clear', 'pop'].includes((args[0] ?? '').toLowerCase())
+        ? { tier: 'severe', reason: `git stash ${args[0].toLowerCase()}` }
+        : null;
+    case 'branch':
+      return hasShortFlag(args, 'D') || hasShortFlag(args, 'M') || hasShortFlag(args, 'C') || hasShortFlag(args, 'f')
+        || hasLongFlag(args, '--force')
+        ? { tier: 'severe', reason: 'git branch force delete/overwrite' }
+        : null;
+    case 'tag':
+      return hasShortFlag(args, 'd') || hasShortFlag(args, 'f') || hasLongFlag(args, '--delete', '--force')
+        ? { tier: 'severe', reason: 'git tag delete/overwrite' }
+        : null;
+    case 'update-ref':
+      return hasShortFlag(args, 'd') ? { tier: 'severe', reason: 'git update-ref -d' } : null;
+    case 'reflog':
+      return ['expire', 'delete'].includes((args[0] ?? '').toLowerCase()) ? { tier: 'severe', reason: 'git reflog expire/delete' } : null;
+    case 'gc':
+      return args.some((a) => a.startsWith('--prune')) ? { tier: 'severe', reason: 'git gc --prune' } : null;
+    case 'filter-branch':
+    case 'filter-repo':
+      return { tier: 'severe', reason: `git ${sub}` };
+    case 'worktree':
+      return (args[0] ?? '').toLowerCase() === 'remove' && (hasLongFlag(args, '--force') || hasShortFlag(args, 'f'))
+        ? { tier: 'severe', reason: 'git worktree remove --force' }
+        : null;
+    default:
+      return null;
+  }
 }
 
 export function classifyTerminalCommand(command: string, workspaceRoot = ''): TerminalRisk {
@@ -193,8 +314,11 @@ export function classifyTerminalCommand(command: string, workspaceRoot = ''): Te
     }
   }
 
-  if (!isAllowedCqrRemoteInspectGitShell(trimmed) && (GIT_TOOL_RE.test(trimmed) || gitBranchNeedsTool(trimmed))) {
-    return { tier: 'git_tool', reason: 'git state change — use the dedicated git_* tools' };
+  for (const inv of parseGitInvocations(trimmed)) {
+    const risk = gitInvocationRisk(inv);
+    if (!risk) continue;
+    if (risk.tier === 'blocked') return risk;
+    severeReason ||= risk.reason;
   }
 
   if (!severeReason) {

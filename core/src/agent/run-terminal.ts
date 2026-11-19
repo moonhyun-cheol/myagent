@@ -128,7 +128,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 100_000;
 
 // Fixed risk tiers live in terminal-risk-policy.ts (shared with the approval step).
-export { isAllowedCqrRemoteInspectGitShell, classifyTerminalCommand } from './terminal-risk-policy.js';
+export { classifyTerminalCommand, parseGitInvocations } from './terminal-risk-policy.js';
 
 function truncateOutput(text: string): { text: string; truncated: boolean } {
   const buf = Buffer.from(text, 'utf8');
@@ -231,17 +231,15 @@ export function validateShellCommand(command: string, workspaceRoot: string, app
     return 'command must not reference parent directories (..)';
   }
   const risk = classifyTerminalCommand(trimmed, workspaceRoot);
-  if (risk.tier === 'blocked' || risk.tier === 'git_tool') {
+  if (risk.tier === 'blocked') {
     const hint =
       /git\s+clone/i.test(trimmed) && /Remove-Item|rm\s+-rf|rmdir/i.test(trimmed)
         ? ' Hint: use only `git clone [--depth 1] <url> .my_agent_remote/<owner>__<repo>` (no Remove-Item/rm -rf). Full history: omit --depth 1 or `git -C <dest> fetch --unshallow`.'
-        : /\bgit\s+fetch\b/i.test(trimmed)
-          ? ' Hint: bound-repo sync → tool git_fetch; public `.my_agent_remote` deepen → `git -C .my_agent_remote/<owner>__<repo> fetch --unshallow --tags --prune`.'
-          : risk.tier === 'git_tool'
-            ? ' Hint: use git_status/git_diff/git_commit/git_push/git_pull/git_fetch/git_switch/git_branch/git_stash/git_restore/git_stage. Read-only git log/show/blame/diff are allowed in the shell.'
-            : risk.reason === 'disk format'
-              ? ' Hint: disk `format` is blocked; git `--pretty=format:` is allowed.'
-              : ' Name the specific subfolder to delete instead of the root.';
+        : risk.reason === 'git force push'
+          ? ' Force push is never allowed; push without --force/-f/+refspec (git_push or an approved terminal push).'
+          : risk.reason === 'disk format'
+            ? ' Hint: disk `format` is blocked; git `--pretty=format:` is allowed.'
+            : ' Name the specific subfolder to delete instead of the root.';
     return `command blocked by safety policy: ${risk.reason}.${hint}`;
   }
   if (risk.tier === 'severe' && approvedCommand !== command) {

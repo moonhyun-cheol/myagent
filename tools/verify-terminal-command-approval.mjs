@@ -23,7 +23,7 @@ assert.equal(terminal.validateShellCommand(command, ws, command), null);
 assert.match(terminal.validateShellCommand(command + '; Write-Output changed', ws, command), /requires approval/);
 assert.match(terminal.validateShellCommand(command, ws, 'different command'), /requires approval/);
 assert.equal(terminal.validateShellCommand('Get-Content "D:\\work\\project\\a.txt"', ws), null);
-for (const blocked of ['git push', 'git pull', 'git reset --hard', 'Remove-Item -Recurse .', 'Get-Content ..\\a.txt', 'format C:', 'rm -rf /', 'Remove-Item -Recurse -Force D:\\work\\project']) {
+for (const blocked of ['git push --force', 'Remove-Item -Recurse .', 'Get-Content ..\\a.txt', 'format C:', 'rm -rf /', 'Remove-Item -Recurse -Force D:\\work\\project']) {
   assert.ok(terminal.validateShellCommand(blocked, ws, blocked), `approval must not bypass hard safety blocks: ${blocked}`);
 }
 // Severe tier: recursive folder delete / DB destruction runs only with approval of this exact command.
@@ -41,8 +41,8 @@ for (const normal of ['rm -rf node_modules', 'Remove-Item -Recurse -Force dist',
   assert.equal(approval.needsHumanApproval('run_terminal', { command: normal }, {}, { workspaceRoot: ws }).fixedSeverity, undefined, normal);
 }
 assert.equal(terminal.classifyTerminalCommand('sqlite3 a.db "UPDATE messages SET content=\'x\' WHERE id = 3;"', ws).tier, 'normal');
-assert.equal(terminal.classifyTerminalCommand('git branch -D feat', ws).tier, 'git_tool');
-assert.equal(approval.needsHumanApproval('run_terminal', { command: 'git push' }, {}, { workspaceRoot: ws }).needed, false, 'never-run commands skip the card');
+assert.equal(terminal.classifyTerminalCommand('git branch -D feat', ws).tier, 'severe');
+assert.equal(approval.needsHumanApproval('run_terminal', { command: 'git push --force' }, {}, { workspaceRoot: ws }).needed, false, 'never-run commands skip the card');
 const request = approval.needsHumanApproval('run_terminal', { command, confirm: true }, {}, { workspaceRoot: ws });
 assert.equal(request.needed, true);
 assert.equal(request.access, 'operation');

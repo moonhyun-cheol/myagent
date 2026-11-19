@@ -557,8 +557,8 @@ export function needsHumanApproval(
       return { needed: false, danger: false, summary: '' };
     }
     const risk = classifyTerminalCommand(cmd, context?.workspaceRoot ?? '');
-    // Always-blocked / git-tool commands never run, so an approval card would be pointless.
-    if (risk.tier === 'blocked' || risk.tier === 'git_tool') {
+    // Always-blocked commands never run, so an approval card would be pointless.
+    if (risk.tier === 'blocked') {
       return { needed: false, danger: false, summary: '' };
     }
     const severe = risk.tier === 'severe';
@@ -569,7 +569,7 @@ export function needsHumanApproval(
       targets: external.length ? external : undefined,
       expires: 'once',
       ...(severe ? { fixedSeverity: 'severe' as const } : {}),
-      summary: severe ? `터미널 실행 (폴더 통째 삭제/DB 삭제 수준): ${cmd}` : `터미널 실행: ${cmd}`,
+      summary: severe ? `터미널 실행 (되돌리기 어려움: ${risk.reason}): ${cmd}` : `터미널 실행: ${cmd}`,
     };
   }
   if (toolName === 'write_file') {

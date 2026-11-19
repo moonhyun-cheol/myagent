@@ -863,7 +863,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'git_pull',
       description:
-        'pull --ff-only. confirm=true. Prefer git_sync_preview first. Not via run_terminal.',
+        'pull --ff-only. confirm=true. Prefer git_sync_preview first. Preferred over run_terminal for the workspace repo.',
       parameters: {
         type: 'object',
         properties: {
@@ -880,7 +880,7 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'git_push',
       description:
-        'Push (no force ever). confirm=true only when user explicitly asks. set_upstream for -u. Not via run_terminal.',
+        'Push (no force ever). confirm=true only when user explicitly asks. set_upstream for -u. Preferred over run_terminal for the workspace repo (terminal push needs exact-command approval; force push is always blocked).',
       parameters: {
         type: 'object',
         properties: {

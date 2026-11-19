@@ -48,7 +48,7 @@ const {
   gitStash,
   gitCommit,
   runTerminalCommand,
-  isAllowedCqrRemoteInspectGitShell,
+  classifyTerminalCommand,
 } = rt;
 
 // Catalog check: definitions include new tools
@@ -160,25 +160,22 @@ try {
   if (JSON.parse(gitPush(dir, { confirm: false })).ok !== false) fail('push confirm');
   console.log('OK git_pull/git_push confirm gates');
 
-  // --- terminal blocklist (enterprise: no raw git write via shell) ---
-  for (const cmd of [
-    'git pull',
-    'git fetch',
-    'git push',
-    'git commit -m x',
-    'git switch main',
-    'git stash',
-    'git add .',
-    // Listing (`git branch`, `git branch -a`) is read-only and allowed; create/delete is not.
-    'git branch new-x',
-    'git branch -D feat-x',
-  ]) {
-    const blocked = runTerminalCommand(dir, cmd);
-    if (blocked.ok || !String(blocked.stderr).includes('blocked')) {
-      fail(`run_terminal should block: ${cmd} → ${JSON.stringify(blocked)}`);
+  // --- terminal git: hard-to-undo needs exact-command approval, force push never runs ---
+  for (const cmd of ['git push', 'git reset --hard', 'git branch -D feat-x', 'git -C . clean -fd']) {
+    const res = runTerminalCommand(dir, cmd);
+    if (res.ok || !/requires user approval/.test(String(res.stderr))) {
+      fail(`run_terminal severe git needs approval: ${cmd} → ${JSON.stringify(res)}`);
     }
   }
-  console.log('OK run_terminal blocks git writes');
+  for (const cmd of ['git push --force', 'git push origin +main']) {
+    const res = runTerminalCommand(dir, cmd, { approvedCommand: cmd });
+    if (res.ok || !String(res.stderr).includes('blocked')) {
+      fail(`run_terminal force push must stay blocked: ${cmd} → ${JSON.stringify(res)}`);
+    }
+  }
+  const branchCreate = runTerminalCommand(dir, 'git branch new-x');
+  if (!branchCreate.ok) fail(`run_terminal normal git should run: ${JSON.stringify(branchCreate)}`);
+  console.log('OK run_terminal git tiers');
 
   // --- .my_agent_remote inspect: format= / fetch --unshallow allowed via git -C ---
   const remoteDir = join(dir, '.my_agent_remote', 'owner__demo');
@@ -194,14 +191,10 @@ try {
   if (!prettyLog.ok) {
     fail(`cqr_remote pretty=format should be allowed: ${JSON.stringify(prettyLog)}`);
   }
-  if (!isAllowedCqrRemoteInspectGitShell('git -C .my_agent_remote/owner__demo fetch --unshallow --tags --prune')) {
-    fail('isAllowedCqrRemoteInspectGitShell unshallow');
+  if (classifyTerminalCommand('git -C .my_agent_remote/owner__demo fetch --unshallow --tags --prune', dir).tier !== 'normal') {
+    fail('remote inspect unshallow should be normal tier');
   }
-  const bareFetchStillBlocked = runTerminalCommand(dir, 'git fetch');
-  if (bareFetchStillBlocked.ok || !String(bareFetchStillBlocked.stderr).includes('blocked')) {
-    fail('bare git fetch must stay blocked');
-  }
-  console.log('OK cqr_remote inspect git shell allowlist');
+  console.log('OK cqr_remote inspect git shell');
 
   // fetch without remote soft-fails
   const fetchOut = JSON.parse(gitFetch(dir, {}));
