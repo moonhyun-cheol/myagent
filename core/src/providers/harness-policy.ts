@@ -150,7 +150,7 @@ export function loadHarnessPolicy(env: NodeJS.ProcessEnv = process.env): Harness
 export function resolveSessionReasoningEffort(
   requested: string | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
-  opts?: { providerId?: string | null; modelId?: string | null; userMessage?: string | null },
+  opts?: { providerId?: string | null; modelId?: string | null },
 ): string | null {
   if (modelRejectsReasoningEffort(opts?.modelId)) return null;
   const level = String(requested ?? 'auto').trim().toLowerCase();
@@ -170,7 +170,7 @@ export function resolveSessionReasoningEffort(
   // one concrete supported effort for reasoning-capable models. This avoids the
   // mandatory-reasoning failures seen on Astra/Fable-compatible gateways.
   const capability = modelReasoningCapability(opts?.modelId);
-  return resolveAutomaticReasoningEffort(opts?.userMessage, capability.supported_efforts);
+  return resolveAutomaticReasoningEffort(capability.supported_efforts);
 }
 
 /** Fields to merge into ChatCompletionOptions for every LLM call. */

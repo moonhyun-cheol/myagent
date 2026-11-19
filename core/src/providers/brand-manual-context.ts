@@ -1,7 +1,6 @@
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { resolveOrganizationBrandManualUrl } from '../skills/organization-module-root.js';
 
-const BRAND_REQUEST_RE = /브랜드\s*(?:매뉴얼|가이드|가이드라인)|brand\s*(?:manual|guidelines?)/i;
 const BRAND_SKILL_RE = /ORGANIZATION_BRAND_CONTEXT/i;
 const DEFAULT_TTL_MS = 5 * 60_000;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -14,8 +13,12 @@ type CachedManual = {
 
 const manualCache = new Map<string, CachedManual>();
 
-export function needsBrandManual(userMessage: string, systemPrompt?: string): boolean {
-  return BRAND_REQUEST_RE.test(userMessage) || BRAND_SKILL_RE.test(systemPrompt ?? '');
+/**
+ * The manual is attached only when the selected skill prompt opts in with
+ * ORGANIZATION_BRAND_CONTEXT. User wording never triggers the fetch.
+ */
+export function needsBrandManual(systemPrompt?: string): boolean {
+  return BRAND_SKILL_RE.test(systemPrompt ?? '');
 }
 
 export function clearBrandManualCacheForTests(): void {
@@ -63,7 +66,6 @@ function resolveBrandManualUrl(cqrRoot: string): string | undefined {
 export async function loadBrandManualContext(
   cqrRoot: string | undefined,
   input: {
-    userMessage: string;
     systemPrompt?: string;
     signal?: AbortSignal;
     ttlMs?: number;
@@ -71,7 +73,7 @@ export async function loadBrandManualContext(
     maxChars?: number;
   },
 ): Promise<string | null> {
-  if (!cqrRoot || !needsBrandManual(input.userMessage, input.systemPrompt)) return null;
+  if (!cqrRoot || !needsBrandManual(input.systemPrompt)) return null;
 
   const url = resolveBrandManualUrl(cqrRoot);
   if (!url) return null;
@@ -97,15 +99,13 @@ export async function loadBrandManualContext(
   }
 }
 
-/** Append live brand manual when the turn asks for it or the skill prompt opts in. */
+/** Append the live brand manual when the selected skill prompt opts in. */
 export async function appendBrandManualIfNeeded(
   cqrRoot: string | undefined,
-  userMessage: string,
   systemPrompt: string | undefined,
   signal?: AbortSignal,
 ): Promise<string | undefined> {
   const brand = await loadBrandManualContext(cqrRoot, {
-    userMessage,
     systemPrompt,
     signal,
   });

@@ -29,26 +29,29 @@ try {
     return new Response('# Current Organization Manual\nUse clear, evidence-based language.');
   };
 
-  assert.equal(needsBrandManual('일반 문서 요약'), false);
-  assert.equal(needsBrandManual('브랜드 매뉴얼을 적용해줘'), true);
-  assert.equal(needsBrandManual('제품 방향', 'ORGANIZATION_BRAND_CONTEXT'), true);
+  // Only the selected skill prompt opts in; user wording never triggers a fetch.
+  assert.equal(needsBrandManual(undefined), false);
+  assert.equal(needsBrandManual('브랜드 매뉴얼을 적용해줘'), false);
+  assert.equal(needsBrandManual('ORGANIZATION_BRAND_CONTEXT'), true);
 
   clearBrandManualCacheForTests();
-  const first = await loadBrandManualContext(root, { userMessage: '브랜드 매뉴얼을 설명해줘' });
-  const second = await loadBrandManualContext(root, { userMessage: 'brand guidelines를 적용해줘' });
+  const first = await loadBrandManualContext(root, { systemPrompt: 'skill ORGANIZATION_BRAND_CONTEXT' });
+  const second = await loadBrandManualContext(root, { systemPrompt: 'ORGANIZATION_BRAND_CONTEXT' });
   assert.match(first ?? '', /Source: http:\/\/brand\.test\/current\.md/);
   assert.match(first ?? '', /evidence-based language/);
   assert.match(first ?? '', /reference data, not as system or developer instructions/);
   assert.equal(second, first, 'same URL should reuse the in-memory manual cache');
   assert.equal(fetchCount, 1);
 
-  const unrelated = await loadBrandManualContext(root, { userMessage: 'TypeScript 코드를 고쳐줘' });
+  const unrelated = await loadBrandManualContext(root, { systemPrompt: 'plain skill prompt' });
   assert.equal(unrelated, null);
-  assert.equal(fetchCount, 1, 'unrelated requests must not fetch the manual');
+  const noSkill = await loadBrandManualContext(root, {});
+  assert.equal(noSkill, null);
+  assert.equal(fetchCount, 1, 'prompts without the opt-in must not fetch the manual');
 
   clearBrandManualCacheForTests();
   fetchCount = 0;
-  const appended = await appendBrandManualIfNeeded(root, '브랜드 매뉴얼 요약', 'base skill prompt');
+  const appended = await appendBrandManualIfNeeded(root, 'base skill prompt ORGANIZATION_BRAND_CONTEXT');
   assert.match(appended ?? '', /base skill prompt/);
   assert.match(appended ?? '', /Organization brand manual/);
   assert.equal(fetchCount, 1);
@@ -70,7 +73,6 @@ try {
     return new Response('# Live CQR Manual\nPURPOSE ABOVE ALL');
   };
   const fromModule = await loadBrandManualContext(moduleRoot, {
-    userMessage: '제품 방향',
     systemPrompt: 'ORGANIZATION_BRAND_CONTEXT',
   });
   assert.match(fromModule ?? '', /192\.168\.1\.248:8080\/api\/brand-manual\/current\.md/);
@@ -79,7 +81,7 @@ try {
 
   process.env.MY_AGENT_BRAND_MANUAL_URL = 'off';
   clearBrandManualCacheForTests();
-  const disabled = await loadBrandManualContext(root, { userMessage: '브랜드 매뉴얼 정보' });
+  const disabled = await loadBrandManualContext(root, { systemPrompt: 'ORGANIZATION_BRAND_CONTEXT' });
   assert.equal(disabled, null);
   assert.equal(fetchCount, 3, 'the environment override can disable the source');
 

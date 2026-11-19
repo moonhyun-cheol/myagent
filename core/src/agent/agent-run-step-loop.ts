@@ -36,11 +36,6 @@ import {
 import { addAgentUsage } from './agent-usage-carry.js';
 import { extractUncOrDrivePaths } from './path-hints.js';
 import { normalizeAgentPath, collectReadPathsFromMessages } from './agent-grounding.js';
-import {
-  formatToolDeferralRetryNote,
-  shouldHoldPublicationUntilToolDeferralCheck,
-  shouldWithholdToolDeferralPublication,
-} from './agent-claim-gates.js';
 import { diagnosticsEvidenceStatus } from './agent-outcome-gate.js';
 import { formatLockedConstraintsSystemNote } from './agent-locked-constraints.js';
 import {
@@ -207,10 +202,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
   // Run ends when tools fail this many times in a row (successes reset it).
   let consecutiveToolFailures = 0;
   const maxConsecutiveFailures = maxConsecutiveToolFailures();
-  // One same-turn retry when the model promises to inspect or edit but emits no tool call.
-  let deferralRetryUsed = false;
-  let deferralForceTool = false;
-  let deferralNote: string | null = null;
   // Budget-band convergence signal. Emits once when the per-run step budget
   // crosses the converge (70%) then finalize (90%) threshold. We surface the
   // phase, never the raw step number, to avoid early rush / anchoring.
@@ -415,10 +406,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       forceRebuild: state.steps === 1 && state.priorSteps > 0,
     });
     state.messages = preparedContext.messages;
-    if (deferralNote) {
-      state.messages.push({ role: 'user', content: deferralNote });
-      deferralNote = null;
-    }
     const budgetBand = resolveAgentBudgetBand(state.steps, stepLimit);
     if (budgetBand && budgetBand !== lastBudgetBand) {
       lastBudgetBand = budgetBand;
@@ -511,34 +498,15 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     state.hooks.onEvent?.({ type: 'model_start', step: state.steps });
 
     const streamAnswer = true;
-    // A short promise must not reach the timeline or bubble before the one tool retry is decided.
-    const toolsAvailableThisStep = state.agentTools.length > 0 || state.toolNames.length > 0;
-    const holdPublication = shouldHoldPublicationUntilToolDeferralCheck({
-      retryAlreadyUsed: deferralRetryUsed,
-      toolsAvailable: toolsAvailableThisStep,
-      toolsUsed: state.toolsUsedThisRun.size > 0 || state.toolCallCount > 0,
-    });
-    let heldPublicationReleased = false;
+    // Model output is published as it streams. The runtime does not classify the prose
+    // (e.g. a short "I will check" reply) to withhold or discard it.
     const publishModelThought = (delta: string) => {
       state.thoughtBuf += delta;
-      if (!holdPublication) state.publishThoughtPanel();
+      state.publishThoughtPanel();
     };
     const publishModelAnswer = (delta: string) => {
       state.answerBuf += delta;
-      // Main chat bubble: only stream when this step is an answer turn (not tool-first).
-      if (!holdPublication && streamAnswer) state.opts.onAnswer?.(delta);
-    };
-    const releaseHeldPublication = () => {
-      if (!holdPublication || heldPublicationReleased) return;
-      heldPublicationReleased = true;
-      if (state.thoughtBuf) state.publishThoughtPanel();
-      if (streamAnswer && state.answerBuf.trim()) state.opts.onAnswer?.(state.answerBuf);
-    };
-    const dropHeldPublication = (dropped: string) => {
-      state.thoughtBuf = '';
-      state.answerBuf = '';
-      heldPublicationReleased = true;
-      if (dropped && state.lastModelOutput.trim() === dropped.trim()) state.lastModelOutput = '';
+      if (streamAnswer) state.opts.onAnswer?.(delta);
     };
     // Always mirror Open WebUI content into the thought panel (even on tool-first state.steps).
     const streamHandlers = {
@@ -550,9 +518,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
       .filter((record) => !record.observedByModel)
       .map((record) => record.evidenceId);
     let result: ToolCompletionResult;
-
-    const toolChoiceThisStep = deferralForceTool ? 'required' as const : 'auto' as const;
-    deferralForceTool = false;
 
     if (state.toolProtocol === 'client') {
       result = await waitForModel(modelWaitLabel, () =>
@@ -579,9 +544,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
           withApiTimeout({
             streamHandlers,
             stream: true,
-            // A bare "I will check" with zero tool calls gets one required retry.
-            // Any other prose still finishes; user wording is not classified.
-            toolChoice: toolChoiceThisStep,
+            toolChoice: 'auto' as const,
           }),
           state.protocolCacheKey,
         ),
@@ -597,11 +560,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
     }
     addAgentUsage(state.llmUsage, result.usage);
 
-    // Non-stream completions never call onContent. Keep the text in the buffer;
-    // a held promise is published only after this step is classified.
+    // Non-stream completions never call onContent. Keep the text in the buffer.
     if (result.content?.trim() && !state.answerBuf.trim()) {
       state.answerBuf = result.content.trim();
-      if (!holdPublication) state.publishThoughtPanel();
+      state.publishThoughtPanel();
     }
 
     // Legacy TEXT mode may embed XML/<invoke> tool mimetics in content. Never
@@ -653,7 +615,6 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         const retryText = (retry.content ?? '').trim();
         if (retryText) {
           if (!state.answerBuf.trim()) state.answerBuf = retryText;
-          releaseHeldPublication();
           if (!streamAnswer) state.opts.onAnswer?.(retryText);
           clearContinuationOnComplete();
           return state.finish({ content: retryText, model: state.lastModel, steps: state.steps });
@@ -677,28 +638,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         }
       }
 
-      if (shouldWithholdToolDeferralPublication({
-        text,
-        retryAlreadyUsed: deferralRetryUsed,
-        toolsAvailable: state.agentTools.length > 0 || state.toolNames.length > 0,
-        toolsUsed: state.toolsUsedThisRun.size > 0 || state.toolCallCount > 0,
-      })) {
-        deferralRetryUsed = true;
-        deferralForceTool = true;
-        deferralNote = formatToolDeferralRetryNote();
-        dropHeldPublication(text);
-        state.reportStatus('도구 없는 약속 답변 — 도구 호출 1회 재요구');
-        continue;
-      }
-
       if (text && !state.answerBuf.trim()) state.answerBuf = text;
-      releaseHeldPublication();
       if (!streamAnswer && text) state.opts.onAnswer?.(text);
       clearContinuationOnComplete();
       return state.finish({ content: text, model: state.lastModel, steps: state.steps });
     }
 
-    releaseHeldPublication();
     const toolCalls = result.tool_calls.map((call) => normalizeToolCall(call as AgentToolCall));
     const batchToolCtx = {
       ...state.toolCtx,
@@ -1401,9 +1346,12 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         // Change-review list. rename_file and apply_patch moves add both the old and the
         // new path: reject only rolls back listed paths, and listing just one side lost
         // the file (new path deleted, old path never restored).
-        for (const p of collectMutatedPathsForTool(execCall.function.name, args)) {
+        const mutatedNow = collectMutatedPathsForTool(execCall.function.name, args);
+        for (const p of mutatedNow) {
           state.mutatedPathsThisRun.add(normalizeAgentPath(p));
         }
+        // A new file change invalidates any check that ran before it.
+        if (mutatedNow.length > 0) state.explicitAcceptanceOk = false;
         // A rename is one change with two rows in the review list. Tell the checkpoint,
         // so rejecting only the new path restores the old one instead of losing the file.
         const movePairs = collectMovePairsForTool(execCall.function.name, args);
@@ -1428,7 +1376,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         if (
           state.mutatedPathsThisRun.size > 0
           && (
-            execCall.function.name === 'read_file'
+            // Reading back counts only for a file this run changed.
+            (execCall.function.name === 'read_file'
+              && typeof args.path === 'string'
+              && state.mutatedPathsThisRun.has(normalizeAgentPath(args.path)))
             || execCall.function.name === 'git_diff'
             || execCall.function.name === 'run_diagnostics'
             || execCall.function.name === 'run_tests'

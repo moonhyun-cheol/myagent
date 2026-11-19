@@ -37,7 +37,7 @@ export async function runSkillsL2(root) {
   for (const m of MATRIX) {
     const t0 = Date.now();
     try {
-      const prompt = resolveSkillSystemPrompt(m.expectMode, root, m.message);
+      const prompt = resolveSkillSystemPrompt(m.expectMode, root);
       if (!prompt || prompt.length < 40) {
         rows.push(row(m.skill, 'fail', Date.now() - t0, 'empty skill prompt'));
         continue;

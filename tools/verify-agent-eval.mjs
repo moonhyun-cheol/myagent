@@ -58,11 +58,9 @@ async function main() {
     pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/run-diagnostics.js'))
   );
   const {
-    formatSilentVerifyRepairPrompt,
     isMutatingAgentTool,
     buildVerifyWitness,
     recordVerifyWitness,
-    exhaustVerifyWitness,
   } = await import(
     pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/verify-loop.js'))
   );
@@ -198,17 +196,6 @@ async function main() {
 
   // 8) verify-loop helpers
   record('verify.is_mutating', isMutatingAgentTool('edit_file') && !isMutatingAgentTool('read_file'));
-  const prompt = formatSilentVerifyRepairPrompt('diagnostics', {
-    command: 'tsc',
-    output: 'error TS2322',
-    attempt: 1,
-    maxAttempts: 2,
-    mutatedPaths: ['a.ts'],
-  });
-  record(
-    'verify.repair_prompt',
-    prompt.includes('INTERNAL_VERIFY_FAILED') && prompt.includes('mutated: a.ts'),
-  );
   const passW = buildVerifyWitness({
     kind: 'diagnostics',
     diag: { ok: true, command: 'tsc' },
@@ -231,7 +218,6 @@ async function main() {
     'verify.record_witness',
     sink.ranVerifyCommand === true && sink.verifyWitness?.ok === true,
   );
-  record('verify.exhaust_witness', exhaustVerifyWitness(9).ok === false);
 
   // 9) audit ledger
   const ev = appendAgentAuditEvent(cqrRoot, {
@@ -415,7 +401,6 @@ async function main() {
     pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/apply-patch.js'))
   );
   const {
-    formatAgenticLoopSystemNote,
     formatPatchFormatConstraints,
   } = await import(pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/agent-planner.js')));
 
@@ -484,11 +469,6 @@ async function main() {
       && readFileSync(path.join(fixTs, 'b.ts'), 'utf8').includes('B = 2'),
   );
 
-  record(
-    'planner.loop_note',
-    /Planner|Executor|Verify/i.test(formatAgenticLoopSystemNote())
-      && /Self-check|충족\/부분\/미충족/.test(formatAgenticLoopSystemNote()),
-  );
   record(
     'planner.format_constraints',
     /Format constraints|Begin Patch|atomic/i.test(formatPatchFormatConstraints()),

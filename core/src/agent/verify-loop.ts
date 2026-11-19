@@ -1,12 +1,9 @@
 /**
- * Autonomous verify loop helpers: after mutating edits, run diagnostics/tests
- * and format a model-only repair prompt (not shown as final user answer).
- *
- * Verification witness notes live in `agent-claim-gates.ts` (formatVerificationWitnessNote).
+ * Verify helpers: mutating-tool set, verification witness recording and
+ * parsing of run_diagnostics / run_tests JSON results.
  */
 
 import type { VerifyWitness } from './agent-claim-gates.js';
-import { formatVerificationWitnessNote } from './agent-claim-gates.js';
 
 const MUTATING_TOOLS = new Set([
   'write_file',
@@ -28,7 +25,6 @@ export function isMutatingAgentTool(name: string): boolean {
 }
 
 export type { VerifyWitness };
-export { formatVerificationWitnessNote };
 
 /** Build a pass/fail witness from parseVerifyJson + step. weak/skipped ⇒ ok:false (≠ strong). */
 export function buildVerifyWitness(opts: {
@@ -75,17 +71,6 @@ export function recordVerifyWitness(
   return w;
 }
 
-/** Exhausted silent retries — fail witness so done claims cannot slip through. */
-export function exhaustVerifyWitness(atStep: number): VerifyWitness {
-  return {
-    kind: 'diagnostics',
-    ok: false,
-    atStep,
-    exitCode: 1,
-    command: 'silent-verify-exhausted',
-  };
-}
-
 export function parseVerifyJson(output: string): {
   ok: boolean;
   skipped?: boolean;
@@ -120,41 +105,4 @@ export function maxSilentVerifyRetries(): number {
   if (!raw) return 2;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? Math.min(5, Math.floor(n)) : 2;
-}
-
-/**
- * Instructions injected into the tool/message stream so the model fixes
- * diagnostics without presenting the raw failure as the final user reply yet.
- */
-export function formatSilentVerifyRepairPrompt(
-  kind: 'diagnostics' | 'tests' | 'syntax',
-  payload: {
-    command?: string;
-    output?: string;
-    attempt: number;
-    maxAttempts: number;
-    mutatedPaths?: string[];
-  },
-): string {
-  const out = (payload.output ?? '').trim().slice(0, 12_000);
-  const paths = (payload.mutatedPaths ?? []).filter(Boolean).slice(0, 12);
-  const primaryPath = paths[0];
-  const nextCall = primaryPath
-    ? `TOOL_CALL: ${JSON.stringify({ name: 'read_file', arguments: { path: primaryPath } })}`
-    : 'TOOL_CALL: {"name":"run_diagnostics","arguments":{}}';
-  const gate = `fix ${kind} to exit 0 (edit → re-verify)`;
-  return [
-    `INTERNAL_VERIFY_FAILED kind=${kind} attempt=${payload.attempt}/${payload.maxAttempts}`,
-    payload.command ? `command: ${payload.command}` : null,
-    paths.length ? `mutated: ${paths.join(', ')}` : null,
-    `EXIT_GATE (close this one only): ${gate}`,
-    'Do NOT apologize. Do NOT claim success. First line = TOOL_CALL.',
-    nextCall,
-    'Then edit_file/apply_patch if needed, then run_diagnostics (and run_tests if present).',
-    '',
-    '--- verifier output ---',
-    out || '(no output)',
-  ]
-    .filter((l) => l !== null)
-    .join('\n');
 }

@@ -10,9 +10,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const { CODE_AGENT_TOOLS } = await import('../core/dist/agent/tools.js');
-const { formatUnderstandingCardSystemNote, formatCodingSpineSystemNote } = await import(
-  '../core/dist/agent/agent-planner.js'
-);
 const { resolveCodeOwuiProtocolMode, owuiPrefersClientToolProtocol } = await import(
   '../core/dist/providers/harness-policy.js'
 );
@@ -25,17 +22,6 @@ const { formatAgentPhaseStatus, formatElapsedDuration } = await import(
 const toolNames = new Set(CODE_AGENT_TOOLS.map(tool => tool.function.name));
 assert.equal(toolNames.has('edit_file'), true);
 assert.equal(toolNames.has('apply_patch'), true);
-
-const card = formatUnderstandingCardSystemNote();
-assert.match(card, /Understanding Card/);
-assert.match(card, /TOOL_CALL|edit_file|apply_patch/);
-const spine = formatCodingSpineSystemNote({ autopilot: true, compactUnderstanding: true });
-assert.match(spine, /Coding spine/);
-assert.match(spine, /Autopilot ON/);
-assert.ok(spine.length < card.length, 'spine must be leaner than full Understanding Card');
-const compact = formatUnderstandingCardSystemNote({ compact: true });
-assert.match(compact, /Coding spine/);
-assert.ok(compact.length < card.length, 'compact card must be shorter');
 
 assert.equal(resolveCodeOwuiProtocolMode({}), 'api', 'code OWUI default native tools');
 assert.equal(resolveCodeOwuiProtocolMode({ MY_AGENT_CODE_OWUI_PROTOCOL: 'probe' }), 'probe');

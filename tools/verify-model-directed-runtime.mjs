@@ -78,9 +78,9 @@ for (const source of [autopilot, planner]) {
 
 assert.doesNotMatch(stepLoop, /evaluateProseTurn\(/);
 assert.doesNotMatch(stepLoop, /contentLooksLikeTokenSalad\(/);
-// Default auto; required only for the one deferral/absence retry (model output, not user wording).
-assert.match(stepLoop, /deferralForceTool \? 'required' as const : 'auto' as const/);
-assert.match(stepLoop, /toolChoice: toolChoiceThisStep/);
+// tool_choice stays auto; model prose is never classified to force a tool retry.
+assert.match(stepLoop, /toolChoice: 'auto' as const/);
+assert.doesNotMatch(stepLoop, /deferral|ToolDeferral|holdPublication/);
 assert.doesNotMatch(stepLoop, /work_mode_locked|retrieval_required|autoInvokePendingPlugins|preloadExternalReportGrounding/);
 assert.doesNotMatch(stepLoop, /sanitizeToolNotFoundPoison|contentLooksLikeToolNotFoundPoison/);
 assert.doesNotMatch(stepLoop, /runWorkspaceDiagnostics\(|runWorkspaceTests\(|ERROR: ALREADY_READ/);
@@ -137,8 +137,8 @@ const webDevSkill = read('core/config/defaults/skills/web-dev.md');
 assert.doesNotMatch(webDevSkill, /Exit Gate/);
 assert.doesNotMatch(webDevSkill, /실행계획:/);
 assert.match(webDevSkill, /Do not force a completion-report template/);
-assert.match(workspaceLock, /Only an explicit structured path may narrow/);
-assert.doesNotMatch(workspaceLock, /opts\.message|opts\.editorContext|opts\.previousLockedRoot/);
+assert.match(workspaceLock, /never narrows the root from message wording/);
+assert.doesNotMatch(workspaceLock, /opts\.message|opts\.editorContext|opts\.previousLockedRoot|scoreChildName|pathHint/);
 assert.doesNotMatch(lockedConstraints, /inferArtifactContract\(opts\.userMessage\)|looksLikeDirectionReversal\(opts\.userMessage\)/);
 assert.doesNotMatch(runLoop, /clearInterruptOpenGateIfFreshBrief|shouldSuppressWorkspaceUiBuildGate|evaluateOutcomeGate/);
 assert.doesNotMatch(runLoop, /formatOpenGateSystemNote|openGateBlocksDoneClaim/);
@@ -186,33 +186,6 @@ assert.doesNotMatch(imagePreserved, /api\/v1\/files/);
 assert.match(imagePreserved, /모델이 제시한 참고 이미지/);
 assert.match(imagePreserved, /!\[reference\]\(https:\/\/example\.com\/reference\.png\)/);
 
-assert.doesNotMatch(contextProfile, /PROFILE_TOOL_ALLOWLIST|agentTools\.filter/);
-const { compileAgentStepContext } = await import('../core/dist/agent/agent-context-profile.js');
-const allTools = ['read_file', 'apply_patch', 'run_diagnostics', 'run_tests'].map((name) => ({
-  type: 'function',
-  function: { name, description: `${name} contract fixture`, parameters: { type: 'object' } },
-}));
-for (const profile of ['orient', 'execute', 'repair', 'verify', 'final']) {
-  const sourceMessages = [{ role: 'user', content: '프로필 도구 계약 검사' }];
-  const compiled = compileAgentStepContext({
-    profile,
-    messages: sourceMessages,
-    agentTools: allTools,
-    userMessage: '프로필 도구 계약 검사',
-  });
-  assert.strictEqual(compiled.agentTools, allTools, `${profile} must preserve the complete tool schema`);
-  assert.deepEqual(
-    compiled.toolNames,
-    allTools.map((tool) => tool.function.name),
-    `${profile} must expose every runtime tool name`,
-  );
-  assert.equal(compiled.messages.length, sourceMessages.length + 1, `${profile} appends ephemeral profile tail`);
-  assert.equal(compiled.messages.at(-1)?.ephemeral, true, `${profile} profile tail is ephemeral`);
-  assert.match(String(compiled.messages.at(-1)?.content ?? ''), /Native context profile/);
-  assert.deepEqual(compiled.messages.slice(0, -1), sourceMessages, `${profile} keeps durable messages intact`);
-}
-assert.match(contextProfile, /profileTailNote/);
-assert.match(contextProfile, /Native context profile/);
-assert.match(contextProfile, /ephemeral:\s*true/);
+assert.doesNotMatch(contextProfile, /PROFILE_TOOL_ALLOWLIST|agentTools\.filter|compileAgentStepContext/);
 
 console.log('model-directed runtime contract: PASS');

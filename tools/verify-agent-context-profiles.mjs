@@ -1,89 +1,40 @@
 #!/usr/bin/env node
+/**
+ * Context profile module now carries only the budget-band note (70% / 90%).
+ * Phase profiles and tool-result compaction were unused and removed.
+ */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync('core/src/agent/agent-context-profile.ts', 'utf8');
 const loop = readFileSync('core/src/agent/agent-run-step-loop.ts', 'utf8');
 
-for (const profile of ['orient', 'execute', 'repair', 'verify', 'final']) {
-  assert(source.includes(`'${profile}'`), `missing context profile: ${profile}`);
-}
-assert(source.includes('compactConsumedToolResults'), 'old tool results must be compacted');
-assert(source.includes('selectedNamesForProfile'), 'tool schemas must be selected by profile');
-assert(loop.includes('resolveAgentContextProfile'), 'step loop must resolve a profile for every model call');
-assert(loop.includes('profiledContext.agentTools'), 'native tool schema must use the selected profile tools');
-assert(loop.includes('profiledContext.toolNames'), 'client protocol must use the selected profile tool names');
-assert(loop.includes('profiledContext.messages'), 'model calls must use the compiled profile context');
+assert.doesNotMatch(source, /compileAgentStepContext|resolveAgentContextProfile|compactConsumedToolResults/);
+assert(loop.includes('resolveAgentBudgetBand'), 'step loop must resolve the budget band');
+assert(loop.includes('agentBudgetBandNote'), 'step loop must emit the budget band note');
 
 const {
-  compileAgentStepContext,
-  resolveAgentContextProfile,
+  resolveAgentBudgetBand,
+  resolveAgentBudgetBandThresholds,
+  agentBudgetBandNote,
 } = await import('../core/dist/agent/agent-context-profile.js');
 
-const tool = (name) => ({
-  type: 'function',
-  function: { name, description: name, parameters: { type: 'object' } },
-});
-const tools = [
-  tool('read_file'),
-  tool('apply_patch'),
-  tool('run_diagnostics'),
-  tool('git_commit'),
-  tool('browser_navigate'),
-];
-const baseMessages = [
-  { role: 'system', content: 'safety kernel' },
-  { role: 'user', content: '코드를 수정해줘' },
-];
+const t = resolveAgentBudgetBandThresholds({});
+assert.deepEqual(t, { converge: 0.7, finalize: 0.9 });
+assert.equal(resolveAgentBudgetBand(10, 100, t), null);
+assert.equal(resolveAgentBudgetBand(70, 100, t), 'converge');
+assert.equal(resolveAgentBudgetBand(90, 100, t), 'finalize');
+assert.equal(resolveAgentBudgetBand(5, 0, t), null);
+assert.deepEqual(
+  resolveAgentBudgetBandThresholds({
+    MY_AGENT_BUDGET_CONVERGE_FRACTION: '0.8',
+    MY_AGENT_BUDGET_FINALIZE_FRACTION: '0.5',
+  }),
+  { converge: 0.8, finalize: 0.8 },
+  'finalize is clamped to converge',
+);
+assert.match(agentBudgetBandNote('converge'), /수렴/);
+assert.match(agentBudgetBandNote('finalize'), /마감 임박/);
+assert.doesNotMatch(agentBudgetBandNote('finalize'), /\d+\s*(?:걸음|steps?)/i, 'raw step count is never shown');
 
-assert.equal(resolveAgentContextProfile({ step: 1, messages: baseMessages }), 'orient');
-assert.equal(resolveAgentContextProfile({ step: 2, messages: baseMessages }), 'execute');
-assert.equal(resolveAgentContextProfile({
-  step: 3,
-  messages: [...baseMessages, { role: 'tool', content: 'ERROR: patch failed' }],
-}), 'repair');
-assert.equal(resolveAgentContextProfile({
-  step: 3,
-  messages: baseMessages,
-  evidence: { mutatedPaths: ['a.ts'], acceptanceOk: false },
-}), 'verify');
-assert.equal(resolveAgentContextProfile({
-  step: 4,
-  messages: baseMessages,
-  evidence: { mutatedPaths: ['a.ts'], acceptanceOk: true },
-}), 'final');
-
-const orient = compileAgentStepContext({
-  profile: 'orient',
-  messages: baseMessages,
-  agentTools: tools,
-  userMessage: '코드를 수정해줘',
-});
-assert.deepEqual(orient.toolNames, ['read_file']);
-assert(orient.messages.some((message) => String(message.content).includes('Native context profile: orient')));
-
-const execute = compileAgentStepContext({
-  profile: 'execute',
-  messages: baseMessages,
-  agentTools: tools,
-  userMessage: '커밋하고 브라우저로 검증해줘',
-});
-assert(execute.toolNames.includes('apply_patch'));
-assert(execute.toolNames.includes('git_commit'));
-assert(execute.toolNames.includes('browser_navigate'));
-
-const oldToolMessages = Array.from({ length: 8 }, (_, index) => ({
-  role: 'tool',
-  tool_call_id: `tool-${index}`,
-  content: `result-${index}: ${'x'.repeat(900)}`,
-}));
-const compacted = compileAgentStepContext({
-  profile: 'execute',
-  messages: [...baseMessages, ...oldToolMessages],
-  agentTools: tools,
-  userMessage: '수정',
-});
-assert(String(compacted.messages[3].content).includes('이전 도구 결과 압축됨'));
-assert(String(compacted.messages.at(-1).content).length > 800, 'recent tool results must remain intact');
-
-console.log('agent context profiles: ok');
+console.log('agent context profiles (budget band): ok');

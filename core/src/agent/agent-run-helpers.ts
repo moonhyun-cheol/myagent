@@ -50,13 +50,6 @@ export const AGENT_REPLY_LANGUAGE_RULE = [
 export const AGENT_REPLY_LANGUAGE_REMINDER =
   '### Reply language\n사용자에게 보이는 답변은 한국어로 작성하세요(사용자가 영어로만 쓰거나 다른 언어를 요청한 경우만 예외). 코드·경로·명령은 원문 유지.';
 
-/** Live P88 dumped CURRENT_STATUS because secretary still got the coding GIT/plugin tax. */
-export const SECRETARY_OPS_SPINE = [
-  'SECRETARY spine: ≤8 Korean lines. Answer the ops/HITL/status question only.',
-  'Tools: list_directory / read_file / run_terminal only if needed. Accept = user tap. Never ask to paste.',
-  'FORBIDDEN: CURRENT_STATUS novel, ui-target-map, MainWindow.xaml, ChatPane, GeminiNavSidebar.',
-].join('\n');
-
 export function codingTaxSystemLines(): string[] {
   return [
     'Mutate rules: read_file (or list_directory for new files) before write/edit/delete/apply_patch — auto-heal may read for you. Prefer edit_file (one) / apply_patch (multi). No chat-only full-file paste. The built-in agent owns IDE mutations so Responses continuity, approvals, cache invalidation, and verification remain in one runtime.',
@@ -73,7 +66,6 @@ export function codingTaxSystemLines(): string[] {
     '- 1) Prefer matching **builtin** tools already in the catalog.',
     '- 2) Else install shipped **template** via plugin_install template_id=… confirm=true (no freeform).',
     '- 3) Else **plugin_scaffold** (purpose-aware) → show purpose+risk → freeform plugin_install (UI Accept required) → call plugin_*.',
-    '- After plugin_install success the runtime auto-invokes the new plugin when the user asked to install/use; narrating "이제 호출합니다" alone is blocked.',
     '- Do not shadow builtins (read_file, git_*). Plugin tool names must start with plugin_. write/network risk tools need confirm=true on invoke.',
   ];
 }
@@ -169,7 +161,7 @@ export function buildAgentMessages(
       ]
     : selfWorkspace
     ? [
-        'Self-workspace secretary/ops — answer the question only.',
+        'MY Agent product workspace (self): product paths such as ui/workspace, core/src and shell/CqrPa.Shell are valid targets here.',
         'FORBIDDEN: dump ui-target-map / MainWindow.xaml / ChatPane / GeminiNavSidebar unless the user asked to edit those UI targets.',
         'GROUNDING: base file-content claims on a read — read_file in this run, or evidence stored earlier in this session (listed in the turn context; open it with evidence_read) while that file is unchanged.',
       ]

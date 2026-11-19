@@ -709,8 +709,7 @@ export class ChatOrchestrator {
     let histBudget = { modelId: histModelId } as ReturnType<typeof buildSessionHistoryBudgetOpts>;
     const systemPrompt = await appendBrandManualIfNeeded(
       this.cqrRoot,
-      message,
-      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
+      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot) ?? undefined : undefined,
     );
     const attachmentCtx = await buildAttachmentContext(
       attachmentContextIds,
@@ -1540,7 +1539,6 @@ export class ChatOrchestrator {
       ? resolveSessionReasoningEffort(requestedExecutionPolicy.reasoning, process.env, {
           providerId: generalProviderId,
           modelId: generalModelId,
-          userMessage: message,
         })
       : null;
     sseEvent(res, {
@@ -1569,8 +1567,7 @@ export class ChatOrchestrator {
     let histBudget = { modelId: histModelId } as ReturnType<typeof buildSessionHistoryBudgetOpts>;
     const systemPrompt = await appendBrandManualIfNeeded(
       this.cqrRoot,
-      message,
-      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot, message) ?? undefined : undefined,
+      skillMode ? resolveSkillSystemPrompt(skillMode, this.cqrRoot) ?? undefined : undefined,
     );
     const attachmentCtx = await buildAttachmentContext(
       attachmentContextIds,

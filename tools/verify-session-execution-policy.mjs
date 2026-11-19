@@ -37,7 +37,7 @@ try {
   assert.equal(resolveSessionReasoningEffort('high', {}, { modelId: 'gpt-5.6' }), 'high');
   assert.equal(resolveSessionReasoningEffort('max', {}, { modelId: 'gpt-5.6-sol' }), 'max');
   assert.equal(resolveSessionReasoningEffort('minimal', {}, { modelId: 'openai/gpt-5.6-luna' }), 'minimal');
-  assert.equal(resolveSessionReasoningEffort('auto', {}, { modelId: 'openai/gpt-astra' }), 'low');
+  assert.equal(resolveSessionReasoningEffort('auto', {}, { modelId: 'openai/gpt-astra' }), 'medium');
   assert.equal(resolveSessionReasoningEffort('xhigh', {}, { modelId: 'openai/gpt-astra' }), 'xhigh');
   assert.equal(resolveSessionReasoningEffort('max', {}, { modelId: 'x-ai/grok-4.6' }), 'xhigh');
   assert.equal(resolveSessionReasoningEffort('medium', {}, { modelId: 'deepseek/deepseek-v4-pro' }), 'high');

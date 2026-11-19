@@ -478,7 +478,7 @@ async function executeAgentToolInner(
           if (mutated && !evidence?.acceptanceOk) {
             return {
               label: 'active task completion rejected',
-              output: 'ERROR: ACTIVE_TASK_COMPLETION_REQUIRES_VERIFICATION — files changed in this run but no outcome check ran after the change. Run a relevant check (read back, diagnostics, tests, terminal, or browser), then call complete again. The task stays active; this is not a blocker.',
+              output: 'ERROR: ACTIVE_TASK_COMPLETION_REQUIRES_VERIFICATION — files changed in this run but no outcome check ran after the change. Run a relevant check after the last change (read back a changed file, git_diff, diagnostics, tests, terminal, or browser), then call complete again. The task stays active; this is not a blocker.',
             };
           }
           if (!mutated && (!completionReason || !evidence?.workToolUsed)) {

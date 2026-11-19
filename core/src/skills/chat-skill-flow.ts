@@ -3,13 +3,12 @@ import { SKILL_CHAT_MODES } from '../router/types.js';
 import { getSkillSystemPromptByMode } from './skill-registry.js';
 import { isOrgSkillMode } from './organization-skill-store.js';
 import { isUserSkillMode } from './user-skill-store.js';
-import { shouldIncludeDesignFirst } from './web-landing-bundle.js';
 import { augmentSkillSystemPrompt } from './skill-routing-augment.js';
 import {
   isSelfWorkspace,
   stripCqrSelfSkillSections,
 } from '../agent/agent-product-memory.js';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,23 +54,19 @@ function skillsDefaultsDir(): string {
   return candidates[0]!;
 }
 
-function appendDesignFirstIfNeeded(base: string, userMessage: string): string {
-  if (!shouldIncludeDesignFirst(userMessage)) return base;
+/**
+ * Stable pointer to the design-first guide for the selected web_dev skill.
+ * The model decides whether to read it; request wording never inlines the guide.
+ */
+function appendDesignFirstPointer(base: string): string {
   const p = path.join(skillsDefaultsDir(), 'web-design-first-ui.md');
   if (!existsSync(p)) return base;
-  try {
-    const text = readFileSync(p, 'utf8').trim();
-    if (!text) return base;
-    return `${base}\n\n---\n\n${text}`;
-  } catch {
-    return base;
-  }
+  return `${base}\n\nDesign-first guide (read with read_file when the request needs a design spec or prompt skeleton first): ${p.split(path.sep).join('/')}`;
 }
 
 export function resolveSkillSystemPrompt(
   mode: ChatMode,
   cqrRoot: string,
-  userMessage?: string,
   opts?: ResolveSkillSystemPromptOptions,
 ): string | null {
   let base = getSkillSystemPromptByMode(mode, cqrRoot);
@@ -83,11 +78,9 @@ export function resolveSkillSystemPrompt(
   if (!selfProductMemory) {
     base = stripCqrSelfSkillSections(base);
   }
-  const msg = userMessage?.trim() ?? '';
   // Legacy web_landing/prompt_master modes removed — landing-style work runs inside web_dev.
-  // The thin design-first guide is appended only when the request looks like visual/landing work.
-  if (mode === 'web_dev' && msg) {
-    base = appendDesignFirstIfNeeded(base, msg);
+  if (mode === 'web_dev') {
+    base = appendDesignFirstPointer(base);
   }
   base = augmentSkillSystemPrompt(mode, base, { selfProductMemory }) ?? base;
   if (isOrgSkillMode(mode)) {

@@ -210,40 +210,16 @@ async function checkRisks(m) {
   );
   set('R3.scaffold_api_ok', 'P1', scEcho.ok === true, scEcho.name || '');
 
-  // --- R3b capability plan order ---
+  // --- R3b capability order is a prompt rule (model decides), not a runtime NL plan ---
   const cap = await import(
     pathToFileURL(dist('agent/agent-plugin-capability.js')).href + `?t=${Date.now()}`
   );
-  const namesWithBuiltin = m.reg.getCodeAgentTools(root).map((t) => t.function.name);
-  const pBuiltin = cap.resolveCapabilityPlan(
-    '히스토리 트리 그래프로 보여줘',
-    namesWithBuiltin,
-  );
-  const pInstall = cap.resolveCapabilityPlan(
-    '이 PC에 플러그인으로 git 히스토리 트리 기능 추가 설치해',
-    namesWithBuiltin.filter((n) => n !== 'plugin_git_history_tree'),
-  );
-  const pFree = cap.resolveCapabilityPlan(
-    '로컬 플러그인 도구로 두 수 합 계산 기능 추가해 줘',
-    namesWithBuiltin,
-  );
   set(
-    'R3.cap_builtin_first',
+    'R3.cap_order_prompt_rule',
     'P0',
-    pBuiltin.action === 'use_builtin' && pBuiltin.tool === 'git_history_tree',
-    `${pBuiltin.action}:${pBuiltin.tool}`,
-  );
-  set(
-    'R3.cap_template_when_plugin_ask',
-    'P0',
-    pInstall.action === 'install_template' && pInstall.template_id === 'git_history_tree',
-    `${pInstall.action}:${pInstall.template_id}`,
-  );
-  set(
-    'R3.cap_freeform_scaffold',
-    'P0',
-    pFree.action === 'scaffold_freeform',
-    `${pFree.action}:${pFree.scaffold_id}`,
+    srcHas('core/src/agent/agent-run-helpers.ts', /LOCAL PLUGINS \(capability plan/)
+      && typeof cap.resolveCapabilityPlan === 'undefined',
+    'builtin → template → freeform stated in system prompt; no NL plan in runtime',
   );
 
   // freeform HITL (template skips UI Accept; freeform needs it)
@@ -315,26 +291,12 @@ async function checkRisks(m) {
     rmSync(s2.cqrRoot, { recursive: true, force: true });
   }
 
-  // --- R7 auto-run after install: install-only opt-out exists ---
+  // --- R7 no runtime auto-invoke after install (model calls the plugin itself) ---
   set(
-    'R7.install_only_skips_auto',
+    'R7.no_runtime_auto_invoke_claim',
     'P1',
-    typeof m.helpers.inferToolFromUserMessage === 'function'
-      && srcHas(
-        'core/src/agent/agent-plugin-intent.ts',
-        /설치만|install\s\*only/,
-      )
-      && srcHas(
-        'core/src/agent/agent-plugin-intent.ts',
-        /wantsImmediatePluginUseAfterInstall/,
-      ),
-    'intent skips auto-exec when user says 설치만 / 실행하지 마',
-  );
-  set(
-    'R7.prompt_says_must_invoke',
-    'P1',
-    srcHas('core/src/agent/agent-run-helpers.ts', /immediately call the new plugin|narrating/),
-    'system note steers same-run invoke',
+    !srcHas('core/src/agent/agent-run-helpers.ts', /auto-invokes the new plugin/),
+    'system prompt does not promise runtime auto-invoke',
   );
 
   // --- R8 automated suite gate ---

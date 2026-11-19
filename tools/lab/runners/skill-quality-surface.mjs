@@ -56,7 +56,7 @@ export async function runSkillQualitySurface(root) {
     for (const m of MATRIX) {
       const t = Date.now();
       try {
-        const prompt = resolveSkillSystemPrompt(m.expectMode, root, m.message);
+        const prompt = resolveSkillSystemPrompt(m.expectMode, root);
         if (!prompt || prompt.length < 40) {
           rows.push(row(`inject:${m.skill}`, 'fail', Date.now() - t, 'empty/short skill prompt'));
           continue;

@@ -367,7 +367,7 @@ function scoreCase(gates, item, result) {
     gates.cap.contentDeniesAvailableCapability(content)
     || gates.guards.contentClaimsToolsUnavailable(content);
   const defer =
-    gates.claims.contentDefersDebugToUser(content)
+    (gates.claims.contentDefersDebugToUser ?? (() => false))(content)
     || userPasteAsk
     || (typeof gates.cap.contentDefersRemoteInspectRead === 'function'
       && gates.cap.contentDefersRemoteInspectRead(content))

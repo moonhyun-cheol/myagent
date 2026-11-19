@@ -369,73 +369,19 @@ async function main() {
       /LOCAL PLUGINS|plugin_install confirm|template_id=git_history_tree/i.test(blob),
     );
 
-    // 명령 주입 → install infer / plane routing
-    const intent = await import(
-      pathToFileURL(dist('agent/agent-plugin-intent.js')).href + `?t=${Date.now()}`
-    );
-    const nl =
-      '로컬에 git 히스토리 트리 기능을 추가해서 그래프로 보여줘. plugin_install로 설치하고 바로 실행해.';
+    // Tool choice is the model's: no runtime NL plugin intent / capability plan.
+    const intentSrc = readFileSync(join(productRoot, 'core', 'src', 'agent', 'agent-plugin-intent.ts'), 'utf8');
     record(
-      'command.intent_install_use',
-      intent.wantsPluginInstall(nl)
-        && intent.wantsPluginUse(nl)
-        && intent.resolvePluginTemplateId(nl) === 'git_history_tree'
-        && intent.wantsImmediatePluginUseAfterInstall(nl),
-    );
-    record(
-      'command.intent_install_only_skips_auto',
-      intent.wantsPluginInstall(
-        'plugin_install template_id=git_history_tree 설치만 해 실행하지 마',
-      )
-        && !intent.wantsImmediatePluginUseAfterInstall(
-          'plugin_install template_id=git_history_tree 설치만 해 실행하지 마',
+      'command.no_nl_plugin_intent',
+      !/wantsPluginInstall|inferPluginInstallToolCall|inferPluginUseToolCall/.test(intentSrc)
+        && !/auto-invokes the new plugin/.test(
+          readFileSync(join(productRoot, 'core', 'src', 'agent', 'agent-run-helpers.ts'), 'utf8'),
         ),
     );
-    const toolNames = names.includes('plugin_install')
-      ? names
-      : [...names, 'plugin_list', 'plugin_install'];
-    const inferred = m.helpers.inferToolFromUserMessage(nl, toolNames);
-    record(
-      'command.infer_plugin_install',
-      inferred?.function?.name === 'plugin_install'
-        && /git_history_tree/.test(inferred.function.arguments || ''),
-      inferred ? `${inferred.function.name} ${inferred.function.arguments}` : 'null',
-    );
-    record(
-      'command.tool_task_plane',
-      m.helpers.looksLikeToolTask(nl)
-        && intent.isPluginPlaneRequest(nl),
-    );
 
-    // Capability plan + HITL + purpose scaffold
+    // HITL + purpose scaffold
     const cap = await import(
       pathToFileURL(dist('agent/agent-plugin-capability.js')).href + `?t=${Date.now()}`
-    );
-    const planHist = cap.resolveCapabilityPlan(
-      '히스토리 트리 보여줘',
-      names,
-    );
-    record(
-      'strengthen.cap_builtin_first',
-      planHist.action === 'use_builtin' && planHist.tool === 'git_history_tree',
-      `${planHist.action}:${planHist.tool}`,
-    );
-    const planPlugin = cap.resolveCapabilityPlan(nl, names);
-    record(
-      'strengthen.cap_template_or_install',
-      planPlugin.action === 'install_template'
-        || planPlugin.action === 'use_installed_plugin'
-        || planPlugin.action === 'use_builtin',
-      `${planPlugin.action}:${planPlugin.template_id || planPlugin.tool}`,
-    );
-    const planFree = cap.resolveCapabilityPlan(
-      '로컬 플러그인으로 파일 줄 수 세는 도구 추가해 줘',
-      names,
-    );
-    record(
-      'strengthen.cap_freeform',
-      planFree.action === 'scaffold_freeform',
-      planFree.action,
     );
     record(
       'strengthen.hitl_freeform',

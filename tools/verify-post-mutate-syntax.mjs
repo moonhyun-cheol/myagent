@@ -15,9 +15,6 @@ const {
   toolOutputHasSyntaxBroken,
   findDuplicateModuleDecls,
 } = await import('../core/dist/agent/agent-post-mutate-syntax.js');
-const {
-  resolveAgentContextProfile,
-} = await import('../core/dist/agent/agent-context-profile.js');
 
 const dir = mkdtempSync(path.join(os.tmpdir(), 'cqr-syntax-'));
 try {
@@ -73,23 +70,6 @@ try {
     toolOutputHasSyntaxBroken('search_files', sourceRead),
     false,
     'search results containing the marker must not start syntax repair',
-  );
-
-  assert.equal(
-    resolveAgentContextProfile({
-      step: 2,
-      messages: [{ role: 'tool', tool_call_id: 'read-1', content: sourceRead }],
-    }),
-    'execute',
-    'source text containing a failure example must not force repair profile',
-  );
-  assert.equal(
-    resolveAgentContextProfile({
-      step: 2,
-      messages: [{ role: 'tool', tool_call_id: 'read-2', content: 'ERROR: read failed' }],
-    }),
-    'repair',
-    'an actual canonical tool failure must select repair profile',
   );
 
   const clean = appendPostMutateSyntaxCheck(dir, ['ok.js'], 'Wrote ok.js (10 chars)');

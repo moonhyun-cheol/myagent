@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Workspace lock: child-folder bind + sidecar porcelain must not list sibling dirs.
+ * Workspace lock: always the session folder (never narrowed by wording/scoring)
+ * + sidecar porcelain must not list sibling dirs.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,8 +18,8 @@ const build = spawnSync(process.execPath, [path.join(root, 'tools', 'build.mjs')
 assert.equal(build.status, 0, build.error?.message || `build exited ${build.status}`);
 
 const {
-  isProjectBag,
   resolveTurnWorkspaceLock,
+  formatWorkspaceLockNote,
 } = await import(pathToFileURL(path.join(root, 'core/dist/agent/agent-workspace-lock.js')).href);
 const { parseGitPorcelainFileMutations } = await import(
   pathToFileURL(path.join(root, 'core/dist/sidecars/sidecar-mutations.js')).href
@@ -37,27 +38,13 @@ try {
   fs.writeFileSync(path.join(bag, 'vari6', 'package.json'), '{"name":"v"}\n');
   fs.writeFileSync(path.join(bag, 'notes.txt'), 'x\n');
 
-  assert.equal(isProjectBag(bag), true);
-
-  const pick = resolveTurnWorkspaceLock({
-    sessionRoot: bag,
-  });
-  assert.equal(pick.status, 'session', JSON.stringify(pick));
-  assert.equal(pick.narrowed, false);
-
-  const named = resolveTurnWorkspaceLock({
-    sessionRoot: bag,
-    pathHint: path.join(bag, 'full page screenshot'),
-  });
-  assert.equal(named.status, 'path');
-  assert.equal(named.matchedName, 'full page screenshot');
-  assert.equal(path.basename(named.targetRoot), 'full page screenshot');
-
-  const reuse = resolveTurnWorkspaceLock({
-    sessionRoot: bag,
-  });
-  assert.equal(reuse.status, 'session');
-  assert.equal(reuse.targetRoot, path.resolve(bag));
+  const lock = resolveTurnWorkspaceLock({ sessionRoot: bag });
+  assert.equal(lock.status, 'session', JSON.stringify(lock));
+  assert.equal(lock.targetRoot, path.resolve(bag));
+  assert.deepEqual(Object.keys(lock).sort(), ['sessionRoot', 'status', 'targetRoot']);
+  const note = formatWorkspaceLockNote(lock);
+  assert.match(note, /\[WORKSPACE_LOCK\]/);
+  assert.match(note, /status=session/);
 
   const porcelain = [
     '?? amazon-cq-code/',
@@ -74,4 +61,4 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
-console.log('verify-workspace-lock (structured path only): ok');
+console.log('verify-workspace-lock (session root only): ok');

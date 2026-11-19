@@ -65,13 +65,9 @@ assert.doesNotMatch(
   /PROSE_FORCED_TOOL_RETRY/,
   'prose-pattern tool forcing must stay retired',
 );
-// Default is model-selected; 'required' only for the one-shot bare-promise / unchecked-absence retry (2dd8ea9).
-assert.match(
-  stepLoopSource,
-  /const toolChoiceThisStep = deferralForceTool \? 'required' as const : 'auto' as const;/,
-  'native tools stay model-selected except the one-shot deferral retry',
-);
-assert.match(stepLoopSource, /toolChoice: toolChoiceThisStep,/);
+// tool_choice is always model-selected; the bare-promise deferral retry was removed.
+assert.match(stepLoopSource, /toolChoice: 'auto' as const,/, 'native tools stay model-selected');
+assert.doesNotMatch(stepLoopSource, /deferralForceTool|'required' as const/);
 assert.doesNotMatch(
   stepLoopSource,
   /toolChoice:\s*\(preferToolsFirst\s*\?\s*'required'/,
@@ -115,7 +111,6 @@ const {
   runParallelToolCalls,
 } = await import('../core/dist/agent/agent-tool-parallel.js');
 const { formatChatErrorMessage } = await import('../core/dist/debug-session-log.js');
-const { formatExitGateToolNudge } = await import('../core/dist/agent/agent-claim-gates.js');
 const { getHistoryTurns, applyHistoryContentBudget } = await import(
   '../core/dist/chat/history-budget.js',
 );
@@ -263,20 +258,24 @@ function withEnv(patch, fn) {
     resolveSessionReasoningEffort('auto', {}, {
       providerId: 'anthropic',
       modelId: 'anthropic.claude-fable-5.1',
-      userMessage: '이 변경의 회귀 원인을 분석하고 여러 파일을 리팩터링해줘',
     }),
-    'high',
-    'Fable auto must be app-resolved and may increase for complex work',
+    'medium',
+    'Fable auto is app-resolved from the model ladder only',
   );
   assert.equal(
     resolveSessionReasoningEffort('auto', {}, {
       providerId: 'openai',
       modelId: 'future-reasoner-9',
-      userMessage: '간단히 설명해줘',
     }),
-    'low',
+    'medium',
     'unknown future models use the full fallback capability and concrete auto',
   );
+  {
+    const { resolveAutomaticReasoningEffort } = await import('../core/dist/providers/reasoning-levels.js');
+    assert.equal(resolveAutomaticReasoningEffort.length, 1, 'auto effort takes no user message');
+    assert.equal(resolveAutomaticReasoningEffort(['low', 'high', 'max']), 'high', 'medium clamps up on DeepSeek ladder');
+    assert.equal(resolveAutomaticReasoningEffort([]), null);
+  }
   assert.equal(
     resolveSessionReasoningEffort('high', {}, { providerId: 'openai', modelId: 'openai/gpt-astra' }),
     'high',
@@ -483,16 +482,10 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
   );
 }
 
-// exit-gate nudge shape
+// Prose-classifying claim gates were removed; only the witness type remains.
 {
-  const n = formatExitGateToolNudge({
-    gate: 'diagnostics pass',
-    toolName: 'run_diagnostics',
-    args: {},
-  });
-  assert.match(n, /EXIT_GATE/);
-  assert.match(n, /TOOL_CALL:/);
-  assert.match(n, /run_diagnostics/);
+  const claimGates = await import('../core/dist/agent/agent-claim-gates.js');
+  assert.deepEqual(Object.keys(claimGates), [], 'claim-gates exports no prose classifiers');
 }
 
 // Autopilot default off; env on
@@ -514,9 +507,6 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
     'continuing a run must not OR-in Autopilot; execution policy owns it',
   );
   assert.equal('looksLikeAutopilotContinue' in autopilotModule, false, 'dead continue regex removed');
-  const { formatAcceptanceScenarioSystemNote } = await import(
-    '../core/dist/agent/agent-planner.js'
-  );
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '0' }, true), true, 'user override wins');
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, false), false);
   assert.equal(resolveAutopilotEnabled({ MY_AGENT_AUTOPILOT: '1' }, null), true);
@@ -602,13 +592,9 @@ assert.equal(shouldFallbackToClientToolProtocol('Unknown tool: Foo'), true);
       'incomplete multi-path',
     );
   }
-  assert.match(formatAcceptanceScenarioSystemNote(), /Acceptance scenario/);
-  assert.match(formatAcceptanceScenarioSystemNote(), /inAppBrowser\.open/);
-  const { formatAgenticLoopSystemNote, formatPatchFormatConstraints } = await import(
-    '../core/dist/agent/agent-planner.js'
-  );
-  assert.match(formatAgenticLoopSystemNote(), /Planner|Executor|Verify/i);
-  assert.ok(formatAgenticLoopSystemNote().length < 900, 'agentic loop note must stay lean');
+  const plannerModule = await import('../core/dist/agent/agent-planner.js');
+  const { formatPatchFormatConstraints } = plannerModule;
+  assert.deepEqual(Object.keys(plannerModule), ['formatPatchFormatConstraints'], 'unused planner notes removed');
   assert.match(formatPatchFormatConstraints(), /Begin Patch|atomic/i);
 }
 

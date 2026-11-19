@@ -113,22 +113,16 @@ function isKnownReasoningFamily(modelId?: string | null): boolean {
   return /deepseek|perplexity|sonar|grok|claude|anthropic|fable|mythos|opus|sonnet|gpt-5|\bo[1-4](?:[-_.]|$)|codex|\bgpt[-_. ](?![34]\b|[34][-_.]|4o\b)/.test(m);
 }
 
-/** Resolve UI `auto` to one concrete, model-supported wire effort. */
+/**
+ * Resolve UI `auto` to one concrete, model-supported wire effort.
+ * The choice depends only on the model's supported ladder (medium, clamped),
+ * never on the wording of the user's message.
+ */
 export function resolveAutomaticReasoningEffort(
-  userMessage: string | null | undefined,
   supported: readonly ReasoningEffortLevel[],
 ): ReasoningEffortLevel | null {
   if (!supported.length) return null;
-  const text = String(userMessage ?? '').trim();
-  const complex = /(?:아키텍처|설계|리팩터|마이그레이션|원인\s*분석|디버깅|회귀|성능|보안|여러\s*파일|전체|복잡|architecture|refactor|migration|debug|regression|performance|security|multi[- ]file)/i.test(text);
-  const simple = text.length < 120
-    && /(?:번역|요약|설명|뜻|인사|간단|한\s*줄|translate|summari[sz]e|explain|hello|brief)/i.test(text);
-  const requested: ReasoningEffortLevel = complex || text.length >= 700
-    ? 'high'
-    : simple
-      ? 'low'
-      : 'medium';
-  return clampReasoningEffortToSupported(requested, supported);
+  return clampReasoningEffortToSupported('medium', supported);
 }
 
 export function clampReasoningEffortToSupported(

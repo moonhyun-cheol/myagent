@@ -276,12 +276,7 @@ export async function runWorkspaceCodeAgent(opts: {
 
   const workspaceLock = resolveTurnWorkspaceLock({
     sessionRoot: sessionRoot ?? workspaceRoot,
-    pathHint: null,
   });
-  if (workspaceLock.narrowed) {
-    workspaceRoot = workspaceLock.targetRoot;
-    callbacks?.onStatus?.(`Workspace lock · ${workspaceLock.matchedName || workspaceRoot}`);
-  }
   const browserRouting = req.execution_context === 'background' ? 'background' : 'interactive';
   // No-folder runs: the scratch dir is not a user workspace, so no lock note.
   const lockNote = fileAccess === 'none' ? '' : formatWorkspaceLockNote(workspaceLock);
@@ -307,9 +302,8 @@ export async function runWorkspaceCodeAgent(opts: {
   const skillMode = resolveLlmSkillMode(routing.mode);
   const systemPrompt = await appendBrandManualIfNeeded(
     cqrRoot,
-    message,
     skillMode
-      ? resolveSkillSystemPrompt(skillMode, cqrRoot, message, { workspaceRoot }) ?? undefined
+      ? resolveSkillSystemPrompt(skillMode, cqrRoot, { workspaceRoot }) ?? undefined
       : undefined,
   );
   // Always-on agent-tier index (tree + repo-map); query hits added inside code-agent.
@@ -323,18 +317,6 @@ export async function runWorkspaceCodeAgent(opts: {
         stable: [
           buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
           '## 작업 폴더 없음\n이 대화에는 연결된 작업 폴더가 없습니다. 웹·브라우저·자동화 등록·작업 기록·메모리 도구만 사용할 수 있고, 파일·터미널·Git 도구는 없습니다.',
-        ].filter((p) => p.trim()).join('\n\n'),
-      }
-    : workspaceLock.narrowed
-    ? {
-        turn: [buildPinnedInstructionsContext(req), editorSnippet].filter((p) => p.trim()).join('\n\n'),
-        stable: [
-          buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),
-          buildDevWorkspaceContext(workspaceRoot, {}, {
-            tier: 'agent',
-            includeRepoMap: true,
-            repoMapMaxChars: 6_000,
-          }),
         ].filter((p) => p.trim()).join('\n\n'),
       }
     : buildWorkspaceContextParts(
@@ -392,7 +374,6 @@ export async function runWorkspaceCodeAgent(opts: {
   const reasoningEffort = resolveSessionReasoningEffort(requestedPolicy.reasoning, process.env, {
     providerId: provider.providerId,
     modelId: provider.modelId,
-    userMessage: message,
   });
   const activities = new Map<string, import('../../agent/tool-activity.js').ToolActivity>();
   callbacks?.onExecutionPolicy?.({

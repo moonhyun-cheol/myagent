@@ -283,7 +283,7 @@ function scoreUserQuery(gates, text, expect = {}) {
 function scoreBadAssistant(gates, sample) {
   const deny = gates.cap.contentDeniesAvailableCapability(sample.text);
   const toolsUnavail = gates.guards.contentClaimsToolsUnavailable(sample.text);
-  const deferDebug = gates.claims.contentDefersDebugToUser(sample.text);
+  const deferDebug = (gates.claims.contentDefersDebugToUser ?? (() => false))(sample.text);
   const hit = deny || toolsUnavail || deferDebug;
   return {
     id: sample.id,

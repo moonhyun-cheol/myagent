@@ -14,9 +14,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { getSkillDef, getSkillSystemPrompt, listBundledSkills } = await import(
   '../core/dist/skills/skill-registry.js'
 );
-const { shouldIncludeDesignFirst, WEB_DEV_PRODUCT_UI_HINT } = await import(
-  '../core/dist/skills/web-landing-bundle.js'
-);
+const webLandingBundle = await import('../core/dist/skills/web-landing-bundle.js');
+const { WEB_DEV_PRODUCT_UI_HINT } = webLandingBundle;
+const { resolveSkillSystemPrompt } = await import('../core/dist/skills/chat-skill-flow.js');
 
 // --- manifest: neutral core exposes web_dev only ---
 const manifest = JSON.parse(
@@ -33,8 +33,14 @@ assert.equal(getSkillDef('web_landing'), null);
 assert.equal(getSkillDef('prompt_master'), null);
 
 // --- web_dev thin UI extras ---
-assert.equal(shouldIncludeDesignFirst('그냥 HTML 만들어줘'), false);
-assert.equal(shouldIncludeDesignFirst('디자인 스펙 먼저'), true);
+// Request wording never inlines the design-first guide; web_dev carries a stable pointer.
+assert.equal('shouldIncludeDesignFirst' in webLandingBundle, false);
+{
+  const webDevPrompt = resolveSkillSystemPrompt('web_dev', root) ?? '';
+  assert.match(webDevPrompt, /Design-first guide \(read with read_file[^\n]*web-design-first-ui\.md/);
+  assert.doesNotMatch(webDevPrompt, /프롬프트 골격/, 'guide body must not be inlined');
+  assert.equal(resolveSkillSystemPrompt('web_dev', root), webDevPrompt, 'web_dev prompt is stable');
+}
 assert.match(WEB_DEV_PRODUCT_UI_HINT, /Product UI look/);
 
 // --- web_dev thin prompt (RC-015): no mandatory report / Exit Gate template ---
