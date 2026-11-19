@@ -108,7 +108,8 @@ function rememberFoldNote(key: string, sig: string, content: string, count?: num
 
 function excerptForRole(role: string, content: string): string {
   const c = String(content || '').replace(/\s+/g, ' ').trim();
-  const max = role === 'user' ? 200 : role === 'assistant' ? 120 : 80;
+  // Assistant share was 120: too short to keep the conclusion of an earlier answer.
+  const max = role === 'user' ? 200 : role === 'assistant' ? 400 : 80;
   if (c.length <= max) return c;
   return `${c.slice(0, max)}…`;
 }

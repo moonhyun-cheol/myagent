@@ -1,8 +1,10 @@
 /**
  * Session-scoped P0 constraint lock (plan → approve → mutate).
- * Stored under data/agent-constraints/<sessionId>.json and re-injected each agent turn.
+ * Written only when the user approves a PLAN (Build handoff), stored under
+ * data/agent-constraints/<sessionId>.json and re-injected each agent turn.
+ * Earlier chat prose is never parsed into constraints.
  */
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   emptyArtifactContract,
@@ -42,30 +44,6 @@ export const DONE_CHECK_CATEGORIES = [
   'do-not-touch 경로 미변경',
 ] as const;
 
-/**
- * Direction reversal — short correction utterances only.
- * Avoid sticky false positives from prose containing 「아니라」 mid-sentence.
- */
-const DIRECTION_REVERSAL_RE =
-  /^(?:그런데|근데)?\s*(?:아니(?:지|야)|반대(?:야|다|로)?|그게\s*아니라|반대로|잘못\s*(?:이해|짚)|다시\s*정리)\b/i;
-
-const DIRECTION_REVERSAL_LOOSE_RE =
-  /(?:^|[\n.。])\s*(?:아니지|아니야|반대야|그게\s*아니라|잘못\s*이해)/i;
-
-export function looksLikeDirectionReversal(message: string): boolean {
-  const t = String(message || '').trim();
-  if (!t) return false;
-  // Long task briefs (code-chip mutate prompts) must not trip on incidental 「아니라」.
-  if (t.length > 160) return DIRECTION_REVERSAL_LOOSE_RE.test(t.slice(0, 200));
-  return DIRECTION_REVERSAL_RE.test(t) || DIRECTION_REVERSAL_LOOSE_RE.test(t);
-}
-
-const NEW_SEPARATE_RE =
-  /(?:새\s*프로그램|신규\s*(?:확장|폴더|프로젝트)|기존\s*(?:유지|보존).*새|별도\s*(?:폴더|확장|프로그램)|기존.*건드리지\s*말)/i;
-
-const MODIFY_EXISTING_RE =
-  /(?:기존\s*(?:파일|프로그램|확장).*수정|그\s*파일\s*(?:고쳐|바꿔)|현재\s*코드\s*(?:개조|수정))/i;
-
 function sanitizeSessionKey(sessionId: string): string {
   return sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64) || 'default';
 }
@@ -104,12 +82,6 @@ export function saveLockedConstraints(
   mkdirSync(dir, { recursive: true });
   const fp = lockedConstraintsPath(cqrRoot, sessionId);
   writeFileSync(fp, `${JSON.stringify(normalizeConstraints(constraints), null, 2)}\n`, 'utf8');
-}
-
-export function clearLockedConstraints(cqrRoot: string, sessionId: string | undefined): void {
-  if (!sessionId?.trim()) return;
-  const fp = lockedConstraintsPath(cqrRoot, sessionId);
-  if (existsSync(fp)) unlinkSync(fp);
 }
 
 /** Clear sticky INVALIDATED after code-chip AGENT execute (PLAN rewrite not required). */
@@ -188,33 +160,7 @@ function normalizeConstraints(raw: Partial<LockedConstraints>): LockedConstraint
   };
 }
 
-/** Attach / merge artifact contract onto locked constraints. */
-export function withArtifactContract(
-  constraints: LockedConstraints | null | undefined,
-  contract: ArtifactContract,
-): LockedConstraints {
-  const base = constraints ?? emptyConstraints();
-  const merged = mergeArtifactContracts(base.artifact, contract);
-  const doNotTouch = [
-    ...new Set([...base.doNotTouch, ...merged.legacyIsolateGlobs]),
-  ].slice(0, 32);
-  return normalizeConstraints({
-    ...base,
-    updatedAt: new Date().toISOString(),
-    doNotTouch,
-    artifact: merged,
-    artifactKind: merged.artifactKind,
-    runtimeSurface: merged.runtimeSurface,
-  });
-}
-
-function inferModeFromText(text: string): ConstraintMode {
-  if (NEW_SEPARATE_RE.test(text)) return 'new_separate';
-  if (MODIFY_EXISTING_RE.test(text)) return 'modify_existing';
-  return 'unknown';
-}
-
-/** Parse P0 / constraint lines from a PLAN (or freeform) assistant block. */
+/** Parse labelled P0 / constraint fields from an approved PLAN block (no prose inference). */
 export function extractLockedConstraintsFromText(text: string): LockedConstraints | null {
   const t = String(text || '');
   if (!t.trim()) return null;
@@ -249,14 +195,11 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
     if (/신규|기존/.test(label) && !/^p0\b/i.test(label)) {
       if (/신규\s*분리|새\s*프로그램|별도/.test(value)) mode = 'new_separate';
       else if (/기존\s*수정|개조/.test(value)) mode = 'modify_existing';
-      else if (inferModeFromText(value) !== 'unknown') mode = inferModeFromText(value);
     } else if (/^p0(\s*제약.*)?$/i.test(label)) {
       // Compact PLAN P0: 신규/기존 | artifactKind | 손대지 말 것: x | 진입점: y | …
       if (/신규\s*분리|새\s*프로그램|별도/.test(value)) mode = 'new_separate';
       else if (/기존\s*수정|개조|기존/.test(value) && !/신규/.test(value.split('|')[0] ?? '')) {
         mode = 'modify_existing';
-      } else if (inferModeFromText(value) !== 'unknown') {
-        mode = inferModeFromText(value);
       } else if (/신규/.test(value)) {
         mode = 'new_separate';
       }
@@ -281,10 +224,6 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
               artifactPartial.requiredSecrets = v.split(/[,，、|;]/).map((s) => s.trim()).filter(Boolean);
             }
           }
-          continue;
-        }
-        if (/^(ui_|shell_|core_|node_|unknown)/i.test(part) || /^(react|wpf|api)\b/i.test(part)) {
-          if (!artifactPartial.artifactKind) artifactPartial.artifactKind = part as ArtifactKind;
         }
       }
     } else if (/손대지/.test(label)) {
@@ -315,17 +254,6 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
       for (const part of value.split(/[,，、|;|\[\]]/)) {
         const c = part.replace(/^\s*\[[ xX]?\]\s*/, '').trim();
         if (c) requirementChecks.push(c.slice(0, 120));
-      }
-    }
-  }
-
-  // Fallback: pull do-not-touch paths from freeform mentions.
-  if (!doNotTouch.length) {
-    const dn = t.match(/손대지\s*말\s*것\s*[:：]\s*([^\n]+)/i);
-    if (dn?.[1]) {
-      for (const part of dn[1].split(/[,，、|;]/)) {
-        const p = part.trim().replace(/^[`'"\[]+|[`'"\]]+$/g, '');
-        if (p && !/^없음$/.test(p)) doNotTouch.push(p.slice(0, 200));
       }
     }
   }
@@ -361,19 +289,6 @@ export function extractLockedConstraintsFromText(text: string): LockedConstraint
   });
 }
 
-export function extractLockedConstraintsFromHistory(
-  history: Array<{ role?: string; content?: string }> | undefined,
-): LockedConstraints | null {
-  if (!history?.length) return null;
-  for (let i = history.length - 1; i >= 0; i -= 1) {
-    const msg = history[i];
-    if (msg?.role !== 'assistant') continue;
-    const extracted = extractLockedConstraintsFromText(String(msg.content ?? ''));
-    if (extracted) return extracted;
-  }
-  return null;
-}
-
 export function invalidateLockedConstraints(
   current: LockedConstraints | null,
   reason: string,
@@ -391,21 +306,18 @@ export function invalidateLockedConstraints(
   };
 }
 
-/** Resolve only explicitly structured constraints; never infer intent from the latest prose. */
+/** Resolve only constraints saved by an approved PLAN; chat history is never parsed. */
 export function resolveLockedConstraintsForTurn(opts: {
   cqrRoot: string;
   sessionId?: string;
   userMessage: string;
-  history?: Array<{ role?: string; content?: string }>;
   /**
    * Code-chip AGENT with mutations: sticky INVALIDATED must not force PLAN rewrite
    * every turn — clear unless this message is an explicit direction reversal.
    */
   agentMutateTurn?: boolean;
 }): LockedConstraints | null {
-  let current =
-    loadLockedConstraints(opts.cqrRoot, opts.sessionId)
-    ?? extractLockedConstraintsFromHistory(opts.history);
+  let current = loadLockedConstraints(opts.cqrRoot, opts.sessionId);
 
   // Drop records created by the retired prose inference path.
   if (current?.rawLines.some((line) => /^inferred (?:from user message|artifactKind)/i.test(line))) {
@@ -487,12 +399,4 @@ export function formatLockedConstraintsSystemNote(
   const artNote = formatArtifactContractSystemNote(constraints.artifact);
   if (artNote) lines.push(artNote);
   return lines.join('\n');
-}
-
-export function formatDoneCheckSystemNote(): string {
-  return [
-    '## Done-check categories (required before 완료)',
-    ...DONE_CHECK_CATEGORIES.map((c, i) => `${i + 1}) ${c}`),
-    'Mark each 충족/부분/미충족. Any 미충족 → do not say 완료/완성.',
-  ].join('\n');
 }

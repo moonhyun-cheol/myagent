@@ -22,7 +22,6 @@ import { loadCatalog } from './catalog.mjs';
 import { runSkills } from './runners/skills-l0.mjs';
 import { runSkillsL2 } from './runners/skills-l2.mjs';
 import { runAutomatonDry } from './runners/automaton-dry.mjs';
-import { runDomainL1 } from './runners/domain-l1.mjs';
 import { runEmbeddingCold } from './runners/embedding-cold.mjs';
 import { runBrowserTools } from './runners/browser-tools.mjs';
 
@@ -455,9 +454,8 @@ render();
     }
   }
 
-  // ── 3. Automaton dry + domains + embeddings ──
+  // ── 3. Automaton dry + embeddings ──
   rows.push(...(await runAutomatonDry(root)));
-  rows.push(...(await runDomainL1(root)));
   rows.push(...(await runEmbeddingCold(root, outDir)));
 
   // ── 4. Browser tools ──
@@ -591,7 +589,7 @@ function buildFindings(rows, catalog, tree) {
     severity: 'INFO',
     title: 'Surface inventory exercised',
     detail: [
-      `code tools ${catalog.counts.code_tools}, browser ${catalog.counts.browser_tools}, skills ${catalog.counts.skills}, automaton ${catalog.counts.automaton}, domains ${catalog.counts.domains}`,
+      `code tools ${catalog.counts.code_tools}, browser ${catalog.counts.browser_tools}, skills ${catalog.counts.skills}, automaton ${catalog.counts.automaton}`,
       `project files: ${tree.join(', ')}`,
     ],
   });

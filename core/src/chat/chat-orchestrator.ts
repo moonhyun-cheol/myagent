@@ -69,10 +69,7 @@ import {
   sanitizeHistoryForModel,
 } from './chat-filters.js';
 import { applyHistoryContentBudget, getHistoryTurns } from './history-budget.js';
-import {
-  buildSessionHistoryBudgetOpts,
-  rememberMessagePins,
-} from './session-history-budget.js';
+import { buildSessionHistoryBudgetOpts } from './session-history-budget.js';
 import type { ResolvedModelRoute } from '../providers/types.js';
 import { normalizeExecutionPolicy } from '../execution-policy.js';
 import { resolveSessionReasoningEffort } from '../providers/harness-policy.js';
@@ -728,7 +725,6 @@ export class ChatOrchestrator {
       sessionId,
       { cqrRoot: this.cqrRoot },
     );
-    rememberMessagePins(this.cqrRoot, sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,
@@ -1589,7 +1585,6 @@ export class ChatOrchestrator {
       sessionId,
       { cqrRoot: this.cqrRoot },
     );
-    rememberMessagePins(this.cqrRoot, sessionId, message);
     histBudget = buildSessionHistoryBudgetOpts({
       cqrRoot: this.cqrRoot,
       sessionId,

@@ -30,7 +30,7 @@ Default pack 디렉터리: `%USERPROFILE%\Documents\MY_AGENT_personal_pack`
 | 플러그인 **샘플** | `tools/plugin-templates/*` |
 | 번들 스킬 | `core/config/defaults/skills/*` |
 | 조직 전용 모듈 | 별도 저장소·서명 업데이트로 관리하며 core pack에서 제외 |
-| Domain / automaton | `core/config/defaults/domain-connectors.json`, automaton manifest |
+| Automaton | `core/config/defaults/automaton-tools.manifest.json` |
 
 ## 업데이트 SOP (3줄 + 확인)
 

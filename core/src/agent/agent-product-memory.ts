@@ -38,17 +38,68 @@ function pathKey(target: string): string {
   return path.resolve(target).replace(/\//g, '\\').toLowerCase();
 }
 
+function isInsideRoot(target: string, root: string): boolean {
+  const t = pathKey(target);
+  const r = pathKey(root);
+  if (t === r) return true;
+  return t.startsWith(r.endsWith('\\') ? r : `${r}\\`);
+}
+
+/** Folder levels checked above the workspace when looking for a MY Agent tree root. */
+const SELF_ROOT_MAX_DEPTH = 8;
 /**
- * True when the agent workspace is the MY Agent tree (or a folder inside it).
+ * Top-level folders of a MY Agent tree. An ancestor tree only claims the workspace when it
+ * sits under one of these — an unrelated project placed inside an install folder
+ * (e.g. C:\\app\\vari6 next to an install at C:\\app) stays external.
+ */
+const SELF_TREE_TOP_DIRS = new Set(['core', 'ui', 'shell', 'tools', 'docs', 'deploy', 'modules', 'channels']);
+
+/**
+ * Structural marker of a MY Agent tree (running app or a source checkout opened as the
+ * workspace): root manifest.json named "MY Agent" plus the core agent run loop.
+ */
+export function isMyAgentTreeRoot(dir: string): boolean {
+  try {
+    const manifestPath = path.join(dir, 'manifest.json');
+    if (!existsSync(manifestPath)) return false;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: unknown };
+    if (manifest?.name !== 'MY Agent') return false;
+    return existsSync(path.join(dir, 'core', 'src', 'agent', 'agent-run-loop.ts'))
+      || existsSync(path.join(dir, 'core', 'dist', 'agent', 'agent-run-loop.js'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Root of the MY Agent tree that contains the workspace, or null for external projects.
+ * The running app root (cqrRoot) counts first; otherwise the nearest ancestor with the
+ * MY Agent tree marker (a dev checkout differs from the installed app root).
+ */
+export function resolveSelfWorkspaceRoot(workspaceRoot: string, cqrRoot: string): string | null {
+  if (!workspaceRoot?.trim()) return null;
+  if (cqrRoot?.trim() && isInsideRoot(workspaceRoot, cqrRoot)) return path.resolve(cqrRoot);
+  const ws = path.resolve(workspaceRoot);
+  let dir = ws;
+  for (let i = 0; i < SELF_ROOT_MAX_DEPTH; i += 1) {
+    if (isMyAgentTreeRoot(dir)) {
+      if (dir === ws) return dir;
+      const top = path.relative(dir, ws).split(/[\\/]/)[0]?.toLowerCase() ?? '';
+      return SELF_TREE_TOP_DIRS.has(top) ? dir : null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * True when the agent workspace is a MY Agent tree (or a folder inside it).
  * External projects (e.g. C:\\app\\vari6) must not receive CQR product memory.
  */
 export function isSelfWorkspace(workspaceRoot: string, cqrRoot: string): boolean {
-  if (!workspaceRoot?.trim() || !cqrRoot?.trim()) return false;
-  const ws = pathKey(workspaceRoot);
-  const cqr = pathKey(cqrRoot);
-  if (ws === cqr) return true;
-  const prefix = cqr.endsWith('\\') ? cqr : `${cqr}\\`;
-  return ws.startsWith(prefix);
+  return resolveSelfWorkspaceRoot(workspaceRoot, cqrRoot) !== null;
 }
 
 export function loadProductFacts(cqrRoot: string): ProductFacts | null {
@@ -159,10 +210,11 @@ export function resolveScopedProductMemory(
   cqrRoot: string,
   workspaceRoot: string,
 ): ScopedProductMemory {
-  const selfWorkspace = isSelfWorkspace(workspaceRoot, cqrRoot);
-  if (selfWorkspace) {
-    const productFacts = loadProductFacts(cqrRoot);
-    const agentsMd = loadAgentsMd(cqrRoot);
+  const selfRoot = resolveSelfWorkspaceRoot(workspaceRoot, cqrRoot);
+  if (selfRoot) {
+    // Memory of the tree being edited (a dev checkout may be newer than the running app).
+    const productFacts = loadProductFacts(selfRoot);
+    const agentsMd = loadAgentsMd(selfRoot);
     return {
       selfWorkspace: true,
       productFacts,

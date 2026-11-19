@@ -56,5 +56,7 @@ export interface AgentToolContext {
     mutatedPaths: string[];
     /** A successful model-requested tests/terminal/browser tool after mutation. */
     acceptanceOk: boolean;
+    /** A tool other than task bookkeeping succeeded in this run (non-file completion evidence). */
+    workToolUsed?: boolean;
   };
 }

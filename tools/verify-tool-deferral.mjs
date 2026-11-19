@@ -88,58 +88,15 @@ assert.equal(
   'after a tool call, publication is not held',
 );
 
-const {
-  contentClaimsWorkspaceAbsence,
-  shouldFlagUncheckedAbsenceClaim,
-} = await import('../core/dist/agent/agent-claim-gates.js');
-
-assert.equal(
-  contentClaimsWorkspaceAbsence('제가 언급한 조회 경로·파일명은 지어낸 것이 섞여 있습니다.'),
-  true,
-  '「지어냈다」 is an absence claim',
-);
-assert.equal(
-  contentClaimsWorkspaceAbsence('여기엔 CQR 제품 카탈로그도, 시장조사 파이프라인도 없습니다.'),
-  true,
-  '「카탈로그 … 없습니다」 is an absence claim',
-);
-assert.equal(
-  contentClaimsWorkspaceAbsence('API 연결·데이터 파일·파이프라인 전부 부재'),
-  true,
-  '「부재」 is an absence claim',
-);
-assert.equal(
-  contentClaimsWorkspaceAbsence('그 파일이 없는지는 검색으로 확인하겠습니다.'),
-  false,
-  'asking whether it is missing is not a claim',
-);
-assert.equal(
-  contentClaimsWorkspaceAbsence('맞습니다. 개인 작업은 접기만 됩니다.'),
-  false,
-  'unrelated answer is not an absence claim',
-);
-
-const absence = {
-  text: '여기엔 model_catalog.json 같은 데이터 파일이 없습니다.',
-  retryAlreadyUsed: false,
-  toolsAvailable: true,
-  depthToolUsed: false,
-};
-assert.equal(shouldFlagUncheckedAbsenceClaim(absence), true, 'unchecked absence gets one search retry');
-assert.equal(
-  shouldFlagUncheckedAbsenceClaim({ ...absence, depthToolUsed: true }),
-  false,
-  'after search_files/read_file/list_directory the claim stands',
-);
-assert.equal(
-  shouldFlagUncheckedAbsenceClaim({ ...absence, retryAlreadyUsed: true }),
-  false,
-  'absence retry stays once per turn',
-);
-assert.equal(
-  shouldFlagUncheckedAbsenceClaim({ ...absence, toolsAvailable: false }),
-  false,
-  'no tools, no retry',
-);
+// Absence wording is no longer classified by regex: it matched ordinary answers and
+// discarded them. The system prompt asks for a search before such claims instead.
+const gates = await import('../core/dist/agent/agent-claim-gates.js');
+assert.equal(gates.contentClaimsWorkspaceAbsence, undefined, 'absence regex classifier is removed');
+assert.equal(gates.shouldFlagUncheckedAbsenceClaim, undefined, 'absence retry gate is removed');
+const { readFileSync } = await import('node:fs');
+const stepLoopSource = readFileSync(new URL('../core/src/agent/agent-run-step-loop.ts', import.meta.url), 'utf8');
+assert.doesNotMatch(stepLoopSource, /absenceRetryUsed|UncheckedAbsenceClaim/, 'step loop has no absence retry');
+const helpersSource = readFileSync(new URL('../core/src/agent/agent-run-helpers.ts', import.meta.url), 'utf8');
+assert.match(helpersSource, /are not proof of absence/, 'prompt carries the search-before-absence rule');
 
 console.log('verify-tool-deferral: ok');

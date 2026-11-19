@@ -20,7 +20,6 @@ import { runSkills } from './runners/skills-l0.mjs';
 import { runBrowserTools } from './runners/browser-tools.mjs';
 import { runAutomatonDry } from './runners/automaton-dry.mjs';
 import { runSkillsL2 } from './runners/skills-l2.mjs';
-import { runDomainL1 } from './runners/domain-l1.mjs';
 import { runEmbeddingCold } from './runners/embedding-cold.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -84,7 +83,6 @@ function mdReport(catalog, rows, summary) {
     `- browser tools: ${catalog.counts.browser_tools}`,
     `- skills: ${catalog.counts.skills}`,
     `- automaton: ${catalog.counts.automaton}`,
-    `- domains: ${catalog.counts.domains}`,
     '',
     '## Summary',
     '',
@@ -140,7 +138,6 @@ async function main() {
 
   rows.push(...(await runSkills(root, catalog, Math.min(level, 1))));
   rows.push(...(await runAutomatonDry(root)));
-  rows.push(...(await runDomainL1(root)));
 
   let fixture = path.join(outDir, 'fixture');
   if (level >= 1) {

@@ -4,7 +4,7 @@
  */
 import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { focusTokensFromMessage, buildRepoMapContext } from './repo-map.js';
+import { focusTokensFromMessage, buildRepoMapContext, requestSearchSeeds } from './repo-map.js';
 import { buildSymbolChunkContext } from './agent-symbol-chunks.js';
 import { buildEmbeddingSearchContext, invalidateEmbeddingIndex } from './agent-embedding-index.js';
 import {
@@ -19,32 +19,9 @@ const MAX_QUERIES = 3;
 const MAX_SYMBOL_CHARS = 7_000;
 const MAX_EMBED_CHARS = 4_500;
 
-/** Prefer error-like / path-like tokens for pre-search. */
+/** Pre-search queries: shared seed rule (error codes, paths, quoted Korean, identifiers). */
 export function indexQueryCandidatesFromMessage(message: string): string[] {
-  const out: string[] = [];
-  const push = (q: string) => {
-    const t = q.trim();
-    if (t.length < 3 || t.length > 80) return;
-    if (!out.includes(t)) out.push(t);
-  };
-
-  for (const m of message.matchAll(
-    /\b(?:TS\d{3,5}|error\s+[A-Z]\d+|E\d{4}|Cannot find module ['"][^'"]+['"])\b/gi,
-  )) {
-    push(m[0]);
-  }
-  for (const m of message.matchAll(
-    /(?:^|[\s`'"(])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|cs|xaml|json|md))\b/g,
-  )) {
-    push(m[1]);
-  }
-  for (const t of focusTokensFromMessage(message)) {
-    if (/[A-Z]/.test(t) || t.includes('_') || t.includes('-') || /[가-힣]/.test(t)) {
-      push(t);
-    }
-  }
-
-  return out.slice(0, MAX_QUERIES);
+  return requestSearchSeeds(message, MAX_QUERIES);
 }
 
 export function formatSearchHitsBlock(hits: SearchHit[], title: string): string {
@@ -125,7 +102,7 @@ export function buildQuerySearchContext(
   invalidateWorkspaceSearchCache(workspaceRoot);
 
   const sections: string[] = [
-    '## Query search hits (index — prefer over guessing paths)',
+    '## Query search hits (automatic keyword matches from the request — candidates only, may be unrelated)',
   ];
   let used = sections[0].length;
   const seenHit = new Set<string>();

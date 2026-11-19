@@ -47,7 +47,7 @@ export function formatUnderstandingCardSystemNote(opts?: { compact?: boolean }):
     '3. P0: 신규/기존 | artifactKind/runtimeSurface | 손대지 말 것 | 진입점 | 필수 env',
     '4. Exit Gate 1개: disk/command evidence that closes this turn',
     'Discord/매크로/스케줄 → Node bot 우선 (웹 SPA 기본 금지). OpenClaw≠개인 봇.',
-    'Unknown organization data sources → domain-connectors.json; fixture/ASSUMED_SCHEMA only; 실REST invent 금지.',
+    'Unknown organization data sources → fixture/ASSUMED_SCHEMA only; 실REST invent 금지.',
     '개인 Discord는 Webhook URL 우선(봇 토큰은 명시 시에만). Webhook 없으면 게시 완료 금지.',
     'Then IMMEDIATELY call edit_file / apply_patch / write_file. Card alone is FAIL.',
     'Do not ask for 「진행」. Do not claim 읽기 전용.',

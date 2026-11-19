@@ -34,7 +34,6 @@ import { runToolsDirect } from './runners/tools-direct.mjs';
 import { runSkills } from './runners/skills-l0.mjs';
 import { runBrowserTools } from './runners/browser-tools.mjs';
 import { runAutomatonDry } from './runners/automaton-dry.mjs';
-import { runDomainL1 } from './runners/domain-l1.mjs';
 import { runEmbeddingCold } from './runners/embedding-cold.mjs';
 import { runRealuseDeepPack } from './runners/realuse-deep.mjs';
 
@@ -193,8 +192,6 @@ async function checkSurfaceCatalog() {
 
     const autoRows = await runAutomatonDry(root);
     ingestLabRows(autoRows, 'surface');
-    const domainRows = await runDomainL1(root);
-    ingestLabRows(domainRows, 'surface');
 
     const toolRun = await runToolsDirect(root, catalog, { browser: wantBrowserForce });
     ingestLabRows(toolRun.rows, 'surface');
@@ -211,7 +208,6 @@ async function checkSurfaceCatalog() {
     const surfaceOnly = [
       ...skillRows,
       ...autoRows,
-      ...domainRows,
       ...toolRun.rows,
       ...browserRows,
       ...embRows,

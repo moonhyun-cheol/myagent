@@ -344,7 +344,7 @@ async function main() {
     { script: 'verify-harness-goldens.mjs', id: 'harness_goldens' },
     { script: 'verify-embedding-cold.mjs', id: 'embedding_cold' },
     { script: 'verify-skills.mjs', id: 'skills' },
-    { script: 'verify-domain-registry.mjs', id: 'domain_registry' },
+    { script: 'verify-bare-module-guard.mjs', id: 'bare_module_guard' },
     { script: 'verify-tool-facade.mjs', id: 'tool_facade' },
     { script: 'verify-work-mode-loop.mjs', id: 'work_mode' },
     { script: 'verify-failure-plane.mjs', id: 'failure_plane' },

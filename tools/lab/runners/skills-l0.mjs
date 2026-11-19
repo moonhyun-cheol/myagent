@@ -99,15 +99,6 @@ export async function runSkills(root, catalog, level = 1) {
     ),
   );
 
-  // domain registry verify if present
-  const vd = path.join(root, 'tools/verify-domain-registry.mjs');
-  if (existsSync(vd)) {
-    const r = spawnSync(process.execPath, [vd], { cwd: root, encoding: 'utf8' });
-    rows.push(
-      row('verify-domain-registry.mjs', 0, r.status === 0 ? 'pass' : 'fail', 0, (r.stdout || '').trim().slice(-120)),
-    );
-  }
-
   // automaton tools covered by runners/automaton-dry.mjs (not silent skip rows here)
   return rows;
 }

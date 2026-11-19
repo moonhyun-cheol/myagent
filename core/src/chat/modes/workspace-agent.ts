@@ -23,12 +23,9 @@ import {
   resolveForcedToolPack,
   shouldUseWorkspaceToolPlane,
 } from '../../agent/agent-runtime-facts.js';
-import {
-  extractLockedConstraintsFromText,
-  loadLockedConstraints,
-  persistConstraintsFromAssistantText,
-} from '../../agent/agent-locked-constraints.js';
+import { extractLockedConstraintsFromText } from '../../agent/agent-locked-constraints.js';
 import { ensureDebugLogGitignore } from '../../sessions/workspace-scratch-gitignore.js';
+import { isSelfWorkspace, stripCqrSelfSkillSections } from '../../agent/agent-product-memory.js';
 import { formatDebugIngestNote, registerDebugIngest } from '../../agent/agent-debug-ingest.js';
 import { resolveLlmSkillMode, resolveSkillSystemPrompt } from '../../skills/chat-skill-flow.js';
 import { appendBrandManualIfNeeded } from '../../providers/brand-manual-context.js';
@@ -41,7 +38,6 @@ import { appendAssistantReply } from '../assistant-reply.js';
 import { composerSelectionRef } from '../model-switch.js';
 import { sanitizeHistoryForModel } from '../chat-filters.js';
 import { getHistoryTurns, HISTORY_FOLD_STEP } from '../history-budget.js';
-import { rememberMessagePins } from '../session-history-budget.js';
 import {
   resolveMemoryProjectId,
   resolveWorkspaceRootForSession,
@@ -349,7 +345,6 @@ export async function runWorkspaceCodeAgent(opts: {
         sessionId,
         routing.mode,
       );
-  rememberMessagePins(cqrRoot, sessionId, message);
   // Raw aligned window only; buildAgentMessages applies the single history budget/compress
   // pass (with replayed turn contexts counted), so on/off cannot flip between two passes.
   const history = sanitizeHistoryForModel(
@@ -369,7 +364,11 @@ export async function runWorkspaceCodeAgent(opts: {
   const workspaceBehavior = resolveWorkspaceBehavior(requestedPolicy);
   // Plan/Debug are chosen explicitly in the UI picker — never inferred from message wording.
   if (workspaceBehavior === 'plan') {
-    const planNote = loadPlanModeSystemNote(cqrRoot);
+    // Product-only rules sit between MY_AGENT_SELF markers; other projects never see them.
+    const planNoteRaw = loadPlanModeSystemNote(cqrRoot);
+    const planNote = isSelfWorkspace(workspaceRoot, cqrRoot)
+      ? planNoteRaw
+      : stripCqrSelfSkillSections(planNoteRaw);
     if (planNote) lockSystemNotes.push(planNote);
   }
   if (workspaceBehavior === 'debug') {
@@ -463,6 +462,8 @@ export async function runWorkspaceCodeAgent(opts: {
     signal,
   });
 
+  // Plan replies only report whether the PLAN has labelled P0 fields (UI hint). Constraints are
+  // saved when the user approves the PLAN via Build (plan-build-handoff), never from a reply.
   const persistsConstraints = behaviorPersistsLockedConstraints(workspaceBehavior, cqrRoot);
   const planConstraintsLocked = persistsConstraints
     ? Boolean(extractLockedConstraintsFromText(agent.content ?? ''))
@@ -481,15 +482,6 @@ export async function runWorkspaceCodeAgent(opts: {
     emptyFallback:
       '코드 에이전트 응답이 비어 있습니다. 같은 요청을 다시 보내 주세요. (텍스트 모드로도 가능합니다.)',
   });
-
-  if (persistsConstraints) {
-    persistConstraintsFromAssistantText({
-      cqrRoot,
-      sessionId,
-      assistantText: scrubbed,
-      previous: loadLockedConstraints(cqrRoot, sessionId),
-    });
-  }
 
   return {
     role: 'assistant',

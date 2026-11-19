@@ -4,7 +4,6 @@
 import type { ChatMessage } from '../providers/openai-compatible.js';
 import type { AgentToolContext, AgentToolDefinition } from './tools.js';
 import type { AgentToolProtocol } from './agent-llm-step.js';
-import type { UiFacts } from './agent-grounding.js';
 import type { DiagnosticsEvidenceStatus } from './agent-outcome-gate.js';
 import type { CodeAgentOptions, CodeAgentResult } from './agent-run-types.js';
 import type { WorkspaceReadGate } from './tool-read-gate.js';
@@ -61,7 +60,6 @@ export interface AgentRunStepState {
   hadStoredContinuationAtStart: boolean;
   /** When false, skip prose outcome-gate (MAR intermediate roles). */
   selfWorkspace: boolean;
-  uiFacts: UiFacts | null;
   reportStatus: (text: string) => void;
   pushThought: (line: string) => void;
   publishThoughtPanel: () => void;

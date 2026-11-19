@@ -34,17 +34,6 @@ import {
 } from './tools.js';
 import { WorkspaceReadGate, parseToolArgs } from './tool-read-gate.js';
 import {
-  contentClaimsStaleShellTitleBar,
-  defaultUiReadFallback,
-  chatUiPathHints,
-  resolveUiBootstrapPath,
-  SHELL_WINDOW_PATH,
-  toolCallReadOrList,
-  UI_TARGET_MAP_PATH,
-  UI_TASK_RE,
-  UI_TITLEBAR_RE,
-} from './agent-ui-bootstrap.js';
-import {
   appendClientToolProtocol,
   isCodeAgentLlmProvider,
   prefersClientToolProtocol,
@@ -60,7 +49,6 @@ import {
   type AgentToolProtocol,
 } from './agent-llm-step.js';
 import { packEnforcesToolAllowlist, packIncludesBrowser } from './agent-tool-pack.js';
-import { loadUiFacts } from './agent-grounding.js';
 import {
   formatAutopilotSystemNote,
   resolveAutopilotEnabled,
@@ -106,7 +94,7 @@ import { calculateLlmUsageCost } from './llm-usage-cost.js';
 import { attachAgentUsage } from './agent-usage-carry.js';
 import { runAgentStepLoop } from './agent-run-step-loop.js';
 import type { AgentRunStepState } from './agent-run-step-state.js';
-import { AgentEvidenceStore } from './agent-evidence-store.js';
+import { AgentEvidenceStore, formatPriorEvidenceTurnNote } from './agent-evidence-store.js';
 import { untrustedSourceForCall } from './untrusted-content.js';
 import { formatTodoLedgerTurnNote, formatTodoLifecycleSystemNote } from './agent-todo-ledger.js';
 import { appendTurnContext } from './agent-context-assembler.js';
@@ -190,6 +178,11 @@ import {
   workspaceSnapshot,
 } from './agent-run-helpers.js';
 
+/** Bookkeeping calls are not work evidence for a no-file-change active_task completion. */
+const TASK_BOOKKEEPING_TOOLS = new Set([
+  'active_task', 'todo_update', 'memory_propose', 'evidence_read', 'task_history_search', 'task_history_detail',
+]);
+
 export async function runCodeAgent(opts: CodeAgentOptions): Promise<CodeAgentResult> {
   try {
     return await runCodeAgentInner(opts);
@@ -241,8 +234,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     ? { selfWorkspace: false, promptBlock: '' }
     : resolveScopedProductMemory(opts.cqrRoot, opts.workspaceRoot);
   const selfWorkspace = scopedMemory.selfWorkspace;
-  // The model receives the complete safe tool schema and decides whether tools are needed.
-  const uiFacts = selfWorkspace ? loadUiFacts(opts.cqrRoot) : null;
 
   const resolved = opts.providerStore.resolveProvider(opts.providerId, opts.modelId);
   if (!resolved) {
@@ -368,7 +359,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     cqrRoot: opts.cqrRoot,
     sessionId: opts.sessionId,
     userMessage: opts.userMessage,
-    history: opts.history,
     agentMutateTurn: true,
   });
   const mutatedPathsThisRun = new Set<string>();
@@ -562,10 +552,8 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     guard,
     toolNames,
     toolProtocol === 'client',
-    uiFacts,
     scopedMemory.promptBlock,
     selfWorkspace,
-    false,
   );
   let sysInsertAt = 1;
   const sessionMetaForGate = loadAgentRunMeta(opts.cqrRoot, opts.sessionId);
@@ -651,6 +639,10 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
   });
   sysInsertAt += 1;
   appendTurnContext(messages, formatTodoLedgerTurnNote(sessionMetaForGate.todoLedger));
+  // Tool results are not replayed across turns; list what is stored so the model can
+  // reopen it with evidence_read instead of repeating the same discovery.
+  const priorEvidenceNote = formatPriorEvidenceTurnNote(sessionMetaForGate.evidenceRecords);
+  if (priorEvidenceNote) appendTurnContext(messages, priorEvidenceNote);
   const taskTopicManifest = buildTaskLedgerTopicManifest(opts.cqrRoot, {
     sessionId: opts.sessionId,
     workspaceRoot: opts.workspaceRoot,
@@ -788,6 +780,7 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     getRunEvidence: () => ({
       mutatedPaths: [...(stepState?.mutatedPathsThisRun ?? mutatedPathsThisRun)],
       acceptanceOk: stepState?.explicitAcceptanceOk === true,
+      workToolUsed: [...(stepState?.toolsUsedThisRun ?? [])].some((name) => !TASK_BOOKKEEPING_TOOLS.has(name)),
     }),
     onContinuationDecision: (action) => decideContinuation(action),
   };
@@ -913,7 +906,6 @@ async function runCodeAgentInner(opts: CodeAgentOptions): Promise<CodeAgentResul
     continuationOwner: !pendingContinuation,
     hadStoredContinuationAtStart: Boolean(pendingContinuation) || sessionContinuity,
     selfWorkspace,
-    uiFacts,
     reportStatus,
     pushThought,
     publishThoughtPanel,

@@ -67,15 +67,16 @@ export function resolveAgentBudgetBand(
 export function agentBudgetBandNote(band: AgentBudgetBand): string {
   if (band === 'finalize') {
     return [
-      '[예산 국면: 마감 임박] 이 실행이 곧 재개(continuation) 지점에 도달한다.',
-      '지금 핵심 결과를 요약하고 TODO·Evidence를 갱신해 다음 재개가 끊김 없이 이어지도록 하라.',
-      '새 범위를 시작하지 말고, 검증되지 않은 작업은 미해결로 명확히 남겨라.',
+      '[예산 국면: 마감 임박] 이 실행의 작업 예산 한도에 가까워졌다.',
+      '한도에 닿으면 앱이 진행 상황을 검토해 예산을 연장하거나 재개 상태를 저장한다.',
+      'TODO·Evidence를 최신으로 갱신해 두고 남은 일을 계속 진행하라. 이 안내만을 이유로 작업을 끝내지 마라.',
+      '검증되지 않은 작업은 미해결로 명확히 남겨라.',
     ].join(' ');
   }
   return [
     '[예산 국면: 수렴] 이 실행의 작업 예산 후반부에 들어섰다.',
-    '새로운 탐색·조회 범위를 넓히지 말고, 이미 확보한 근거로 수정과 검증을 마무리하는 방향으로 수렴하라.',
-    '품질을 낮추거나 서둘러 끝내라는 뜻은 아니다.',
+    '요청 결과에 꼭 필요한 일부터 진행하고, 요청과 무관한 탐색은 늘리지 마라. TODO를 최신으로 유지하라.',
+    '남은 일을 줄이거나 서둘러 끝내라는 뜻이 아니다. 한도에 닿으면 앱이 진행 상황을 검토해 예산을 연장할 수 있다.',
   ].join(' ');
 }
 
@@ -124,10 +125,10 @@ function compactConsumedToolResults(messages: ChatMessage[]): ChatMessage[] {
 function profileTailNote(profile: AgentContextProfile, toolNames: string[]): ChatMessage {
   const phaseInstruction: Record<AgentContextProfile, string> = {
     orient: '요청을 짧게 구조화하고 필요한 소스를 일괄 탐색하라. 아직 수정하지 말고 다음 실행에 필요한 근거를 확보하라.',
-    execute: '확인된 근거와 작업 목표에 집중해 수정하라. 무관한 과거 이력과 완료된 조회를 다시 확장하지 마라.',
+    execute: '확인된 근거와 작업 목표에 집중해 요청된 작업을 진행하라. 무관한 과거 이력과 완료된 조회를 다시 확장하지 마라.',
     repair: '최근 실패 원인과 관련 파일만 사용해 복구하라. 같은 실패 호출을 그대로 반복하지 마라.',
     verify: '변경 결과를 Acceptance 기준으로 검증하라. 실패 시 오류 근거를 남겨 복구 단계로 넘겨라.',
-    final: '검증된 결과만 요약하고 열린 작업 게이트를 닫아라. 새 범위를 시작하지 마라.',
+    final: '검증된 결과만 요약하고 열린 작업 게이트를 닫아라. 요청 범위에 남은 일이 있으면 먼저 끝내라.',
   };
   return {
     // Keep volatile phase guidance in the dynamic conversation tail. Provider

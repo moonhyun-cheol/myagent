@@ -5,8 +5,8 @@
 import { readFileSync } from 'node:fs';
 import { resolveDevWorkspaceReadPath } from '../../security/dev-workspace-guard.js';
 import {
-  focusTokensFromMessage,
   queryRepoMap,
+  requestSearchSeeds,
   type RepoSymbol,
 } from './repo-map.js';
 
@@ -14,29 +14,8 @@ const DEFAULT_MAX_CHARS = 4_500;
 const DEFAULT_MAX_CHUNKS = 6;
 const DEFAULT_CONTEXT_LINES = 28;
 
-/** Local query seeds (avoid importing agent-workspace-index — circular). */
-function querySeedsFromMessage(message: string): string[] {
-  const out: string[] = [];
-  const push = (q: string) => {
-    const t = q.trim();
-    if (t.length < 3 || t.length > 80) return;
-    if (!out.includes(t)) out.push(t);
-  };
-  for (const m of message.matchAll(
-    /\b(?:TS\d{3,5}|error\s+[A-Z]\d+|E\d{4})\b/gi,
-  )) {
-    push(m[0]);
-  }
-  for (const m of message.matchAll(
-    /(?:^|[\s`'"(])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|cs|xaml|json|md))\b/g,
-  )) {
-    push(m[1]!);
-  }
-  for (const t of focusTokensFromMessage(message)) {
-    if (/[A-Z]/.test(t) || t.includes('_') || t.length >= 4) push(t);
-  }
-  return out.slice(0, 5);
-}
+/** Symbol-window seeds: same rule as query search hits (repo-map requestSearchSeeds). */
+const MAX_SEEDS = 5;
 
 export interface SymbolChunk {
   path: string;
@@ -74,7 +53,7 @@ export function collectSymbolChunks(
 ): SymbolChunk[] {
   const maxChunks = opts?.maxChunks ?? DEFAULT_MAX_CHUNKS;
   const contextLines = opts?.contextLines ?? DEFAULT_CONTEXT_LINES;
-  const uniqQ = querySeedsFromMessage(message);
+  const uniqQ = requestSearchSeeds(message, MAX_SEEDS);
   if (!uniqQ.length) return [];
 
   const chunks: SymbolChunk[] = [];

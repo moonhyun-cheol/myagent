@@ -25,6 +25,8 @@ const SKIP_DIRS = new Set([
   // Staged/deploy copies pollute path hits (e.g. tools.ts → deploy/output/... before core/).
   'deploy',
   'output',
+  // .NET build intermediates (generated AssemblyInfo etc.), same exclusion as embeddings.
+  'obj',
 ]);
 
 const CODE_EXT_RE =
@@ -591,22 +593,73 @@ export function formatRepoMap(fileMaps: RepoFileMap[], maxChars = DEFAULT_MAX_CH
   return lines.join('\n');
 }
 
-/** Extract rough focus tokens from a user message for map ranking. */
-export function focusTokensFromMessage(message: string): string[] {
-  const raw = message.match(/[A-Za-z_][\w.-]{2,}|[\uac00-\ud7a3]{2,}/g) ?? [];
-  const stop = new Set([
-    'the', 'and', 'for', 'with', 'from', 'this', 'that', 'please', 'file', 'code',
-    'read', 'write', 'edit', 'fix', 'path', 'tool', '파일', '코드', '수정', '확인',
-    '만들어', '작성', '해줘', '주세요',
-  ]);
+const FOCUS_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'this', 'that', 'please', 'file', 'code',
+  'read', 'write', 'edit', 'fix', 'path', 'tool',
+]);
+
+/** Phrases the user quoted explicitly (`x`, "x", 「x」 …). */
+function quotedPhrasesFromMessage(message: string): string[] {
   const out: string[] = [];
-  for (const t of raw) {
-    const k = t.toLowerCase();
-    if (stop.has(k)) continue;
+  for (const m of message.matchAll(/[`"'「『“‘]([^`"'「」『』“”‘’\n]{2,60})[`"'」』”’]/g)) {
+    const t = m[1]!.trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Focus tokens for repo-map ranking. Same term rule as the automatic search seeds:
+ * Latin identifier-like words, plus Korean only when the user quoted it. Unquoted
+ * Korean sentence words are skipped (they matched unrelated files).
+ */
+export function focusTokensFromMessage(message: string): string[] {
+  const out: string[] = [];
+  const push = (t: string) => {
+    if (FOCUS_STOP_WORDS.has(t.toLowerCase())) return;
     if (!out.includes(t)) out.push(t);
+  };
+  for (const t of message.match(/[A-Za-z_][\w.-]{2,}/g) ?? []) {
+    push(t);
+    if (out.length >= 24) return out;
+  }
+  for (const q of quotedPhrasesFromMessage(message)) {
+    if (/[\uac00-\ud7a3]/.test(q)) push(q);
     if (out.length >= 24) break;
   }
   return out;
+}
+
+/**
+ * Shared seed rule for automatic retrieval from the request text (query search hits and
+ * symbol windows): error codes, file paths, quoted Korean phrases, then identifier-like
+ * tokens (uppercase, `_` or `-`). Only these explicit shapes are used.
+ */
+export function requestSearchSeeds(message: string, max: number): string[] {
+  const out: string[] = [];
+  const push = (q: string) => {
+    const t = q.trim();
+    if (t.length < 3 || t.length > 80) return;
+    if (!out.includes(t)) out.push(t);
+  };
+  for (const m of message.matchAll(
+    /\b(?:TS\d{3,5}|error\s+[A-Z]\d+|E\d{4}|Cannot find module ['"][^'"]+['"])\b/gi,
+  )) {
+    push(m[0]);
+  }
+  for (const m of message.matchAll(
+    /(?:^|[\s`'"(])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|cs|xaml|json|md))\b/g,
+  )) {
+    push(m[1]!);
+  }
+  for (const q of quotedPhrasesFromMessage(message)) {
+    if (/[\uac00-\ud7a3]/.test(q)) push(q);
+  }
+  for (const t of focusTokensFromMessage(message)) {
+    if (/[\uac00-\ud7a3]/.test(t)) continue;
+    if (/[A-Z]/.test(t) || t.includes('_') || t.includes('-')) push(t);
+  }
+  return out.slice(0, max);
 }
 
 export function buildRepoMapContext(

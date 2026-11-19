@@ -470,15 +470,21 @@ async function executeAgentToolInner(
         }
         if (action === 'complete') {
           const evidence = ctx.getRunEvidence?.();
-          const strong = Boolean(
-            evidence
-            && evidence.mutatedPaths.length > 0
-            && evidence.acceptanceOk,
-          );
-          if (!strong) {
+          const mutated = (evidence?.mutatedPaths.length ?? 0) > 0;
+          const completionReason = String(args.reason || '').trim();
+          // File changes still need a check after the change. Work that changed no files in
+          // this run (analysis, terminal/browser/database work, checking earlier changes) had
+          // no way to close before and stayed reinjected every turn.
+          if (mutated && !evidence?.acceptanceOk) {
             return {
               label: 'active task completion rejected',
-              output: 'ERROR: ACTIVE_TASK_COMPLETION_REQUIRES_MUTATE_AND_EXPLICIT_ACCEPTANCE',
+              output: 'ERROR: ACTIVE_TASK_COMPLETION_REQUIRES_VERIFICATION — files changed in this run but no outcome check ran after the change. Run a relevant check (read back, diagnostics, tests, terminal, or browser), then call complete again. The task stays active; this is not a blocker.',
+            };
+          }
+          if (!mutated && (!completionReason || !evidence?.workToolUsed)) {
+            return {
+              label: 'active task completion rejected',
+              output: 'ERROR: ACTIVE_TASK_COMPLETION_REQUIRES_EVIDENCE — this run changed no files. To complete non-file work or work checked in this run, run the check first and pass reason with the outcome and its evidence. If work remains, keep the task active and continue; this is not a blocker.',
             };
           }
           const task: SessionActiveTask = {
@@ -486,8 +492,8 @@ async function executeAgentToolInner(
             updatedAt: new Date().toISOString(),
             status: 'done',
             blocker: undefined,
-            closeReason: String(args.reason || 'explicit Acceptance evidence').trim(),
-            relatedPaths: evidence!.mutatedPaths,
+            closeReason: completionReason || 'explicit Acceptance evidence',
+            relatedPaths: mutated ? evidence!.mutatedPaths : previous.relatedPaths,
           };
           setSessionActiveTask(ctx.cqrRoot, ctx.sessionId, task);
           return { label: 'active task complete', output: JSON.stringify({ ok: true, activeTask: task }) };

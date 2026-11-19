@@ -39,20 +39,6 @@ export async function loadCatalog() {
     }));
   }
 
-  let domains = [];
-  const domPath = path.join(root, 'core/config/defaults/domain-connectors.json');
-  if (existsSync(domPath)) {
-    const doc = JSON.parse(readFileSync(domPath, 'utf8'));
-    const list = Array.isArray(doc.connectors) ? doc.connectors : Object.keys(doc.connectors || {});
-    if (Array.isArray(doc.connectors) && doc.connectors[0]?.id) {
-      domains = doc.connectors.map((c) => c.id);
-    } else if (doc.connectors && typeof doc.connectors === 'object') {
-      domains = Object.keys(doc.connectors);
-    } else {
-      domains = list;
-    }
-  }
-
   const codeTools = CODE_AGENT_TOOLS.map((t) => t.function.name);
   const browserTools = BROWSER_AGENT_TOOLS.map((t) => t.function.name);
 
@@ -64,13 +50,11 @@ export async function loadCatalog() {
     code_tool_names_export: CODE_AGENT_TOOL_NAMES,
     skills,
     automaton,
-    domains,
     counts: {
       code_tools: codeTools.length,
       browser_tools: browserTools.length,
       skills: skills.length,
       automaton: automaton.length,
-      domains: domains.length,
     },
   };
 }

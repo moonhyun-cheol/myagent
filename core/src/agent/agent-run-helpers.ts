@@ -3,14 +3,6 @@ import type { ChatMessage } from '../providers/openai-compatible.js';
 import { chatContentToText } from '../providers/openai-compatible.js';
 import type { AgentToolCall } from './tools.js';
 import {
-  CHAT_PANE_PATH,
-  SHELL_WINDOW_PATH,
-  UI_TARGET_MAP_PATH,
-  chatUiPathHints,
-} from './agent-ui-bootstrap.js';
-import type { UiFacts } from './agent-grounding.js';
-import { formatUiFactsForPrompt } from './agent-grounding.js';
-import {
   buildCodeAgentUserContent,
   formatMultimodalSystemNote,
 } from './agent-multimodal.js';
@@ -27,7 +19,7 @@ import {
 } from './agent-planner.js';
 import { sanitizeHistoryForModel, looksLikeTruncatedAssistantReply } from '../chat/chat-filters.js';
 import { applyHistoryContentBudget } from '../chat/history-budget.js';
-import { buildSessionHistoryBudgetOpts, rememberMessagePins } from '../chat/session-history-budget.js';
+import { buildSessionHistoryBudgetOpts } from '../chat/session-history-budget.js';
 import { loadAgentRunMeta } from './agent-run-meta.js';
 import { loadHarnessPolicy } from '../providers/harness-policy.js';
 import { resolveContextBudgets } from '../providers/model-context-limits.js';
@@ -153,13 +145,9 @@ export function buildAgentMessages(
   guard: { allowNas?: boolean },
   toolNames: string[],
   useClientToolProtocol = false,
-  uiFacts: UiFacts | null = null,
   productMemoryBlock = '',
   selfWorkspace = false,
-  /** When false, skip UI map / Live UI facts / AGENTS.md dump (secretary ops). */
-  injectUiMap = selfWorkspace,
 ): ChatMessage[] {
-  rememberMessagePins(opts.cqrRoot, opts.sessionId, opts.userMessage);
   const root = toPosix(path.resolve(opts.workspaceRoot));
   const noFolder = opts.fileAccess === 'none';
   const hasImages = (opts.imageDataUrls?.length ?? 0) > 0;
@@ -180,28 +168,18 @@ export function buildAgentMessages(
         'If the request needs local files or commands, say that the user must connect a work folder to this chat (작업폴더 연결) — do not pretend to read or edit files.',
       ]
     : selfWorkspace
-    ? injectUiMap
-      ? [
-          'Product UI = ui/workspace at /. Classify UI target (shell titlebar / native confirm / ChatPane) — never default every UI edit to ChatPane.',
-          'GROUNDING: no Title=/WindowStyle=/confirm() claims without read_file this run. Prefer Live UI facts.',
-          'DONE: mutated paths must include the UI target; 완료 = user Acceptance path (not tsc alone). 「연결/인앱」 needs postMessage inAppBrowser.open or NavigationStarting→OpenInAppBrowser (`<a href>` alone = PARTIAL).',
-          'Ambiguous UI target + no screenshot → one short clarify before edit.',
-        ]
-      : [
-          'Self-workspace secretary/ops — answer the question only.',
-          'FORBIDDEN: dump ui-target-map / MainWindow.xaml / ChatPane / GeminiNavSidebar unless the user asked to edit those UI targets.',
-          'GROUNDING: no file-content claims without read_file this run.',
-        ]
+    ? [
+        'Self-workspace secretary/ops — answer the question only.',
+        'FORBIDDEN: dump ui-target-map / MainWindow.xaml / ChatPane / GeminiNavSidebar unless the user asked to edit those UI targets.',
+        'GROUNDING: base file-content claims on a read — read_file in this run, or evidence stored earlier in this session (listed in the turn context; open it with evidence_read) while that file is unchanged.',
+      ]
     : [
         'External project workspace — do NOT cite MY Agent paths (ui/workspace, ChatPane, MainWindow.xaml).',
-        'GROUNDING: no file-content claims without read_file this run. Discover via map/search/read (UNC/absolute OK when user points outside).',
+        'GROUNDING: base file-content claims on a read — read_file in this run, or evidence stored earlier in this session (listed in the turn context; open it with evidence_read) while that file is unchanged. Discover via map/search/read (UNC/absolute OK when user points outside).',
       ];
-  const memoryForPrompt = injectUiMap
-    ? productMemoryBlock
-    : String(productMemoryBlock || '').replace(
-        /### AGENTS\.md[\s\S]*$/,
-        'SECRETARY: do not dump ui-target-map / MainWindow / ChatPane unless the user asked to edit UI.\n',
-      );
+  // AGENTS.md stays in both self and external memory; the self FORBIDDEN line above already
+  // covers UI-map dumping, so the block is no longer cut at the AGENTS.md heading.
+  const memoryForPrompt = String(productMemoryBlock || '');
   const messages: ChatMessage[] = [
     {
       role: 'system',
@@ -221,14 +199,17 @@ export function buildAgentMessages(
         '- Expand verification for high-risk changes involving security, authentication, persistent data, installation, or updates.',
         '- Do not repeat successful checks unless relevant code changed. Run the full test suite only when the impact is broad or targeted checks are insufficient.',
         '- Never claim unverified work as complete. Clearly report any untested areas, failures, or remaining uncertainty.',
+        '- Before stating that a file, setting, command, or data does not exist in the workspace, search or list for it (or rely on stored evidence). The repository map and retrieval hits in the context are truncated and are not proof of absence.',
         '- Minimize token usage and tool output by avoiding redundant searches, repeated tests, and unnecessary logs—without sacrificing correctness or safety.',
         ...TOKEN_EFFICIENCY_PRINCIPLES,
-        'When accepted work cannot finish this turn, call active_task set/block before answering. On later turns reconcile that task with the latest request; never silently drop it. After mutation and sufficient outcome-relevant verification, call active_task complete. User correction may replace/cancel it.',
-        'Tools always run in-process — never role-play "cannot edit" / Tool not found / missing tool server / Manager Restart fiction.',
+        'Track multi-turn work with active_task. Remaining work is not a blocker: when the next step can be attempted now, do it in this run instead of stopping. If accepted work still cannot finish in this run, call active_task set (the task stays active) before answering and say what remains.',
+        'Use active_task block only when the next required step cannot be attempted now: the user declined an approval, a required input or decision is missing, a tool error could not be resolved after trying alternatives, or an external dependency or limit prevents it. Name that condition in blocker. "Not implemented yet", "not verified yet", or "not finished" is never a blocker.',
+        'On later turns reconcile the task with the latest request and never silently drop it. When the user asks to continue a blocked task, re-check whether the blocker still applies and resume it with active_task set. Call active_task complete once the acceptance condition is met and checked. User correction may replace/cancel it.',
+        'Tools run locally inside this app. Do not say that you cannot edit files, that a tool or tool server is missing, or that the app needs a restart, unless a tool result in this run reported exactly that.',
         UNTRUSTED_CONTENT_SYSTEM_RULE,
         noFolder
-          ? 'NEVER invent: no internet. Browser and web download tools are available in this chat.'
-          : 'NEVER invent: no terminal, no internet, cannot clone public GitHub, "run this locally and paste output", or "upload a git bundle". Public clones use run_terminal (HITL Accept may prompt). After clone evidence, never retract to 「미검증」.',
+          ? 'Browser and web download tools are available in this chat. Do not tell the user that there is no internet access.'
+          : 'A terminal (run_terminal) and network access are available. Do not tell the user that there is no terminal or internet, that a public GitHub repository cannot be cloned, or ask them to run commands locally and paste the output or to upload a git bundle. Clone public repositories with run_terminal (an approval prompt may appear). After a clone succeeded in this run, do not later describe that result as unverified (미검증).',
         noFolder ? `Session scratch folder (app data, not user files): ${root}` : `Dev workspace root (not an FS cage): ${root}`,
         noFolder
           ? ''
@@ -238,7 +219,6 @@ export function buildAgentMessages(
         ...selfUiLines,
         'Preserve useful findings and answer in the form best suited to the user request.',
         noFolder ? '' : formatPatchFormatConstraints(),
-        injectUiMap ? formatUiFactsForPrompt(uiFacts) : '',
         memoryForPrompt,
         // Message-dependent notes (UI path hints, multimodal, image catalog) live in the
         // turn context below; in the system prefix they broke cross-question caching.
@@ -318,7 +298,6 @@ export function buildAgentMessages(
     ).trim();
   const turnContext = formatTurnContextMessage([
     AGENT_REPLY_LANGUAGE_REMINDER,
-    injectUiMap ? chatUiPathHints(opts.userMessage, selfWorkspace).trim() : '',
     formatMultimodalSystemNote(hasImages, hasAttach, false),
     formatConversationImageCatalogNote(buildConversationImageCatalog(opts.history)),
     turnSnapshot
@@ -362,14 +341,6 @@ export function lastSuccessfulReadPath(messages: ChatMessage[]): string | null {
 export function messagesHadToolRole(messages: ChatMessage[]): boolean {
   return messages.some((m) => m.role === 'tool');
 }
-
-export function looksLikeFileEditTask(message: string): boolean {
-  // Bare "코드" appears in 「코드 수정 금지」 — do not treat as edit task alone.
-  return /(?:\.py|\.js|\.ts|\.tsx|\.jsx|\.html|\.css|\.md\b|파일|file|교체|replace|write|edit_file|apply_patch|작성|채팅창|ChatPane|Composer|입력창|높이|키워|늘려|줄여|레이아웃|사이드바|컴포저|composer|늘리|줄이|ui\/web|작업\s*폴더|우클릭|컨텍스트\s*메뉴|context\s*menu|캔버스|미리보기)|(?:코드\s*(?:수정|편집|고쳐|변경|파일|작성|추가)|수정(?!\s*(?:금지|없이|말고|하지\s*마|은\s*하지)))/i.test(
-    message,
-  );
-}
-
 
 export function isOwuiOrGatewayError(err: unknown): boolean {
   const raw = err instanceof Error ? err.message : String(err);

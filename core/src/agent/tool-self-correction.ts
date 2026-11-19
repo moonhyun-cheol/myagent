@@ -53,10 +53,10 @@ export function classifyToolOutputFailure(output: string): ToolFailureClass | nu
 
 function hintForClass(errorClass: ToolFailureClass, toolRequested: string, writeFailStreak: number, detail = ''): string {
   if (detail.includes('BARE_MODULE_READ')) {
-    return 'Do NOT retry read_file on npm package ids. Read package.json or a real src/** path once, then mutate.';
+    return 'Do NOT retry read_file on npm package ids. Read package.json or a real source path in the workspace instead.';
   }
   if (toolRequested === 'edit_file') {
-    return 'edit_file old_text did not match. Do NOT retry edit_file on this path. Call write_file with the complete file body (or apply_patch with fresh exact context).';
+    return 'edit_file old_text did not match the file on disk. Do not resend the same old_text. read_file the affected range, then retry edit_file or apply_patch with the exact current text. Rewrite the whole file with write_file only when the file is small.';
   }
   if (
     (toolRequested === 'write_file' || toolRequested === 'apply_patch')

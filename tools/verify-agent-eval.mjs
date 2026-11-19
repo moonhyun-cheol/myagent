@@ -257,66 +257,6 @@ async function main() {
   const formatted = formatRepoMap(maps, 4000);
   record('repomap.build', /math\.ts|function add|imports:/i.test(formatted), formatted.slice(0, 120));
 
-  // 11) grounding 1/2/3/4/5/6 (no live LLM)
-  const {
-    contentClaimsUngroundedFileState,
-    expectedPathsForUiRequest,
-    mutationsCoverExpected,
-    needsUiClarifyQuestion,
-    pathsFromUiClarifyReply,
-    loadUiFacts,
-  } = await import(pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/agent-grounding.js')));
-  const {
-    parseUiVisionTarget,
-    classifyUiTargetFromMessage,
-    visionTargetToBootstrapPath,
-  } = await import(pathToFileUrl(path.join(cqrRoot, 'core/dist/agent/agent-ui-vision.js')));
-
-  const facts = loadUiFacts(cqrRoot);
-  record('grounding.ui_facts_loaded', Boolean(facts?.shell?.custom_caption), facts?.shell?.title ?? '');
-  record(
-    'grounding.ungrounded_detect',
-    contentClaimsUngroundedFileState(
-      '현재 MainWindow는 기본 Windows 타이틀바라 Title만 가능. Title="MY Agent"',
-    ),
-  );
-  const exp = expectedPathsForUiRequest('위에 바 MY Agent', facts);
-  record('grounding.expected_titlebar', exp.some((p) => /MainWindow/i.test(p)), exp[0] ?? '');
-  record(
-    'grounding.done_reject_chatpane',
-    !mutationsCoverExpected(['ui/workspace/src/components/ChatPane.tsx'], exp).ok,
-  );
-  record(
-    'grounding.vision_parse',
-    parseUiVisionTarget('{"target":"confirm","reason":"삭제할까요"}')?.target === 'confirm',
-  );
-  record(
-    'grounding.vision_path',
-    /MainWindow|ConfirmModal|ChatPane/i.test(
-      visionTargetToBootstrapPath('title_bar', facts?.targets) ?? '',
-    ),
-  );
-  record(
-    'grounding.clarify_needed',
-    needsUiClarifyQuestion('이 두 부분 색 맞춰줘', 'unknown') === true,
-  );
-  record(
-    'grounding.clarify_skip_screenshot',
-    needsUiClarifyQuestion('색상 통일', 'unknown', { hasScreenshot: true }) === false,
-  );
-  record(
-    'grounding.clarify_skip_annae',
-    needsUiClarifyQuestion('안내창 색상 통일', 'unknown') === false,
-  );
-  record(
-    'grounding.clarify_reply_1',
-    pathsFromUiClarifyReply('1', facts).some((p) => /MainWindow/i.test(p)),
-  );
-  record(
-    'grounding.message_heuristic',
-    classifyUiTargetFromMessage('위에 바').target === 'title_bar',
-  );
-
   // 14) product memory E
   const {
     loadProductFacts,
@@ -369,31 +309,6 @@ async function main() {
     formatAuditSummaryBrief(auditSum).includes('agent_audit'),
   );
 
-  // 16) extra grounding matrix
-  record(
-    'grounding.done_accept_titlebar',
-    mutationsCoverExpected(['shell/CqrPa.Shell/MainWindow.xaml'], exp).ok === true,
-  );
-  record(
-    'grounding.ungrounded_reject_short',
-    contentClaimsUngroundedFileState('ok') === false,
-  );
-  record(
-    'grounding.composer_paths',
-    expectedPathsForUiRequest('입력창 고쳐줘', facts).some((p) => /ChatPane/i.test(p)),
-  );
-  record(
-    'grounding.confirm_paths',
-    expectedPathsForUiRequest('삭제할까요 모달', facts).some((p) => /Confirm/i.test(p)),
-  );
-  record(
-    'grounding.vision_composer',
-    parseUiVisionTarget('{"target":"composer","reason":"input"}')?.target === 'composer',
-  );
-  record(
-    'grounding.message_confirm',
-    classifyUiTargetFromMessage('삭제할까요 확인창').target === 'confirm',
-  );
   // 17) workspace index A + multimodal B
   const {
     indexQueryCandidatesFromMessage,

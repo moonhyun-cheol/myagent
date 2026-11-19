@@ -165,6 +165,38 @@ export class AgentEvidenceStore {
   }
 }
 
+const EVIDENCE_INDEX_SKIP_TOOLS = new Set(['active_task', 'todo_update', 'memory_propose', 'evidence_read']);
+
+/**
+ * Turn-start index of evidence stored by earlier runs of this session (ids only).
+ * Bodies are not replayed: the model opens what it needs with evidence_read.
+ */
+export function formatPriorEvidenceTurnNote(records: EvidenceRecord[] | undefined, max = 12): string {
+  const usable = (records ?? [])
+    .filter((r) => r.ok && r.complete && !EVIDENCE_INDEX_SKIP_TOOLS.has(r.tool))
+    .sort((a, b) => a.at.localeCompare(b.at));
+  if (!usable.length) return '';
+  const recent = usable.slice(-max);
+  const line = (r: EvidenceRecord): string => {
+    const raw = r.source?.path ?? r.args.path ?? r.args.query ?? r.args.command ?? r.args.url;
+    const text = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+    const label = text.length > 80 ? `${text.slice(0, 77)}…` : text;
+    const range = r.coverage?.returnedRanges?.[0];
+    return [
+      `- ${r.evidenceId}`,
+      r.tool,
+      label ? `${label}${range ? ` L${range.start}-${range.end}` : ''}` : '',
+      r.at,
+    ].filter(Boolean).join(' · ');
+  };
+  return [
+    '### Stored evidence from earlier runs in this session (index only)',
+    'Open a body with evidence_read. A stored file read stays valid while that file is unchanged; read again after edits or when freshness matters.',
+    ...recent.map(line),
+    usable.length > recent.length ? `(${usable.length - recent.length} older entries not listed)` : '',
+  ].filter(Boolean).join('\n');
+}
+
 export function formatEvidenceEnvelope(record: EvidenceRecord, content: string): string {
   return [
     `[evidence id=${record.evidenceId} complete=${record.complete} bytes=${record.bytes} sha256=${record.fingerprint}]`,

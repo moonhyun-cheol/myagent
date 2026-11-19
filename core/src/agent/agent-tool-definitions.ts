@@ -77,15 +77,15 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
     function: {
       name: 'active_task',
       description:
-        'Persist one model-authored work unit across turns. Use set when accepting work that may be blocked/deferred, block when it cannot continue, complete only after disk mutation plus successful model-requested outcome-relevant verification, and cancel/replace when the user changes direction. Verification may be content review, diagnostics, targeted tests, terminal execution, or browser checks as appropriate. When the turn context reports an unfinished previous run, use resume_run to continue it (restores its state and unchanged-file read marks) or discard_run when it is obsolete. Never infer a task from keywords.',
+        'Persist one model-authored work unit across turns. Use set (objective and acceptance required) when accepting multi-step work, and again to keep the task active while work remains or to resume a blocked task. Use block only when the next required step cannot be attempted now: a declined approval, a missing required input or decision, a tool error that alternatives did not resolve, or an external dependency or limit. Unfinished, unimplemented, or unverified work is not a blocker — keep the task active and continue. Use complete when the acceptance condition is met: after file changes in this run, run an outcome-relevant check first; when this run changed no files (analysis, terminal, browser or database work, or checking earlier changes), pass reason with the outcome and its evidence. Use cancel/replace when the user changes direction. Verification may be content review, diagnostics, targeted tests, terminal execution, or browser checks as appropriate. When the turn context reports an unfinished previous run, use resume_run to continue it (restores its state and unchanged-file read marks) or discard_run when it is obsolete. Never infer a task from keywords.',
       parameters: {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['set', 'block', 'complete', 'cancel', 'resume_run', 'discard_run'] },
           objective: { type: 'string', description: 'Concrete user outcome; required for set' },
           acceptance: { type: 'string', description: 'Disk/runtime completion condition; required for set' },
-          blocker: { type: 'string', description: 'Current blocker; required for block' },
-          reason: { type: 'string', description: 'Completion/cancellation reason' },
+          blocker: { type: 'string', description: 'The concrete condition that prevents attempting the next step now (declined approval, missing input or decision, unresolved tool error, external dependency or limit); required for block. Remaining work is not a blocker.' },
+          reason: { type: 'string', description: 'Completion/cancellation reason; required for cancel, and for complete when this run changed no files' },
           related_paths: { type: 'array', items: { type: 'string' } },
         },
         required: ['action'],

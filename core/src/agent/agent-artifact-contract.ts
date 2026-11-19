@@ -1,14 +1,8 @@
 /**
- * Artifact contract — first-class product modality for coding turns.
- * Locks artifactKind / runtimeSurface / dataSources / requiredSecrets so
- * web SPA defaults, OpenClaw bleed, and invented domain APIs fail closed.
+ * Artifact contract — session-locked product modality for coding turns.
+ * Stored on locked constraints (agent-locked-constraints.ts) and rendered as a
+ * system note. No message-text inference lives here.
  */
-import {
-  contentInventsDomainApiFromRegistry,
-  matchDomainConnectors,
-  resolveDeliverySecrets,
-  secretsForDataSources,
-} from './agent-domain-registry.js';
 
 export type ArtifactKind =
   | 'web_spa'
@@ -42,36 +36,6 @@ export interface ArtifactContract {
   legacyIsolateGlobs: string[];
   why: string[];
 }
-
-const WEB_SPA_RE =
-  /(?:웹\s*(?:앱|애플리케이션|SPA)|SPA|React|Next\.?js|index\.html|styles\.css|프론트\s*엔드|대시보드\s*UI|브라우저\s*(?:앱|화면))/i;
-
-const DISCORD_BOT_RE =
-  /(?:Discord|디스코드).{0,40}(?:봇|bot|매크로|macro|길드|guild|채널|channel|webhook|웹훅|웹후크)|(?:개인\s*(?:용\s*)?(?:봇|Discord)|discord\.js|DISCORD_BOT_TOKEN|DISCORD_CHANNEL_ID|DISCORD_WEBHOOK_URL)/i;
-
-const SCHEDULE_RE =
-  /(?:일간|매일|스케줄|cron|task\s*scheduler|Windows\s*Task|예약\s*실행|node-cron)/i;
-
-const PIPELINE_RE =
-  /(?:CSV|XLSX|엑셀|파이프라인|배치\s*리포트|보고서[/\\]|data\s*pipeline)/i;
-
-const CLI_RE =
-  /(?:CLI|커맨드라인|command[\s-]?line|\.ps1|\.bat\b|powershell\s*스크립트)/i;
-
-const OPENCLAW_RE =
-  /(?:OpenClaw|openclaw(?:-adapter)?|(?<![A-Za-z0-9_/])automaton(?![A-Za-z0-9_])|어댑터\s*API|\/adapter\/request)/i;
-
-const PERSONAL_BOT_BAN_OPENCLAW_RE =
-  /(?:개인\s*(?:용)?|OpenClaw\s*(?:금지|연결\s*금지|미사용|쓰지\s*마|말고)|OpenClaw\s*없|어댑터\s*금지)/i;
-
-/** Web product files that should move to _legacy when modality flips away from web_spa. */
-export const DEFAULT_WEB_LEGACY_GLOBS = [
-  'index.html',
-  'app.js',
-  'styles.css',
-  'main.js',
-  'script.js',
-] as const;
 
 export function emptyArtifactContract(
   partial?: Partial<ArtifactContract>,
@@ -162,109 +126,7 @@ function normalizeDataStatus(v: unknown): DataSourceStatus {
   return 'unknown';
 }
 
-/**
- * Infer artifact contract from a user (or PLAN) message.
- * Prefer explicit Discord/schedule over bare "만들어" → web.
- */
-export function inferArtifactContract(message: string): ArtifactContract {
-  const t = String(message || '').trim();
-  const why: string[] = [];
-  if (!t) return emptyArtifactContract({ why: ['empty'] });
-
-  const banOpenClaw = PERSONAL_BOT_BAN_OPENCLAW_RE.test(t);
-  const wantsOpenClaw = OPENCLAW_RE.test(t) && !banOpenClaw;
-  const discord = DISCORD_BOT_RE.test(t) || /DISCORD_(?:BOT_TOKEN|CHANNEL_ID|GUILD_ID)/i.test(t);
-  const schedule = SCHEDULE_RE.test(t);
-  const pipeline = PIPELINE_RE.test(t);
-  const web = WEB_SPA_RE.test(t);
-  const cli = CLI_RE.test(t);
-  const notWeb =
-    /(?:웹\s*(?:앱|아님|아니다|금지)|웹이\s*아니|SPA\s*금지|브라우저\s*앱\s*말고)/i.test(t);
-
-  let artifactKind: ArtifactKind = 'unknown';
-  let runtimeSurface: RuntimeSurface = 'unknown';
-
-  if (discord && (schedule || /매크로|bot|봇|길드|channel/i.test(t) || banOpenClaw)) {
-    // 매크로/봇 = Discord bot surface; bare schedule+pipeline alone → scheduled_job
-    artifactKind =
-      schedule && !/(?:봇|bot|매크로|macro|discord\.js|webhook)/i.test(t)
-        ? 'scheduled_job'
-        : 'discord_bot';
-    runtimeSurface = wantsOpenClaw ? 'openclaw' : 'local_node';
-    why.push(discord ? 'discord_keywords' : 'schedule');
-    if (banOpenClaw) why.push('personal_bot_no_openclaw');
-  } else if (wantsOpenClaw && !banOpenClaw) {
-    artifactKind = discord ? 'discord_bot' : 'scheduled_job';
-    runtimeSurface = 'openclaw';
-    why.push('openclaw_keywords');
-  } else if (schedule && (pipeline || discord)) {
-    artifactKind = 'scheduled_job';
-    runtimeSurface = 'local_node';
-    why.push('schedule_pipeline');
-  } else if (pipeline && !web) {
-    artifactKind = 'data_pipeline';
-    runtimeSurface = 'local_node';
-    why.push('pipeline');
-  } else if (cli && !web && !discord) {
-    artifactKind = 'cli_tool';
-    runtimeSurface = 'local_node';
-    why.push('cli');
-  } else if (web && !notWeb && !discord) {
-    artifactKind = 'web_spa';
-    runtimeSurface = 'browser';
-    why.push('web_spa_keywords');
-  } else if (notWeb && discord) {
-    artifactKind = 'discord_bot';
-    runtimeSurface = 'local_node';
-    why.push('explicit_not_web_discord');
-  }
-
-  if (banOpenClaw && runtimeSurface === 'openclaw') {
-    runtimeSurface = 'local_node';
-    why.push('force_local_node');
-  }
-
-  const dataSources: DataSourceRef[] = matchDomainConnectors(t).map((h) => ({
-    id: h.id,
-    status: h.status,
-    note: h.note,
-  }));
-  if (dataSources.length) why.push(...dataSources.map((d) => `src_${d.id}`));
-
-  const requiredSecrets: string[] = [];
-  if (artifactKind === 'discord_bot' || (discord && runtimeSurface === 'local_node')) {
-    const delivery = resolveDeliverySecrets({ message: t, artifactKind: 'discord_bot' });
-    requiredSecrets.push(...delivery.secrets);
-    why.push(...delivery.why);
-    if (/guild|길드|GUILD_ID/i.test(t) && !requiredSecrets.includes('DISCORD_GUILD_ID')) {
-      requiredSecrets.push('DISCORD_GUILD_ID');
-    }
-  }
-  requiredSecrets.push(...secretsForDataSources(dataSources));
-
-  const legacyIsolateGlobs: string[] = [];
-  if (
-    (artifactKind === 'discord_bot'
-      || artifactKind === 'scheduled_job'
-      || artifactKind === 'data_pipeline'
-      || notWeb)
-    && (notWeb || /_web_legacy|_legacy/i.test(t))
-  ) {
-    legacyIsolateGlobs.push(...DEFAULT_WEB_LEGACY_GLOBS, '_web_legacy/**');
-    why.push('legacy_web_isolate');
-  }
-
-  return emptyArtifactContract({
-    artifactKind,
-    runtimeSurface,
-    dataSources,
-    requiredSecrets: [...new Set(requiredSecrets)],
-    legacyIsolateGlobs: [...new Set(legacyIsolateGlobs)],
-    why,
-  });
-}
-
-/** Prefer locked non-unknown fields; fill gaps from inferred. */
+/** Prefer locked non-unknown fields; fill gaps from the incoming contract. */
 export function mergeArtifactContracts(
   locked: ArtifactContract | null | undefined,
   inferred: ArtifactContract,
@@ -298,16 +160,6 @@ export function mergeArtifactContracts(
     legacyIsolateGlobs: [...new Set([...a.legacyIsolateGlobs, ...b.legacyIsolateGlobs])],
     why: [...new Set([...a.why, ...b.why, 'merged'])].slice(0, 12),
   });
-}
-
-/** Personal Discord / local Node bot — never route to OpenClaw/automaton. */
-export function blocksOpenClawAutomatonRoute(message: string): boolean {
-  const c = inferArtifactContract(message);
-  if (c.runtimeSurface === 'local_node' && (c.artifactKind === 'discord_bot' || PERSONAL_BOT_BAN_OPENCLAW_RE.test(message))) {
-    return true;
-  }
-  if (PERSONAL_BOT_BAN_OPENCLAW_RE.test(message) && DISCORD_BOT_RE.test(message)) return true;
-  return false;
 }
 
 /** Default scaffold hint for Understanding Card / locked note. */
@@ -385,127 +237,4 @@ export function formatArtifactContractSystemNote(
   }
   if (c.why.length) lines.push(`why: ${c.why.join('+')}`);
   return lines.join('\n');
-}
-
-const WEB_PRODUCT_FILE_RE =
-  /(?:^|[/\\])(?:index\.html|app\.js|styles\.css|main\.js|script\.js)$/i;
-const BOT_PRODUCT_FILE_RE =
-  /(?:^|[/\\])(?:src[/\\](?:discord|looka|report|index)|package\.json|\.env\.example|install-daily-task\.ps1)$/i;
-
-/** Mutated only web SPA files while contract demands bot/job/pipeline. */
-export function mutatedPathsViolateArtifactKind(
-  contract: ArtifactContract | null | undefined,
-  mutatedPaths: string[],
-): boolean {
-  const c = normalizeArtifactContract(contract);
-  if (
-    c.artifactKind !== 'discord_bot'
-    && c.artifactKind !== 'scheduled_job'
-    && c.artifactKind !== 'data_pipeline'
-  ) {
-    return false;
-  }
-  const paths = (mutatedPaths || []).map((p) => p.replace(/\\/g, '/'));
-  if (!paths.length) return false;
-  const webHits = paths.filter((p) => WEB_PRODUCT_FILE_RE.test(p) && !/_web_legacy|_legacy/i.test(p));
-  const botHits = paths.filter((p) => BOT_PRODUCT_FILE_RE.test(p));
-  return webHits.length > 0 && botHits.length === 0;
-}
-
-export function contentSuggestsOpenClawForLocalBot(text: string): boolean {
-  const t = String(text || '');
-  if (!t.trim()) return false;
-  return (
-    /(?:OpenClaw|openclaw|\/cqr\/adapter|openclaw-adapter|automaton\s*(?:원격|어댑터))/i.test(t)
-    && /(?:Discord|디스코드|봇|게시|길드)/i.test(t)
-  );
-}
-
-/** Invented concrete organization API presented as fact (not fixture/가정). */
-export function contentInventsUnknownDomainApi(
-  text: string,
-  contract: ArtifactContract | null | undefined,
-): boolean {
-  const c = normalizeArtifactContract(contract);
-  return contentInventsDomainApiFromRegistry(text, c.dataSources);
-}
-
-export function contentClaimsLiveChannelPublish(text: string): boolean {
-  const t = String(text || '');
-  return /(?:Discord|디스코드).{0,40}(?:게시|전송|보냈|올라갔|완료)|(?:채널에\s*(?:올렸|게시|전송)|live\s*post)/i.test(
-    t,
-  );
-}
-
-export function contentMentionsSecretPreflight(
-  text: string,
-  secrets: string[],
-): boolean {
-  const t = String(text || '');
-  if (!secrets.length) return true;
-  if (/\.env\.example|필수\s*env|env\s*체크리스트|채널\s*ID\s*(?:없|미|필요)/i.test(t)) {
-    return true;
-  }
-  let hits = 0;
-  for (const s of secrets) {
-    if (t.includes(s)) hits += 1;
-  }
-  return hits >= Math.min(2, secrets.length);
-}
-
-export function formatWrongModalityNudge(contract: ArtifactContract): string {
-  return [
-    'ARTIFACT_CONTRACT: wrong modality mutate.',
-    `Locked artifactKind=${contract.artifactKind} runtimeSurface=${contract.runtimeSurface}.`,
-    scaffoldHintForContract(contract),
-    'Do not keep building a web SPA. Isolate prior web files under _web_legacy/ (do-not-touch) and mutate bot/job paths.',
-    'Reply briefly then TOOL_CALL write_file/edit_file on the correct scaffold.',
-  ].join('\n');
-}
-
-export function formatOpenClawBleedNudge(): string {
-  return [
-    'ARTIFACT_CONTRACT: runtimeSurface=local_node — OpenClaw/adapter is forbidden for this session.',
-    'Implement local Node + Discord Incoming Webhook (DISCORD_WEBHOOK_URL) unless user explicitly asked for Bot Token. Do not suggest OpenClaw.',
-    'Continue with TOOL_CALL on local webhook poster files.',
-  ].join('\n');
-}
-
-export function formatInventedDomainApiNudge(): string {
-  return [
-    'ARTIFACT_CONTRACT: unknown data source — do not invent REST paths as fact.',
-    'Label fixture/가정 schema, or ask one clarification for the real connector documentation.',
-    'Rewrite: fixture client + .env.example; no 「실스키마 확정」 claim.',
-  ].join('\n');
-}
-
-export function formatMissingSecretsNudge(secrets: string[]): string {
-  return [
-    'ARTIFACT_CONTRACT: requiredSecrets preflight missing before live-publish/done claim.',
-    `Checklist: ${secrets.join(', ')}`,
-    'Ensure .env.example lists them; if DISCORD_WEBHOOK_URL unknown, stop at dry-run and ask for webhook URL — do not claim 게시 완료.',
-  ].join('\n');
-}
-
-/** On direction reversal away from web, seed legacy isolate globs. */
-export function legacyIsolateForDirectionReversal(
-  previous: ArtifactContract | null | undefined,
-  nextMessage: string,
-): string[] {
-  const next = inferArtifactContract(nextMessage);
-  const prev = normalizeArtifactContract(previous);
-  const leavingWeb =
-    prev.artifactKind === 'web_spa'
-    || prev.artifactKind === 'unknown'
-    || /웹|SPA|index\.html/i.test(String(nextMessage));
-  if (
-    leavingWeb
-    && (next.artifactKind === 'discord_bot'
-      || next.artifactKind === 'scheduled_job'
-      || next.artifactKind === 'data_pipeline'
-      || /웹\s*(?:앱|아님|아니다)|OpenClaw\s*금지/i.test(nextMessage))
-  ) {
-    return [...DEFAULT_WEB_LEGACY_GLOBS, '_web_legacy/**'];
-  }
-  return next.legacyIsolateGlobs;
 }

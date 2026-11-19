@@ -63,11 +63,6 @@ export interface AgentRunMeta {
   lastProgressCheckpoint?: AgentProgressCheckpoint;
   /** Current TODO/Evidence resume state; persisted without injecting a chat message. */
   continuationSnapshot?: AgentContinuationSnapshot;
-  /**
-   * Short durable facts that must survive history compress
-   * (paths, product names, numeric decisions). Newest-first, capped.
-   */
-  pinnedFacts?: string[];
   /** Absolute child folder locked for this session (bag-of-projects parent). */
   lockedTargetRoot?: string | null;
   /** Last compress / context budget snapshot for UX + diagnostics. */
@@ -231,10 +226,6 @@ function normalizeMeta(raw: Partial<AgentRunMeta> | null | undefined): AgentRunM
       };
     }
   }
-  const pins = Array.isArray(raw?.pinnedFacts)
-    ? [...new Set(raw!.pinnedFacts.map((f) => String(f || '').trim()).filter(Boolean))].slice(0, 24)
-    : [];
-  if (pins.length) out.pinnedFacts = pins;
   if (raw?.lastContextBudget && typeof raw.lastContextBudget === 'object') {
     out.lastContextBudget = raw.lastContextBudget as AgentRunMeta['lastContextBudget'];
   }
@@ -255,7 +246,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
   | 'readPaths'
   | 'lastProgressCheckpoint'
   | 'continuationSnapshot'
-  | 'pinnedFacts'
   | 'lastContextBudget'
   | 'lockedTargetRoot'
 > {
@@ -271,7 +261,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
     | 'readPaths'
     | 'lastProgressCheckpoint'
     | 'continuationSnapshot'
-    | 'pinnedFacts'
     | 'lastContextBudget'
     | 'lockedTargetRoot'
   > = {};
@@ -285,7 +274,6 @@ function carryMeta(prev: AgentRunMeta): Pick<
   if (prev.readPaths?.length) out.readPaths = prev.readPaths;
   if (prev.lastProgressCheckpoint) out.lastProgressCheckpoint = prev.lastProgressCheckpoint;
   if (prev.continuationSnapshot) out.continuationSnapshot = prev.continuationSnapshot;
-  if (prev.pinnedFacts?.length) out.pinnedFacts = prev.pinnedFacts;
   if (prev.lastContextBudget) out.lastContextBudget = prev.lastContextBudget;
   if (prev.lockedTargetRoot) out.lockedTargetRoot = prev.lockedTargetRoot;
   return out;
@@ -515,30 +503,14 @@ export function formatActiveTaskSystemNote(task: SessionActiveTask): string {
     `ACCEPTANCE: ${task.acceptance}`,
     task.blocker ? `BLOCKER: ${task.blocker}` : '',
     task.relatedPaths?.length ? `RELATED_PATHS: ${task.relatedPaths.join(', ')}` : '',
-    'Reconcile this task with the latest user request. The latest explicit correction wins.',
-    'Use active_task to replace, block, complete, or cancel it. Do not silently forget it.',
-    'Completion is accepted only after this run has disk mutation plus successful model-requested outcome-relevant verification.',
+    'Reconcile this task with the latest user request. The latest explicit request or correction wins.',
+    task.status === 'blocked'
+      ? 'This task was recorded as blocked in an earlier turn. Do not assume the stored blocker is still true: re-check it against the latest request and the current state. If the next step can be attempted now, call active_task set to return the task to active and do the work. Remaining or unverified work is not a blocker.'
+      : '',
+    'Use active_task to keep it active (set), block, complete, or cancel/replace it. Do not silently forget it.',
+    'Completion: after file changes in this run, run an outcome-relevant check first; when this run changed no files, pass reason with the outcome and its evidence.',
     'Choose the narrowest sufficient verification for the change: content review, diagnostics, targeted tests, terminal execution, or browser checks.',
   ].filter(Boolean).join('\n');
-}
-
-/** Merge short durable facts that must survive history compress. */
-export function appendSessionPinnedFacts(
-  cqrRoot: string,
-  sessionId: string | undefined,
-  facts: string[],
-): AgentRunMeta {
-  const prev = loadAgentRunMeta(cqrRoot, sessionId);
-  const cleaned = facts.map((f) => String(f || '').trim()).filter(Boolean);
-  if (!cleaned.length) return prev;
-  const next = normalizeMeta({
-    updatedAt: new Date().toISOString(),
-    mutatedPaths: prev.mutatedPaths,
-    ...carryMeta(prev),
-    pinnedFacts: [...cleaned, ...(prev.pinnedFacts ?? [])],
-  });
-  saveAgentRunMeta(cqrRoot, sessionId, next);
-  return next;
 }
 
 /** Persist last context-budget / compress snapshot for UX + diagnostics. */

@@ -16,11 +16,10 @@ node tools/lab/skill-tool-lab.mjs --catalog-only
 | `runners/automaton-dry.mjs` | Automaton schema + intent dry-run |
 | `runners/skills-l0.mjs` | Skill registry + verify-skills |
 | `runners/skills-l2.mjs` | Routing/inject matrix (`MY_AGENT_LAB_L2=1`) |
-| `runners/domain-l1.mjs` | Neutral domain registry and delivery-profile mock |
 | `runners/embedding-cold.mjs` | Cold empty-index embeddings golden |
 | `delivery-acceptance.mjs` | 납기 검수 (런타임+스위트, `--full-agent` optional) |
 | `owui-code-agent-smoke.mjs` | Optional live OWUI 1-turn (skip without keys) |
-| `harsh-acceptance.mjs` | Critic build TaskBoard via all code tools + skills/automaton/domain |
+| `harsh-acceptance.mjs` | Critic build TaskBoard via all code tools + skills/automaton |
 | `product-browser-smoke.mjs` | Playwright E2E on harsh-taskboard (needs localhost allow) |
 | `agent-only-desktop.mjs` | Live agent-only rebuild of Desktop demo (no tools gap-fill) |
 | `drive-desktop-demo.mjs` | Agent + tools gap-fill drive of Desktop demo |

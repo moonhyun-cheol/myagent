@@ -156,16 +156,11 @@ function classifyToolResult(output: string, toolName?: string): ToolLoopErrorCla
 }
 
 function explorationSoftHint(fingerprint: string): string {
+  // Never steer toward a file change here: the request may be analysis-only.
   if (fingerprint.startsWith('read_file|')) {
-    return ' Path content is already in prior tool results — call edit_file / apply_patch / write_file now (do not read_file again).';
+    return ' This file content is already in prior tool results — reuse it or read a different range.';
   }
-  if (fingerprint.startsWith('search_files|') || fingerprint.startsWith('search_embeddings|')) {
-    return ' Search hits are already in prior tool results — read_file the hit paths, then edit_file / apply_patch / write_file. Do NOT re-call the same search.';
-  }
-  if (fingerprint.startsWith('list_directory|') || fingerprint.startsWith('query_repo_map|')) {
-    return ' Listing/map results are already in prior tool results — read_file a concrete path, then mutate. Do NOT repeat the same exploration call.';
-  }
-  return ' Prior tool results already have this payload — change tool/args or mutate; do not retry the identical call.';
+  return ' Prior tool results already have this payload — reuse it, or change the tool/arguments.';
 }
 
 function seedFromMessages(messages: ChatMessage[]): {
@@ -395,20 +390,15 @@ export function formatSoftExplorationLoopCorrection(
   const next =
     toolName === 'edit_file'
       ? 'The same-path edit_file failure budget is exhausted. Do NOT call edit_file again on this path. Use write_file with the full current file body, or apply_patch after fresh exact context, then run diagnostics/tests.'
-      : toolName === 'search_files' || toolName === 'search_embeddings'
-      ? 'Call read_file on the hit path(s) from the prior search result, then edit_file / apply_patch / write_file to fulfill the user request.'
-      : toolName === 'read_file'
-        ? 'Call edit_file / apply_patch / write_file now using the prior read body. Do not read_file the same path again.'
-        : 'Pick a concrete unread path (read_file) or mutate (edit_file / apply_patch / write_file). Do not repeat the identical exploration call.';
+      : 'Do not repeat the identical call. Change the path/arguments or the tool, or answer from the evidence already gathered.';
   return [
     formatLoopGuardStop(decision),
     '',
     'Instructions for the model (do not show to user):',
-    '- This is NOT a hard failure — the identical successful exploration was blocked to avoid context bloat.',
+    '- The run continues; only this repeated call was blocked.',
     `- ${next}`,
     '- Do NOT paste TOOL_LOOP_GUARD / Fingerprint into the user-visible reply.',
-    '- Do NOT claim 완료 until mutate + disk evidence exist.',
-    '- User-facing status should stay 「해결 중…」 while you continue.',
+    '- Do not report a change as done until it is on disk and checked. An analysis-only request needs no file change.',
   ].join('\n');
 }
 
@@ -422,35 +412,32 @@ export function maxConsecutiveToolFailures(): number {
 /** User-facing stop message when tools fail `count` times in a row. */
 export function formatConsecutiveFailureStop(count: number, max: number): string {
   return [
-    '중단: 도구가 연속으로 실패하여 code-agent를 멈췄습니다.',
+    '중단: 도구 호출이 연속으로 실패해 작업을 멈췄습니다.',
     `원인: 연속 실패 ${count}회 (한도 ${max}회)`,
-    '실제 반영: 없음 또는 부분 — 이 상태에서 「수정 완료」라고 쓰지 마세요.',
-    '다음에: 접근 방식(경로·인자·도구)을 바꾸거나 필요한 정보를 확인한 뒤 다시 시도하세요.',
+    '실제 반영: 없거나 일부만 반영됐을 수 있습니다.',
+    '다음에: 경로나 요청 내용을 확인한 뒤 다시 요청해 주세요.',
   ].join('\n');
 }
 
 export function formatLoopGuardUserMessage(decision: ToolLoopGuardDecision): string {
   if (decision.errorClass === 'command_failed') {
     return [
-      '중단: 코드 수정 없이 같은 명령이 계속 실패해 code-agent를 멈췄습니다.',
+      '중단: 코드 수정 없이 같은 명령이 계속 실패해 작업을 멈췄습니다.',
       `원인: 명령 실패(종료 코드 ≠ 0) — 도구 호출은 정상, 코드·테스트 쪽 문제 (${decision.repeatCount}회, 한도 ${decision.maxRepeat})`,
-      '실제 반영: 없음 또는 부분 — 이 상태에서 「수정 완료」라고 쓰지 마세요.',
+      '실제 반영: 없거나 일부만 반영됐을 수 있습니다.',
       '다음에: 마지막 실패 출력을 보고 원인 코드를 고치도록 다시 요청해 주세요.',
     ].join('\n');
   }
   const isSuccessLoop = decision.errorClass === 'success';
   const nextHint = isSuccessLoop
-    ? decision.fingerprint.startsWith('search_files|')
-      || decision.fingerprint.startsWith('search_embeddings|')
-      ? '다음에: 이전 검색 히트 경로를 read_file 한 뒤 edit_file / apply_patch / write_file (같은 search 금지).'
-      : '다음에: 이미 읽은 내용으로 edit_file / apply_patch / write_file을 호출하세요 (같은 read/탐색 금지).'
-    : '다음에: 경로·인자·도구를 바꾼 뒤 같은 요청을 다시 보내 주세요.';
+    ? '다음에: 이미 확인한 내용을 바탕으로 다음 단계를 다시 요청해 주세요.'
+    : '다음에: 경로나 요청 내용을 확인한 뒤 같은 요청을 다시 보내 주세요.';
   return [
     isSuccessLoop
-      ? '중단: 동일 탐색 도구 재호출로 code-agent를 멈췄습니다 (실패가 아님).'
-      : '중단: 동일 도구 실패 반복으로 code-agent를 멈췄습니다.',
+      ? '중단: 같은 탐색을 반복해 작업을 멈췄습니다 (실패가 아님).'
+      : '중단: 같은 도구 호출이 계속 실패해 작업을 멈췄습니다.',
     `원인: ${decision.errorClass} (${decision.repeatCount}회, 한도 ${decision.maxRepeat})`,
-    '실제 반영: 없음 또는 부분 — 이 상태에서 「수정 완료」라고 쓰지 마세요.',
+    '실제 반영: 없거나 일부만 반영됐을 수 있습니다.',
     nextHint,
   ].join('\n');
 }

@@ -8,7 +8,7 @@ export const TOKEN_EFFICIENCY_PRINCIPLES = [
   '- Reuse observed evidence when its source is unchanged and it covers the needed range. Read only missing ranges; reread after changes, for outcome verification, explicit user requests, or freshness uncertainty. fresh=true is not a token-saving option.',
   '- Search/map hits locate candidates, not authoritative source. Read the relevant source window before code claims or edits; avoid whole-file reads when a smaller coherent range is enough.',
   '- Ask commands for concise summaries and relevant failure details when sufficient; preserve exact raw results in evidence. Use evidence_read selectors and todo_update retainEvidence to keep necessary evidence prominent. Never omit required manual sections or user constraints just to reduce tokens.',
-  '- If exploration repeats without new evidence, identify the remaining unknown and choose a narrower check, finish the supported explanation, or record a real blocker. Do not force a mutation for an analysis-only request. Novel read-only evidence is valid progress.',
+  '- If exploration repeats without new evidence, identify the remaining unknown and choose a narrower check, finish the supported explanation, or record a real blocker (a condition that prevents the next step now, not remaining work). Do not force a mutation for an analysis-only request. Novel read-only evidence is valid progress.',
 ] as const;
 
 const EXPLORATION = new Set([

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Locked constraints: direction-reversal false positives + code-chip sticky clear.
+ * Locked constraints: labelled PLAN fields only, history never parsed, code-chip sticky clear.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 const {
-  looksLikeDirectionReversal,
   resolveLockedConstraintsForTurn,
   invalidateLockedConstraints,
   saveLockedConstraints,
@@ -31,19 +30,15 @@ const structured = extractLockedConstraintsFromText([
 assert.equal(structured?.mode, 'modify_existing');
 assert.equal(structured?.artifactKind, 'cli_tool');
 
-assert.equal(looksLikeDirectionReversal('아니지'), true);
-assert.equal(looksLikeDirectionReversal('그게 아니라'), true);
+// Labelled P0 field values are parsed; free prose inside the value is not mode-inferred.
 assert.equal(
-  looksLikeDirectionReversal(
-    '기존 3파일을 교체한다. React 없음. 키가 없으면 mock으로 동작하고 키를 넣으면 실데이터.',
-  ),
-  false,
-  'long mutate brief must not trip',
+  extractLockedConstraintsFromText('PLAN:\n신규/기존: 그 파일 고쳐줘')?.mode,
+  'unknown',
 );
-assert.equal(
-  looksLikeDirectionReversal('파일 수정이 아니라 검색만'),
-  false,
-  'mid-sentence 아니라 must not trip',
+assert.deepEqual(
+  extractLockedConstraintsFromText('PLAN:\n목표: x\n본문 중간에 손대지 말 것: core/ 이라고 썼다')?.doNotTouch ?? [],
+  [],
+  'mid-sentence do-not-touch mention is not a field',
 );
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cqr-lock-'));
@@ -64,6 +59,17 @@ try {
 
   const still = clearStickyInvalidation(invalidateLockedConstraints(null, 'x'));
   assert.equal(still?.invalidated, false);
+
+  // No saved PLAN lock → earlier assistant prose is never parsed into constraints.
+  assert.equal(
+    resolveLockedConstraintsForTurn({
+      cqrRoot: tmp,
+      sessionId: 'no-lock',
+      userMessage: 'x',
+      history: [{ role: 'assistant', content: 'PLAN:\nP0: 기존 수정 | 손대지 말 것: core/' }],
+    }),
+    null,
+  );
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }

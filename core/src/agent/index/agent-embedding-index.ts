@@ -49,6 +49,7 @@ const MAX_FILE_BYTES = 180_000;
 const CHUNK_LINES = 36;
 const CHUNK_OVERLAP = 6;
 const DEFAULT_MAX_HITS = 8;
+const DEFAULT_PROMPT_MIN_SCORE = 0.45;
 const TTL_MS = 90_000;
 const CLOUD_BATCH = 32;
 const SCAN_HARD_CAP = 8_000;
@@ -62,6 +63,18 @@ function parsePositiveInt(raw: string | undefined, fallback: number, min: number
 /** Max source files indexed (env `MY_AGENT_EMBED_MAX_FILES`, default 800). */
 export function embedMaxFiles(env: NodeJS.ProcessEnv = process.env): number {
   return parsePositiveInt(env.MY_AGENT_EMBED_MAX_FILES, DEFAULT_MAX_FILES, 50, 5_000);
+}
+
+/**
+ * Minimum score for hits injected automatically into the turn context (env
+ * `MY_AGENT_EMBED_PROMPT_MIN_SCORE`, default 0.45). Measured with local hashed TF:
+ * unrelated top hits for plain Korean requests scored ~0.34–0.42, relevant code
+ * queries ~0.48–0.57. The model-called search_embeddings tool keeps the low floor.
+ */
+export function embedPromptMinScore(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number.parseFloat(String(env.MY_AGENT_EMBED_PROMPT_MIN_SCORE ?? '').trim());
+  if (!Number.isFinite(n)) return DEFAULT_PROMPT_MIN_SCORE;
+  return Math.min(1, Math.max(0, n));
 }
 
 /** Max chunks indexed (env `MY_AGENT_EMBED_MAX_CHUNKS`, default 5000). */
@@ -111,6 +124,11 @@ const SKIP_DIRS = new Set([
   'logs',
   'runtime',
   'test-results',
+  // Staged/deploy copies duplicated every source hit (same exclusion as repo-map).
+  'deploy',
+  'output',
+  // .NET build intermediates (generated AssemblyInfo etc.) outranked real sources.
+  'obj',
 ]);
 
 const CODE_EXT_RE =
@@ -857,6 +875,24 @@ export function formatEmbeddingHitsBlock(
   return [`## ${title}`, ...lines].join('\n');
 }
 
+/** Top hit kept below the floor only when it beats the runner-up by this ratio. */
+const PROMPT_STANDOUT_RATIO = 1.5;
+
+/**
+ * Hits allowed into the automatic prompt block: score >= floor, plus a lone top hit that
+ * clearly stands out from the rest (small repos / paraphrases score low but distinct).
+ * Flat score lists (every hit within a few points) are noise and are dropped.
+ */
+export function selectPromptEmbeddingHits(ranked: EmbeddingHit[], minScore: number): EmbeddingHit[] {
+  const kept = ranked.filter((hit) => hit.score >= minScore);
+  if (kept.length || !ranked.length) return kept;
+  const top = ranked[0]!;
+  const runnerUp = ranked.find((h) => h.path !== top.path)?.score ?? 0;
+  return top.score > 0 && (runnerUp <= 0 || top.score >= runnerUp * PROMPT_STANDOUT_RATIO)
+    ? [top]
+    : [];
+}
+
 /** Sync prompt block — always local (fast). Cloud via search_embeddings when configured. */
 export function buildEmbeddingSearchContext(
   workspaceRoot: string,
@@ -865,10 +901,11 @@ export function buildEmbeddingSearchContext(
 ): string {
   if (!embeddingsEnabled()) return '';
   try {
-    const hits = searchEmbeddingIndex(workspaceRoot, message, {
+    const ranked = searchEmbeddingIndex(workspaceRoot, message, {
       maxHits: opts?.maxHits ?? DEFAULT_MAX_HITS,
       cqrRoot: opts?.cqrRoot,
     });
+    const hits = selectPromptEmbeddingHits(ranked, embedPromptMinScore());
     const block = formatEmbeddingHitsBlock(hits, 'Embedding retrieval (local hashed TF)');
     if (!block) return '';
     const maxChars = opts?.maxChars ?? 2_800;

@@ -57,6 +57,6 @@ export function formatBareModuleReadBlock(rel: string): string {
     'If you need dependency info, read package.json only.',
     '',
     'Instructions for the model (do not show to user):',
-    '- Do NOT retry this same path. Call list_directory/src read or mutate next.',
+    '- Do NOT retry this same path. Use list_directory or read a real source path next.',
   ].join('\n');
 }
