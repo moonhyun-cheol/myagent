@@ -96,16 +96,10 @@ export function checkDeployParity(root, options = {}) {
     errors.push(`deploy-defaults.json missing (${deployLoad.path})`);
   } else {
     const { deploy } = deployLoad;
-    if (!deploy.ollama_base_url?.trim()) {
-      errors.push('deploy-defaults.json ollama_base_url is empty');
-    }
     if (!deploy.activation_server_url?.trim()) {
       warnings.push(
         'deploy-defaults.json activation_server_url is empty — neutral core uses file-only/local mode',
       );
-    }
-    if (!deploy.ollama_default_model?.trim()) {
-      warnings.push('deploy-defaults.json ollama_default_model is empty');
     }
   }
 

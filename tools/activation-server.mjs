@@ -219,25 +219,12 @@ function issueLicense({ format, crypto, win }, policy, userId, machineId) {
   return format.serializeLicense(doc);
 }
 
-async function resolveKeysBundle(bundleMod, policy) {
+/** Serves an operator-provided activation-server/keys-bundle.enc only; nothing is generated. */
+async function resolveKeysBundle(_bundleMod, _policy) {
   if (existsSync(bundlePath)) {
     return readFileSync(bundlePath, 'utf8').trim();
   }
-
-  const { buildDefaultBundlePayload } = await import(
-    pathToFileURL(path.join(root, 'core', 'dist', 'setup', 'default-bundle-payload.js')).href
-  );
-
-  try {
-    const payload = buildDefaultBundlePayload({
-      orgId: policy.org_id ?? 'myorg',
-      cqrRoot: root,
-      requireOpenWebUi: false,
-    });
-    return bundleMod.encryptBundle(payload);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 function checkBearer(req, expected) {

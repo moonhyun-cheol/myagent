@@ -52,8 +52,8 @@ const { runCodeAgent } = await import(pathToFileURL(distTools).href);
 const store = new ProviderStore(path.join(root, 'data', 'vault', 'provider-keys.json'), root);
 const prefer = process.env.MY_AGENT_OWUI_SMOKE_PROVIDER?.trim();
 const idOrder = prefer
-  ? [prefer, 'custom', 'openwebui', 'open_webui', 'ollama']
-  : ['custom', 'openwebui', 'open_webui', 'ollama'];
+  ? [prefer, 'custom', 'openwebui', 'open_webui']
+  : ['custom', 'openwebui', 'open_webui'];
 const tried = new Set();
 let resolved = null;
 for (const id of idOrder) {

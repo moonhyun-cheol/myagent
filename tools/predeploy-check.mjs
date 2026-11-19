@@ -102,24 +102,16 @@ const defaultBundle = path.join(root, 'core/config/defaults/keys-bundle.default.
 const actBundle = path.join(root, 'activation-server/keys-bundle.enc');
 
 if (existsSync(defaultBundle)) warn('generated keys-bundle.default.enc present — verify it contains no Open WebUI secret');
-else ok('source tree has no tracked credential bundle (publish generates local-provider bundle)');
+else ok('source tree has no credential bundle (publish no longer generates one)');
 
 if (!existsSync(deployPath)) {
   fail('deploy-defaults.json missing');
 } else {
   const deploy = JSON.parse(readFileSync(deployPath, 'utf8'));
-  if (!deploy.ollama_base_url?.trim()) fail('ollama_base_url empty');
-  else if (/localhost|127\.0\.0\.1/i.test(deploy.ollama_base_url)) {
-    warn('ollama_base_url is localhost — fix before employee deploy');
-  } else ok(`Ollama: ${deploy.ollama_base_url}`);
-
   if (!deploy.activation_server_url?.trim()) warn('activation_server_url empty — file-only/local mode');
   else if (/localhost|127\.0\.0\.1/i.test(deploy.activation_server_url)) {
     warn('activation_server_url is localhost');
   } else ok(`Activation: ${deploy.activation_server_url}`);
-
-  if (!deploy.ollama_default_model?.trim()) warn('ollama_default_model empty');
-  else ok(`Default model: ${deploy.ollama_default_model}`);
 
   if (deploy.openwebui_base_url?.trim()) ok(`OpenAI-compatible endpoint: ${deploy.openwebui_base_url}`);
   else ok('remote provider endpoint is device-local and optional');
@@ -132,8 +124,8 @@ if (existsSync(policyPath)) {
   ok(`policy org_id=${policy.org_id ?? '?'}`);
 }
 
-if (existsSync(actBundle)) ok('activation-server/keys-bundle.enc');
-else warn('activation-server/keys-bundle.enc missing — run sync-owui-bundles or bundle-keys for server');
+if (existsSync(actBundle)) ok('activation-server/keys-bundle.enc (operator-provided, served as keys_bundle)');
+else ok('activation-server/keys-bundle.enc absent — activation responses carry no keys_bundle (optional)');
 
 console.log('\n5) UI charset');
 const indexHtml = path.join(root, 'ui/workspace/dist/index.html');

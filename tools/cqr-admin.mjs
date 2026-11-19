@@ -22,7 +22,7 @@ function getArg(args, name) {
 function ensureBuilt() {
   // Only core/dist is needed here. build-smart rebuilds stale product lanes and
   // is a no-op when fresh; the forced build.mjs used to rebuild core+ui a third
-  // time during publish (publish.mjs -> bundle-keys).
+  // time during publish.
   const r = spawnSync(process.execPath, [path.join(root, 'tools', 'build-smart.mjs'), '--lanes=defaults,core,ui'], {
     cwd: root,
     stdio: 'inherit',
@@ -56,7 +56,6 @@ async function main() {
   if (
     cmd === 'issue' ||
     cmd === 'verify' ||
-    cmd === 'bundle-keys' ||
     cmd === 'machine-id' ||
     cmd === 'allowlist'
   ) {
@@ -76,48 +75,6 @@ async function main() {
       pathToFileURL(path.join(root, 'core', 'dist', 'license', 'machine-id.js')).href
     );
     console.log(mod.computeMachineId(cqrRoot));
-    return;
-  }
-
-  if (cmd === 'bundle-keys') {
-    const deployPath = path.join(root, 'core', 'config', 'defaults', 'deploy-defaults.json');
-    const deploy = JSON.parse(readFileSync(deployPath, 'utf8'));
-    const org = getArg(args, '--org') ?? 'dev';
-    const out = getArg(args, '--out') ?? path.join(root, 'deploy', 'output', 'keys-bundle.enc');
-    const defaultProvider = getArg(args, '--default-provider') ?? (org === 'dev' ? 'custom' : 'ollama');
-    const allowMissingOwui = args.includes('--allow-missing-owui');
-    if (args.includes('--stub-owui')) {
-      process.env.MY_AGENT_BUNDLE_STUB_OWUI = '1';
-    }
-
-    const bundleMod = await import(
-      pathToFileURL(path.join(root, 'core', 'dist', 'setup', 'key-bundle.js')).href
-    );
-    const { buildDefaultBundlePayload } = await import(
-      pathToFileURL(path.join(root, 'core', 'dist', 'setup', 'default-bundle-payload.js')).href
-    );
-
-    const payload = buildDefaultBundlePayload({
-      orgId: org,
-      cqrRoot: root,
-      defaultProviderId: defaultProvider,
-      deploy,
-      requireOpenWebUi: !allowMissingOwui,
-    });
-
-    const enc = bundleMod.encryptBundle(payload);
-    mkdirSync(path.dirname(out), { recursive: true });
-    writeFileSync(out, enc + '\n', 'utf8');
-    console.log('Wrote keys bundle ->', out);
-    console.log('  org     :', org);
-    console.log('  default :', payload.default_provider_id);
-    console.log('  providers:', Object.keys(payload.entries).join(', '));
-    console.log('  ollama  :', payload.entries.ollama.base_url);
-    console.log('  ollama model:', payload.entries.ollama.model_id);
-    if (payload.entries.custom) {
-      console.log('  custom  :', payload.entries.custom.base_url);
-      console.log('  owui model:', payload.entries.custom.model_id || '(auto)');
-    }
     return;
   }
 
@@ -266,7 +223,6 @@ async function main() {
   node tools/cqr-admin.mjs issue [--org NAME] [--user DOMAIN\\user] [--out PATH] [--days N] [--features a,b,c]
   node tools/cqr-admin.mjs whoami
   node tools/cqr-admin.mjs verify [license.ocx]
-  node tools/cqr-admin.mjs bundle-keys [--org NAME] [--ollama-url URL] [--model NAME] [--out PATH]
   node tools/cqr-admin.mjs allowlist add|remove|list --user DOMAIN\\user`);
   process.exit(1);
 }

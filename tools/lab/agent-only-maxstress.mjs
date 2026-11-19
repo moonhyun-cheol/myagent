@@ -320,7 +320,7 @@ const { looksLikeColdMultiCreate, buildTaskChecklist } = await import(
 const store = new ProviderStore(path.join(root, 'data', 'vault', 'provider-keys.json'), root);
 const prefer = process.env.MY_AGENT_OWUI_SMOKE_PROVIDER || 'custom';
 let resolved = null;
-for (const id of [prefer, 'custom', 'openwebui', 'open_webui', 'ollama']) {
+for (const id of [prefer, 'custom', 'openwebui', 'open_webui']) {
   try {
     const r = store.resolveProvider(id);
     if (r) {

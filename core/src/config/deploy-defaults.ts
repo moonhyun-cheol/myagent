@@ -3,8 +3,6 @@ import path from 'node:path';
 import { loadOrganizationDeployOverrides } from './organization-deploy-overrides.js';
 
 export interface DeployDefaults {
-  ollama_base_url?: string;
-  ollama_default_model?: string;
   openrouter_base_url?: string;
   openrouter_default_model?: string;
   /** @deprecated Read-only compatibility for older deployment files. */

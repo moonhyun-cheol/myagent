@@ -342,41 +342,14 @@ if (!skipVendor) {
 }
 
 const deployDefaultsPath = path.join(appDir, 'core', 'config', 'defaults', 'deploy-defaults.json');
-let bundleOrg = process.env.MY_AGENT_BUNDLE_ORG ?? 'myorg';
-const policyPath = path.join(root, 'activation-server', 'policy.json');
-if (existsSync(policyPath)) {
-  try {
-    bundleOrg = JSON.parse(readFileSync(policyPath, 'utf8')).org_id ?? bundleOrg;
-  } catch {
-    /* ignore */
-  }
-}
-
 if (existsSync(deployDefaultsPath)) {
   const deployDoc = JSON.parse(readFileSync(deployDefaultsPath, 'utf8'));
   deployDoc.note = 'Neutral core bundle. Install organization modules through their independent signed update stream.';
   writeFileSync(deployDefaultsPath, JSON.stringify(deployDoc, null, 2) + '\n', 'utf8');
 }
 
-const defaultBundlePath = path.join(appDir, 'core', 'config', 'defaults', 'keys-bundle.default.enc');
-const bundle = spawnSync(
-  process.execPath,
-  [
-    path.join(root, 'tools', 'cqr-admin.mjs'),
-    'bundle-keys',
-    '--org',
-    bundleOrg,
-    '--out',
-    defaultBundlePath,
-  ],
-  { cwd: root, stdio: 'inherit' },
-);
-if (bundle.status !== 0) process.exit(bundle.status ?? 1);
-
-const actBundleDir = path.join(root, 'activation-server');
-mkdirSync(actBundleDir, { recursive: true });
-cpSync(defaultBundlePath, path.join(actBundleDir, 'keys-bundle.enc'));
-console.log(`publish: synced non-secret local-provider bundle -> activation-server/ (org=${bundleOrg})`);
+// No keys bundle is generated: the only shipped entry was the retired Ollama provider.
+// Import paths (/setup bundle import, activation keys_bundle) still accept an operator-provided file.
 
 const shellProj = path.join(appDir, 'shell', 'CqrPa.Shell', 'CqrPa.Shell.csproj');
 const shellOut = path.join(appDir, 'bin', 'my-agent');
@@ -471,7 +444,6 @@ Node: ${
       : '이번 빌드: 미포함'
     : 'runtime/node/node.exe 포함'
 }
-Ollama: keys-bundle.default.enc (활성화 시 자동 적용 · org=${bundleOrg})
 조직 전용 기능: 별도의 서명된 모듈 업데이트로 설치
 
 install 시 필수 다운로드 (인터넷 필요 · 모든 PC 동일 런타임 경험 · 토큰/유료키 불필요):

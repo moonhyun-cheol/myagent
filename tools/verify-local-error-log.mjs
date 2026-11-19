@@ -41,8 +41,7 @@ try {
   const ui = readFileSync(path.join(root, 'ui/workspace/src/components/ErrorReportMenu.tsx'), 'utf8');
   const routes = readFileSync(path.join(root, 'core/src/routes/dispatch.ts'), 'utf8');
   const server = readFileSync(path.join(root, 'core/src/api-server.ts'), 'utf8');
-  const assemble = readFileSync(path.join(root, 'tools/assemble-dispatch.mjs'), 'utf8');
-  for (const source of [serviceSource, ui, routes, server, assemble]) {
+  for (const source of [serviceSource, ui, routes, server]) {
     assert.doesNotMatch(source, /gmail\.com|sendSmtpMail|ERROR_REPORT_TO|ErrorReportStore/);
   }
   assert.match(ui, /data\/logs\/error-reports\.jsonl/);

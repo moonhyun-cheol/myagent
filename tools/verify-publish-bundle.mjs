@@ -51,11 +51,6 @@ const checks = [
   },
 
   {
-    id: 'keys_bundle',
-    path: 'core/config/defaults/keys-bundle.default.enc',
-    label: 'Ollama NAS default keys bundle',
-  },
-  {
     id: 'deploy_defaults',
     path: 'core/config/defaults/deploy-defaults.json',
     label: 'deploy-defaults.json',
@@ -196,12 +191,6 @@ if (zipPath) {
 const deployPath = path.join(appDir, 'core/config/defaults/deploy-defaults.json');
 if (existsSync(deployPath)) {
   const deploy = JSON.parse(readFileSync(deployPath, 'utf8'));
-  if (!deploy.ollama_base_url?.trim()) {
-    console.error('  FAIL deploy-defaults.ollama_base_url is empty');
-    failed++;
-  } else {
-    console.log(`  OK   Ollama URL: ${deploy.ollama_base_url}`);
-  }
   if (!deploy.activation_server_url?.trim()) {
     console.warn('  WARN deploy-defaults.activation_server_url is empty (file-only license mode)');
   } else {
@@ -209,12 +198,12 @@ if (existsSync(deployPath)) {
   }
 }
 
-const policyPath = path.join(root, 'activation-server', 'policy.json');
-const bundlePath = path.join(appDir, 'core/config/defaults/keys-bundle.default.enc');
-if (existsSync(policyPath) && existsSync(bundlePath)) {
-  const policy = JSON.parse(readFileSync(policyPath, 'utf8'));
-  const org = policy.org_id ?? 'myorg';
-  console.log(`  INFO activation policy org_id=${org} (keys bundle must match after activation)`);
+const stagedBundle = path.join(appDir, 'core/config/defaults/keys-bundle.default.enc');
+if (existsSync(stagedBundle)) {
+  console.error('  FAIL keys-bundle.default.enc must not ship (bundle generation was retired with Ollama)');
+  failed++;
+} else {
+  console.log('  OK   no generated keys bundle in stage');
 }
 
 const parity = checkDeployParity(root, { appDir, skipDevLicense: true });

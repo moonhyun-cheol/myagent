@@ -26,7 +26,6 @@ const wirePolicy = await import(pathToFileURL(path.join(root, 'core', 'dist', 'p
 const { ProviderStore } = await import(pathToFileURL(path.join(root, 'core', 'dist', 'providers', 'provider-store.js')));
 const { MemoryMasterKeyStore } = await import(pathToFileURL(path.join(root, 'core', 'dist', 'providers', 'os-secret-store.js')));
 const { SessionStore } = await import(pathToFileURL(path.join(root, 'core', 'dist', 'sessions', 'session-store.js')));
-const { buildDefaultBundlePayload } = await import(pathToFileURL(path.join(root, 'core', 'dist', 'setup', 'default-bundle-payload.js')));
 
 const originalFetch = globalThis.fetch;
 const calls = [];
@@ -424,12 +423,10 @@ try {
   rmSync(tempRoot, { recursive: true, force: true });
 }
 
-const bundle = buildDefaultBundlePayload({ orgId: 'verify', cqrRoot: root, deploy: { ollama_base_url: 'http://ollama.internal/v1', ollama_default_model: 'qwen' } });
-assert.deepEqual(Object.keys(bundle.entries), ['ollama']);
-assert.equal(bundle.default_provider_id, 'ollama');
+assert.equal(existsSync(path.join(root, 'core', 'src', 'setup', 'default-bundle-payload.ts')), false, 'bundle generator retired');
 assert.equal(existsSync(path.join(root, 'core', 'config', 'defaults', 'keys-bundle.default.enc')), false);
 assert.equal(existsSync(path.join(root, 'core', 'config', 'defaults', 'keys-bundle.dev.enc')), false);
-console.log('PASS deployment bundle excludes Open WebUI credentials');
+console.log('PASS no generated deployment keys bundle');
 
 const setupSource = readFileSync(path.join(root, 'core', 'src', 'setup', 'setup-service.ts'), 'utf8');
 assert.match(setupSource, /if \(id === 'custom'\) continue/);

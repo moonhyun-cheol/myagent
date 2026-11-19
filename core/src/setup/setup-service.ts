@@ -6,7 +6,6 @@ import { assertWritablePath } from '../security/path-guard.js';
 import { loadDeployDefaults } from '../config/deploy-defaults.js';
 import { requestCentralActivation } from './activation-client.js';
 import { ensureOpenClawAdapterVault } from '../automaton/openclaw-adapter-provision.js';
-import { buildDefaultBundlePayload } from './default-bundle-payload.js';
 import {
   writeOpenClawAdapterVault,
   type OpenClawAdapterVaultDoc,
@@ -207,22 +206,7 @@ export class SetupService {
       }
     }
 
-    const unique = [...new Set(added)];
-
-    if (!this.providerStore.getSecret('custom') || !this.providerStore.getSecret('ollama')) {
-      try {
-        const payload = buildDefaultBundlePayload({
-          orgId,
-          cqrRoot: this.cqrRoot,
-          requireOpenWebUi: false,
-        });
-        unique.push(...this.applyBundle(payload, true));
-      } catch {
-        /* deploy defaults incomplete */
-      }
-    }
-
-    const merged = [...new Set(unique)];
+    const merged = [...new Set(added)];
     return { imported: merged.length > 0, providers: merged.length ? merged : undefined };
   }
 
