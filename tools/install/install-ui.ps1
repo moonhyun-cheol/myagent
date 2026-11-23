@@ -87,7 +87,7 @@ $sourceFull = Get-FullPathSafe $SourceDir
 
 if (Test-IsElevated) {
   [void][System.Windows.Forms.MessageBox]::Show(
-    'Do not run install.bat as administrator. Run it as the employee Windows user.',
+    "Do not run install.bat as administrator.`r`n`r`nClose this message and double-click install.bat normally (without `"Run as administrator`").",
     'MY Agent Installer',
     [System.Windows.Forms.MessageBoxButtons]::OK,
     [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -107,7 +107,7 @@ if (-not $TargetDir) {
   $defaultOk = Test-InstallFolderWritable $defaultPath
   if (-not $defaultOk) {
     [void][System.Windows.Forms.MessageBox]::Show(
-      "Cannot create, rename, and delete files in the default install folder:`r`n$defaultPath`r`n`r`nUse the current Windows account and check antivirus / Controlled Folder Access, then run install.bat again.",
+      "This Windows account cannot create, rename, or delete files in the default install folder:`r`n$defaultPath`r`n`r`nSign in with your own Windows account, check antivirus or Controlled Folder Access, and then run install.bat again.",
       'MY Agent Installer',
       [System.Windows.Forms.MessageBoxButtons]::OK,
       [System.Windows.Forms.MessageBoxIcon]::Error
@@ -116,7 +116,7 @@ if (-not $TargetDir) {
   }
 
   $choice = [System.Windows.Forms.MessageBox]::Show(
-    "MY Agent will install here (no administrator):`r`n$defaultPath`r`n`r`nYes = install here (recommended)`r`nNo = choose a different folder`r`nCancel = quit",
+    "MY Agent will be installed in this folder (no administrator rights needed):`r`n$defaultPath`r`n`r`nYes = Install here (recommended)`r`nNo = Choose a different folder`r`nCancel = Quit",
     'MY Agent Installer',
     [System.Windows.Forms.MessageBoxButtons]::YesNoCancel,
     [System.Windows.Forms.MessageBoxIcon]::Information
@@ -131,7 +131,7 @@ if (-not $TargetDir) {
 
 if (-not $TargetDir) {
   $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-  $dialog.Description = 'Select an install folder. Do not pick C:\ (drive root), Desktop, or the unzipped app folder.'
+  $dialog.Description = 'Select an install folder. Do not choose a drive root (C:\), the Desktop, or the extracted installer folder.'
   $dialog.SelectedPath = $defaultPath
   $dialog.ShowNewFolderButton = $true
   while ($true) {
@@ -148,7 +148,7 @@ if (-not $TargetDir) {
     if (-not $badSame -and -not $badInside -and -not $badSourceInside -and -not $badDump -and -not $badRoot -and -not $badSystem) {
       if (-not (Test-InstallFolderWritable $picked)) {
         [void][System.Windows.Forms.MessageBox]::Show(
-          "That folder does not allow create, rename, and delete for this Windows account:`r`n$picked`r`n`r`nUse the recommended per-user folder:`r`n$defaultPath",
+          "This Windows account cannot create, rename, or delete files in:`r`n$picked`r`n`r`nChoose another folder, such as the recommended one:`r`n$defaultPath",
           'MY Agent Installer',
           [System.Windows.Forms.MessageBoxButtons]::OK,
           [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -159,13 +159,13 @@ if (-not $TargetDir) {
       break
     }
     $hint = if ($badRoot) {
-      "Do not install to the drive root (C:\).`r`nUse a folder such as:`r`n$defaultPath"
+      "Do not install directly into a drive root such as C:\.`r`nUse a folder such as:`r`n$defaultPath"
     } elseif ($badSystem) {
-      "Do not install under Program Files / Windows / ProgramData.`r`nExample:`r`n$defaultPath"
+      "Do not install under Program Files, Windows, or ProgramData.`r`nUse a folder such as:`r`n$defaultPath"
     } elseif ($badDump) {
-      "Do not install onto Desktop / Documents / Downloads.`r`nThe zip may stay on the Desktop. Example:`r`n$defaultPath"
+      "Do not install directly into Desktop, Documents, Downloads, or your user folder.`r`n(The ZIP file itself can stay on the Desktop.)`r`nUse a folder such as:`r`n$defaultPath"
     } else {
-      "That folder is the unzipped package (or inside it). Example:`r`n$defaultPath"
+      "Do not install into the extracted installer folder, a folder inside it, or a folder that contains it.`r`nUse a folder such as:`r`n$defaultPath"
     }
     [void][System.Windows.Forms.MessageBox]::Show(
       $hint,
@@ -179,7 +179,7 @@ if (-not $TargetDir) {
 $recordedPath = Get-RecordedInstallPath
 if (-not $SmokeTest -and $recordedPath -and $recordedPath -ne (Get-FullPathSafe $TargetDir)) {
   $separateChoice = [System.Windows.Forms.MessageBox]::Show(
-    "Existing MY Agent data is at:`r`n$recordedPath`r`n`r`nThis installs a separate copy at:`r`n$TargetDir`r`n`r`nConversations, settings, and activation are NOT migrated. Continue?",
+    "An existing MY Agent installation was found at:`r`n$recordedPath`r`n`r`nInstalling to the folder below creates a separate copy:`r`n$TargetDir`r`n`r`nConversations, settings, and activation will NOT be moved to the new copy.`r`nTo keep them, choose No and install to the existing folder.`r`n`r`nContinue with a separate copy?",
     'MY Agent Installer', 'YesNo', 'Warning'
   )
   if ($separateChoice -ne [System.Windows.Forms.DialogResult]::Yes) { exit 1 }
@@ -190,13 +190,13 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   $existingSelection = if ($ExistingRoot) { Read-OptionalRuntimeSelection $ExistingRoot } else { $null }
   $existingSelected = @()
   if ($existingSelection) { $existingSelected = @($existingSelection.selected | ForEach-Object { [string]$_ }) }
-  $idleHelp = 'Click a name to see what it does, when you need it, and whether you can skip it.'
+  $idleHelp = 'Click an item to see what it does and when you need it.'
   $script:featureHelpMap = @{}
-  $script:featureHelpMap['playwright'] = 'Opens web pages and takes screenshots. About 300MB. Check this only if the agent should browse or capture a site. You can add it later in Settings > Features.'
-  $script:featureHelpMap['ffmpeg'] = 'Turns a video attachment into still frames the model can see. About 80MB. Skip if you do not attach videos.'
-  $script:featureHelpMap['markitdown'] = 'Reads Excel, PowerPoint, and Outlook mail as text. PDF and Word already work without this. About 60MB.'
-  $script:featureHelpMap['repomix'] = 'Recommended. Packs a whole code folder for the model. About 20MB. Uncheck only if you do not want this download.'
-  $script:featureHelpMap['ast_grep'] = 'Recommended. Finds code by structure, not plain text. About 15MB. Uncheck only if you do not want this download.'
+  $script:featureHelpMap['playwright'] = 'Lets the agent open web pages, take screenshots, and click buttons. About 300MB, so check it only if you need web automation. To add it later, run install.bat again and check it.'
+  $script:featureHelpMap['ffmpeg'] = 'Turns a video attachment into still frames the model can see. About 80MB. Skip it if you do not attach videos.'
+  $script:featureHelpMap['markitdown'] = 'Reads Excel, PowerPoint, and Outlook mail attachments as text. PDF and Word work without it. About 60MB; requires Python.'
+  $script:featureHelpMap['repomix'] = 'Packs a whole code folder so the model can read it at once. About 20MB; needs internet access (npm) during install.'
+  $script:featureHelpMap['ast_grep'] = 'Recommended. Searches code by structure instead of plain text. About 15MB. Uncheck it if you do not want this download.'
 
   $coreItems = @(
     @{ Id = 'chat'; Label = 'Chat' },
@@ -210,7 +210,7 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
     @{ Id = 'ffmpeg'; Label = 'Video attachments'; Size = '~80MB'; DefaultSelected = $false },
     @{ Id = 'markitdown'; Label = 'Excel/PPT documents'; Size = '~60MB'; DefaultSelected = $false },
     @{ Id = 'repomix'; Label = 'Repo pack'; Size = '~20MB'; DefaultSelected = $false },
-    @{ Id = 'ast_grep'; Label = 'Code structure search'; Size = '~15MB'; DefaultSelected = $false }
+    @{ Id = 'ast_grep'; Label = 'Code structure search'; Size = '~15MB'; DefaultSelected = $true }
   )
 
   if ($catalog) {
@@ -259,11 +259,11 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   $intro.Location = New-Object System.Drawing.Point(28, 46)
   $intro.Size = New-Object System.Drawing.Size(504, 32)
   $intro.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-  $intro.Text = 'Core is already included. Recommended extras are checked. Uncheck to skip, or add later in Settings.'
+  $intro.Text = 'Core features are already included. Check the extras to download now. To add one later, run install.bat again.'
   $form.Controls.Add($intro)
 
   $coreBox = New-Object System.Windows.Forms.GroupBox
-  $coreBox.Text = 'Already on this PC (click a name)'
+  $coreBox.Text = 'Included (click a name for details)'
   $coreBox.Location = New-Object System.Drawing.Point(28, 84)
   $coreBox.Size = New-Object System.Drawing.Size(504, 86)
   $form.Controls.Add($coreBox)
@@ -306,7 +306,7 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   }
 
   $optBox = New-Object System.Windows.Forms.GroupBox
-  $optBox.Text = 'Download now (optional)'
+  $optBox.Text = 'Optional downloads'
   $optBox.Location = New-Object System.Drawing.Point(28, 178)
   $optBox.Size = New-Object System.Drawing.Size(504, 176)
   $form.Controls.Add($optBox)
@@ -335,7 +335,7 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   }
 
   $helpBox = New-Object System.Windows.Forms.GroupBox
-  $helpBox.Text = 'What this is'
+  $helpBox.Text = 'About this feature'
   $helpBox.Location = New-Object System.Drawing.Point(28, 362)
   $helpBox.Size = New-Object System.Drawing.Size(504, 118)
   $form.Controls.Add($helpBox)
@@ -355,7 +355,7 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   $later.Size = New-Object System.Drawing.Size(504, 28)
   $later.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
   $later.ForeColor = [System.Drawing.Color]::FromArgb(90, 96, 108)
-  $later.Text = 'Company skill pack and MCP servers are added later in Settings. They are not part of this download list.'
+  $later.Text = 'The company skill pack and MCP servers are not in this list. Add them later in the app Settings.'
   if ($catalog -and $catalog.later_streams) {
     $later.Text = (@($catalog.later_streams | ForEach-Object { [string]$_.summary }) -join '  ')
     $later.Tag = [string](@($catalog.later_streams)[0].id)
@@ -383,7 +383,7 @@ function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
   $form.Controls.Add($allBtn)
 
   $noneBtn = New-Object System.Windows.Forms.Button
-  $noneBtn.Text = 'None'
+  $noneBtn.Text = 'Clear all'
   $noneBtn.Location = New-Object System.Drawing.Point(136, 528)
   $noneBtn.Size = New-Object System.Drawing.Size(90, 32)
   $noneBtn.Add_Click({
@@ -557,15 +557,15 @@ $script:st.Form.Controls.Add($script:st.Title)
 $script:st.Status = New-Object System.Windows.Forms.Label
 $script:st.Status.AutoSize = $false
 $script:st.Status.Location = New-Object System.Drawing.Point(30, 66)
-$script:st.Status.Size = New-Object System.Drawing.Size(460, 26)
-$script:st.Status.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+$script:st.Status.Size = New-Object System.Drawing.Size(460, 40)
+$script:st.Status.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)
 $script:st.Status.Text = 'Preparing installation files...'
 $script:st.Form.Controls.Add($script:st.Status)
 
 $script:st.Detail = New-Object System.Windows.Forms.Label
 $script:st.Detail.AutoSize = $false
-$script:st.Detail.Location = New-Object System.Drawing.Point(30, 96)
-$script:st.Detail.Size = New-Object System.Drawing.Size(460, 46)
+$script:st.Detail.Location = New-Object System.Drawing.Point(30, 108)
+$script:st.Detail.Size = New-Object System.Drawing.Size(460, 40)
 $script:st.Detail.Font = New-Object System.Drawing.Font('Segoe UI', 8.5)
 $script:st.Detail.ForeColor = [System.Drawing.Color]::FromArgb(90, 96, 108)
 $script:st.Detail.Text = "Install location: $TargetDir"
@@ -590,7 +590,7 @@ $script:st.Form.Controls.Add($script:st.Elapsed)
 function Get-StageText([string]$line) {
   if ($line -match 'portable Node|bootstrap-node') { return '1/4 - Preparing Node.js runtime' }
   if ($line -match 'npm dependencies|runtime npm|Core runtime dependencies|CORE_DEPENDENC') { return '2/4 - Verifying core runtime' }
-  if ($line -match 'Playwright|Chromium|ffmpeg|python-embed|pipeline venv|Python|Repomix|ast-grep') { return '3/4 - Preparing selected optional features' }
+  if ($line -match 'Playwright|Chromium|ffmpeg|MarkItDown|python-embed|pipeline venv|Python|Repomix|ast-grep') { return '3/4 - Installing selected optional features' }
   if ($line -match 'Install complete|Desktop shortcut') { return '4/4 - Finishing installation' }
   return $null
 }
@@ -626,14 +626,27 @@ function Complete-Install {
     }
     if ($optionalFailures.Count -gt 0 -or $optionalStateWriteFailed) {
       $st.Partial = $true
-      $st.Title.Text = 'Installation complete with optional issues'
-      $st.Status.Text = 'MY Agent is ready. Some selected features can be retried later.'
+      $st.Title.Text = 'Installation complete (some features skipped)'
+      $st.Status.Text = 'MY Agent is ready, but some selected features did not install.'
+      $failedNames = @($optionalFailures)
+      try {
+        if (Get-Command Get-OptionalRuntimeCatalog -ErrorAction SilentlyContinue) {
+          $catalogDoc = Get-OptionalRuntimeCatalog $st.TargetDir
+          if ($catalogDoc) {
+            $failedNames = @($optionalFailures | ForEach-Object {
+              $fid = [string]$_
+              $hit = @($catalogDoc.optional_runtimes | Where-Object { [string]$_.id -eq $fid } | Select-Object -First 1)
+              if ($hit.Count -gt 0 -and $hit[0].label) { [string]$hit[0].label } else { $fid }
+            })
+          }
+        }
+      } catch { $failedNames = @($optionalFailures) }
       $st.Detail.Text = if ($optionalStateWriteFailed) {
-        'Optional feature status could not be saved. Review the installer log and retry optional features if needed.'
+        "Optional feature status could not be saved. Log: $($st.LogPath)"
       } else {
-        'Optional features incomplete: ' + ($optionalFailures -join ', ')
+        'Not installed: ' + ($failedNames -join ', ') + "`r`nLog: $($st.LogPath)"
       }
-      $st.Elapsed.Text = 'Close this window after reviewing the optional feature list.'
+      $st.Elapsed.Text = 'To retry, check your internet connection and run install.bat again.'
       return
     }
     $st.Title.Text = 'Installation complete'
@@ -672,32 +685,40 @@ function Complete-Install {
   $failBlob = "$detail $logTail"
   if ($failBlob -like '*WEBVIEW2_RUNTIME_MISSING*') {
     $st.Status.Text = 'Install Microsoft Edge WebView2 Runtime, then run install.bat again.'
-  } elseif ($failBlob -like '*INSTALL_DISK_SPACE_*') {
-    $st.Status.Text = 'Cannot reserve enough install space. Free disk space or choose another local drive; see required/available space below.'
+  } elseif ($failBlob -like '*INSTALL_DISK_SPACE_LOW*') {
+    $st.Status.Text = 'Not enough disk space. Free up space or choose another local drive. See the required and available space below.'
+  } elseif ($failBlob -like '*INSTALL_DISK_SPACE_UNKNOWN*') {
+    $st.Status.Text = 'Could not check free disk space for the install folder. Choose a folder on a local drive.'
+  } elseif ($failBlob -like '*INSTALL_TARGET_IN_USE*') {
+    $st.Status.Text = 'MY Agent is still running. Close it completely, then run install.bat again.'
+  } elseif ($failBlob -like '*INSTALL_ALREADY_RUNNING*') {
+    $st.Status.Text = 'Another installer is already running for this folder. Wait for it to finish.'
+  } elseif ($failBlob -match 'CORE_BUNDLE_|CORE_DEPENDENC|CORE_RESTORE_SCRIPT_MISSING|INSTALL_PAYLOAD_FILE_MISSING') {
+    $st.Status.Text = 'The installer files are incomplete or damaged. Download the install ZIP again.'
   } elseif ($failBlob -like '*cannot be the same folder*' -or $failBlob -like '*cannot be inside the unzipped*' -or $failBlob -like '*cannot be inside the source*') {
-    $st.Status.Text = "Pick a folder outside the unzipped package. Example: $defaultPath"
+    $st.Status.Text = "Choose a folder outside the extracted installer. Example: $defaultPath"
   } elseif ($failBlob -like '*Do not install onto Desktop*' -or $failBlob -like '*Documents, Downloads*') {
-    $st.Status.Text = 'Zip may stay on the Desktop. Install into a new folder, not Desktop itself.'
+    $st.Status.Text = "Do not install directly into Desktop, Documents, or Downloads. Example: $defaultPath"
   } elseif ($failBlob -like '*Do not run install*' -or $failBlob -like '*as administrator*') {
-    $st.Status.Text = 'Do not run as administrator. Run install.bat as the employee Windows user.'
+    $st.Status.Text = 'Do not run install.bat as administrator. Double-click it normally with your own Windows account.'
   } elseif ($failBlob -like '*Program Files*' -or $failBlob -like '*ProgramData*') {
-    $st.Status.Text = "Do not install under Program Files. Example: $defaultPath"
+    $st.Status.Text = "Do not install under Program Files, Windows, or ProgramData. Example: $defaultPath"
   } elseif ($failBlob -like '*does not allow create, rename, and delete*' -or $failBlob -like '*not fully writable*' -or $failBlob -like '*not writable*') {
-    $st.Status.Text = "Folder permission blocked installation. Run as this Windows user and use: $defaultPath"
+    $st.Status.Text = "Folder permissions blocked the install. Check antivirus or permissions, or use: $defaultPath"
   } elseif ($failBlob -like '*directly under*' -or $failBlob -like '*drive root*' -or $failBlob -like '*not C:\*') {
-    $st.Status.Text = "Do not install to C:\ itself. Use a folder such as $defaultPath (Yes on the first prompt)."
+    $st.Status.Text = "Do not install directly into a drive root such as C:\. Use a folder such as $defaultPath"
   } elseif ($failBlob -like '*is not a batch file*' -or $failBlob -like '*tsclient*' -or $failBlob -like '*UNC*') {
-    $st.Status.Text = 'Shared folder path broke the installer. Copy zip to C:\Temp, extract, run install.bat.'
+    $st.Status.Text = 'Cannot install from a shared or network folder. Copy the ZIP to C:\Temp, extract it there, and run install.bat.'
   } elseif ($failBlob -like '*is not recognized*' -or $failBlob -like '*''"node"''*') {
-    $st.Status.Text = 'Could not run Node (not a network error). See detail below.'
+    $st.Status.Text = 'Could not start the bundled Node.js runtime (not a network error). See the details below.'
   } elseif ($failBlob -match 'internet|download|WebRequest|nodejs\.org|pypi|ENOTFOUND|timed out') {
-    $st.Status.Text = 'Network download failed. Check the connection, then run install.bat again.'
+    $st.Status.Text = 'A download failed. Check your internet connection, then run install.bat again.'
   } else {
-    $st.Status.Text = 'See detail below. Log: %TEMP%\cqr-install-ui-*.log'
+    $st.Status.Text = 'Installation failed. See the details below.'
   }
   $shown = if ($logTail) { $logTail } else { $detail }
   $st.Detail.Text = if ($shown.Length -gt 220) { $shown.Substring(0, 217) + '...' } else { $shown }
-  $st.Elapsed.Text = 'Review the message above, then close this window.'
+  $st.Elapsed.Text = 'Log (kept after closing): %TEMP%\cqr-install-last-failure.log'
   if ($null -ne $st.Bar) { $st.Bar.Value = 0 }
 }
 
@@ -733,7 +754,7 @@ $script:st.Timer.Add_Tick({
       $script:st.Completed = $true
       $script:st.ExitCode = 1
       $script:st.Title.Text = 'Installer UI error'
-      $script:st.Status.Text = 'Run install.bat again, or use tools\install\install.ps1 directly.'
+      $script:st.Status.Text = 'The installer window hit an error. Run install.bat again.'
       $script:st.Detail.Text = $_.Exception.Message
       $script:st.Bar.Style = 'Continuous'
       $script:st.Bar.Value = 0
@@ -766,7 +787,7 @@ $script:st.Form.Add_FormClosing({
     if ($st.Completed -or $null -eq $st.Proc -or $st.Proc.HasExited) { return }
 
     $answer = [System.Windows.Forms.MessageBox]::Show(
-      'Installation is still running. Cancel it?',
+      'Installation is still in progress. Cancel it?',
       'Cancel MY Agent installation',
       [System.Windows.Forms.MessageBoxButtons]::YesNo,
       [System.Windows.Forms.MessageBoxIcon]::Warning

@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# MY Agent install — ASCII-first default (C:\MYAgent), no administrator required
+# MY Agent install - ASCII-first default (C:\MYAgent), no administrator required
 param(
   [string]$SourceDir = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
   [string]$TargetDir = $env:MY_AGENT_INSTALL_TARGET,
@@ -142,7 +142,7 @@ function Repair-CopiedProductFiles([string]$folder, [string[]]$relativeFiles) {
 
 if (Test-IsElevated) {
   Write-Host 'ERROR: Do not run install.bat as administrator.'
-  Write-Host 'Right-click install.bat and run it as the employee Windows user so data\vault stays writable.'
+  Write-Host 'Double-click install.bat normally (without "Run as administrator") so your data folder stays writable.'
   exit 1
 }
 
@@ -165,7 +165,7 @@ Write-Host "Source: $source"
 Write-Host "Target: $targetFull"
 $recordedPath = Get-RecordedInstallPath
 if ($recordedPath -and $recordedPath -ne $targetFull) {
-  Write-Warning "Existing MY Agent data remains at $recordedPath. This separate installation does not migrate conversations, settings, or activation."
+  Write-Warning "Existing MY Agent data remains at $recordedPath. This separate installation does not move conversations, settings, or activation."
 }
 
 $sourceUnc = $source.StartsWith('\\') -or $source.ToLowerInvariant().Contains('\tsclient\')
@@ -177,20 +177,20 @@ if (-not $sourceUnc) {
   } catch { }
 }
 if ($sourceUnc) {
-  Write-Host 'ERROR: Install source is on a UNC/shared/mapped path.'
-  Write-Host 'On the employee PC: copy the zip to C:\Temp, extract, run install.bat from that local folder.'
+  Write-Host 'ERROR: Install source is on a UNC/shared/mapped network path.'
+  Write-Host 'Copy the ZIP to C:\Temp on this PC, extract it there, and run install.bat from that local folder.'
   Write-Host "Source was: $source"
   exit 1
 }
 
 if ($targetFull -eq $source) {
   Write-Host 'ERROR: Install target cannot be the same folder as the source (app).'
-  Write-Host "Pick a different folder, e.g. $defaultPath"
+  Write-Host "Choose a different folder, e.g. $defaultPath"
   exit 1
 }
 if (Test-IsSubPath $targetFull $source) {
   Write-Host 'ERROR: Install target cannot be inside the unzipped app folder.'
-  Write-Host "Pick a folder outside the zip extract, e.g. $defaultPath"
+  Write-Host "Choose a folder outside the extracted installer, e.g. $defaultPath"
   exit 1
 }
 if (Test-IsSubPath $source $targetFull) {
@@ -200,7 +200,7 @@ if (Test-IsSubPath $source $targetFull) {
 }
 if (Test-IsShellDumpFolder $targetFull) {
   Write-Host 'ERROR: Do not install onto Desktop, Documents, Downloads, or the user profile root.'
-  Write-Host "The zip can sit on the Desktop; the install folder must be a new folder, e.g. $defaultPath"
+  Write-Host "The ZIP can stay on the Desktop, but install into a separate folder, e.g. $defaultPath"
   exit 1
 }
 if (Test-IsDriveRoot $targetFull) {
@@ -443,7 +443,7 @@ Write-Host $optionalSummary
 
 $productExe = Join-Path $targetFull 'MYAgent.exe'
 if (-not (Test-Path -LiteralPath $productExe)) {
-  Write-Warning 'MYAgent.exe not found — desktop shortcut was not created.'
+  Write-Warning 'MYAgent.exe not found - desktop shortcut was not created.'
 } else {
   try {
     $shortcutScript = Join-Path $targetFull 'tools\desktop-shortcut.ps1'

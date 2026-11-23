@@ -235,10 +235,10 @@ function Install-SelectedOptionalRuntimes {
   }
   $labels = @{
     playwright   = 'Installing Playwright (browser tools, ~300MB)...'
-    ffmpeg       = 'Installing ffmpeg (video attachment keyframes)...'
-    markitdown   = 'Installing MarkItDown (Excel/PPT/email)...'
-    repomix      = 'Installing Repomix (repo pack)...'
-    ast_grep     = 'Installing ast-grep (structural search)...'
+    ffmpeg       = 'Installing ffmpeg (video attachments, ~80MB)...'
+    markitdown   = 'Installing MarkItDown (Excel/PowerPoint/email, ~60MB)...'
+    repomix      = 'Installing Repomix (repo pack, ~20MB)...'
+    ast_grep     = 'Installing ast-grep (code structure search, ~15MB)...'
   }
 
   # Optional runtimes are best-effort: a failed/aborted optional (offline,
@@ -266,7 +266,7 @@ function Install-SelectedOptionalRuntimes {
     $scriptPath = Join-Path $Root $rel
     if (-not (Test-Path -LiteralPath $scriptPath)) {
       Write-Host ""
-      Write-Host "WARN: missing $rel — skip $id"
+      Write-Host "WARN: missing $rel - skipping $id"
       [void]$optionalFailures.Add($id)
       continue
     }
@@ -289,7 +289,7 @@ function Install-SelectedOptionalRuntimes {
       $ErrorActionPreference = $previousErrorAction
     }
     if ($code -ne 0 -or -not (Test-OptionalRuntimeInstalled -Root $Root -Id $id)) {
-      Write-Warning "optional runtime '$id' did not finish (exit $code). The core app is still installed; add it later from Settings > Features or by re-running the installer with internet access."
+      Write-Warning "optional runtime '$id' did not finish (exit $code). The core app is still installed; to add it later, run install.bat again with internet access and check it."
       [void]$optionalFailures.Add($id)
     } else {
       [void]$optionalInstalled.Add($id)
@@ -298,8 +298,8 @@ function Install-SelectedOptionalRuntimes {
 
   if ($optionalFailures.Count -gt 0) {
     Write-Host ""
-    Write-Host ("Optional runtimes skipped or incomplete: " + ($optionalFailures -join ', '))
-    Write-Host "These are optional. The core app is installed. Re-run the installer or use Settings > Features (with internet) to add them."
+    Write-Host ("Optional runtimes not installed: " + ($optionalFailures -join ', '))
+    Write-Host "These are optional and the core app is installed. To add them, run install.bat again with internet access."
   }
   return [pscustomobject]@{ Installed = @($optionalInstalled); Failed = @($optionalFailures) }
 }

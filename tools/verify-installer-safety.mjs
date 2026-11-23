@@ -103,7 +103,7 @@ if ([IO.File]::ReadAllText((Join-Path $existing 'user-data.txt')) -ne 'must-surv
 $uiAst = [System.Management.Automation.Language.Parser]::ParseFile(${ps(path.join(root, 'tools/install/install-ui.ps1'))}, [ref]$null, [ref]$null)
 $handler = $uiAst.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Complete-Install'}, $true)
 Invoke-Expression $handler.Extent.Text
-foreach ($case in @(@{error='WEBVIEW2_RUNTIME_MISSING: fixture';expected='*WebView2 Runtime*'}, @{error='INSTALL_DISK_SPACE_LOW: fixture';expected='*disk space*'})) {
+foreach ($case in @(@{error='WEBVIEW2_RUNTIME_MISSING: fixture';expected='*WebView2 Runtime*'}, @{error='INSTALL_DISK_SPACE_LOW: fixture';expected='*disk space*'}, @{error='INSTALL_TARGET_IN_USE: fixture';expected='*still running*'}, @{error='ERROR: CORE_BUNDLE_VERIFY_FAILED: CORE_DEPENDENCY_LOAD_FAILED: fixture';expected='*Download the install ZIP again*'})) {
   $script:st = @{Timer=$null;Completed=$false;Proc=[pscustomobject]@{ExitCode=1};Bar=$null;LastLine=$case.error;LogPath=(Join-Path $fixture 'no-log');Title=[pscustomobject]@{Text=''};Status=[pscustomobject]@{Text=''};Detail=[pscustomobject]@{Text=''};Elapsed=[pscustomobject]@{Text=''}}
   Complete-Install
   if ($script:st.Status.Text -notlike $case.expected) { throw ('Wrong UI failure guidance: ' + $script:st.Status.Text) }

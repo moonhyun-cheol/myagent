@@ -8,8 +8,8 @@ if exist "%~dp0app\MYAgent.exe" goto :path_ok
 if exist "%~dp0MYAgent.exe" goto :path_ok
 echo.
 echo [MY Agent] This folder is source, not the install package.
-echo Download MYAgent-v*-install.zip from the v* GitHub release.
-echo Do not use "Source code (zip)" or a git clone — those have no MYAgent.exe.
+echo Download MYAgent-v*-install.zip from the Assets of the GitHub release.
+echo Do not use "Source code (zip)" or a git clone - they do not include MYAgent.exe.
 echo Developers: npm start   (or tools\commands\dev-run.bat)
 echo.
 pause
@@ -17,7 +17,7 @@ exit /b 1
 :path_ok
 
 REM Shared folders (Windows Sandbox \\tsclient, UNC, mapped network drives)
-REM break CMD batch CALL ("배치 파일이 아닙니다"). Mirror to local disk first.
+REM break CMD batch CALL ("... is not a batch file"). Mirror to local disk first.
 set "NEED_LOCAL="
 set "CQR_DP0=%~dp0"
 REM SET output is data, not a second expansion of CMD metacharacters in the path.
@@ -60,13 +60,13 @@ goto :relaunch
 
 :copy_fail
 echo [MY Agent] ERROR: could not copy from shared path.
-echo Copy the zip to C:\Temp on this PC, extract, run install.bat from that local folder.
+echo Copy the ZIP to C:\Temp on this PC, extract it there, and run install.bat from that local folder.
 pause
 exit /b 1
 
 :relaunch
 if not exist "%LOCAL_SRC%\install.bat" (
-  echo [MY Agent] ERROR: local copy missing install.bat
+  echo [MY Agent] ERROR: install.bat is missing from the local copy.
   pause
   exit /b 1
 )
