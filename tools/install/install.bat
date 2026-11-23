@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
 
 REM Shipped at the root of MYAgent-v*-install.zip only (publish copies this file).
@@ -19,8 +19,9 @@ exit /b 1
 REM Shared folders (Windows Sandbox \\tsclient, UNC, mapped network drives)
 REM break CMD batch CALL ("배치 파일이 아닙니다"). Mirror to local disk first.
 set "NEED_LOCAL="
-echo %~dp0| findstr /B /C:"\\" >nul && set "NEED_LOCAL=1"
-echo %~dp0| findstr /I /C:"\\tsclient\\" >nul && set "NEED_LOCAL=1"
+set "CQR_DP0=%~dp0"
+REM SET output is data, not a second expansion of CMD metacharacters in the path.
+set CQR_DP0| findstr /L /B /C:"CQR_DP0=\\" >nul && set "NEED_LOCAL=1"
 for /f "tokens=2 delims==" %%A in ('wmic logicaldisk where "DeviceID='%~d0'" get DriveType /value 2^>nul') do (
   if "%%A"=="4" set "NEED_LOCAL=1"
 )
@@ -38,9 +39,9 @@ if not defined INSTALL_COPY_ID set "INSTALL_COPY_ID=%RANDOM%-%RANDOM%-%RANDOM%"
 set "LOCAL_SRC=%LOCALAPPDATA%\MYAgent-install-src-%INSTALL_COPY_ID%"
 echo.
 echo [MY Agent] Shared/network path detected:
-echo   %~dp0
+echo   "%~dp0"
 echo Copying package to local disk (required for Sandbox / mapped shares)...
-echo   %LOCAL_SRC%
+echo   "%LOCAL_SRC%"
 echo.
 
 if exist "%LOCAL_SRC%" rd /s /q "%LOCAL_SRC%" 2>nul

@@ -23,6 +23,7 @@
     "verify:windows-permissions": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-windows-permissions.mjs",
     "verify:windows-entrypoint": "node tools/verify-windows-entrypoint.mjs",
     "verify:initial-install-permissions": "node tools/verify-initial-install-permissions.mjs",
+    "verify:installer-safety": "node tools/verify-installer-safety.mjs",
     "verify:port-keep": "node tools/verify-port-keep-policy.mjs",
     "verify:brand-manual": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-brand-manual-context.mjs",
     "verify:size-guide-intent": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-size-guide-intent.mjs",

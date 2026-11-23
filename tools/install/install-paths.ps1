@@ -17,6 +17,25 @@ function Get-CurrentUserInstallPath {
   return (Join-Path (Join-Path $local 'Programs') (Get-ProductInstallFolderName))
 }
 
+function Get-RecordedInstallPath {
+  $local = $env:LOCALAPPDATA
+  if (-not $local) { $local = [Environment]::GetFolderPath('LocalApplicationData') }
+  if (-not $local) { return $null }
+  $pointer = Join-Path $local 'MYAgent\install-root.json'
+  if (-not (Test-Path -LiteralPath $pointer -PathType Leaf)) { return $null }
+  try {
+    $doc = [IO.File]::ReadAllText($pointer) | ConvertFrom-Json
+    $recorded = [string]$doc.install_root
+    if (-not $recorded) { $recorded = [string]$doc.cqr_root }
+    # Ignore stale/relative pointers; never create a folder merely from a pointer.
+    if ($recorded -notmatch '^[A-Za-z]:\\') { return $null }
+    $full = [IO.Path]::GetFullPath($recorded).TrimEnd('\')
+    if ((Test-Path -LiteralPath (Join-Path $full 'MYAgent.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $full 'manifest.json') -PathType Leaf)) { return $full }
+  } catch { }
+  return $null
+}
+
 function Get-InstallPathCandidates {
   if ($env:MY_AGENT_INSTALL_DEFAULT) {
     return @($env:MY_AGENT_INSTALL_DEFAULT)
@@ -24,7 +43,10 @@ function Get-InstallPathCandidates {
   $name = Get-ProductInstallFolderName
   $sys = $env:SystemDrive
   if (-not $sys) { $sys = 'C:' }
-  $out = @((Join-Path $sys $name))
+  $out = @()
+  $recorded = Get-RecordedInstallPath
+  if ($recorded) { $out += $recorded }
+  $out += (Join-Path $sys $name)
   $perUser = Get-CurrentUserInstallPath
   if ($perUser) { $out += $perUser }
   return $out
@@ -65,9 +87,13 @@ function Get-DefaultInstallPath {
     if ($avoid) {
       if ($full -eq $avoid) { continue }
       if ($full.Length -gt $avoid.Length -and $full.StartsWith($avoid + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
+      if ($avoid.StartsWith($full + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
     }
     if (-not $fallback) { $fallback = $full }
     if (Test-InstallPathCandidateWritable $full) { return $full }
+    if ($full -eq (Get-RecordedInstallPath)) {
+      throw "EXISTING_INSTALL_NOT_WRITABLE: Existing MY Agent data is at $full. Restore folder access or explicitly choose another folder; data is not migrated automatically."
+    }
   }
   if ($fallback) { return $fallback }
   $perUser = Get-CurrentUserInstallPath

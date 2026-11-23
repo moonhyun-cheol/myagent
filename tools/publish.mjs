@@ -126,6 +126,8 @@ const skipDirs = new Set([
  */
 const skipAnySegment = new Set(['node_modules', '.git', '.cursor', '__pycache__']);
 const skipRelPrefixes = [
+  // Developer experiments include self-contained Debug/Release browser builds.
+  'tools/lab',
   'tools/keys',
   'tools/cache',
   'runtime/node',

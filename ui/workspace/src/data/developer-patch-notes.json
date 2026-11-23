@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "installer-prerequisite-safety",
+      "status": "development",
+      "title": "재설치 경로 안내와 설치 전 필수 환경 검사 보강",
+      "detail": "기록된 기존 설치 폴더를 우선 제안하고, 화면 엔진이 없거나 디스크 공간이 부족하면 파일 교체 전에 안내합니다. 특수문자가 있는 압축 해제 경로 처리를 보강하고 설치 파일에서 불필요한 실험용 파일을 제외합니다.",
+      "area": "setup",
+      "created_at": "2026-11-23",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["tools/install/install-paths.ps1", "tools/install/install-preflight.ps1", "tools/install/install.bat", "tools/publish.mjs"]
+    },
+    {
       "id": "reasoning-auto-fixed-medium",
       "status": "released",
       "title": "추론 강도 「자동」이 질문 문구에 따라 달라지지 않음",

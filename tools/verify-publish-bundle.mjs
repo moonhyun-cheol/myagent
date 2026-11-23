@@ -55,6 +55,11 @@ const checks = [
     path: 'core/config/defaults/deploy-defaults.json',
     label: 'deploy-defaults.json',
   },
+  {
+    id: 'install_preflight',
+    path: 'tools/install/install-preflight.ps1',
+    label: 'installer prerequisite checks',
+  },
 ];
 
 function resolveCheck(c) {
@@ -102,6 +107,13 @@ if (launcherHits.length) {
   failed += launcherHits.length;
 } else {
   console.log('  OK   no launcher residue anywhere under stage app');
+}
+
+for (const rel of ['tools/lab', '.playwright', '.my-agent', 'docs']) {
+  if (existsSync(path.join(appDir, rel))) {
+    console.error(`  FAIL developer-only directory must not ship: ${rel}`);
+    failed++;
+  }
 }
 
 const stagedRulebook = path.join(appDir, 'rulebook');
@@ -175,6 +187,7 @@ if (zipPath) {
         'app/MYAgent.exe',
         'app/tools/install/install.ps1',
         'app/tools/install/install-ui.ps1',
+        'app/tools/install/install-preflight.ps1',
         ...(!allowNoVendor ? requiredVendorPackages.map((rel) => `app/${rel}`) : []),
       ];
       for (const rel of requiredEntries) {
@@ -182,6 +195,13 @@ if (zipPath) {
         else {
           console.error(`  FAIL final ZIP entry missing: ${rel}`);
           failed++;
+        }
+      }
+      for (const rel of entries) {
+        if (/^app\/(tools\/lab|\.playwright|\.my-agent|docs|rulebook)(\/|$)/i.test(rel)) {
+          console.error(`  FAIL final ZIP contains developer-only files: ${rel}`);
+          failed++;
+          break;
         }
       }
     }

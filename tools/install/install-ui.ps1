@@ -95,7 +95,12 @@ if (Test-IsElevated) {
   exit 1
 }
 
-$script:defaultPath = Get-DefaultInstallPath -AvoidPath $sourceFull
+try {
+  $script:defaultPath = if ($TargetDir) { $TargetDir } else { Get-DefaultInstallPath -AvoidPath $sourceFull }
+} catch {
+  [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'MY Agent Installer', 'OK', 'Error')
+  exit 1
+}
 $defaultPath = $script:defaultPath
 
 if (-not $TargetDir) {
@@ -169,6 +174,15 @@ if (-not $TargetDir) {
       [System.Windows.Forms.MessageBoxIcon]::Warning
     )
   }
+}
+
+$recordedPath = Get-RecordedInstallPath
+if (-not $SmokeTest -and $recordedPath -and $recordedPath -ne (Get-FullPathSafe $TargetDir)) {
+  $separateChoice = [System.Windows.Forms.MessageBox]::Show(
+    "Existing MY Agent data is at:`r`n$recordedPath`r`n`r`nThis installs a separate copy at:`r`n$TargetDir`r`n`r`nConversations, settings, and activation are NOT migrated. Continue?",
+    'MY Agent Installer', 'YesNo', 'Warning'
+  )
+  if ($separateChoice -ne [System.Windows.Forms.DialogResult]::Yes) { exit 1 }
 }
 
 function Show-FeatureChecklist([string]$AppRoot, [string]$ExistingRoot) {
@@ -656,7 +670,11 @@ function Complete-Install {
     } catch { }
   }
   $failBlob = "$detail $logTail"
-  if ($failBlob -like '*cannot be the same folder*' -or $failBlob -like '*cannot be inside the unzipped*' -or $failBlob -like '*cannot be inside the source*') {
+  if ($failBlob -like '*WEBVIEW2_RUNTIME_MISSING*') {
+    $st.Status.Text = 'Install Microsoft Edge WebView2 Runtime, then run install.bat again.'
+  } elseif ($failBlob -like '*INSTALL_DISK_SPACE_*') {
+    $st.Status.Text = 'Cannot reserve enough install space. Free disk space or choose another local drive; see required/available space below.'
+  } elseif ($failBlob -like '*cannot be the same folder*' -or $failBlob -like '*cannot be inside the unzipped*' -or $failBlob -like '*cannot be inside the source*') {
     $st.Status.Text = "Pick a folder outside the unzipped package. Example: $defaultPath"
   } elseif ($failBlob -like '*Do not install onto Desktop*' -or $failBlob -like '*Documents, Downloads*') {
     $st.Status.Text = 'Zip may stay on the Desktop. Install into a new folder, not Desktop itself.'

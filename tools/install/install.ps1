@@ -11,6 +11,7 @@ param(
 . (Join-Path $PSScriptRoot 'optional-runtimes.ps1')
 . (Join-Path $PSScriptRoot 'install-paths.ps1')
 . (Join-Path $PSScriptRoot 'install-transaction.ps1')
+. (Join-Path $PSScriptRoot 'install-preflight.ps1')
 
 $ErrorActionPreference = 'Stop'
 
@@ -146,7 +147,7 @@ if (Test-IsElevated) {
 }
 
 $source = Get-FullPath ((Resolve-Path -LiteralPath $SourceDir).Path)
-$defaultPath = Get-DefaultInstallPath -AvoidPath $source
+$defaultPath = if ($TargetDir) { $TargetDir } else { Get-DefaultInstallPath -AvoidPath $source }
 
 if ($TargetDir) {
   $target = $TargetDir
@@ -162,6 +163,10 @@ if ($resolvedTarget) {
 
 Write-Host "Source: $source"
 Write-Host "Target: $targetFull"
+$recordedPath = Get-RecordedInstallPath
+if ($recordedPath -and $recordedPath -ne $targetFull) {
+  Write-Warning "Existing MY Agent data remains at $recordedPath. This separate installation does not migrate conversations, settings, or activation."
+}
 
 $sourceUnc = $source.StartsWith('\\') -or $source.ToLowerInvariant().Contains('\tsclient\')
 if (-not $sourceUnc) {
@@ -216,7 +221,7 @@ $completionMarker = Join-Path $targetFull 'INSTALL-DONE.txt'
 $sourceIsDevTree = Test-Path -LiteralPath (Join-Path $source '.git')
 $excludeDirs = @(
   '.git', 'node_modules', 'logs', 'deploy', 'tools\cache', '.install-payload-', '.install-backup-',
-  '.tmp', '.cqr-pa', '.cursor', '.my_agent_remote', 'rulebook', 'test-results'
+  '.tmp', '.cqr-pa', '.cursor', '.my_agent_remote', 'rulebook', 'test-results', 'tools\lab'
 )
 $excludeFiles = @(
   'data\vault\license.ocx',
@@ -272,6 +277,9 @@ $installMutex = Enter-InstallTargetLock $targetFull
 $installTransaction = $null
 try {
   Assert-NoRunningInstalledProcess $targetFull
+  # Required prerequisites must fail before recovery, product replacement or downloads.
+  Assert-InstallWebView2Runtime
+  Assert-InstallDiskSpace -SourceRoot $source -TargetRoot $targetFull
   Recover-PendingInstallTransaction $targetFull
   Remove-OrphanedInstallArtifacts $targetFull
   # Read the prior choice before the product transaction moves this state file
