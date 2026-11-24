@@ -96,9 +96,92 @@ export function resolveResponsesSessionPin(
 }
 
 class ResponsesHttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly retryAfterMs?: number) {
     super(message);
     this.name = 'ResponsesHttpError';
+  }
+}
+
+/**
+ * Terminal `response.failed`/`incomplete`/`error` (stream event or HTTP 200 document).
+ * `sawOutput` is true when text, reasoning or tool-call items were already received,
+ * so a retry could duplicate streamed output and must not happen.
+ */
+class ResponsesFailedError extends Error {
+  constructor(message: string, readonly sawOutput: boolean) {
+    super(message);
+    this.name = 'ResponsesFailedError';
+  }
+}
+
+const RATE_LIMIT_FIELD_RE = /"(?:category|reason|code|type)":"rate_limit/i;
+const MAX_RATE_LIMIT_DELAY_MS = 300_000;
+
+/** Rate-limit failures that arrived before any model output (safe to resend the same request). */
+export function isRetryableResponsesRateLimit(err: unknown): boolean {
+  if (err instanceof ResponsesHttpError) return err.status === 429;
+  if (err instanceof ResponsesFailedError) return !err.sawOutput && RATE_LIMIT_FIELD_RE.test(err.message);
+  return false;
+}
+
+/** Retries after a rate limit (default 3, 0 disables, max 5). */
+export function responsesRateLimitRetryLimit(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number.parseInt(String(env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES ?? '').trim(), 10);
+  return Number.isFinite(n) ? Math.min(5, Math.max(0, n)) : 3;
+}
+
+/** Wait before retry `attempt` (1-based): 30s, 60s, 120s… or a larger Retry-After, capped at 5 min. */
+export function responsesRateLimitDelayMs(
+  attempt: number,
+  retryAfterMs?: number,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw = Number.parseInt(String(env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS ?? '').trim(), 10);
+  const base = Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
+  const backoff = base * 2 ** Math.max(0, attempt - 1);
+  return Math.min(MAX_RATE_LIMIT_DELAY_MS, Math.max(backoff, retryAfterMs ?? 0));
+}
+
+function parseRetryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('retry-after')?.trim();
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : undefined;
+}
+
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abortError = () => new DOMException('Aborted', 'AbortError');
+    if (signal?.aborted) { reject(abortError()); return; }
+    const onAbort = () => { clearTimeout(timer); reject(abortError()); };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
+ * Resend only this model call after a provider rate limit. The failed attempt never
+ * advanced Responses state or delivered output, so the request is identical and no
+ * tool call or file edit is repeated.
+ */
+async function withRateLimitRetry<T>(opts: ChatCompletionOptions | undefined, operation: () => Promise<T>): Promise<T> {
+  const limit = responsesRateLimitRetryLimit();
+  for (let retry = 0; ; retry++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (retry >= limit || opts?.signal?.aborted || !isRetryableResponsesRateLimit(error)) throw error;
+      const delay = responsesRateLimitDelayMs(
+        retry + 1,
+        error instanceof ResponsesHttpError ? error.retryAfterMs : undefined,
+      );
+      opts?.onRetryStatus?.(
+        `모델 요청 한도 초과 — ${Math.round(delay / 1000)}초 뒤 같은 요청 재시도 (${retry + 1}/${limit})…`,
+      );
+      await abortableSleep(delay, opts?.signal);
+    }
   }
 }
 
@@ -537,9 +620,12 @@ function safeErrorFields(doc: ResponsesDocument, response?: Response) {
   return providerErrorDiagnostics(doc, response);
 }
 
-function assertCompleted(doc: ResponsesDocument): void {
+function assertCompleted(doc: ResponsesDocument, sawOutput = false): void {
   if (doc.error || (doc.status && doc.status !== 'completed')) {
-    throw new Error(`RESPONSES_FAILED: status=${safeIdentifier(doc.status) ?? 'error'} ${JSON.stringify(safeErrorFields(doc))}`);
+    throw new ResponsesFailedError(
+      `RESPONSES_FAILED: status=${safeIdentifier(doc.status) ?? 'error'} ${JSON.stringify(safeErrorFields(doc))}`,
+      sawOutput || Boolean(doc.output?.length),
+    );
   }
 }
 
@@ -549,10 +635,18 @@ async function readDocument(response: Response): Promise<ResponsesDocument> {
   try {
     doc = JSON.parse(text) as ResponsesDocument;
   } catch {
-    throw new ResponsesHttpError(response.status, `RESPONSES_INVALID_JSON: HTTP ${response.status}; non-JSON/empty body omitted`);
+    throw new ResponsesHttpError(
+      response.status,
+      `RESPONSES_INVALID_JSON: HTTP ${response.status}; non-JSON/empty body omitted`,
+      parseRetryAfterMs(response),
+    );
   }
   if (!response.ok) {
-    throw new ResponsesHttpError(response.status, `RESPONSES_HTTP_${response.status}: Provider returned error ${JSON.stringify(safeErrorFields(doc, response))}`);
+    throw new ResponsesHttpError(
+      response.status,
+      `RESPONSES_HTTP_${response.status}: Provider returned error ${JSON.stringify(safeErrorFields(doc, response))}`,
+      parseRetryAfterMs(response),
+    );
   }
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('RESPONSES_INVALID_DOCUMENT');
   assertCompleted(doc);
@@ -646,7 +740,8 @@ function applyStreamEvent(raw: string, acc: StreamAccumulator, handlers?: ToolSt
     if (acc.completed?.model) acc.model = acc.completed.model;
   } else if (type === 'response.failed' || type === 'response.incomplete' || type === 'error') {
     const doc = (event.response ?? event) as ResponsesDocument;
-    throw new Error(`RESPONSES_FAILED: event=${type} ${JSON.stringify(safeErrorFields(doc))}`);
+    const sawOutput = Boolean(acc.content || acc.thought || acc.fallbackThought || acc.calls.size || acc.mediaItems.length);
+    throw new ResponsesFailedError(`RESPONSES_FAILED: event=${type} ${JSON.stringify(safeErrorFields(doc))}`, sawOutput);
   }
 }
 
@@ -699,7 +794,7 @@ async function responsesStreamAt(
     if (data && data !== '[DONE]') applyStreamEvent(data, acc, handlers);
   }
   if (!acc.completed) throw new Error('RESPONSES_INCOMPLETE_STREAM: missing response.completed');
-  assertCompleted(acc.completed);
+  assertCompleted(acc.completed, Boolean(acc.content || acc.thought || acc.calls.size || acc.mediaItems.length));
   const completedCalls = outputToolCalls(acc.completed);
   if (acc.calls.size && !completedCalls.length) {
     throw new Error('RESPONSES_INCONSISTENT_STREAM: terminal response missing streamed tool calls');
@@ -751,7 +846,7 @@ export async function responsesCompletionStream(
   onToken: (text: string) => void,
   opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  const result = await guardedResponses(opts, () => responsesStreamAt(
+  const result = await guardedResponses(opts, () => withRateLimitRetry(opts, () => responsesStreamAt(
     responseBase(baseUrl),
     apiKey,
     model,
@@ -759,7 +854,7 @@ export async function responsesCompletionStream(
     undefined,
     { onContent: onToken, onThought: opts?.onThought },
     opts,
-  ));
+  )));
   return {
     content: result.content ?? '',
     model: result.model,
@@ -818,12 +913,15 @@ async function guardedResponses<T>(opts: ChatCompletionOptions | undefined, oper
 export async function responsesCompletionAt(
   baseUrl: string, apiKey: string, model: string, messages: ChatMessage[], opts?: ChatCompletionOptions,
 ): Promise<CompletionResult> {
-  return guardedResponses(opts, () => completionAtImpl(baseUrl, apiKey, model, messages, opts));
+  return guardedResponses(opts, () => withRateLimitRetry(opts, () => completionAtImpl(baseUrl, apiKey, model, messages, opts)));
 }
 
 export async function responsesCompletionWithTools(
   baseUrl: string, apiKey: string, model: string, messages: ChatMessage[], tools: unknown[],
   opts?: ChatCompletionOptions, handlers: ToolStreamHandlers = {},
 ): Promise<ToolCompletionResult> {
-  return guardedResponses(opts, () => completionWithToolsImpl(baseUrl, apiKey, model, messages, tools, opts, handlers));
+  return guardedResponses(
+    opts,
+    () => withRateLimitRetry(opts, () => completionWithToolsImpl(baseUrl, apiKey, model, messages, tools, opts, handlers)),
+  );
 }

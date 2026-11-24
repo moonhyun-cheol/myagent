@@ -15,6 +15,11 @@ process.env.MY_AGENT_LLM_USAGE_LOG_DIR = path.join(temp, 'usage');
 // Usage rows are not inspected here; JSONL keeps no open DB handle in the temp dir (cleanup on Windows).
 const oldUsageStore = process.env.MY_AGENT_LLM_USAGE_STORE;
 process.env.MY_AGENT_LLM_USAGE_STORE = 'jsonl';
+const oldRateBase = process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS;
+const oldRateRetries = process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES;
+// Rate-limit retry waits shrink to milliseconds so the fixture stays fast.
+process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS = '5';
+delete process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES;
 process.env.MY_AGENT_LLM_LOG = 'full'; // Even full must not expose Responses content.
 process.env.MY_AGENT_LLM_LOG_DIR = path.join(temp, 'logs');
 let server;
@@ -39,13 +44,25 @@ try {
     output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }],
     usage: { input_tokens: 10, output_tokens: 2 },
   });
-  const resetReply = () => { status = 200; frames = undefined; raw = undefined; doc = ok(); };
+  // Optional per-request script: each entry { status, frames?, doc?, headers? } is used once, in order.
+  let script = [];
+  const resetReply = () => { status = 200; frames = undefined; raw = undefined; doc = ok(); script = []; };
   resetReply();
   server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const serialized = Buffer.concat(chunks).toString();
     received.push({ path: req.url, body: JSON.parse(serialized), bytes: Buffer.byteLength(serialized) });
+    const step = script.shift();
+    if (step) {
+      res.writeHead(step.status ?? 200, {
+        'content-type': step.frames ? 'text/event-stream' : 'application/json',
+        'x-request-id': 'req_safe_123',
+        ...(step.headers ?? {}),
+      });
+      res.end(step.frames ?? JSON.stringify(step.doc ?? ok()));
+      return;
+    }
     res.writeHead(status, { 'content-type': frames ? 'text/event-stream' : 'application/json', 'x-request-id': 'req_safe_123' });
     res.end(frames ?? raw ?? JSON.stringify(doc));
   });
@@ -228,6 +245,90 @@ try {
     await assert.rejects(r.responsesCompletionWithTools(base, key, 'model', initial, [], { responsesState: s }, { onContent: () => {} }), /RESPONSES_(FAILED|INCOMPLETE_STREAM)/);
     assert.equal(s.previous_response_id, undefined);
   });
+  const rateFailed = { type: 'response.failed', response: { status: 'failed', error: { code: 'rate_limit_exceeded' } } };
+  await test('rate limit: retry delay schedule is 30s/60s/120s, honours Retry-After, capped', async () => {
+    const env = {};
+    assert.equal(r.responsesRateLimitDelayMs(1, undefined, env), 30_000);
+    assert.equal(r.responsesRateLimitDelayMs(2, undefined, env), 60_000);
+    assert.equal(r.responsesRateLimitDelayMs(3, undefined, env), 120_000);
+    assert.equal(r.responsesRateLimitDelayMs(1, 90_000, env), 90_000);
+    assert.equal(r.responsesRateLimitDelayMs(5, 999_000, env), 300_000);
+    assert.equal(r.responsesRateLimitRetryLimit(env), 3);
+    assert.equal(r.responsesRateLimitRetryLimit({ MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES: '0' }), 0);
+    assert.equal(r.responsesRateLimitRetryLimit({ MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES: '99' }), 5);
+  });
+  await test('SSE response.failed rate_limit before any output: same request resent, then succeeds', async () => {
+    const s = state('provider_state');
+    const before = received.length;
+    const statuses = [];
+    script = [
+      { frames: sse([rateFailed]) },
+      { frames: sse([rateFailed]) },
+      { frames: sse([{ type: 'response.output_text.delta', delta: 'answer' }, { type: 'response.completed', response: ok() }]) },
+    ];
+    const deltas = [];
+    const answer = await r.responsesCompletionWithTools(base, key, 'model', initial, [], {
+      responsesState: s, onRetryStatus: t => statuses.push(t),
+    }, { onContent: d => deltas.push(d) });
+    assert.equal(answer.content, 'answer');
+    assert.deepEqual(deltas, ['answer']);
+    assert.equal(received.length - before, 3);
+    assert.deepEqual(received.at(-1).body, received.at(-3).body);
+    assert.equal(statuses.length, 2);
+    assert.match(statuses[0], /요청 한도 초과.*\(1\/3\)/);
+    assert.ok(s.previous_response_id, 'success after retry advances state');
+  });
+  await test('HTTP 429 (non-stream) is retried and Retry-After is parsed', async () => {
+    const before = received.length;
+    script = [{ status: 429, headers: { 'retry-after': '0' }, doc: { error: { code: 'rate_limit_exceeded' } } }];
+    const answer = await invoke(state('provider_state'));
+    assert.equal(answer.content, 'answer');
+    assert.equal(received.length - before, 2);
+  });
+  await test('rate_limit after streamed output is NOT retried (no duplicate output)', async () => {
+    const before = received.length;
+    script = [{ frames: sse([{ type: 'response.output_text.delta', delta: 'partial' }, rateFailed]) }];
+    await assert.rejects(
+      r.responsesCompletionWithTools(base, key, 'model', initial, [], {}, { onContent: () => {} }),
+      /RESPONSES_FAILED.*rate_limit/,
+    );
+    assert.equal(received.length - before, 1);
+  });
+  await test('rate limit retries exhausted: original error surfaces and chain is invalidated', async () => {
+    process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES = '2';
+    try {
+      const s = await seed('provider_state');
+      const before = received.length;
+      script = [1, 2, 3].map(() => ({ frames: sse([rateFailed]) }));
+      await assert.rejects(
+        r.responsesCompletionWithTools(base, key, 'model', follow, [], { responsesState: s }, { onContent: () => {} }),
+        /RESPONSES_FAILED: event=response\.failed.*rate_limit_exceeded/,
+      );
+      assert.equal(received.length - before, 3);
+      assert.equal(s.previous_response_id, undefined);
+    } finally {
+      delete process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES;
+    }
+  });
+  await test('abort while waiting for rate-limit retry stops immediately', async () => {
+    process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS = '60000';
+    try {
+      const before = received.length;
+      const controller = new AbortController();
+      script = [{ frames: sse([rateFailed]) }];
+      const t0 = Date.now();
+      await assert.rejects(
+        r.responsesCompletionWithTools(base, key, 'model', initial, [], {
+          signal: controller.signal, onRetryStatus: () => setTimeout(() => controller.abort(), 10),
+        }, { onContent: () => {} }),
+        error => error.name === 'AbortError',
+      );
+      assert.ok(Date.now() - t0 < 5_000);
+      assert.equal(received.length - before, 1);
+    } finally {
+      process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS = '5';
+    }
+  });
   await test('SSE completed output supports normal continuation', async () => {
     const s = state('provider_state');
     frames = sse([{ type: 'response.output_text.delta', delta: 'answer' }, { type: 'response.completed', response: doc }]);
@@ -312,5 +413,7 @@ try {
   if (oldDir === undefined) delete process.env.MY_AGENT_LLM_LOG_DIR; else process.env.MY_AGENT_LLM_LOG_DIR = oldDir;
   if (oldUsageDir === undefined) delete process.env.MY_AGENT_LLM_USAGE_LOG_DIR; else process.env.MY_AGENT_LLM_USAGE_LOG_DIR = oldUsageDir;
   if (oldUsageStore === undefined) delete process.env.MY_AGENT_LLM_USAGE_STORE; else process.env.MY_AGENT_LLM_USAGE_STORE = oldUsageStore;
+  if (oldRateBase === undefined) delete process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS; else process.env.MY_AGENT_RESPONSES_RATE_LIMIT_BASE_MS = oldRateBase;
+  if (oldRateRetries === undefined) delete process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES; else process.env.MY_AGENT_RESPONSES_RATE_LIMIT_RETRIES = oldRateRetries;
   rmSync(temp, { recursive: true, force: true });
 }

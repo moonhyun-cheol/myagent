@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "responses-rate-limit-auto-retry",
+      "status": "development",
+      "title": "모델 요청 한도 초과 시 같은 요청 자동 재시도",
+      "detail": "모델 제공자가 요청 한도 초과로 응답하면 작업을 바로 중단하지 않고, 기다렸다가 같은 요청을 최대 3번 다시 보냅니다. 대기 시간은 30초·60초·120초 순서이고 제공자가 알려 준 대기 시간이 더 길면 그 값을 따르며 최대 5분입니다. 기다리는 동안 진행 상태에 남은 시간과 재시도 횟수가 표시되고, 정지를 누르면 바로 멈춥니다. 답변이나 도구 호출이 이미 나오기 시작한 뒤의 실패는 중복을 막기 위해 재시도하지 않습니다.",
+      "area": "agent",
+      "created_at": "2026-11-24",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/providers/responses-compatible.ts", "core/src/providers/openai-compatible.ts", "core/src/agent/agent-llm-step.ts"]
+    },
+    {
       "id": "ssh-remote-log-and-windows-server",
       "status": "development",
       "title": "작업 로그의 원격 서버 명령 구분 표시와 Windows 서버 지원",

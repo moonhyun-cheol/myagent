@@ -65,6 +65,7 @@ function llmExtras(opts: CodeAgentOptions, modelId?: string) {
     onResponsesState: opts.onResponsesState,
     ...harness,
     ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
+    ...(opts.onStatus ? { onRetryStatus: opts.onStatus } : {}),
     // One model round may return several independent reads; the host executes
     // only its strict read-only allowlist concurrently.
     parallelToolCalls: true,

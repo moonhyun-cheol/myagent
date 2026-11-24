@@ -122,6 +122,8 @@ export interface ChatCompletionOptions {
   promptCacheSessionId?: string;
   /** Produced locally after deterministic prefix compilation. */
   promptContext?: PromptContextMetadata;
+  /** User-visible status while a transport waits to resend after a provider rate limit. */
+  onRetryStatus?: (text: string) => void;
 }
 
 export function normalizeCompletionUsage(raw: unknown): CompletionUsage | undefined {
