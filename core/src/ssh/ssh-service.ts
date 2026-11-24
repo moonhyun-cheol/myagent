@@ -7,6 +7,8 @@
  *   DPAPI-encrypted copy stored (ssh-secret-store); the plain value is never written to disk.
  * - `ssh2` is loaded on first use, so a PC whose node_modules predates this feature still
  *   starts the core and gets SSH_RUNTIME_MISSING instead of a crash.
+ * - Managed connections (signed Organization Feature) arrive with a pinned fingerprint, so
+ *   they need no 「이 지문 신뢰」; a different host key is refused like any trusted server.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -16,7 +18,7 @@ import { SECRET_MATERIAL_RE } from '../agent/agent-hooks.js';
 import {
   describeSshTarget,
   findSshServer,
-  loadSshServers,
+  listSshProfiles,
   trustSshServer,
   type SshServerProfile,
   type SshShell,
@@ -61,6 +63,11 @@ export interface SshExecRequest {
   timeoutMs?: number;
   signal?: AbortSignal;
   onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /**
+   * Internal callers only (fixed dataset export): keep up to this many output bytes from the
+   * start instead of the 16KB head + 48KB tail window; more output sets `truncated`.
+   */
+  captureLimitBytes?: number;
 }
 
 /** In-process copy. Cleared on restart, key-file change, or server removal. */
@@ -150,6 +157,9 @@ export function clampSshTimeout(timeoutMs: unknown): number {
 }
 
 function readKeyFile(server: SshServerProfile): Buffer {
+  if (!server.keyPath) {
+    throw new SshError('SSH_KEY_NOT_FOUND', `No key file is selected for ${server.label}.`);
+  }
   if (!existsSync(server.keyPath)) {
     throw new SshError('SSH_KEY_NOT_FOUND', `Key file not found: ${server.keyPath}`);
   }
@@ -242,17 +252,31 @@ async function keyStateOf(cqrRoot: string, server: SshServerProfile): Promise<Ss
   return looksEncrypted(problem) ? 'locked' : 'invalid';
 }
 
+/** Password auth, or a key file that does not open without a passphrase. */
+async function secretRequired(server: SshServerProfile): Promise<boolean> {
+  if (server.auth === 'password') return true;
+  try {
+    const lib = await loadSsh2();
+    const problem = keyParseProblem(lib, readKeyFile(server));
+    return Boolean(problem && looksEncrypted(problem));
+  } catch {
+    return false;
+  }
+}
+
 export interface SshServerView extends SshServerProfile {
   trusted: boolean;
   keyState: SshKeyState;
   /** An encrypted copy of the key passphrase is stored on this PC. */
   remembered: boolean;
   rememberState: 'none' | 'stored' | 'unreadable';
+  /** A password or key passphrase is needed to unlock (false for a key without passphrase). */
+  needsSecret: boolean;
 }
 
 /** Settings view: every stored field plus trust and key state. Never a secret. */
 export async function listSshServerViews(cqrRoot: string): Promise<SshServerView[]> {
-  const { servers } = loadSshServers(cqrRoot);
+  const servers = listSshProfiles(cqrRoot);
   return Promise.all(servers.map(async (server) => {
     // Key state first: it drops a remembered passphrase that no longer opens the key.
     const keyState = await keyStateOf(cqrRoot, server);
@@ -263,6 +287,7 @@ export async function listSshServerViews(cqrRoot: string): Promise<SshServerView
       keyState,
       remembered,
       rememberState: !remembered ? 'none' : recallFailed.has(server.id) ? 'unreadable' : 'stored',
+      needsSecret: await secretRequired(server),
     };
   }));
 }
@@ -279,12 +304,13 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
   trusted: boolean;
   unlocked: boolean;
   keyState: SshKeyState;
+  managed?: boolean;
 }>> {
   const views = await listSshServerViews(cqrRoot);
   return views.map((server) => ({
     id: server.id,
     label: server.label,
-    target: `${server.username}@${server.host}:${server.port}`,
+    target: `${server.username || '?'}@${server.host}:${server.port}`,
     ...(server.defaultCwd ? { defaultCwd: server.defaultCwd } : {}),
     auth: server.auth ?? 'key',
     shell: server.shell ?? 'posix',
@@ -292,6 +318,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
     trusted: server.trusted,
     unlocked: server.keyState === 'ready',
     keyState: server.keyState,
+    ...(server.managed ? { managed: true } : {}),
   }));
 }
 
@@ -400,7 +427,8 @@ export async function probeSshFingerprint(
       client.connect({
         host: server.host,
         port: server.port,
-        username: server.username,
+        // The verifier aborts during key exchange, before any user name is sent.
+        username: server.username || 'probe',
         sock: tunnel?.sock,
         readyTimeout: CONNECT_TIMEOUT_MS,
         hostVerifier: (key: Buffer) => {
@@ -489,6 +517,7 @@ function connectTrusted(
 
 async function credentials(root: string, lib: Ssh2Module, server: SshServerProfile, password?: string): Promise<ConnectConfig> {
   if (!server.hostKeySha256) throw new SshError('SSH_HOST_NOT_TRUSTED', `${server.label}: 서버 지문을 먼저 신뢰하세요.`);
+  if (!server.username) throw new SshError('SSH_ACCOUNT_REQUIRED', `${server.label}: 설정에서 계정을 먼저 입력하세요.`);
   if (server.auth === 'password') {
     password ??= await usablePassphrase(root, lib, server);
     if (!password) throw new SshError('SSH_KEY_LOCKED', '설정에서 비밀번호로 잠금을 해제하세요.');
@@ -593,6 +622,9 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
       type Piece = { stream: 'stdout' | 'stderr'; data: Buffer };
       const head: Piece[] = [], tail: Piece[] = [];
       let headBytes = 0, tailBytes = 0, truncated = false;
+      const capture = Number.isSafeInteger(req.captureLimitBytes) && (req.captureLimitBytes ?? 0) > 0 ? req.captureLimitBytes! : 0;
+      const headLimit = capture || 16384;
+      const tailLimit = capture ? 0 : 49152;
       const render = (stream: Piece['stream']) => {
         const decoder = () => createSshOutputDecoder(shell, server.encoding);
         const decode = (parts: Piece[]) => { const d = decoder(); return parts.filter(p => p.stream === stream).map(p => d.write(p.data)).join('') + d.end(); };
@@ -638,13 +670,13 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
 
       const take = (stream: 'stdout' | 'stderr', data: Buffer) => {
         if (settled) return;
-        const n = Math.min(data.length, 16384 - headBytes);
+        const n = Math.min(data.length, headLimit - headBytes);
         if (n) { head.push({ stream, data: Buffer.from(data.subarray(0,n)) }); headBytes += n; }
         if (n < data.length) {
           tail.push({ stream, data: Buffer.from(data.subarray(n)) }); tailBytes += data.length - n;
-          while (tailBytes > 49152) {
+          while (tailBytes > tailLimit) {
             truncated = true;
-            const first = tail[0]!, drop = Math.min(first.data.length, tailBytes - 49152);
+            const first = tail[0]!, drop = Math.min(first.data.length, tailBytes - tailLimit);
             if (drop === first.data.length) tail.shift(); else first.data = Buffer.from(first.data.subarray(drop));
             tailBytes -= drop;
           }

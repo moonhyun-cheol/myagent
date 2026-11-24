@@ -115,6 +115,7 @@ import type { SchedulerTaskInput } from '../scheduler/types.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import type { MemoryScope } from '../memory/user-memory-store.js';
 import { execSshCommand, listSshServerSummaries, SshError } from '../ssh/ssh-service.js';
+import { runDatasetQueryTool } from '../datasets/dataset-source.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
   const base = [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS].map((t) => t.function.name);
@@ -1314,6 +1315,11 @@ async function executeAgentToolInner(
           if (error instanceof SshError) return { label, output: `ERROR: ${error.code} — ${error.message}` };
           throw error;
         }
+      }
+      case 'dataset_query': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        // Read-only: deployed definitions + shared-folder snapshot; no path, network or SSH.
+        return runDatasetQueryTool(ctx.cqrRoot, args);
       }
       case 'save_web_asset': {
         const cqrRoot = ctx?.cqrRoot;

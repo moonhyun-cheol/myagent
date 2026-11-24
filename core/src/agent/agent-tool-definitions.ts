@@ -1053,6 +1053,34 @@ export const CODE_AGENT_TOOLS: AgentToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'dataset_query',
+      description:
+        'Read a team dataset the organization deployed (for example 판매 데이터) from its read-only shared-folder snapshot. Call without dataset_id to list datasets with status, 기준 시각 (as-of time) and columns. With dataset_id, core applies the filters and returns a ready markdown table plus as_of; show both to the user as-is. You choose only the dataset and filters: no SQL, no file path, no SSH. No approval is needed. Status no_access (권한 없음), missing, unreachable or stale (갱신 지연) is reported in the result.',
+      parameters: {
+        type: 'object',
+        properties: {
+          dataset_id: { type: 'string', description: 'Dataset id from the list call; omit to list datasets' },
+          filters: {
+            type: 'array',
+            description: 'Row filters, all must match. Columns come from the list call.',
+            items: {
+              type: 'object',
+              properties: {
+                column: { type: 'string', description: 'Column name' },
+                op: { type: 'string', enum: ['eq', 'ne', 'contains', 'gt', 'gte', 'lt', 'lte', 'in'] },
+                value: { type: 'string', description: 'Value to compare; for in, comma-separated values. Dates as YYYY-MM-DD.' },
+              },
+              required: ['column', 'op', 'value'],
+            },
+          },
+          limit: { type: 'number', description: 'Max rows in the table (default 50, max 200)' },
+        },
+      },
+    },
+  },
 ];
 
 export const BROWSER_AGENT_TOOLS: AgentToolDefinition[] = [

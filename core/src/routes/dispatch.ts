@@ -30,7 +30,13 @@ import {
   type UserMcpServerConfig,
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
-import { saveSshServers, SshProfileError, SSH_SERVERS_REL_PATH } from '../ssh/ssh-profile-store.js';
+import {
+  listSshKeyCandidates,
+  saveManagedSshAccount,
+  saveSshServers,
+  SshProfileError,
+  SSH_SERVERS_REL_PATH,
+} from '../ssh/ssh-profile-store.js';
 import {
   forgetSshKey,
   retrySshRecall,
@@ -41,6 +47,13 @@ import {
   trustProbedSshFingerprint,
   unlockSshKey,
 } from '../ssh/ssh-service.js';
+import { DatasetError, saveDataConnectionSettings } from '../datasets/dataset-catalog.js';
+import {
+  dataConnectionOverview,
+  registerDatasetExport,
+  removeDatasetExport,
+  runDatasetExport,
+} from '../datasets/dataset-export.js';
 import {
   applyUiStatePatch,
   loadUiState,
@@ -225,6 +238,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/agent-plugins',
     '/mcp',
     '/ssh',
+    '/datasets',
     '/generate',
     '/outputs',
     '/admin',
@@ -1442,18 +1456,32 @@ export async function dispatchApiRequest(
         });
       }
 
+      // File names and paths of private keys in ~/.ssh; the key body is never read out.
+      if (method === 'GET' && url.pathname === '/ssh/key-candidates') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { ok: true, ...listSshKeyCandidates() });
+      }
+
       if (url.pathname.startsWith('/ssh/servers') && (method === 'PUT' || method === 'POST')) {
         if (url.pathname === '/ssh/servers' ? method !== 'PUT' : method !== 'POST') {
           return sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED', message: 'unsupported method' });
         }
         const action = url.pathname.slice('/ssh/servers'.length);
-        if (!['', '/test', '/trust', '/unlock', '/forget', '/lock', '/retry-recall'].includes(action)) {
+        if (!['', '/test', '/trust', '/unlock', '/forget', '/lock', '/retry-recall', '/account'].includes(action)) {
           return sendJson(res, 404, { error: 'NOT_FOUND', message: 'unknown ssh route' });
         }
         // The connection test only reads the host key; everything else changes state.
         if (action !== '/test') license.assertWritable();
         license.assertFeature('chat');
-        let body: { servers?: unknown; id?: unknown; fingerprint?: unknown; passphrase?: unknown; remember?: unknown };
+        let body: {
+          servers?: unknown;
+          id?: unknown;
+          fingerprint?: unknown;
+          passphrase?: unknown;
+          remember?: unknown;
+          username?: unknown;
+          keyPath?: unknown;
+        };
         try {
           body = JSON.parse(await readBody(req)) as typeof body;
         } catch {
@@ -1481,6 +1509,12 @@ export async function dispatchApiRequest(
             trustProbedSshFingerprint(cqrRoot, id, String(body.fingerprint ?? ''));
             return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
           }
+          // Managed connection: this PC's own account. A new account drops the old secret.
+          if (action === '/account') {
+            const saved = saveManagedSshAccount(cqrRoot, id, { username: body.username, keyPath: body.keyPath });
+            if (saved.changed) lockSshKey(cqrRoot, id);
+            return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
+          }
           if (action === '/lock' || action === '/retry-recall' || action === '/forget') {
             if (action === '/lock') lockSshKey(cqrRoot, id);
             else if (action === '/retry-recall') await retrySshRecall(cqrRoot, id);
@@ -1491,6 +1525,57 @@ export async function dispatchApiRequest(
           return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
         } catch (error) {
           if (error instanceof SshError || error instanceof SshProfileError) {
+            return sendJson(res, 400, { ok: false, error: error.code, message: error.message });
+          }
+          throw error;
+        }
+      }
+
+      // --- Team datasets: deployed definitions (no secret), v1 shared-folder snapshots, and the
+      //     operator PC's fixed export (hash-pinned command over the existing SSH service) ---
+      if (method === 'GET' && url.pathname === '/datasets') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, { ok: true, ...(await dataConnectionOverview(cqrRoot)) });
+      }
+
+      if (method === 'PUT' && url.pathname === '/datasets/operator-mode') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        let body: { enabled?: unknown };
+        try {
+          body = JSON.parse(await readBody(req)) as typeof body;
+        } catch {
+          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
+        }
+        saveDataConnectionSettings(cqrRoot, { operatorMode: body.enabled === true });
+        return sendJson(res, 200, { ok: true, ...(await dataConnectionOverview(cqrRoot)) });
+      }
+
+      if (method === 'POST' && url.pathname.startsWith('/datasets/export/')) {
+        const action = url.pathname.slice('/datasets/export/'.length);
+        if (!['register', 'remove', 'run'].includes(action)) {
+          return sendJson(res, 404, { error: 'NOT_FOUND', message: 'unknown dataset export route' });
+        }
+        license.assertWritable();
+        license.assertFeature('chat');
+        let body: { datasetId?: unknown; serverId?: unknown; command?: unknown };
+        try {
+          body = JSON.parse(await readBody(req)) as typeof body;
+        } catch {
+          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
+        }
+        try {
+          if (action === 'register') {
+            registerDatasetExport(cqrRoot, body);
+          } else if (action === 'remove') {
+            removeDatasetExport(cqrRoot, body.datasetId);
+          } else {
+            const run = await runDatasetExport(cqrRoot, body.datasetId);
+            return sendJson(res, 200, { ok: true, run, ...(await dataConnectionOverview(cqrRoot)) });
+          }
+          return sendJson(res, 200, { ok: true, ...(await dataConnectionOverview(cqrRoot)) });
+        } catch (error) {
+          if (error instanceof DatasetError || error instanceof SshProfileError || error instanceof SshError) {
             return sendJson(res, 400, { ok: false, error: error.code, message: error.message });
           }
           throw error;

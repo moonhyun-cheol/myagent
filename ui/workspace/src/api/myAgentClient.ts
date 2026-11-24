@@ -2623,6 +2623,12 @@ export interface SshServerItem {
   /** An encrypted copy of the key passphrase is stored on this PC. */
   remembered?: boolean;
   rememberState?: 'none' | 'stored' | 'unreadable';
+  /** A password or key passphrase is needed to unlock (false for a key without passphrase). */
+  needsSecret?: boolean;
+  /** Deployed by the organization: address, server kind and fingerprint are read-only. */
+  managed?: boolean;
+  /** Name of the organization feature that deployed a managed connection. */
+  managedBy?: string;
 }
 
 type SshApiBody = {
@@ -2657,7 +2663,8 @@ export async function listSshServers(): Promise<SshServerItem[]> {
 
 /** Trust and key state are decided by the server; only the editable fields are sent. */
 export async function saveSshServers(servers: SshServerItem[]): Promise<SshServerItem[]> {
-  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd, encoding, auth, jumpServerId, shell }) => ({
+  // Managed connections are not this PC's servers; their account goes through saveManagedSshAccount.
+  const payload = servers.filter((server) => !server.managed).map(({ id, label, host, port, username, keyPath, defaultCwd, encoding, auth, jumpServerId, shell }) => ({
     id, label, host, port, username, keyPath, defaultCwd, encoding, auth, jumpServerId, shell,
   }));
   return sshServerList(await sshRequest('/ssh/servers', 'PUT', { servers: payload }));
@@ -2691,6 +2698,118 @@ export async function retrySshRecall(id: string) {
 /** Deletes the remembered (encrypted) passphrase of this server. */
 export async function forgetSshServer(id: string): Promise<SshServerItem[]> {
   return sshServerList(await sshRequest('/ssh/servers/forget', 'POST', { id }));
+}
+
+/** Managed connection: this PC's own account (and key file for key auth). Not a secret. */
+export async function saveManagedSshAccount(id: string, username: string, keyPath?: string): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers/account', 'POST', { id, username, keyPath }));
+}
+
+export interface SshKeyCandidate {
+  name: string;
+  path: string;
+}
+
+/** Private key files in ~/.ssh by name and path. The key body is never sent. */
+export async function listSshKeyCandidates(): Promise<{ dir: string; candidates: SshKeyCandidate[] }> {
+  const data = (await sshRequest('/ssh/key-candidates', 'GET')) as SshApiBody & { dir?: unknown; candidates?: unknown };
+  return {
+    dir: typeof data.dir === 'string' ? data.dir : '',
+    candidates: Array.isArray(data.candidates) ? (data.candidates as SshKeyCandidate[]) : [],
+  };
+}
+
+/** Team datasets (deployed by the organization) and this PC's operator export. */
+export type DatasetStatus = 'ready' | 'stale' | 'no_access' | 'missing' | 'unreachable' | 'invalid' | 'unsupported';
+
+export interface DatasetExportRun {
+  at: string;
+  ok: boolean;
+  rows?: number;
+  code?: string;
+  message: string;
+}
+
+export interface DataConnectionItem {
+  id: string;
+  label: string;
+  description?: string;
+  featureLabel?: string;
+  sourceKind: string;
+  status: DatasetStatus;
+  statusLabel: string;
+  message: string;
+  asOf?: string;
+  asOfDisplay?: string;
+  rowCount?: number;
+  staleAfterHours: number;
+  export?: {
+    intervalHours: number;
+    serverId?: string;
+    registration?: {
+      serverId: string;
+      registeredAt: string;
+      commandMatches: boolean;
+      lastRun?: DatasetExportRun;
+      lastSuccessAt?: string;
+    };
+  };
+}
+
+export interface DataConnectionOverview {
+  operatorMode: boolean;
+  /** This PC's own SSH servers (managed connections are not counted). */
+  sshServerCount: number;
+  datasets: DataConnectionItem[];
+}
+
+async function datasetRequest(
+  path: string,
+  method: 'GET' | 'PUT' | 'POST',
+  body?: unknown,
+): Promise<DataConnectionOverview & { run?: DatasetExportRun }> {
+  const res = await fetch(path, {
+    method,
+    cache: 'no-store',
+    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Partial<DataConnectionOverview> & {
+    run?: DatasetExportRun;
+    message?: string;
+    error?: string;
+  };
+  if (!res.ok) {
+    const code = data.error || `HTTP_${res.status}`;
+    throw new Error(data.message ? `${code} · ${data.message}` : code);
+  }
+  return {
+    operatorMode: data.operatorMode === true,
+    sshServerCount: typeof data.sshServerCount === 'number' ? data.sshServerCount : 0,
+    datasets: Array.isArray(data.datasets) ? data.datasets : [],
+    ...(data.run ? { run: data.run } : {}),
+  };
+}
+
+export async function getDataConnections(): Promise<DataConnectionOverview> {
+  return datasetRequest('/datasets', 'GET');
+}
+
+/** Shows or hides the operator screens (SSH servers, export registration) on this PC. */
+export async function setDataOperatorMode(enabled: boolean): Promise<DataConnectionOverview> {
+  return datasetRequest('/datasets/operator-mode', 'PUT', { enabled });
+}
+
+/** The core accepts the command only when its hash equals the deployed one. */
+export async function registerDatasetExport(datasetId: string, serverId: string, command: string): Promise<DataConnectionOverview> {
+  return datasetRequest('/datasets/export/register', 'POST', { datasetId, serverId, command });
+}
+
+export async function removeDatasetExport(datasetId: string): Promise<DataConnectionOverview> {
+  return datasetRequest('/datasets/export/remove', 'POST', { datasetId });
+}
+
+export async function runDatasetExport(datasetId: string): Promise<DataConnectionOverview & { run?: DatasetExportRun }> {
+  return datasetRequest('/datasets/export/run', 'POST', { datasetId });
 }
 
 /** User MCP servers (remote Streamable HTTP — data/config/user-mcp-servers.json). */

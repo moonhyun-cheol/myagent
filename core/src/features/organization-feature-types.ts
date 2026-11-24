@@ -15,6 +15,10 @@ export interface OrganizationFeatureEntrypoints {
   automaton_tools_manifest?: string;
   openclaw_workflow_map?: string;
   adapter_connection?: string;
+  /** Managed SSH connections: name, address, port, server kind, encoding, pinned fingerprint. Never a secret. */
+  managed_ssh_connections?: string;
+  /** Team datasets: source kind, columns, fixed export command hash. Never a secret. */
+  datasets?: string;
 }
 
 export interface OrganizationFeatureJson {

@@ -190,6 +190,100 @@ function readFeatureJson(featureRoot: string): OrganizationFeatureJson {
 
 const STATIC_TOKEN_RE = /(bearer\s+[a-z0-9._-]{20,}|api[_-]?key\s*[:=]\s*['"][^'"]{16,}|authorization['"]?\s*:\s*['"]bearer\s+)/i;
 
+/**
+ * Declarative connection documents. They describe where data lives and which fixed
+ * command produces it; a credential inside them would reach every employee PC.
+ */
+const SECRET_FREE_ENTRYPOINTS = {
+  managed_ssh_connections: 'managed-ssh-connections.json',
+  datasets: 'datasets.json',
+} as const;
+export type SecretFreeFeatureEntrypoint = keyof typeof SECRET_FREE_ENTRYPOINTS;
+
+const SECRET_KEY_RE = /^(?:password|passwd|pwd|passphrase|private_?key|secret|client_?secret|token|access_?token|refresh_?token|api_?key|credentials?)$/i;
+
+/** JSON path of the first key that names a credential (`$.connections[0].password`), else null. */
+export function findSecretFieldPath(value: unknown, at = '$'): string | null {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      const hit = findSecretFieldPath(value[i], `${at}[${i}]`);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (SECRET_KEY_RE.test(key.replace(/-/g, '_'))) return `${at}.${key}`;
+      const hit = findSecretFieldPath(child, `${at}.${key}`);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function secretFreeEntrypointFile(
+  featureRoot: string,
+  featureJson: OrganizationFeatureJson,
+  key: SecretFreeFeatureEntrypoint,
+): string | null {
+  const declared = featureJson.entrypoints?.[key];
+  const relative = assertFeaturePayloadPath(declared?.trim() || SECRET_FREE_ENTRYPOINTS[key]);
+  const abs = path.join(featureRoot, ...relative.split('/'));
+  assertPathUnder(featureRoot, abs);
+  return existsSync(abs) ? abs : null;
+}
+
+function assertSecretFreeEntrypoints(featureRoot: string, featureJson: OrganizationFeatureJson): void {
+  for (const key of Object.keys(SECRET_FREE_ENTRYPOINTS) as SecretFreeFeatureEntrypoint[]) {
+    const file = secretFreeEntrypointFile(featureRoot, featureJson, key);
+    if (!file) continue;
+    let document: unknown;
+    try {
+      document = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      throw new OrganizationFeatureError('FEATURE_JSON', `${path.basename(file)} is not valid JSON.`);
+    }
+    const hit = findSecretFieldPath(document);
+    if (hit) {
+      throw new OrganizationFeatureError(
+        'FEATURE_SECRET_FIELD',
+        `계정 비밀번호·키 같은 비밀 값은 Feature Pack에 넣을 수 없습니다: ${path.basename(file)} ${hit}`,
+      );
+    }
+  }
+}
+
+export interface FeatureEntrypointDocument {
+  featureId: string;
+  featureLabel?: string;
+  document: unknown;
+}
+
+/**
+ * Managed SSH connections / datasets of every enabled feature. A document that names a
+ * credential is skipped even when it was edited on disk after the signed install.
+ */
+export function readEnabledFeatureEntrypointDocuments(
+  cqrRoot: string,
+  key: SecretFreeFeatureEntrypoint,
+): FeatureEntrypointDocument[] {
+  const out: FeatureEntrypointDocument[] = [];
+  for (const status of listOrganizationFeatures(cqrRoot)) {
+    if (!status.enabled || !status.root) continue;
+    try {
+      const featureJson = readFeatureJson(status.root);
+      const file = secretFreeEntrypointFile(status.root, featureJson, key);
+      if (!file) continue;
+      const document = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+      if (findSecretFieldPath(document)) continue;
+      out.push({ featureId: status.id, featureLabel: status.label ?? featureJson.label, document });
+    } catch {
+      /* unreadable pack: not offered */
+    }
+  }
+  return out;
+}
+
 function assertNoStaticLongLivedTokens(featureRoot: string): void {
   const stack = [featureRoot];
   while (stack.length) {
@@ -329,6 +423,7 @@ export function installOrganizationFeatureFromZip(
       throw new OrganizationFeatureError('FEATURE_SEQUENCE_MISMATCH', 'feature.json sequence does not match payload.');
     }
     assertNoStaticLongLivedTokens(stageRoot);
+    assertSecretFreeEntrypoints(stageRoot, featureJson);
 
     // Keep update-payload.json for audit (already verified).
     writeFileSync(path.join(stageRoot, 'update-payload.json'), payloadEntry.content);

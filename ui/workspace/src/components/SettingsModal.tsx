@@ -1,6 +1,7 @@
 import {
   ChartLine,
   ChatText,
+  Database,
   FolderSimple,
   GearSix,
   MagnifyingGlass,
@@ -13,9 +14,11 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { getDataConnections, type DataConnectionOverview } from '../api/myAgentClient';
 import { ModelManagementModal } from './ModelManagementModal';
 import { SettingsAgentPage } from './SettingsAgentPage';
 import { SettingsConversationPage } from './SettingsConversationPage';
+import { SettingsDataConnectionPage } from './SettingsDataConnectionPage';
 import { SettingsGeneralPage } from './SettingsGeneralPage';
 import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
@@ -28,6 +31,8 @@ interface SettingsSectionProps {
   readOnly: boolean;
   onWorkspaceChanged?: (root: string | null) => void;
   onSectionChange: (id: string) => void;
+  dataOverview: DataConnectionOverview | null;
+  onDataOverviewChange: (next: DataConnectionOverview) => void;
 }
 
 interface SettingsSectionDef {
@@ -95,6 +100,21 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     ),
   },
   {
+    id: 'data',
+    group: '데이터',
+    label: '데이터 연결',
+    icon: Database,
+    keywords: ['데이터', '데이터 연결', '판매', '판매 데이터', '기준 시각', 'dataset', '공유 폴더', '내보내기'],
+    render: ({ readOnly, dataOverview, onDataOverviewChange, onSectionChange }) => (
+      <SettingsDataConnectionPage
+        readOnly={readOnly}
+        overview={dataOverview}
+        onOverviewChange={onDataOverviewChange}
+        onOpenSsh={() => onSectionChange('ssh')}
+      />
+    ),
+  },
+  {
     id: 'skills',
     group: '확장',
     label: '스킬',
@@ -141,11 +161,29 @@ function matchesSection(definition: SettingsSectionDef, query: string): boolean 
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [activeSectionId, setActiveSectionId] = useState<string>('general');
   const [query, setQuery] = useState('');
+  const [dataOverview, setDataOverview] = useState<DataConnectionOverview | null>(null);
   const readOnly = false;
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void getDataConnections()
+      .then((next) => { if (!cancelled) setDataOverview(next); })
+      .catch(() => { if (!cancelled) setDataOverview({ operatorMode: false, sshServerCount: 0, datasets: [] }); });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Employees see the data connection card only. The SSH screen appears when the hidden
+  // operator setting is on, or when this PC already has its own SSH server registered.
+  const sshVisible = Boolean(dataOverview && (dataOverview.operatorMode || dataOverview.sshServerCount > 0));
+  const visibleSections = useMemo(
+    () => SETTINGS_SECTIONS.filter((section) => section.id !== 'ssh' || sshVisible),
+    [sshVisible],
+  );
+
   const filteredSections = useMemo(
-    () => SETTINGS_SECTIONS.filter((section) => matchesSection(section, query)),
-    [query],
+    () => visibleSections.filter((section) => matchesSection(section, query)),
+    [query, visibleSections],
   );
   const groupedSections = useMemo(() => {
     const groups: Array<{ group: string; sections: SettingsSectionDef[] }> = [];
@@ -184,10 +222,12 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
   if (!open) return null;
 
-  const activeSection = SETTINGS_SECTIONS.find((section) => section.id === activeSectionId) ?? SETTINGS_SECTIONS[0];
+  const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? visibleSections[0];
   const sectionProps: SettingsSectionProps = {
     readOnly,
     onSectionChange: setActiveSectionId,
+    dataOverview,
+    onDataOverviewChange: setDataOverview,
   };
 
   return (
