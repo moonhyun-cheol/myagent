@@ -9,12 +9,15 @@ import { isNetworkSharePath as isSharedNetworkPath } from '../security/path-guar
 import { externalTerminalPaths } from './terminal-path-policy.js';
 import { classifyTerminalCommand } from './terminal-risk-policy.js';
 import { mcpServerIdFromTool, networkApprovalNeed } from './untrusted-content.js';
+import { describeSshTarget, findSshServer } from '../ssh/ssh-profile-store.js';
 
 export type ToolApprovalAccess =
   | 'operation'
   | 'external_read'
   | 'external_write'
-  | 'network';
+  | 'network'
+  /** A command on a registered SSH server. Only the person at the chat UI may approve it. */
+  | 'remote_exec';
 
 export interface ToolApprovalRequest {
   id: string;
@@ -243,6 +246,9 @@ export function canDelegateToolApproval(
   /** Registered conversation/project folders (e.g. a local rulebook folder). UNC roots are ignored. */
   allowedWriteRoots?: readonly string[],
 ): boolean {
+  // Remote commands leave this PC and cannot be snapshotted or rolled back: never a
+  // model's or a policy's decision, whatever the workspace or approval mode.
+  if (toolName === 'ssh_exec') return false;
   const extraRoots = delegableExtraRoots(allowedWriteRoots);
   const inside = (candidate: unknown) => pathInsideDelegableRoots(candidate, workspaceRoot, extraRoots);
   const readOnlyTool = toolName === 'read_file' || toolName === 'list_directory' || toolName === 'search_files' || toolName === 'image_get' || toolName === 'markitdown_convert';
@@ -420,6 +426,8 @@ export function needsHumanApproval(
     userMessage?: string;
     /** Run-scoped network grants (`host:` / `mcp:` keys). Never persisted. */
     approvedNetworkGrants?: ReadonlySet<string>;
+    /** Install root; resolves the SSH server shown on a remote_exec card. */
+    cqrRoot?: string;
   },
 ): {
   needed: boolean;
@@ -439,6 +447,31 @@ export function needsHumanApproval(
       access: 'operation',
       expires: 'once',
       summary: steps ? `아래 순서로 재현해 주세요.\n\n${steps}` : '문제를 한 번 재현해 주세요.',
+    };
+  }
+  if (toolName === 'ssh_exec') {
+    const serverId = typeof args.server_id === 'string' ? args.server_id.trim() : '';
+    const command = typeof args.command === 'string' ? args.command.trim() : '';
+    const root = context?.cqrRoot ?? env.MY_AGENT_ROOT?.trim();
+    let server: ReturnType<typeof findSshServer> = null;
+    try {
+      server = root ? findSshServer(root, serverId) : null;
+    } catch {
+      server = null;
+    }
+    const serverText = server ? describeSshTarget(server) : `등록되지 않은 서버 (${serverId || '?'})`;
+    const cwd = (typeof args.cwd === 'string' && args.cwd.trim()) || server?.defaultCwd || '';
+    return {
+      needed: true,
+      danger: true,
+      access: 'remote_exec',
+      expires: 'once',
+      targets: [
+        `서버: ${serverText}`,
+        `폴더: ${cwd || '(접속 기본 폴더)'}`,
+        `명령: ${command || '?'}`,
+      ],
+      summary: `원격 서버 명령 실행 (${server?.label ?? (serverId || '?')}): ${command || '?'}`,
     };
   }
   if (toolName === 'scheduler_upsert') {

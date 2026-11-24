@@ -8,6 +8,7 @@ import {
   PuzzlePiece,
   Robot,
   Stack,
+  TerminalWindow,
   X,
   type Icon,
 } from '@phosphor-icons/react';
@@ -19,6 +20,7 @@ import { SettingsGeneralPage } from './SettingsGeneralPage';
 import { SettingsMcpPage } from './SettingsMcpPage';
 import { SettingsPluginsPage } from './SettingsPluginsPage';
 import { SettingsSkillsPage } from './SettingsSkillsPage';
+import { SettingsSshPage } from './SettingsSshPage';
 import { SettingsUsagePage } from './SettingsUsagePage';
 import { SettingsWorkspacePage } from './SettingsWorkspacePage';
 
@@ -115,6 +117,14 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     icon: Plugs,
     keywords: ['mcp', '서버', 'model context protocol', '외부 도구'],
     render: ({ readOnly }) => <SettingsMcpPage readOnly={readOnly} />,
+  },
+  {
+    id: 'ssh',
+    group: '확장',
+    label: 'SSH 서버',
+    icon: TerminalWindow,
+    keywords: ['ssh', '서버', '원격', '원격 명령', '지문', 'fingerprint', '키', 'remote'],
+    render: ({ readOnly }) => <SettingsSshPage readOnly={readOnly} />,
   },
 ];
 

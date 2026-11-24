@@ -55,6 +55,9 @@ export function isHookStop(v: unknown): v is AgentHookStop {
   return Boolean(v && typeof v === 'object' && (v as AgentHookStop).stop === true);
 }
 
+/** Private key headers / cloud access keys. Also used to redact remote (SSH) output. */
+export const SECRET_MATERIAL_RE = /(?:BEGIN (?:RSA |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16})/;
+
 /** Default hooks: emit structured events + block obvious secret exfil in tool args. */
 export function createDefaultAgentHooks(
   emit?: (event: AgentRuntimeEvent) => void,
@@ -62,7 +65,7 @@ export function createDefaultAgentHooks(
   return {
     beforeTool: (ctx) => {
       const raw = JSON.stringify(ctx.args);
-      if (/(?:BEGIN (?:RSA |OPENSSH )?PRIVATE KEY|AKIA[0-9A-Z]{16})/.test(raw)) {
+      if (SECRET_MATERIAL_RE.test(raw)) {
         return {
           stop: true,
           reason: 'Tool args appear to contain private keys or cloud access keys; blocked by guardrail.',

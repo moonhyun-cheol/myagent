@@ -36,6 +36,8 @@
     "verify:approval-auto-review": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-approval-auto-review.mjs",
     "verify:local-api-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-local-api-guard.mjs",
     "verify:problem-history": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-problem-history.mjs",
+    "verify:ssh-approval": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-approval.mjs",
+    "verify:ssh-service": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-service.mjs",
     "verify:untrusted-content": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-untrusted-content.mjs",
     "verify:browser-url-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-browser-url-guard.mjs",
     "verify:web-action-audit": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-web-action-audit.mjs",
@@ -247,12 +249,14 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "mammoth": "^1.12.1",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.0",
     "@types/pdf-parse": "^1.1.5",
+    "@types/ssh2": "^1.15.6",
     "typescript": "^6.0.3"
   },
   "optionalDependencies": {

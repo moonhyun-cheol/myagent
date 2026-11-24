@@ -114,6 +114,7 @@ import { throwIfAborted } from '../chat/abort.js';
 import type { SchedulerTaskInput } from '../scheduler/types.js';
 import { getUserMemoryStore, UserMemoryStoreError } from '../memory/user-memory-store.js';
 import type { MemoryScope } from '../memory/user-memory-store.js';
+import { execSshCommand, listSshServerSummaries, SshError } from '../ssh/ssh-service.js';
 
 function availableToolNames(cqrRoot?: string): string[] {
   const base = [...CODE_AGENT_TOOLS, ...BROWSER_AGENT_TOOLS].map((t) => t.function.name);
@@ -1277,6 +1278,42 @@ async function executeAgentToolInner(
           confirm: args.confirm === true,
         });
         return { label: 'plugin set_enabled', output };
+      }
+      case 'ssh_list_servers': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        const servers = await listSshServerSummaries(ctx.cqrRoot);
+        return {
+          label: `ssh servers (${servers.length})`,
+          output: JSON.stringify({
+            count: servers.length,
+            servers,
+            ...(servers.length ? {} : { note: 'No SSH server is registered. The user adds one in Settings > SSH 서버.' }),
+          }),
+        };
+      }
+      case 'ssh_exec': {
+        if (!ctx?.cqrRoot) throw new Error('CQR root is unavailable');
+        // v1: folder-bound Agent chats only. Approval itself is enforced by the step loop.
+        if (ctx.fileAccess === 'none' || ctx.workspaceBehavior === 'plan') {
+          return { label: 'ssh_exec', output: 'ERROR: SSH_NOT_AVAILABLE — ssh_exec runs only in an Agent-mode chat bound to a work folder.' };
+        }
+        const serverId = String(args.server_id ?? '').trim();
+        const command = String(args.command ?? '').trim();
+        const label = `ssh ${serverId || '?'}: ${command.slice(0, 80)}`;
+        try {
+          const result = await execSshCommand(ctx.cqrRoot, {
+            serverId,
+            command,
+            cwd: typeof args.cwd === 'string' ? args.cwd : undefined,
+            timeoutMs: typeof args.timeout_ms === 'number' ? args.timeout_ms : undefined,
+            signal: ctx.signal,
+            onOutput: ctx.onOutput,
+          });
+          return { label, output: JSON.stringify(result) };
+        } catch (error) {
+          if (error instanceof SshError) return { label, output: `ERROR: ${error.code} — ${error.message}` };
+          throw error;
+        }
       }
       case 'save_web_asset': {
         const cqrRoot = ctx?.cqrRoot;

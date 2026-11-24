@@ -12,7 +12,7 @@ const LEGACY_PINNED_KEY = 'cqr-workspace-pinned-sessions';
 const SESSION_HEADER = 'X-CQR-Session';
 
 /** Sticky, single-step tool approval — no backdrop/Esc/Enter shortcuts. */
-type ToolApprovalAccess = 'operation' | 'external_read' | 'external_write' | 'network';
+type ToolApprovalAccess = 'operation' | 'external_read' | 'external_write' | 'network' | 'remote_exec';
 
 async function askToolApprovalDecision(
   summary: string,
@@ -43,7 +43,9 @@ async function askToolApprovalDecision(
       ? '워크스페이스 외부 쓰기'
       : details?.access === 'network'
         ? '외부 네트워크 접근'
-        : '도구 실행';
+        : details?.access === 'remote_exec'
+          ? '원격 서버 명령 실행'
+          : '도구 실행';
   const targetText = details?.targets?.length
     ? `\n\n대상:\n${details.targets.slice(0, 5).map((target) => `• ${target}`).join('\n')}`
     : '';
@@ -2341,7 +2343,7 @@ export async function streamChat(
       } else if (type === 'tool_approval' && typeof evt.id === 'string') {
         const summary = String(evt.summary ?? evt.tool ?? '도구 실행');
         const danger = Boolean(evt.danger);
-        const access = ['operation', 'external_read', 'external_write', 'network'].includes(String(evt.access))
+        const access = ['operation', 'external_read', 'external_write', 'network', 'remote_exec'].includes(String(evt.access))
           ? String(evt.access) as ToolApprovalAccess
           : undefined;
         const targets = Array.isArray(evt.targets)
@@ -2594,6 +2596,77 @@ export async function cancelRunTerminalJob(opts: {
   });
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; cancelled?: boolean };
   return { ok: res.ok && data.ok !== false, cancelled: Boolean(data.cancelled) };
+}
+
+/** SSH servers (data/config/ssh-servers.json). No key body or passphrase is stored or returned. */
+export type SshKeyState = 'ready' | 'locked' | 'missing' | 'invalid' | 'unknown';
+
+export interface SshServerItem {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  username: string;
+  /** Path of the private key file on this PC. */
+  keyPath: string;
+  defaultCwd?: string;
+  hostKeySha256?: string;
+  trustedAt?: string;
+  trusted?: boolean;
+  keyState?: SshKeyState;
+}
+
+type SshApiBody = {
+  ok?: boolean;
+  servers?: SshServerItem[];
+  fingerprint?: string;
+  trusted?: boolean;
+  changed?: boolean;
+  message?: string;
+  error?: string;
+};
+
+async function sshRequest(path: string, method: 'GET' | 'PUT' | 'POST', body?: unknown): Promise<SshApiBody> {
+  const res = await fetch(path, {
+    method,
+    cache: 'no-store',
+    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  const data = (await res.json().catch(() => ({}))) as SshApiBody;
+  if (!res.ok) {
+    const code = data.error || `HTTP_${res.status}`;
+    throw new Error(data.message ? `${code} · ${data.message}` : code);
+  }
+  return data;
+}
+
+const sshServerList = (data: SshApiBody): SshServerItem[] => (Array.isArray(data.servers) ? data.servers : []);
+
+export async function listSshServers(): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers', 'GET'));
+}
+
+/** Trust and key state are decided by the server; only the editable fields are sent. */
+export async function saveSshServers(servers: SshServerItem[]): Promise<SshServerItem[]> {
+  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd }) => ({
+    id, label, host, port, username, keyPath, defaultCwd,
+  }));
+  return sshServerList(await sshRequest('/ssh/servers', 'PUT', { servers: payload }));
+}
+
+/** Reads the host key fingerprint only. Nothing is trusted and no key is sent. */
+export async function testSshServer(id: string): Promise<{ fingerprint: string; trusted: boolean; changed: boolean }> {
+  const data = await sshRequest('/ssh/servers/test', 'POST', { id });
+  return { fingerprint: String(data.fingerprint ?? ''), trusted: data.trusted === true, changed: data.changed === true };
+}
+
+export async function trustSshServer(id: string, fingerprint: string): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers/trust', 'POST', { id, fingerprint }));
+}
+
+/** The passphrase is kept in core memory until restart; it is never written to disk. */
+export async function unlockSshServer(id: string, passphrase: string): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers/unlock', 'POST', { id, passphrase }));
 }
 
 /** User MCP servers (remote Streamable HTTP — data/config/user-mcp-servers.json). */

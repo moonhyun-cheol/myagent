@@ -808,9 +808,14 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
         approvedExternalReadRoots: state.approvedExternalReadRoots,
         userMessage: state.opts.userMessage,
         approvedNetworkGrants: state.approvedNetworkGrants,
+        cqrRoot: state.opts.cqrRoot,
       });
       if (hitl.needed) {
         let approved = false;
+        // SSH gate: a remote command runs only on a person's own Accept in the chat UI.
+        // Autopilot / reviewer / scheduler free-pass outcomes and headless confirm=true
+        // are all refused here, independent of what the approval callback decided.
+        const humanOnly = execCall.function.name === 'ssh_exec';
         const delegable = canDelegateToolApproval(
           execCall.function.name,
           args,
@@ -850,8 +855,10 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
             ...(repro ? { kind: 'repro' as const, timeoutMs: DEBUG_REPRO_TIMEOUT_MS } : {}),
             ...(state.untrustedSourcesSeen.size ? { untrustedSourcesInRun: [...state.untrustedSourcesSeen] } : {}),
           }));
-          approved = outcome.approved;
-          if (outcome.approved && outcome.by === 'reviewer') {
+          approved = outcome.approved && (!humanOnly || outcome.by === 'user');
+          if (!approved) {
+            /* denied, or a non-human approval of a human-only tool */
+          } else if (outcome.approved && outcome.by === 'reviewer') {
             approvedByReviewer = outcome.reviewer ?? 'reviewer';
           } else if (outcome.approved && outcome.snapshot === 'best_effort') {
             approvedByReviewer = outcome.reviewer ?? 'policy';
@@ -869,7 +876,7 @@ async function runAgentStepLoopInner(state: AgentRunStepState): Promise<CodeAgen
               access: hitl.access,
             });
           }
-        } else if (state.opts.allowHeadlessConfirm === true && args.confirm === true) {
+        } else if (!humanOnly && state.opts.allowHeadlessConfirm === true && args.confirm === true) {
           approved = true;
         } else {
           // No approval channel: a model-authored confirm=true is not consent (prompt

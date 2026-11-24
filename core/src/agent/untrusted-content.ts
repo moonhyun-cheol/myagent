@@ -26,7 +26,7 @@ const BROWSER_CONTENT_TOOLS = new Set([
   'browser_download',
 ]);
 
-export type UntrustedSource = 'web' | 'mcp' | 'download' | 'remote_repo';
+export type UntrustedSource = 'web' | 'mcp' | 'download' | 'remote_repo' | 'ssh';
 
 export function mcpServerIdFromTool(toolName: string): string | null {
   return /^mcp_([a-zA-Z0-9_-]+)_(.+)$/.exec(toolName)?.[1] ?? null;
@@ -35,6 +35,8 @@ export function mcpServerIdFromTool(toolName: string): string | null {
 export function untrustedSourceForTool(toolName: string): UntrustedSource | null {
   if (BROWSER_CONTENT_TOOLS.has(toolName)) return 'web';
   if (mcpServerIdFromTool(toolName)) return 'mcp';
+  // Remote command output is whatever the server prints (logs, file contents).
+  if (toolName === 'ssh_exec') return 'ssh';
   return null;
 }
 
@@ -89,6 +91,8 @@ function originLabel(source: UntrustedSource, toolName: string): string {
       return '웹에서 내려받은 파일';
     case 'remote_repo':
       return '외부 공개 저장소';
+    case 'ssh':
+      return '원격 SSH 서버';
   }
 }
 

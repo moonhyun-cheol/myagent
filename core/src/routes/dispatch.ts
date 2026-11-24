@@ -30,6 +30,15 @@ import {
   type UserMcpServerConfig,
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
+import { saveSshServers, SshProfileError, SSH_SERVERS_REL_PATH } from '../ssh/ssh-profile-store.js';
+import {
+  listSshServerViews,
+  lockSshKey,
+  probeSshFingerprint,
+  SshError,
+  trustProbedSshFingerprint,
+  unlockSshKey,
+} from '../ssh/ssh-service.js';
 import {
   applyUiStatePatch,
   loadUiState,
@@ -213,6 +222,7 @@ function looksLikeApiPath(pathname: string): boolean {
     '/skills',
     '/agent-plugins',
     '/mcp',
+    '/ssh',
     '/generate',
     '/outputs',
     '/admin',
@@ -1417,6 +1427,65 @@ export async function dispatchApiRequest(
         }
         const result = await probeUserMcpServer(cqrRoot, String(body.id ?? ''));
         return sendJson(res, result.ok ? 200 : 400, result);
+      }
+
+      // --- SSH servers (data/config/ssh-servers.json; no secret is stored or returned) ---
+      if (method === 'GET' && url.pathname === '/ssh/servers') {
+        license.assertFeature('chat');
+        return sendJson(res, 200, {
+          ok: true,
+          path: SSH_SERVERS_REL_PATH,
+          servers: await listSshServerViews(cqrRoot),
+        });
+      }
+
+      if (url.pathname.startsWith('/ssh/servers') && (method === 'PUT' || method === 'POST')) {
+        if (url.pathname === '/ssh/servers' ? method !== 'PUT' : method !== 'POST') {
+          return sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED', message: 'unsupported method' });
+        }
+        const action = url.pathname.slice('/ssh/servers'.length);
+        if (!['', '/test', '/trust', '/unlock'].includes(action)) {
+          return sendJson(res, 404, { error: 'NOT_FOUND', message: 'unknown ssh route' });
+        }
+        // The connection test only reads the host key; everything else changes state.
+        if (action !== '/test') license.assertWritable();
+        license.assertFeature('chat');
+        let body: { servers?: unknown; id?: unknown; fingerprint?: unknown; passphrase?: unknown };
+        try {
+          body = JSON.parse(await readBody(req)) as typeof body;
+        } catch {
+          return sendJson(res, 400, { error: 'INVALID_JSON', message: 'JSON body required' });
+        }
+        const id = String(body.id ?? '').trim();
+        try {
+          if (action === '') {
+            if (!Array.isArray(body.servers)) {
+              return sendJson(res, 400, { error: 'SERVERS_REQUIRED', message: 'servers array required' });
+            }
+            const saved = saveSshServers(cqrRoot, body.servers);
+            for (const changedId of saved.keyChangedIds) lockSshKey(changedId);
+            return sendJson(res, 200, {
+              ok: true,
+              after: saved.doc.servers.length,
+              path: SSH_SERVERS_REL_PATH,
+              servers: await listSshServerViews(cqrRoot),
+            });
+          }
+          if (action === '/test') {
+            return sendJson(res, 200, { ok: true, ...(await probeSshFingerprint(cqrRoot, id)) });
+          }
+          if (action === '/trust') {
+            trustProbedSshFingerprint(cqrRoot, id, String(body.fingerprint ?? ''));
+            return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
+          }
+          await unlockSshKey(cqrRoot, id, typeof body.passphrase === 'string' ? body.passphrase : '');
+          return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
+        } catch (error) {
+          if (error instanceof SshError || error instanceof SshProfileError) {
+            return sendJson(res, 400, { ok: false, error: error.code, message: error.message });
+          }
+          throw error;
+        }
       }
 
       if (method === 'GET' && url.pathname === '/setup/status') {
