@@ -9,7 +9,7 @@
  * Not Windows, PowerShell unavailable, or ciphertext that cannot be opened: recall returns
  * null and remember returns false. Nothing here throws for those cases.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
@@ -62,7 +62,7 @@ function writeDoc(cqrRoot: string, doc: SecretsDoc): void {
 }
 
 /** base64 in (stdin) -> base64 out (stdout). null on any failure. */
-function dpapi(op: 'Protect' | 'Unprotect', inputBase64: string): string | null {
+async function dpapi(op: 'Protect' | 'Unprotect', inputBase64: string): Promise<string | null> {
   if (process.platform !== 'win32') return null;
   const script = [
     "$ErrorActionPreference = 'Stop'",
@@ -77,14 +77,17 @@ function dpapi(op: 'Protect' | 'Unprotect', inputBase64: string): string | null 
   try {
     // Same call shape as providers/os-secret-store.ts (EncodedCommand: no quoting surprises).
     const encoded = Buffer.from(script, 'utf16le').toString('base64');
-    const result = spawnSync(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
-      input: inputBase64,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: DPAPI_TIMEOUT_MS,
+    return await new Promise<string | null>((resolve) => {
+      const child = spawn(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+        windowsHide: true, timeout: DPAPI_TIMEOUT_MS, stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      let out = '';
+      child.stdout.setEncoding('utf8').on('data', (chunk) => { out += chunk; });
+      child.once('error', () => resolve(null));
+      child.stdin.once('error', () => resolve(null));
+      child.once('close', (code) => resolve(code === 0 && BASE64_RE.test(out.trim()) ? out.trim() : null));
+      child.stdin.end(inputBase64);
     });
-    const out = String(result.stdout ?? '').trim();
-    return result.status === 0 && BASE64_RE.test(out) ? out : null;
   } catch {
     return null;
   }
@@ -96,10 +99,10 @@ export function hasRememberedPassphrase(cqrRoot: string, serverId: string): bool
 }
 
 /** Encrypt and store. false when it could not be stored; the plain value is never written. */
-export function rememberPassphrase(cqrRoot: string, serverId: string, passphrase: string): boolean {
+export async function rememberPassphrase(cqrRoot: string, serverId: string, passphrase: string, current = () => true): Promise<boolean> {
   if (!serverId || !passphrase) return false;
-  const cipher = dpapi('Protect', Buffer.from(passphrase, 'utf8').toString('base64'));
-  if (!cipher) return false;
+  const cipher = await dpapi('Protect', Buffer.from(passphrase, 'utf8').toString('base64'));
+  if (!cipher || !current()) return false;
   try {
     const doc = loadDoc(cqrRoot);
     doc.secrets[serverId] = { dpapi: cipher, savedAt: new Date().toISOString() };
@@ -111,10 +114,10 @@ export function rememberPassphrase(cqrRoot: string, serverId: string, passphrase
 }
 
 /** The stored passphrase, or null when nothing is stored or it cannot be opened here. */
-export function recallPassphrase(cqrRoot: string, serverId: string): string | null {
+export async function recallPassphrase(cqrRoot: string, serverId: string): Promise<string | null> {
   const entry = loadDoc(cqrRoot).secrets[serverId];
   if (!entry) return null;
-  const plain = dpapi('Unprotect', entry.dpapi);
+  const plain = await dpapi('Unprotect', entry.dpapi);
   if (!plain) return null;
   try {
     return Buffer.from(plain, 'base64').toString('utf8') || null;

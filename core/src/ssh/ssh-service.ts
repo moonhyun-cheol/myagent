@@ -174,21 +174,35 @@ function looksEncrypted(problem: string): boolean {
  * Passphrase for this key: the in-process copy, else the remembered one (loaded once).
  * A remembered passphrase that no longer opens the key is deleted from disk.
  */
-function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshServerProfile, key: Buffer): string | undefined {
+const pendingRecall = new Map<string, Promise<string | undefined>>();
+const mutations = new Map<string, symbol>();
+function invalidate(id: string) {
+  pendingRecall.delete(id);
+  mutations.set(id, Symbol());
+}
+async function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshServerProfile, key: Buffer): Promise<string | undefined> {
   const held = passphrases.get(server.id);
   if (held) return held;
   if (recallFailed.has(server.id) || !hasRememberedPassphrase(cqrRoot, server.id)) return undefined;
-  const recalled = recallPassphrase(cqrRoot, server.id);
-  if (recalled === null) {
-    recallFailed.add(server.id);
-    return undefined;
-  }
-  if (keyParseProblem(lib, key, recalled)) {
-    try { forgetPassphrase(cqrRoot, server.id); } catch { /* stays stored; rejected again next start */ }
-    return undefined;
-  }
-  passphrases.set(server.id, recalled);
-  return recalled;
+  const pending = pendingRecall.get(server.id);
+  if (pending) return pending;
+  const generation = mutations.get(server.id);
+  const work = (async () => {
+    const recalled = await recallPassphrase(cqrRoot, server.id);
+    if (mutations.get(server.id) !== generation) return undefined;
+    if (recalled === null) {
+      recallFailed.add(server.id);
+      return undefined;
+    }
+    if (keyParseProblem(lib, key, recalled)) {
+      try { forgetPassphrase(cqrRoot, server.id); } catch { /* stays stored; rejected again next start */ }
+      return undefined;
+    }
+    passphrases.set(server.id, recalled);
+    return recalled;
+  })();
+  pendingRecall.set(server.id, work);
+  try { return await work; } finally { if (pendingRecall.get(server.id) === work) pendingRecall.delete(server.id); }
 }
 
 async function keyStateOf(cqrRoot: string, server: SshServerProfile): Promise<SshKeyState> {
@@ -204,7 +218,7 @@ async function keyStateOf(cqrRoot: string, server: SshServerProfile): Promise<Ss
   } catch {
     return 'missing';
   }
-  const problem = keyParseProblem(lib, key, usablePassphrase(cqrRoot, lib, server, key));
+  const problem = keyParseProblem(lib, key, await usablePassphrase(cqrRoot, lib, server, key));
   if (!problem) return 'ready';
   return looksEncrypted(problem) ? 'locked' : 'invalid';
 }
@@ -214,6 +228,7 @@ export interface SshServerView extends SshServerProfile {
   keyState: SshKeyState;
   /** An encrypted copy of the key passphrase is stored on this PC. */
   remembered: boolean;
+  rememberState: 'none' | 'stored' | 'unreadable';
 }
 
 /** Settings view: every stored field plus trust and key state. Never a secret. */
@@ -222,11 +237,13 @@ export async function listSshServerViews(cqrRoot: string): Promise<SshServerView
   return Promise.all(servers.map(async (server) => {
     // Key state first: it drops a remembered passphrase that no longer opens the key.
     const keyState = await keyStateOf(cqrRoot, server);
+    const remembered = hasRememberedPassphrase(cqrRoot, server.id);
     return {
       ...server,
       trusted: Boolean(server.hostKeySha256),
       keyState,
-      remembered: hasRememberedPassphrase(cqrRoot, server.id),
+      remembered,
+      rememberState: !remembered ? 'none' : recallFailed.has(server.id) ? 'unreadable' : 'stored',
     };
   }));
 }
@@ -257,6 +274,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
 
 /** Key file changed or server removed: drop the in-process passphrase and the remembered copy. */
 export function lockSshKey(cqrRoot: string, serverId: string): void {
+  invalidate(serverId);
   passphrases.delete(serverId);
   recallFailed.delete(serverId);
   forgetPassphrase(cqrRoot, serverId);
@@ -265,8 +283,15 @@ export function lockSshKey(cqrRoot: string, serverId: string): void {
 /** 「기억 지우기」: delete only the remembered copy. The key stays usable until restart. */
 export function forgetSshKey(cqrRoot: string, serverId: string): void {
   requireServer(cqrRoot, serverId);
+  invalidate(serverId);
   recallFailed.delete(serverId);
   forgetPassphrase(cqrRoot, serverId);
+}
+
+export async function retrySshRecall(cqrRoot: string, serverId: string) {
+  const server = requireServer(cqrRoot, serverId);
+  recallFailed.delete(serverId);
+  await keyStateOf(cqrRoot, server);
 }
 
 /** Drops in-process passphrases only, as an app restart does. Used by verify scripts. */
@@ -282,7 +307,11 @@ export function clearSshPassphraseMemory(): void {
 export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase: string, remember = false): Promise<void> {
   const server = findSshServer(cqrRoot, serverId);
   if (!server) throw new SshError('SSH_SERVER_NOT_FOUND', `Unknown server: ${serverId}`);
+  invalidate(serverId);
+  const generation = mutations.get(serverId);
+  const current = () => mutations.get(serverId) === generation;
   const lib = await loadSsh2();
+  if (!current()) return;
   const key = readKeyFile(server);
   const problem = keyParseProblem(lib, key, passphrase || undefined);
   if (problem) {
@@ -293,7 +322,7 @@ export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase
   }
   if (passphrase) {
     passphrases.set(serverId, passphrase);
-    if (remember && rememberPassphrase(cqrRoot, serverId, passphrase)) recallFailed.delete(serverId);
+    if (remember && await rememberPassphrase(cqrRoot, serverId, passphrase, current)) recallFailed.delete(serverId);
   } else {
     passphrases.delete(serverId);
     forgetPassphrase(cqrRoot, serverId);
@@ -453,7 +482,7 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
   try {
     const lib = await loadSsh2();
     const privateKey = readKeyFile(server);
-    const passphrase = usablePassphrase(cqrRoot, lib, server, privateKey);
+    const passphrase = await usablePassphrase(cqrRoot, lib, server, privateKey);
     const problem = keyParseProblem(lib, privateKey, passphrase);
     if (problem) {
       throw looksEncrypted(problem)

@@ -33,6 +33,7 @@ import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from
 import { saveSshServers, SshProfileError, SSH_SERVERS_REL_PATH } from '../ssh/ssh-profile-store.js';
 import {
   forgetSshKey,
+  retrySshRecall,
   listSshServerViews,
   lockSshKey,
   probeSshFingerprint,
@@ -1446,7 +1447,7 @@ export async function dispatchApiRequest(
           return sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED', message: 'unsupported method' });
         }
         const action = url.pathname.slice('/ssh/servers'.length);
-        if (!['', '/test', '/trust', '/unlock', '/forget'].includes(action)) {
+        if (!['', '/test', '/trust', '/unlock', '/forget', '/lock', '/retry-recall'].includes(action)) {
           return sendJson(res, 404, { error: 'NOT_FOUND', message: 'unknown ssh route' });
         }
         // The connection test only reads the host key; everything else changes state.
@@ -1480,8 +1481,10 @@ export async function dispatchApiRequest(
             trustProbedSshFingerprint(cqrRoot, id, String(body.fingerprint ?? ''));
             return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
           }
-          if (action === '/forget') {
-            forgetSshKey(cqrRoot, id);
+          if (action === '/lock' || action === '/retry-recall' || action === '/forget') {
+            if (action === '/lock') lockSshKey(cqrRoot, id);
+            else if (action === '/retry-recall') await retrySshRecall(cqrRoot, id);
+            else forgetSshKey(cqrRoot, id);
             return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
           }
           await unlockSshKey(cqrRoot, id, typeof body.passphrase === 'string' ? body.passphrase : '', body.remember === true);

@@ -26,6 +26,7 @@ import {
   listSshServerSummaries,
   listSshServerViews,
   lockSshKey,
+  retrySshRecall,
   probeSshFingerprint,
   trustProbedSshFingerprint,
   unlockSshKey,
@@ -166,6 +167,21 @@ try {
     assert.ok(!readFileSync(secretsFile).includes(Buffer.from('correct horse', 'utf16le')), 'no UTF-16 plain passphrase either');
     assert.doesNotMatch(readFileSync(sshServersPath(root), 'utf8'), /passphrase|password|secret|dpapi|remember|correct horse/i, 'ssh-servers.json gains no secret field');
 
+    clearSshPassphraseMemory();
+    const corrupt = JSON.parse(storedText);
+    corrupt.secrets.dev.dpapi = 'AAAA';
+    writeFileSync(secretsFile, JSON.stringify(corrupt));
+    let ticked = false;
+    const reading = view();
+    setTimeout(() => { ticked = true; }, 0);
+    assert.equal((await reading).rememberState, 'unreadable');
+    assert.equal(ticked, true, 'DPAPI recall leaves event loop responsive');
+    writeFileSync(secretsFile, storedText);
+    await retrySshRecall(root, 'dev');
+    assert.equal((await view()).keyState, 'ready');
+    lockSshKey(root, 'dev');
+    await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
+    await unlockSshKey(root, 'dev', 'correct horse', true);
     // Restart: memory is empty, the stored copy opens the key without asking again.
     clearSshPassphraseMemory();
     assert.equal((await execSshCommand(root, { serverId: 'dev', command: 'id' })).state, 'ok', 'exec works after memory loss');

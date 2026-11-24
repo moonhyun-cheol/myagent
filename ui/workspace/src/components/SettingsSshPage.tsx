@@ -2,6 +2,8 @@ import { CheckCircle, Key, Plus, ShieldCheck, TerminalWindow, Trash, Warning, Wr
 import { useCallback, useEffect, useState } from 'react';
 import {
   forgetSshServer,
+  lockSshServer,
+  retrySshRecall,
   listSshServers,
   saveSshServers,
   testSshServer,
@@ -424,6 +426,8 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     <Wrench size={13} />
                     {testingId === selectedServer.id ? '테스트 중...' : '연결 테스트'}
                   </button>
+                  {!dirty && savedSelected?.rememberState === 'unreadable' && <div className="text-xs text-muted">기억한 암호를 이 PC·이 Windows 계정에서 열 수 없습니다. <button disabled={readOnly || busy} onClick={() => void run(() => retrySshRecall(selectedServer.id), '암호 기억 상태를 다시 확인했습니다.', '다시 시도 실패')}>다시 시도</button></div>}
+                  {!dirty && keyState === 'ready' && <button disabled={readOnly || busy} className="rounded-lg border border-line px-2 text-xs" onClick={() => void run(() => lockSshServer(selectedServer.id), '메모리와 저장된 암호를 지웠습니다.', '잠금 실패')}>지금 잠그기</button>}
                   {remembered && !dirty ? (
                     <button type="button" disabled={readOnly || busy} onClick={() => void forgetServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:cursor-not-allowed disabled:opacity-45">
                       <Key size={13} /> 기억 지우기

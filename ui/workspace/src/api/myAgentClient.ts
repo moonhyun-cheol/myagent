@@ -2619,6 +2619,7 @@ export interface SshServerItem {
   keyState?: SshKeyState;
   /** An encrypted copy of the key passphrase is stored on this PC. */
   remembered?: boolean;
+  rememberState?: 'none' | 'stored' | 'unreadable';
 }
 
 type SshApiBody = {
@@ -2675,6 +2676,13 @@ export async function trustSshServer(id: string, fingerprint: string): Promise<S
  */
 export async function unlockSshServer(id: string, passphrase: string, remember = false): Promise<SshServerItem[]> {
   return sshServerList(await sshRequest('/ssh/servers/unlock', 'POST', { id, passphrase, remember }));
+}
+
+export async function lockSshServer(id: string) {
+  return sshServerList(await sshRequest('/ssh/servers/lock', 'POST', { id }));
+}
+export async function retrySshRecall(id: string) {
+  return sshServerList(await sshRequest('/ssh/servers/retry-recall', 'POST', { id }));
 }
 
 /** Deletes the remembered (encrypted) passphrase of this server. */

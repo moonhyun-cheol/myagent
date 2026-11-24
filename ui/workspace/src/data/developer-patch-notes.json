@@ -1,6 +1,7 @@
 {
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
+    {"id":"ssh-recall-lock","status":"development","title":"SSH 암호 다시 시도와 즉시 잠금","detail":"기억한 암호를 비동기로 읽고 실패하면 다시 시도하거나 지울 수 있습니다. 지금 잠그기는 저장된 암호와 메모리 암호를 함께 지웁니다.","area":"agent","created_at":"2026-11-24","release":{"version":null,"update_sequence":null},"source_paths":["core/src/ssh/ssh-service.ts","ui/workspace/src/components/SettingsSshPage.tsx"]},
     {
       "id": "ssh-key-passphrase-remember",
       "status": "development",
