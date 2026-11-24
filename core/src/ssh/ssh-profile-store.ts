@@ -9,6 +9,10 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path';
 import { assertWritablePath } from '../security/path-guard.js';
 
+/** Remote login shell. Decides how the folder is entered and how output bytes are read. */
+export type SshShell = 'posix' | 'cmd' | 'powershell';
+const SSH_SHELLS: readonly SshShell[] = ['posix', 'cmd', 'powershell'];
+
 export interface SshServerProfile {
   id: string;
   label: string;
@@ -18,6 +22,8 @@ export interface SshServerProfile {
   /** Path of the private key file on this PC. The key body is never stored here. */
   keyPath: string;
   defaultCwd?: string;
+  /** Missing means `posix` (Linux/macOS). `cmd` / `powershell` are Windows servers. */
+  shell?: SshShell;
   /** `SHA256:<base64>` of the trusted host key. Set only through trustSshServer. */
   hostKeySha256?: string;
   trustedAt?: string;
@@ -83,6 +89,7 @@ function cleanServer(raw: unknown): SshServerProfile | string {
     keyPath,
   };
   if (defaultCwd) server.defaultCwd = defaultCwd;
+  if (SSH_SHELLS.includes(row.shell as SshShell)) server.shell = row.shell as SshShell;
   if (isSshFingerprint(row.hostKeySha256)) {
     server.hostKeySha256 = row.hostKeySha256;
     const trustedAt = text(row.trustedAt, 40);

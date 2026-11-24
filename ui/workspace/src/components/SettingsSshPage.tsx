@@ -8,6 +8,7 @@ import {
   unlockSshServer,
   type SshKeyState,
   type SshServerItem,
+  type SshShell,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
 
@@ -23,11 +24,20 @@ type ServerDraft = {
   username: string;
   keyPath: string;
   defaultCwd: string;
+  shell: SshShell;
 };
+
+const SHELL_OPTIONS: Array<{ value: SshShell; label: string }> = [
+  { value: 'posix', label: '리눅스·맥' },
+  { value: 'cmd', label: 'Windows(cmd)' },
+  { value: 'powershell', label: 'Windows(PowerShell)' },
+];
+
+const shellLabel = (shell: SshShell | undefined) => SHELL_OPTIONS.find((option) => option.value === (shell ?? 'posix'))?.label ?? '리눅스·맥';
 
 type ProbeResult = { fingerprint: string; trusted: boolean; changed: boolean };
 
-const EMPTY_DRAFT: ServerDraft = { id: '', label: '', host: '', port: '22', username: '', keyPath: '', defaultCwd: '' };
+const EMPTY_DRAFT: ServerDraft = { id: '', label: '', host: '', port: '22', username: '', keyPath: '', defaultCwd: '', shell: 'posix' };
 
 const KEY_STATE_LABEL: Record<SshKeyState, string> = {
   ready: '키 사용 가능',
@@ -38,7 +48,7 @@ const KEY_STATE_LABEL: Record<SshKeyState, string> = {
 };
 
 const editableKey = (server: SshServerItem | undefined) => (server
-  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? ''])
+  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? '', server.shell ?? 'posix'])
   : '');
 
 const inputClass = 'mt-1 w-full rounded-lg border border-line bg-panel px-2.5 py-2 font-mono text-xs text-text outline-none focus:border-accent disabled:opacity-60';
@@ -213,6 +223,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
       username: draft.username.trim(),
       keyPath: draft.keyPath.trim(),
       defaultCwd: draft.defaultCwd.trim() || undefined,
+      shell: draft.shell,
     };
     const problem = validate(next);
     if (problem) {
@@ -288,7 +299,10 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     onClick={() => setSelectedId(server.id)}
                     className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left ${selectedId === server.id ? 'bg-panel text-text shadow-sm' : 'text-muted hover:bg-panel/70 hover:text-text'}`}
                   >
-                    <span className="min-w-0 truncate text-xs font-medium">{server.label || server.id}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">{server.label || server.id}</span>
+                      <span className="block truncate text-[10px] text-muted">{shellLabel(server.shell)}</span>
+                    </span>
                     <span className={`h-2 w-2 shrink-0 rounded-full ${stored?.trusted ? 'bg-accent' : 'bg-muted/40'}`} title={stored?.trusted ? '지문 신뢰됨' : '지문 미신뢰'} />
                   </button>
                 );
@@ -304,6 +318,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent/15 px-2 py-1 text-[10px] text-accent"><CheckCircle size={12} weight="fill" /> 지문 신뢰됨</span>
                   ) : <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">지문 미신뢰</span>}
                   <span className={`rounded-md px-2 py-1 text-[10px] ${keyState === 'ready' ? 'bg-accent/15 text-accent' : 'bg-line text-muted'}`}>{KEY_STATE_LABEL[keyState]}</span>
+                  <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">{shellLabel(savedSelected?.shell)}</span>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   <label className="text-[11px] text-muted">
@@ -329,6 +344,12 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                   <label className="text-[11px] text-muted md:col-span-2">
                     기본 폴더 (서버, 선택)
                     <input value={selectedServer.defaultCwd ?? ''} onChange={(event) => updateServer(selectedServer.id, { defaultCwd: event.target.value || undefined })} disabled={readOnly || busy} placeholder="/srv/app" className={inputClass} />
+                  </label>
+                  <label className="text-[11px] text-muted md:col-span-2">
+                    서버 종류 (Windows는 폴더 이동 방식과 한글 출력 해석이 달라집니다)
+                    <select value={selectedServer.shell ?? 'posix'} onChange={(event) => updateServer(selectedServer.id, { shell: event.target.value as SshShell })} disabled={readOnly || busy} className={inputClass}>
+                      {SHELL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
                   </label>
                 </div>
 
@@ -410,7 +431,13 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
           </label>
           <label className="text-[11px] text-muted">
             기본 폴더 (서버, 선택)
-            <input value={draft.defaultCwd} onChange={(event) => setDraft((current) => ({ ...current, defaultCwd: event.target.value }))} disabled={readOnly || busy} placeholder="/srv/app" className={draftInputClass} />
+                    <input value={draft.defaultCwd} onChange={(event) => setDraft((current) => ({ ...current, defaultCwd: event.target.value }))} disabled={readOnly || busy} placeholder="/srv/app" className={draftInputClass} />
+          </label>
+          <label className="text-[11px] text-muted md:col-span-2">
+            서버 종류
+            <select value={draft.shell} onChange={(event) => setDraft((current) => ({ ...current, shell: event.target.value as SshShell }))} disabled={readOnly || busy} className={draftInputClass}>
+              {SHELL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
           </label>
           <label className="text-[11px] text-muted md:col-span-2">
             키 파일 경로 (이 PC)

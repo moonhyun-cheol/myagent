@@ -18,6 +18,12 @@ const groupFailedLabel = (rows: ToolActivity[]) => {
   return '실패';
 };
 
+const isRemoteExec = (row: ToolActivity) => row.tool === 'ssh_exec';
+
+const remoteBadge = (
+  <span className="shrink-0 rounded border border-amber-400/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">원격 서버</span>
+);
+
 interface ToolActivityLogProps {
   rows: ToolActivity[];
   timeline?: WorkTimelineItem[];
@@ -257,14 +263,22 @@ function TimelineBody({ rows, timeline, live, modelResponse, streamPreview, stor
                 <span className="min-w-0">
                   <span className="font-medium">작업 {toolGroupNumber}</span> · {item.rows.length}개 도구 · {stateLabel} · {groupElapsed(item.rows)}
                 </span>
+                {item.rows.some(isRemoteExec) ? remoteBadge : null}
                 {cancelGroupButton(toolGroupNumber, item.rows)}
                 </span>
               </summary>
               {groupOpen ? (
               <div className="space-y-2 border-l border-line/70 pl-3">
                 {item.rows.map((row) => (
-                  <div key={row.id} className="min-w-0" data-timeline-kind="tool" data-tool-state={row.state}>
+                  <div
+                    key={row.id}
+                    className={isRemoteExec(row) ? 'min-w-0 rounded-md border border-amber-400/40 bg-amber-500/5 px-2 py-1.5' : 'min-w-0'}
+                    data-timeline-kind="tool"
+                    data-tool-state={row.state}
+                    data-remote-exec={isRemoteExec(row) ? 'true' : undefined}
+                  >
                     <div className={row.state === 'failed' ? 'text-danger' : 'text-text'}>
+                      {isRemoteExec(row) ? <>{remoteBadge}{' '}</> : null}
                       <span className="font-medium">{row.tool}</span> · {label(row)} · {elapsed(row)}
                       {row.exitCode !== undefined ? ` · 종료 코드 ${row.exitCode ?? '없음'}` : ''}
                       {cancelButton(row)}

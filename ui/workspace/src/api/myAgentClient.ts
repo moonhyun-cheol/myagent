@@ -2600,6 +2600,8 @@ export async function cancelRunTerminalJob(opts: {
 
 /** SSH servers (data/config/ssh-servers.json). No key body or passphrase is stored or returned. */
 export type SshKeyState = 'ready' | 'locked' | 'missing' | 'invalid' | 'unknown';
+/** Server kind: Linux/macOS (posix, default) or Windows (cmd / powershell). */
+export type SshShell = 'posix' | 'cmd' | 'powershell';
 
 export interface SshServerItem {
   id: string;
@@ -2610,6 +2612,7 @@ export interface SshServerItem {
   /** Path of the private key file on this PC. */
   keyPath: string;
   defaultCwd?: string;
+  shell?: SshShell;
   hostKeySha256?: string;
   trustedAt?: string;
   trusted?: boolean;
@@ -2648,8 +2651,8 @@ export async function listSshServers(): Promise<SshServerItem[]> {
 
 /** Trust and key state are decided by the server; only the editable fields are sent. */
 export async function saveSshServers(servers: SshServerItem[]): Promise<SshServerItem[]> {
-  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd }) => ({
-    id, label, host, port, username, keyPath, defaultCwd,
+  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd, shell }) => ({
+    id, label, host, port, username, keyPath, defaultCwd, shell,
   }));
   return sshServerList(await sshRequest('/ssh/servers', 'PUT', { servers: payload }));
 }

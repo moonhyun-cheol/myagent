@@ -18,6 +18,7 @@ import {
   loadSshServers,
   trustSshServer,
   type SshServerProfile,
+  type SshShell,
 } from './ssh-profile-store.js';
 
 type Ssh2Module = typeof import('ssh2');
@@ -90,11 +91,47 @@ export function redactSshOutput(text: string): string {
     .replace(/AKIA[0-9A-Z]{16}/g, '[REDACTED ACCESS KEY]');
 }
 
-/** `cd -- '<cwd>' && <command>`; the folder is single-quoted so it cannot inject shell syntax. */
-export function buildRemoteCommand(command: string, cwd?: string): string {
+/**
+ * Enter the folder, then run the command; the folder is quoted so it cannot inject shell syntax.
+ * - posix: `cd -- '<cwd>' && <command>`
+ * - cmd: `cd /d "<cwd>" && <command>` (`"` and `%` cannot be quoted safely in cmd, so they are refused)
+ * - powershell: `Set-Location -LiteralPath '<cwd>' -ErrorAction Stop; <command>` — without
+ *   `-ErrorAction Stop` PowerShell would run the command in the wrong folder when cwd is missing.
+ */
+export function buildRemoteCommand(command: string, cwd?: string, shell: SshShell = 'posix'): string {
   const dir = String(cwd ?? '').trim();
   if (!dir) return command;
+  if (shell === 'cmd') {
+    if (/["%]/.test(dir)) throw new SshError('SSH_COMMAND_INVALID', 'cwd for a Windows(cmd) server cannot contain " or %');
+    return `cd /d "${dir}" && ${command}`;
+  }
+  if (shell === 'powershell') {
+    return `Set-Location -LiteralPath '${dir.replace(/'/g, "''")}' -ErrorAction Stop; ${command}`;
+  }
   return `cd -- '${dir.replace(/'/g, `'\\''`)}' && ${command}`;
+}
+
+export interface SshOutputDecoder {
+  write(data: Buffer): string;
+  end(): string;
+}
+
+/**
+ * posix servers send UTF-8. Windows servers (cmd / powershell) are read as euc-kr (CP949,
+ * Korean Windows). Falls back to UTF-8 when this Node build has no euc-kr table.
+ */
+export function createSshOutputDecoder(shell: SshShell = 'posix'): SshOutputDecoder {
+  if (shell === 'cmd' || shell === 'powershell') {
+    try {
+      const decoder = new TextDecoder('euc-kr');
+      return {
+        write: (data) => decoder.decode(data, { stream: true }),
+        end: () => decoder.decode(),
+      };
+    } catch { /* small-icu Node: keep UTF-8 */ }
+  }
+  const decoder = new StringDecoder('utf8');
+  return { write: (data) => decoder.write(data), end: () => decoder.end() };
 }
 
 export function clampSshTimeout(timeoutMs: unknown): number {
@@ -337,6 +374,8 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
   if (!command || command.includes('\0')) throw new SshError('SSH_COMMAND_INVALID', 'command is required');
   const cwd = String(req.cwd ?? '').trim() || server.defaultCwd || '';
   if (/[\r\n\0]/.test(cwd)) throw new SshError('SSH_COMMAND_INVALID', 'cwd must be a single path');
+  const shell: SshShell = server.shell ?? 'posix';
+  const remoteCommand = buildRemoteCommand(command, cwd, shell);
   const timeoutMs = clampSshTimeout(req.timeoutMs);
   const empty = (state: SshExecResult['state']): SshExecResult => ({
     state, exitCode: null, stdout: '', stderr: '', truncated: false, durationMs: Date.now() - started,
@@ -360,7 +399,7 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
     if (client === 'cancelled') return empty('cancelled');
 
     return await new Promise<SshExecResult>((resolve) => {
-      const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
+      const decoders = { stdout: createSshOutputDecoder(shell), stderr: createSshOutputDecoder(shell) };
       const text = { stdout: '', stderr: '' };
       let captured = 0;
       let truncated = false;
@@ -414,7 +453,7 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
       client.on('error', () => settle('disconnected'));
       client.on('close', () => settle('disconnected'));
       if (req.signal?.aborted) return kill('cancelled');
-      client.exec(buildRemoteCommand(command, cwd), (error, stream) => {
+      client.exec(remoteCommand, (error, stream) => {
         if (error) return settle('disconnected');
         channel = stream;
         if (settled) {

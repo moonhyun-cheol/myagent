@@ -37,6 +37,13 @@ export function redactActivity(text: string): string {
     .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@');
 }
 
+/** Remote command line: `[server_id] <cwd> $ <command>` so the log shows where it ran. */
+function sshActivityTarget(args: Record<string, unknown>): string {
+  const part = (key: string) => (typeof args[key] === 'string' ? (args[key] as string).trim() : '');
+  const cwd = part('cwd');
+  return `[${part('server_id') || '?'}]${cwd ? ` ${cwd}` : ''} $ ${part('command')}`;
+}
+
 /** Full redacted snapshots make duplicate SSE deliveries idempotent without discarding output. */
 export function createToolActivity(
   id: string, tool: string, args: Record<string, unknown>,
@@ -44,7 +51,9 @@ export function createToolActivity(
   cancelSessionId?: string,
   activityGroupId?: string,
 ) {
-  const target = ['command', 'path', 'query', 'url'].map((key) => args[key]).find((v) => typeof v === 'string') ?? '';
+  const target = tool === 'ssh_exec'
+    ? sshActivityTarget(args)
+    : ['command', 'path', 'query', 'url'].map((key) => args[key]).find((v) => typeof v === 'string') ?? '';
   const row: ToolActivity = {
     id, ...(activityGroupId ? { activityGroupId } : {}),
     tool, target: redactActivity(String(target)).slice(0, 600), state: 'running',
