@@ -1,6 +1,7 @@
 import { CheckCircle, Key, Plus, ShieldCheck, TerminalWindow, Trash, Warning, Wrench } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  forgetSshServer,
   listSshServers,
   saveSshServers,
   testSshServer,
@@ -62,6 +63,8 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
   const [probes, setProbes] = useState<Record<string, ProbeResult>>({});
   const [testNotes, setTestNotes] = useState<Record<string, string>>({});
   const [passphrase, setPassphrase] = useState('');
+  /** 「이 PC에 기억」: off by default, chosen per unlock. */
+  const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -97,6 +100,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
 
   useEffect(() => {
     setPassphrase('');
+    setRemember(false);
   }, [selectedId]);
 
   const run = async (work: () => Promise<SshServerItem[]>, successMessage: string, failMessage: string): Promise<boolean> => {
@@ -201,8 +205,29 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
   };
 
   const unlockServer = async (server: SshServerItem) => {
-    const done = await run(() => unlockSshServer(server.id, passphrase), `키 잠금 해제됨 · ${server.label || server.id} (앱을 다시 시작하면 다시 입력해야 합니다)`, '키 잠금 해제 실패');
-    if (done) setPassphrase('');
+    const name = server.label || server.id;
+    setBusy(true);
+    setMessage('');
+    try {
+      const next = await unlockSshServer(server.id, passphrase, remember);
+      applyServerState(next);
+      const stored = next.find((item) => item.id === server.id)?.remembered === true;
+      setMessage(stored
+        ? `키 잠금 해제됨 · ${name} · 암호를 이 PC에 기억했습니다`
+        : remember
+          ? `키 잠금 해제됨 · ${name} · 이 PC에 기억하지는 못했습니다 (앱을 다시 시작하면 다시 입력해야 합니다)`
+          : `키 잠금 해제됨 · ${name} (앱을 다시 시작하면 다시 입력해야 합니다)`);
+      setPassphrase('');
+      setRemember(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '키 잠금 해제 실패');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const forgetServer = async (server: SshServerItem) => {
+    await run(() => forgetSshServer(server.id), `기억한 암호를 지웠습니다 · ${server.label || server.id} (앱을 다시 시작하면 다시 입력해야 합니다)`, '기억 지우기 실패');
   };
 
   const addServer = async () => {
@@ -242,6 +267,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
   const dirty = Boolean(selectedServer) && editableKey(selectedServer ?? undefined) !== editableKey(savedSelected);
   const probe = selectedServer ? probes[selectedServer.id] : undefined;
   const keyState: SshKeyState = savedSelected?.keyState ?? 'unknown';
+  const remembered = savedSelected?.remembered === true;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-ink px-8 py-7">
@@ -278,7 +304,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
           <TerminalWindow size={21} className="text-accent" />
           <div>
             <h3 className="font-semibold">등록된 SSH 서버</h3>
-            <p className="mt-0.5 text-xs text-muted">서버 주소와 키 파일 경로만 저장합니다. 키 내용과 키 암호는 파일에 저장하지 않습니다.</p>
+            <p className="mt-0.5 text-xs text-muted">서버 주소와 키 파일 경로를 저장합니다. 키 내용은 저장하지 않고, 키 암호는 「이 PC에 기억」을 켠 서버만 암호화해 저장합니다.</p>
           </div>
         </div>
         {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
@@ -317,7 +343,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                   {savedSelected?.trusted ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent/15 px-2 py-1 text-[10px] text-accent"><CheckCircle size={12} weight="fill" /> 지문 신뢰됨</span>
                   ) : <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">지문 미신뢰</span>}
-                  <span className={`rounded-md px-2 py-1 text-[10px] ${keyState === 'ready' ? 'bg-accent/15 text-accent' : 'bg-line text-muted'}`}>{KEY_STATE_LABEL[keyState]}</span>
+                  <span className={`rounded-md px-2 py-1 text-[10px] ${keyState === 'ready' ? 'bg-accent/15 text-accent' : 'bg-line text-muted'}`}>{keyState === 'ready' && remembered ? '키 사용 가능 · 기억됨' : KEY_STATE_LABEL[keyState]}</span>
                   <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">{shellLabel(savedSelected?.shell)}</span>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -373,14 +399,23 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                 ) : null}
 
                 {!dirty && (keyState === 'locked' || keyState === 'ready') ? (
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div className="mt-2">
+                  <div className="flex flex-wrap items-end gap-2">
                     <label className="min-w-[200px] flex-1 text-[11px] text-muted">
-                      키 암호 (메모리에만 보관 · 앱 재시작 시 다시 입력)
+                      키 암호
                       <input type="password" autoComplete="off" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} disabled={readOnly || busy} placeholder={keyState === 'ready' ? '이미 사용 가능 · 다시 입력할 때만' : '키 암호'} className={inputClass} />
                     </label>
                     <button type="button" disabled={readOnly || busy || !passphrase} onClick={() => void unlockServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-xs text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:cursor-not-allowed disabled:opacity-45">
                       <Key size={13} /> 키 잠금 해제
                     </button>
+                  </div>
+                    <label className="mt-2 flex items-start gap-2 text-[11px] text-muted">
+                      <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} disabled={readOnly || busy} className="mt-0.5" />
+                      <span>
+                        <span className="text-text">이 PC에 기억</span>
+                        <span className="block">이 Windows 계정으로 로그인했을 때만 풀리게 암호화해 저장합니다. 켜지 않으면 앱을 다시 시작할 때 다시 입력합니다.</span>
+                      </span>
+                    </label>
                   </div>
                 ) : null}
 
@@ -389,6 +424,11 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     <Wrench size={13} />
                     {testingId === selectedServer.id ? '테스트 중...' : '연결 테스트'}
                   </button>
+                  {remembered && !dirty ? (
+                    <button type="button" disabled={readOnly || busy} onClick={() => void forgetServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:cursor-not-allowed disabled:opacity-45">
+                      <Key size={13} /> 기억 지우기
+                    </button>
+                  ) : null}
                   <button type="button" disabled={readOnly || busy} onClick={() => void saveServer(selectedServer)} className="rounded-lg bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-45">저장</button>
                   <button type="button" disabled={readOnly || busy} onClick={() => void removeServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45">
                     <Trash size={13} /> 삭제

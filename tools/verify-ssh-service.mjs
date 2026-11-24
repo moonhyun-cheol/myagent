@@ -3,22 +3,29 @@
  * Keys are generated at run time in a temp folder; nothing leaves this machine.
  * Covers: untrusted refusal, fingerprint probe without auth, trust only after a probe,
  * locked key / unlock, exec result, cwd quoting, timeout, cancel, 64KB cap, changed host key,
- * Windows shells (cmd / powershell folder entry, euc-kr output), activity-log target line.
+ * Windows shells (cmd / powershell folder entry, euc-kr output), activity-log target line,
+ * remembered passphrase (DPAPI ciphertext only on disk, recall after memory loss, forget,
+ * key-file change), model-facing summaries (shell + keyState, no key path).
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import ssh2 from 'ssh2';
 import { readFileSync } from 'node:fs';
 import { createToolActivity } from '../core/dist/agent/tool-activity.js';
 import { saveSshServers, trustSshServer, loadSshServers, sshServersPath } from '../core/dist/ssh/ssh-profile-store.js';
+import { sshKeySecretsPath } from '../core/dist/ssh/ssh-secret-store.js';
 import {
   buildRemoteCommand,
+  clearSshPassphraseMemory,
   createSshOutputDecoder,
   execSshCommand,
+  forgetSshKey,
   listSshServerSummaries,
+  listSshServerViews,
+  lockSshKey,
   probeSshFingerprint,
   trustProbedSshFingerprint,
   unlockSshKey,
@@ -93,7 +100,7 @@ try {
 
   // 4. Locked key -> unlock in memory.
   assert.deepEqual((await listSshServerSummaries(root))[0], {
-    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', trusted: true, unlocked: false,
+    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', shell: 'posix', trusted: true, unlocked: false, keyState: 'locked',
   });
   await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
   await fail(unlockSshKey(root, 'dev', 'wrong'), 'SSH_KEY_PASSPHRASE_WRONG');
@@ -132,6 +139,77 @@ try {
   ]);
   assert.equal(first.value?.state, 'timeout');
   assert.equal(second.reason?.code, 'SSH_SERVER_BUSY', 'one command per server at a time');
+
+  // 7b. Model-facing summary: server kind and key state, never the key path or fingerprint.
+  const summary = (await listSshServerSummaries(root))[0];
+  assert.equal(summary.shell, 'posix');
+  assert.equal(summary.keyState, 'ready');
+  assert.equal(summary.unlocked, true);
+  assert.deepEqual(Object.keys(summary).sort(), ['defaultCwd', 'id', 'keyState', 'label', 'shell', 'target', 'trusted', 'unlocked']);
+  assert.doesNotMatch(JSON.stringify(summary), /id_test|SHA256:|correct horse/, 'no key path, fingerprint or passphrase in the summary');
+
+  // 7c. Remembered passphrase (Windows DPAPI). Skipped where DPAPI does not exist.
+  const secretsFile = sshKeySecretsPath(root);
+  const plainServer = { id: 'dev', label: '개발 서버', host: '127.0.0.1', port, username: 'deploy', keyPath, defaultCwd: '/srv/app' };
+  const view = async () => (await listSshServerViews(root))[0];
+  assert.equal(existsSync(secretsFile), false, 'unlock without remember stores nothing');
+  assert.equal((await view()).remembered, false);
+  let rememberChecked = false;
+  if (process.platform === 'win32') {
+    await fail(unlockSshKey(root, 'dev', 'wrong', true), 'SSH_KEY_PASSPHRASE_WRONG');
+    assert.equal(existsSync(secretsFile), false, 'a wrong passphrase is never stored');
+    await unlockSshKey(root, 'dev', 'correct horse', true);
+    assert.equal((await view()).remembered, true);
+    const storedText = readFileSync(secretsFile, 'utf8');
+    assert.doesNotMatch(storedText, /correct horse/, 'no plain passphrase in the secrets file');
+    assert.ok(!storedText.includes(Buffer.from('correct horse', 'utf8').toString('base64')), 'not merely base64 of the passphrase');
+    assert.ok(!readFileSync(secretsFile).includes(Buffer.from('correct horse', 'utf16le')), 'no UTF-16 plain passphrase either');
+    assert.doesNotMatch(readFileSync(sshServersPath(root), 'utf8'), /passphrase|password|secret|dpapi|remember|correct horse/i, 'ssh-servers.json gains no secret field');
+
+    // Restart: memory is empty, the stored copy opens the key without asking again.
+    clearSshPassphraseMemory();
+    assert.equal((await execSshCommand(root, { serverId: 'dev', command: 'id' })).state, 'ok', 'exec works after memory loss');
+    clearSshPassphraseMemory();
+    assert.deepEqual([(await view()).keyState, (await view()).remembered], ['ready', true]);
+
+    // 「기억 지우기」: usable until restart, locked after it.
+    forgetSshKey(root, 'dev');
+    assert.equal((await view()).remembered, false);
+    assert.equal((await execSshCommand(root, { serverId: 'dev', command: 'id' })).state, 'ok', 'still unlocked in this process');
+    clearSshPassphraseMemory();
+    await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
+    assert.equal((await view()).keyState, 'locked');
+
+    // Key file path changed in Settings: the stored copy goes away with the memory copy.
+    await unlockSshKey(root, 'dev', 'correct horse', true);
+    const movedKey = path.join(root, 'id_moved');
+    writeFileSync(movedKey, userKey.private, 'utf8');
+    const moved = saveSshServers(root, [{ ...plainServer, keyPath: movedKey }]);
+    assert.deepEqual(moved.keyChangedIds, ['dev']);
+    for (const changedId of moved.keyChangedIds) lockSshKey(root, changedId);
+    assert.deepEqual([(await view()).keyState, (await view()).remembered], ['locked', false]);
+    await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
+    saveSshServers(root, [plainServer]);
+
+    // Key file content replaced behind the app: the stale stored passphrase is dropped, key stays locked.
+    await unlockSshKey(root, 'dev', 'correct horse', true);
+    const otherKey = utils.generateKeyPairSync('ed25519', { passphrase: 'another one', cipher: 'aes256-ctr' });
+    writeFileSync(keyPath, otherKey.private, 'utf8');
+    clearSshPassphraseMemory();
+    assert.deepEqual([(await view()).keyState, (await view()).remembered], ['locked', false]);
+    writeFileSync(keyPath, userKey.private, 'utf8');
+
+    // Removing the server removes its stored copy.
+    await unlockSshKey(root, 'dev', 'correct horse', true);
+    for (const removedId of saveSshServers(root, []).keyChangedIds) lockSshKey(root, removedId);
+    assert.doesNotMatch(readFileSync(secretsFile, 'utf8'), /"dev"/, 'no stored copy for a removed server');
+    saveSshServers(root, [plainServer]);
+    trustSshServer(root, 'dev', expected);
+    rememberChecked = true;
+  }
+  clearSshPassphraseMemory();
+  await unlockSshKey(root, 'dev', 'correct horse');
+  assert.equal((await view()).remembered, false, 'later sections run with the passphrase in memory only');
 
   // 8. Server kind: folder entry per shell, euc-kr output, and no secret field on disk.
   assert.equal(buildRemoteCommand('ls', '/srv/app'), "cd -- '/srv/app' && ls");
@@ -191,6 +269,9 @@ try {
   assert.equal(commands.length, sent);
   assert.equal((await probeSshFingerprint(root, 'dev')).changed, true);
 
+  console.log(rememberChecked
+    ? 'PASS: remembered passphrase is DPAPI ciphertext only, survives memory loss, and is dropped on forget / key change / server removal'
+    : 'SKIP: remembered-passphrase checks need Windows DPAPI');
   console.log('PASS: ssh-service refuses untrusted/changed hosts, probes without auth, keeps the passphrase in memory, runs one command with cwd quoting, timeout, cancel and 64KB cap, enters folders on cmd/powershell servers, reads euc-kr output, stores no secret with shell, and names the server in the activity log');
 } finally {
   await new Promise((resolve) => server.close(resolve));

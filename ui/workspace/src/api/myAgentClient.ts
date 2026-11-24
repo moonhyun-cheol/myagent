@@ -2617,6 +2617,8 @@ export interface SshServerItem {
   trustedAt?: string;
   trusted?: boolean;
   keyState?: SshKeyState;
+  /** An encrypted copy of the key passphrase is stored on this PC. */
+  remembered?: boolean;
 }
 
 type SshApiBody = {
@@ -2667,9 +2669,17 @@ export async function trustSshServer(id: string, fingerprint: string): Promise<S
   return sshServerList(await sshRequest('/ssh/servers/trust', 'POST', { id, fingerprint }));
 }
 
-/** The passphrase is kept in core memory until restart; it is never written to disk. */
-export async function unlockSshServer(id: string, passphrase: string): Promise<SshServerItem[]> {
-  return sshServerList(await sshRequest('/ssh/servers/unlock', 'POST', { id, passphrase }));
+/**
+ * The passphrase is kept in core memory until restart. With `remember`, the core also stores
+ * a copy encrypted for this Windows account; the plain value is never written to disk.
+ */
+export async function unlockSshServer(id: string, passphrase: string, remember = false): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers/unlock', 'POST', { id, passphrase, remember }));
+}
+
+/** Deletes the remembered (encrypted) passphrase of this server. */
+export async function forgetSshServer(id: string): Promise<SshServerItem[]> {
+  return sshServerList(await sshRequest('/ssh/servers/forget', 'POST', { id }));
 }
 
 /** User MCP servers (remote Streamable HTTP — data/config/user-mcp-servers.json). */

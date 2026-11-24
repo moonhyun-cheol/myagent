@@ -2,6 +2,16 @@
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
     {
+      "id": "ssh-key-passphrase-remember",
+      "status": "development",
+      "title": "SSH 키 암호를 이 PC에 기억",
+      "detail": "설정 → 확장 → SSH 서버에서 키 암호를 입력할 때 「이 PC에 기억」을 켜면, 암호를 이 Windows 계정으로만 풀리게 암호화해 저장하고 앱을 다시 시작해도 다시 묻지 않습니다. 기억된 서버는 「키 사용 가능 · 기억됨」으로 표시되고 「기억 지우기」로 언제든 삭제할 수 있습니다. 키 파일 경로를 바꾸거나 서버를 삭제하면 저장된 암호도 함께 지워집니다. 기본값은 꺼짐이며 서버 목록 파일에는 암호를 넣지 않습니다. AI가 서버 목록을 볼 때 서버 종류와 키 상태도 함께 확인합니다.",
+      "area": "agent",
+      "created_at": "2026-11-24",
+      "release": { "version": null, "update_sequence": null },
+      "source_paths": ["core/src/ssh/ssh-secret-store.ts", "core/src/ssh/ssh-service.ts", "core/src/routes/dispatch.ts", "ui/workspace/src/components/SettingsSshPage.tsx", "ui/workspace/src/api/myAgentClient.ts"]
+    },
+    {
       "id": "responses-rate-limit-auto-retry",
       "status": "development",
       "title": "모델 요청 한도 초과 시 같은 요청 자동 재시도",

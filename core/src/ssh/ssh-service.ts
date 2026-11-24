@@ -3,7 +3,8 @@
  *
  * - The host key must be trusted first (probe -> user confirms -> trust). Untrusted servers
  *   are refused before any connection; a different key aborts the handshake.
- * - Key passphrases are kept in this process only (never written to disk).
+ * - Key passphrases are kept in this process. Only when the user ticks 「이 PC에 기억」 is a
+ *   DPAPI-encrypted copy stored (ssh-secret-store); the plain value is never written to disk.
  * - `ssh2` is loaded on first use, so a PC whose node_modules predates this feature still
  *   starts the core and gets SSH_RUNTIME_MISSING instead of a crash.
  */
@@ -20,6 +21,12 @@ import {
   type SshServerProfile,
   type SshShell,
 } from './ssh-profile-store.js';
+import {
+  forgetPassphrase,
+  hasRememberedPassphrase,
+  recallPassphrase,
+  rememberPassphrase,
+} from './ssh-secret-store.js';
 
 type Ssh2Module = typeof import('ssh2');
 
@@ -56,8 +63,10 @@ export interface SshExecRequest {
   onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
 }
 
-/** Memory only. Cleared on restart, key-file change, or server removal. */
+/** In-process copy. Cleared on restart, key-file change, or server removal. */
 const passphrases = new Map<string, string>();
+/** Servers whose stored copy could not be decrypted in this process; not retried until changed. */
+const recallFailed = new Set<string>();
 /** Fingerprint last seen by a probe; trust accepts only this exact value. */
 const lastProbed = new Map<string, string>();
 /** One command per server at a time. */
@@ -161,7 +170,28 @@ function looksEncrypted(problem: string): boolean {
   return /passphrase|encrypted/i.test(problem);
 }
 
-async function keyStateOf(server: SshServerProfile): Promise<SshKeyState> {
+/**
+ * Passphrase for this key: the in-process copy, else the remembered one (loaded once).
+ * A remembered passphrase that no longer opens the key is deleted from disk.
+ */
+function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshServerProfile, key: Buffer): string | undefined {
+  const held = passphrases.get(server.id);
+  if (held) return held;
+  if (recallFailed.has(server.id) || !hasRememberedPassphrase(cqrRoot, server.id)) return undefined;
+  const recalled = recallPassphrase(cqrRoot, server.id);
+  if (recalled === null) {
+    recallFailed.add(server.id);
+    return undefined;
+  }
+  if (keyParseProblem(lib, key, recalled)) {
+    try { forgetPassphrase(cqrRoot, server.id); } catch { /* stays stored; rejected again next start */ }
+    return undefined;
+  }
+  passphrases.set(server.id, recalled);
+  return recalled;
+}
+
+async function keyStateOf(cqrRoot: string, server: SshServerProfile): Promise<SshKeyState> {
   let lib: Ssh2Module;
   try {
     lib = await loadSsh2();
@@ -174,7 +204,7 @@ async function keyStateOf(server: SshServerProfile): Promise<SshKeyState> {
   } catch {
     return 'missing';
   }
-  const problem = keyParseProblem(lib, key, passphrases.get(server.id));
+  const problem = keyParseProblem(lib, key, usablePassphrase(cqrRoot, lib, server, key));
   if (!problem) return 'ready';
   return looksEncrypted(problem) ? 'locked' : 'invalid';
 }
@@ -182,16 +212,23 @@ async function keyStateOf(server: SshServerProfile): Promise<SshKeyState> {
 export interface SshServerView extends SshServerProfile {
   trusted: boolean;
   keyState: SshKeyState;
+  /** An encrypted copy of the key passphrase is stored on this PC. */
+  remembered: boolean;
 }
 
 /** Settings view: every stored field plus trust and key state. Never a secret. */
 export async function listSshServerViews(cqrRoot: string): Promise<SshServerView[]> {
   const { servers } = loadSshServers(cqrRoot);
-  return Promise.all(servers.map(async (server) => ({
-    ...server,
-    trusted: Boolean(server.hostKeySha256),
-    keyState: await keyStateOf(server),
-  })));
+  return Promise.all(servers.map(async (server) => {
+    // Key state first: it drops a remembered passphrase that no longer opens the key.
+    const keyState = await keyStateOf(cqrRoot, server);
+    return {
+      ...server,
+      trusted: Boolean(server.hostKeySha256),
+      keyState,
+      remembered: hasRememberedPassphrase(cqrRoot, server.id),
+    };
+  }));
 }
 
 /** Model-facing view (`ssh_list_servers`): no key path, no fingerprint. */
@@ -200,8 +237,10 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
   label: string;
   target: string;
   defaultCwd?: string;
+  shell: SshShell;
   trusted: boolean;
   unlocked: boolean;
+  keyState: SshKeyState;
 }>> {
   const views = await listSshServerViews(cqrRoot);
   return views.map((server) => ({
@@ -209,17 +248,38 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
     label: server.label,
     target: `${server.username}@${server.host}:${server.port}`,
     ...(server.defaultCwd ? { defaultCwd: server.defaultCwd } : {}),
+    shell: server.shell ?? 'posix',
     trusted: server.trusted,
     unlocked: server.keyState === 'ready',
+    keyState: server.keyState,
   }));
 }
 
-export function lockSshKey(serverId: string): void {
+/** Key file changed or server removed: drop the in-process passphrase and the remembered copy. */
+export function lockSshKey(cqrRoot: string, serverId: string): void {
   passphrases.delete(serverId);
+  recallFailed.delete(serverId);
+  forgetPassphrase(cqrRoot, serverId);
 }
 
-/** Keep the passphrase in memory after checking that it really opens the key file. */
-export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase: string): Promise<void> {
+/** 「기억 지우기」: delete only the remembered copy. The key stays usable until restart. */
+export function forgetSshKey(cqrRoot: string, serverId: string): void {
+  requireServer(cqrRoot, serverId);
+  recallFailed.delete(serverId);
+  forgetPassphrase(cqrRoot, serverId);
+}
+
+/** Drops in-process passphrases only, as an app restart does. Used by verify scripts. */
+export function clearSshPassphraseMemory(): void {
+  passphrases.clear();
+  recallFailed.clear();
+}
+
+/**
+ * Keep the passphrase in memory after checking that it really opens the key file.
+ * With `remember`, the verified passphrase is also stored encrypted on this PC.
+ */
+export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase: string, remember = false): Promise<void> {
   const server = findSshServer(cqrRoot, serverId);
   if (!server) throw new SshError('SSH_SERVER_NOT_FOUND', `Unknown server: ${serverId}`);
   const lib = await loadSsh2();
@@ -231,8 +291,13 @@ export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase
       passphrase ? 'The passphrase does not open this key file.' : 'This key file needs a passphrase.',
     );
   }
-  if (passphrase) passphrases.set(serverId, passphrase);
-  else passphrases.delete(serverId);
+  if (passphrase) {
+    passphrases.set(serverId, passphrase);
+    if (remember && rememberPassphrase(cqrRoot, serverId, passphrase)) recallFailed.delete(serverId);
+  } else {
+    passphrases.delete(serverId);
+    forgetPassphrase(cqrRoot, serverId);
+  }
 }
 
 function requireServer(cqrRoot: string, serverId: string): SshServerProfile {
@@ -388,7 +453,7 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
   try {
     const lib = await loadSsh2();
     const privateKey = readKeyFile(server);
-    const passphrase = passphrases.get(server.id);
+    const passphrase = usablePassphrase(cqrRoot, lib, server, privateKey);
     const problem = keyParseProblem(lib, privateKey, passphrase);
     if (problem) {
       throw looksEncrypted(problem)

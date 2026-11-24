@@ -32,6 +32,7 @@ import {
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
 import { saveSshServers, SshProfileError, SSH_SERVERS_REL_PATH } from '../ssh/ssh-profile-store.js';
 import {
+  forgetSshKey,
   listSshServerViews,
   lockSshKey,
   probeSshFingerprint,
@@ -1429,7 +1430,8 @@ export async function dispatchApiRequest(
         return sendJson(res, result.ok ? 200 : 400, result);
       }
 
-      // --- SSH servers (data/config/ssh-servers.json; no secret is stored or returned) ---
+      // --- SSH servers (data/config/ssh-servers.json holds no secret; a remembered key passphrase
+      //     is DPAPI ciphertext in data/config/ssh-key-secrets.json and is never returned) ---
       if (method === 'GET' && url.pathname === '/ssh/servers') {
         license.assertFeature('chat');
         return sendJson(res, 200, {
@@ -1444,13 +1446,13 @@ export async function dispatchApiRequest(
           return sendJson(res, 405, { error: 'METHOD_NOT_ALLOWED', message: 'unsupported method' });
         }
         const action = url.pathname.slice('/ssh/servers'.length);
-        if (!['', '/test', '/trust', '/unlock'].includes(action)) {
+        if (!['', '/test', '/trust', '/unlock', '/forget'].includes(action)) {
           return sendJson(res, 404, { error: 'NOT_FOUND', message: 'unknown ssh route' });
         }
         // The connection test only reads the host key; everything else changes state.
         if (action !== '/test') license.assertWritable();
         license.assertFeature('chat');
-        let body: { servers?: unknown; id?: unknown; fingerprint?: unknown; passphrase?: unknown };
+        let body: { servers?: unknown; id?: unknown; fingerprint?: unknown; passphrase?: unknown; remember?: unknown };
         try {
           body = JSON.parse(await readBody(req)) as typeof body;
         } catch {
@@ -1463,7 +1465,7 @@ export async function dispatchApiRequest(
               return sendJson(res, 400, { error: 'SERVERS_REQUIRED', message: 'servers array required' });
             }
             const saved = saveSshServers(cqrRoot, body.servers);
-            for (const changedId of saved.keyChangedIds) lockSshKey(changedId);
+            for (const changedId of saved.keyChangedIds) lockSshKey(cqrRoot, changedId);
             return sendJson(res, 200, {
               ok: true,
               after: saved.doc.servers.length,
@@ -1478,7 +1480,11 @@ export async function dispatchApiRequest(
             trustProbedSshFingerprint(cqrRoot, id, String(body.fingerprint ?? ''));
             return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
           }
-          await unlockSshKey(cqrRoot, id, typeof body.passphrase === 'string' ? body.passphrase : '');
+          if (action === '/forget') {
+            forgetSshKey(cqrRoot, id);
+            return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
+          }
+          await unlockSshKey(cqrRoot, id, typeof body.passphrase === 'string' ? body.passphrase : '', body.remember === true);
           return sendJson(res, 200, { ok: true, servers: await listSshServerViews(cqrRoot) });
         } catch (error) {
           if (error instanceof SshError || error instanceof SshProfileError) {
