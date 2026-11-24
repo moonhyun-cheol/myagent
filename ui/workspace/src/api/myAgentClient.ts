@@ -2614,6 +2614,8 @@ export interface SshServerItem {
   defaultCwd?: string;
   shell?: SshShell;
   encoding?: 'utf8' | 'cp949';
+  auth?: 'key' | 'password';
+  jumpServerId?: string;
   hostKeySha256?: string;
   trustedAt?: string;
   trusted?: boolean;
@@ -2655,8 +2657,8 @@ export async function listSshServers(): Promise<SshServerItem[]> {
 
 /** Trust and key state are decided by the server; only the editable fields are sent. */
 export async function saveSshServers(servers: SshServerItem[]): Promise<SshServerItem[]> {
-  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd, encoding, shell }) => ({
-    id, label, host, port, username, keyPath, defaultCwd, encoding, shell,
+  const payload = servers.map(({ id, label, host, port, username, keyPath, defaultCwd, encoding, auth, jumpServerId, shell }) => ({
+    id, label, host, port, username, keyPath, defaultCwd, encoding, auth, jumpServerId, shell,
   }));
   return sshServerList(await sshRequest('/ssh/servers', 'PUT', { servers: payload }));
 }

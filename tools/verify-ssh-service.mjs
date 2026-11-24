@@ -8,14 +8,15 @@
  * key-file change), model-facing summaries (shell + keyState, no key path).
  */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import ssh2 from 'ssh2';
 import { readFileSync } from 'node:fs';
 import { createToolActivity } from '../core/dist/agent/tool-activity.js';
-import { saveSshServers, trustSshServer, loadSshServers, sshServersPath } from '../core/dist/ssh/ssh-profile-store.js';
+import { describeSshTarget, findSshServer, saveSshServers, trustSshServer, loadSshServers, sshServersPath } from '../core/dist/ssh/ssh-profile-store.js';
 import { sshKeySecretsPath } from '../core/dist/ssh/ssh-secret-store.js';
 import {
   buildRemoteCommand,
@@ -36,7 +37,8 @@ import {
 
 const { Server, utils } = ssh2;
 const root = mkdtempSync(path.join(os.tmpdir(), 'my-agent-sshsvc-'));
-const hostKey = utils.generateKeyPairSync('ed25519');
+const hostKey = () => generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
+const finalHostKey = hostKey();
 const userKey = utils.generateKeyPairSync('ed25519', { passphrase: 'correct horse', cipher: 'aes256-ctr' });
 const userPublic = utils.parseKey(userKey.public);
 const keyPath = path.join(root, 'id_test');
@@ -44,13 +46,14 @@ writeFileSync(keyPath, userKey.private, 'utf8');
 
 let authAttempts = 0, accepts = 0;
 const commands = [];
-const server = new Server({ hostKeys: [hostKey.private] }, (client) => {
+const server = new Server({ hostKeys: [finalHostKey] }, (client) => {
   accepts++;
   client.on('error', () => {});
   client.on('authentication', (ctx) => {
     authAttempts += 1;
     if (ctx.method === 'publickey' && ctx.key.data.equals(userPublic.getPublicSSH())) return ctx.accept();
-    return ctx.reject(['publickey']);
+    if (ctx.method === 'password' && ctx.username === 'pw-user' && ctx.password === 'verified fixture') return ctx.accept();
+    return ctx.reject(['publickey', 'password']);
   });
   client.on('ready', () => {
     client.on('session', (accept) => {
@@ -93,7 +96,7 @@ try {
   assert.equal(authAttempts, 0);
 
   // 2. Probe returns the real fingerprint and never authenticates or trusts.
-  const expected = `SHA256:${createHash('sha256').update(utils.parseKey(hostKey.public).getPublicSSH()).digest('base64').replace(/=+$/, '')}`;
+  const expected = `SHA256:${createHash('sha256').update(utils.parseKey(finalHostKey).getPublicSSH()).digest('base64').replace(/=+$/, '')}`;
   const probe = await probeSshFingerprint(root, 'dev');
   assert.deepEqual(probe, { fingerprint: expected, trusted: false, changed: false });
   assert.equal(authAttempts, 0, 'probe sends no credentials');
@@ -106,7 +109,7 @@ try {
 
   // 4. Locked key -> unlock in memory.
   assert.deepEqual((await listSshServerSummaries(root))[0], {
-    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', shell: 'posix', encoding: 'utf8', trusted: true, unlocked: false, keyState: 'locked',
+    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', shell: 'posix', encoding: 'utf8', auth: 'key', trusted: true, unlocked: false, keyState: 'locked',
   });
   await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
   await fail(unlockSshKey(root, 'dev', 'wrong'), 'SSH_KEY_PASSPHRASE_WRONG');
@@ -168,7 +171,7 @@ try {
   assert.equal(summary.shell, 'posix');
   assert.equal(summary.keyState, 'ready');
   assert.equal(summary.unlocked, true);
-  assert.deepEqual(Object.keys(summary).sort(), ['defaultCwd', 'encoding', 'id', 'keyState', 'label', 'shell', 'target', 'trusted', 'unlocked']);
+  assert.deepEqual(Object.keys(summary).sort(), ['auth', 'defaultCwd', 'encoding', 'id', 'keyState', 'label', 'shell', 'target', 'trusted', 'unlocked']);
   assert.doesNotMatch(JSON.stringify(summary), /id_test|SHA256:|correct horse/, 'no key path, fingerprint or passphrase in the summary');
 
   // 7c. Remembered passphrase (Windows DPAPI). Skipped where DPAPI does not exist.
@@ -308,6 +311,57 @@ try {
   assert.equal(commands.length, sent);
   assert.equal((await probeSshFingerprint(root, 'dev')).changed, true);
 
+  const gateway = new Server({ hostKeys: [hostKey()] }, client => {
+    client.on('error', () => {});
+    client.on('authentication', ctx => ctx.method === 'publickey' && ctx.key.data.equals(userPublic.getPublicSSH()) ? ctx.accept() : ctx.reject(['publickey']));
+    client.on('tcpip', (accept, reject, info) => {
+      if (info.destIP !== 'inner.invalid' || info.destPort !== port) return reject();
+      const stream = accept();
+      const socket = net.connect(port, '127.0.0.1');
+      stream.on('error', () => socket.destroy()).on('close', () => socket.destroy());
+      socket.on('error', () => stream.destroy());
+      socket.pipe(stream).pipe(socket);
+    });
+  });
+  await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+  try {
+    const jump = { ...baseServer, id: 'jump', label: '중계', port: gateway.address().port };
+    const pw = { id: 'pw', username: 'pw-user', host: 'inner.invalid', port, auth: 'password', jumpServerId: jump.id };
+    for (const bad of [[pw], [jump, { ...pw, jumpServerId: 'pw' }], [{ ...jump, jumpServerId: 'pw' }, pw]]) {
+      assert.throws(() => saveSshServers(root, bad), err => err.code === 'SSH_SERVER_INVALID');
+    }
+    saveSshServers(root, [jump, pw]);
+    assert.match(describeSshTarget(findSshServer(root, 'pw')), / · 경유: 중계$/);
+    await fail(probeSshFingerprint(root, 'pw'), 'SSH_HOST_NOT_TRUSTED');
+    trustProbedSshFingerprint(root, 'jump', (await probeSshFingerprint(root, 'jump')).fingerprint);
+    await unlockSshKey(root, 'jump', 'correct horse');
+    assert.equal((await probeSshFingerprint(root, 'pw')).fingerprint, expected);
+    await fail(unlockSshKey(root, 'pw', 'verified fixture'), 'SSH_HOST_NOT_TRUSTED');
+    trustProbedSshFingerprint(root, 'pw', expected);
+    await fail(unlockSshKey(root, 'pw', 'bad fixture', true), 'SSH_AUTH_FAILED');
+    const pwView = async () => (await listSshServerViews(root)).find(s => s.id === 'pw');
+    assert.deepEqual([(await pwView()).keyState, (await pwView()).remembered], ['locked', false]);
+    await unlockSshKey(root, 'pw', 'verified fixture', true);
+    if (process.platform === 'win32') {
+      assert.equal((await pwView()).remembered, true);
+      assert.doesNotMatch(readFileSync(secretsFile, 'utf8'), /verified fixture|bad fixture/);
+      clearSshPassphraseMemory();
+      await unlockSshKey(root, 'jump', 'correct horse');
+    }
+    assert.equal((await execSshCommand(root, { serverId: 'pw', command: 'id' })).stdout, 'ran:id\n');
+    const sums = await listSshServerSummaries(root);
+    assert.equal(sums.find(s => s.id === 'pw').auth, 'password');
+    assert.doesNotMatch(JSON.stringify(sums), /keyPath|id_test|SHA256:|fixture|passphrase/i);
+    assert.doesNotMatch(readFileSync(sshServersPath(root), 'utf8'), /"(?:password|passphrase|privateKey|keyBody|dpapi)"\s*:|fixture/i);
+    trustSshServer(root, 'jump', expected); // final host's key is not the gateway's key
+    const count = authAttempts;
+    await fail(execSshCommand(root, { serverId: 'pw', command: 'id' }), 'SSH_HOST_KEY_CHANGED');
+    assert.equal(authAttempts, count);
+    console.log('PASS: password verified before storage, pinned jump and target, forwarded exec, redacted summaries and profiles');
+  } finally {
+    closeSshConnections();
+    await new Promise(resolve => gateway.close(resolve));
+  }
   console.log(rememberChecked
     ? 'PASS: remembered passphrase is DPAPI ciphertext only, survives memory loss, and is dropped on forget / key change / server removal'
     : 'SKIP: remembered-passphrase checks need Windows DPAPI');

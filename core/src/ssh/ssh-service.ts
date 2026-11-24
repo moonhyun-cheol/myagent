@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
-import type { Client, ClientChannel } from 'ssh2';
+import type { Client, ClientChannel, ConnectConfig } from 'ssh2';
 import { SECRET_MATERIAL_RE } from '../agent/agent-hooks.js';
 import {
   describeSshTarget,
@@ -177,6 +177,8 @@ function looksEncrypted(problem: string): boolean {
 const pendingRecall = new Map<string, Promise<string | undefined>>();
 const mutations = new Map<string, symbol>();
 interface Connection { client: Client; target: string; idle?: NodeJS.Timeout }
+// Dedicated bastion transports, including probes and handshakes not yet in the idle pool.
+const tunnels = new Map<Client, [string, string]>();
 const connections = new Map<string, Connection>();
 function closeConnection(id: string) {
   const entry = connections.get(id);
@@ -189,11 +191,14 @@ export function closeSshConnections() {
   for (const id of connections.keys()) closeConnection(id);
 }
 function invalidate(id: string) {
+  for (const [client, [via, target]] of tunnels) {
+    if (id === via || id === target) { closeConnection(target); client.destroy(); }
+  }
   closeConnection(id);
   pendingRecall.delete(id);
   mutations.set(id, Symbol());
 }
-async function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshServerProfile, key: Buffer): Promise<string | undefined> {
+async function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshServerProfile, key?: Buffer): Promise<string | undefined> {
   const held = passphrases.get(server.id);
   if (held) return held;
   if (recallFailed.has(server.id) || !hasRememberedPassphrase(cqrRoot, server.id)) return undefined;
@@ -207,7 +212,7 @@ async function usablePassphrase(cqrRoot: string, lib: Ssh2Module, server: SshSer
       recallFailed.add(server.id);
       return undefined;
     }
-    if (keyParseProblem(lib, key, recalled)) {
+    if (key && keyParseProblem(lib, key, recalled)) {
       try { forgetPassphrase(cqrRoot, server.id); } catch { /* stays stored; rejected again next start */ }
       return undefined;
     }
@@ -225,6 +230,7 @@ async function keyStateOf(cqrRoot: string, server: SshServerProfile): Promise<Ss
   } catch {
     return 'unknown';
   }
+  if (server.auth === 'password') return await usablePassphrase(cqrRoot, lib, server) ? 'ready' : 'locked';
   let key: Buffer;
   try {
     key = readKeyFile(server);
@@ -268,6 +274,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
   target: string;
   defaultCwd?: string;
   shell: SshShell;
+  auth: 'key' | 'password';
   encoding: 'utf8' | 'cp949';
   trusted: boolean;
   unlocked: boolean;
@@ -279,6 +286,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
     label: server.label,
     target: `${server.username}@${server.host}:${server.port}`,
     ...(server.defaultCwd ? { defaultCwd: server.defaultCwd } : {}),
+    auth: server.auth ?? 'key',
     shell: server.shell ?? 'posix',
     encoding: server.encoding ?? (!server.shell || server.shell === 'posix' ? 'utf8' : 'cp949'),
     trusted: server.trusted,
@@ -289,6 +297,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
 
 /** Key file changed or server removed: drop the in-process passphrase and the remembered copy. */
 export function lockSshKey(cqrRoot: string, serverId: string): void {
+  lastProbed.delete(serverId);
   invalidate(serverId);
   passphrases.delete(serverId);
   recallFailed.delete(serverId);
@@ -328,13 +337,21 @@ export async function unlockSshKey(cqrRoot: string, serverId: string, passphrase
   const current = () => mutations.get(serverId) === generation;
   const lib = await loadSsh2();
   if (!current()) return;
-  const key = readKeyFile(server);
-  const problem = keyParseProblem(lib, key, passphrase || undefined);
-  if (problem) {
-    throw new SshError(
-      looksEncrypted(problem) || passphrase ? 'SSH_KEY_PASSPHRASE_WRONG' : 'SSH_KEY_INVALID',
-      passphrase ? 'The passphrase does not open this key file.' : 'This key file needs a passphrase.',
-    );
+  if (server.auth === 'password') {
+    if (!passphrase) throw new SshError('SSH_AUTH_FAILED', '비밀번호를 입력하세요.');
+    const client = await openAuthenticated(cqrRoot, lib, server, undefined, passphrase);
+    if (client === 'cancelled') return;
+    client.end();
+    if (!current()) return;
+  } else {
+    const key = readKeyFile(server);
+    const problem = keyParseProblem(lib, key, passphrase || undefined);
+    if (problem) {
+      throw new SshError(
+        looksEncrypted(problem) || passphrase ? 'SSH_KEY_PASSPHRASE_WRONG' : 'SSH_KEY_INVALID',
+        passphrase ? 'The passphrase does not open this key file.' : 'This key file needs a passphrase.',
+      );
+    }
   }
   if (passphrase) {
     passphrases.set(serverId, passphrase);
@@ -362,6 +379,7 @@ export async function probeSshFingerprint(
   const server = requireServer(cqrRoot, serverId);
   const lib = await loadSsh2();
   const client: Client = new lib.Client();
+  const tunnel = await openTunnel(cqrRoot, lib, server);
   const fingerprint = await new Promise<string>((resolve, reject) => {
     let seen = '';
     let settled = false;
@@ -383,6 +401,7 @@ export async function probeSshFingerprint(
         host: server.host,
         port: server.port,
         username: server.username,
+        sock: tunnel?.sock,
         readyTimeout: CONNECT_TIMEOUT_MS,
         hostVerifier: (key: Buffer) => {
           seen = sshFingerprint(key);
@@ -392,7 +411,7 @@ export async function probeSshFingerprint(
     } catch (error) {
       finish(() => reject(new SshError('SSH_CONNECT_FAILED', error instanceof Error ? error.message : String(error))));
     }
-  });
+  }).finally(() => tunnel?.via.destroy());
   if (!fingerprint) throw new SshError('SSH_CONNECT_FAILED', 'host key was not received');
   lastProbed.set(server.id, fingerprint);
   return {
@@ -413,8 +432,7 @@ export function trustProbedSshFingerprint(cqrRoot: string, serverId: string, fin
 function connectTrusted(
   lib: Ssh2Module,
   server: SshServerProfile,
-  privateKey: Buffer,
-  passphrase: string | undefined,
+  config: ConnectConfig,
   signal: AbortSignal | undefined,
 ): Promise<Client | 'cancelled'> {
   const client: Client = new lib.Client();
@@ -456,8 +474,7 @@ function connectTrusted(
         host: server.host,
         port: server.port,
         username: server.username,
-        privateKey,
-        ...(passphrase ? { passphrase } : {}),
+        ...config,
         readyTimeout: CONNECT_TIMEOUT_MS,
         hostVerifier: (key: Buffer) => {
           seen = sshFingerprint(key);
@@ -468,6 +485,64 @@ function connectTrusted(
       fail(new SshError('SSH_CONNECT_FAILED', error instanceof Error ? error.message : String(error)));
     }
   });
+}
+
+async function credentials(root: string, lib: Ssh2Module, server: SshServerProfile, password?: string): Promise<ConnectConfig> {
+  if (!server.hostKeySha256) throw new SshError('SSH_HOST_NOT_TRUSTED', `${server.label}: 서버 지문을 먼저 신뢰하세요.`);
+  if (server.auth === 'password') {
+    password ??= await usablePassphrase(root, lib, server);
+    if (!password) throw new SshError('SSH_KEY_LOCKED', '설정에서 비밀번호로 잠금을 해제하세요.');
+    return { password, authHandler: ['password'] };
+  }
+  const privateKey = readKeyFile(server);
+  const passphrase = await usablePassphrase(root, lib, server, privateKey);
+  const problem = keyParseProblem(lib, privateKey, passphrase);
+  if (problem) throw looksEncrypted(problem)
+    ? new SshError('SSH_KEY_LOCKED', `The key for ${server.label} is locked.`)
+    : new SshError('SSH_KEY_INVALID', `The key file for ${server.label} cannot be used.`);
+  return { privateKey, passphrase };
+}
+
+async function openTunnel(root: string, lib: Ssh2Module, server: SshServerProfile, signal?: AbortSignal) {
+  if (!server.jumpServerId) return;
+  const jump = requireServer(root, server.jumpServerId);
+  if (jump.jumpServerId) throw new SshError('SSH_SERVER_INVALID', '경유 서버는 한 단계만 사용할 수 있습니다.');
+  const generation = mutations.get(jump.id);
+  const via = await connectTrusted(lib, jump, await credentials(root, lib, jump), signal);
+  if (via === 'cancelled') throw new SshError('SSH_CANCELLED', '연결이 취소됐습니다.');
+  if (generation !== mutations.get(jump.id)) { via.destroy(); throw new SshError('SSH_KEY_LOCKED', '경유 서버 설정이 변경됐습니다.'); }
+  tunnels.set(via, [jump.id, server.id]);
+  via.once('close', () => tunnels.delete(via));
+  const abort = () => via.destroy();
+  signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, CONNECT_TIMEOUT_MS);
+  try {
+    const sock = await new Promise<ClientChannel>((resolve, reject) => {
+      const closed = () => reject(new SshError('SSH_CONNECT_FAILED', '경유 서버 연결이 종료됐습니다.'));
+      via.once('close', closed);
+      via.forwardOut('127.0.0.1', 0, server.host, server.port, (err, channel) => {
+        via.off('close', closed);
+        if (err) reject(new SshError('SSH_CONNECT_FAILED', '경유 서버에서 목적지로 연결하지 못했습니다.')); else resolve(channel);
+      });
+      if (signal?.aborted) abort();
+    });
+    return { via, sock };
+  } catch (err) { via.destroy(); throw err; }
+  finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
+}
+
+async function openAuthenticated(root: string, lib: Ssh2Module, server: SshServerProfile, signal?: AbortSignal, password?: string) {
+  const config = await credentials(root, lib, server, password);
+  const tunnel = await openTunnel(root, lib, server, signal).catch(err => { if (!signal?.aborted) throw err; });
+  if (signal?.aborted) { tunnel?.via.destroy(); return 'cancelled' as const; }
+  try {
+    const client = await connectTrusted(lib, server, { ...config, sock: tunnel?.sock }, signal);
+    if (tunnel) {
+      if (client === 'cancelled') tunnel.via.destroy();
+      else client.once('close', () => tunnel.via.destroy());
+    }
+    return client;
+  } catch (err) { tunnel?.via.destroy(); throw err; }
 }
 
 /** Run exactly one command on a trusted server. Approval is the caller's (step loop) duty. */
@@ -497,20 +572,13 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
   busyServers.add(server.id);
   try {
     const lib = await loadSsh2();
-    const privateKey = readKeyFile(server);
-    const passphrase = await usablePassphrase(cqrRoot, lib, server, privateKey);
-    const problem = keyParseProblem(lib, privateKey, passphrase);
-    if (problem) {
-      throw looksEncrypted(problem)
-        ? new SshError('SSH_KEY_LOCKED', `The key for ${server.label} is locked. The user must use 「키 잠금 해제」 in Settings > SSH 서버.`)
-        : new SshError('SSH_KEY_INVALID', `The key file for ${server.label} cannot be used.`);
-    }
-    const target = JSON.stringify([cqrRoot, server.host, server.port, server.username, server.keyPath, server.hostKeySha256]);
+    const jump = server.jumpServerId ? requireServer(cqrRoot, server.jumpServerId) : null;
+    const target = JSON.stringify([cqrRoot, server.host, server.port, server.username, server.keyPath, server.auth, server.hostKeySha256, jump]);
     let entry = connections.get(server.id);
     if (entry?.target !== target) { closeConnection(server.id); entry = undefined; }
     if (!entry) {
       const generation = mutations.get(server.id);
-      const client = await connectTrusted(lib, server, privateKey, passphrase, req.signal);
+      const client = await openAuthenticated(cqrRoot, lib, server, req.signal);
       if (client === 'cancelled') return empty('cancelled');
       if (generation !== mutations.get(server.id)) { client.destroy(); return empty('disconnected'); }
       entry = { client, target };

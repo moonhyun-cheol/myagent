@@ -21,6 +21,8 @@ export interface SshServerProfile {
   username: string;
   /** Path of the private key file on this PC. The key body is never stored here. */
   keyPath: string;
+  auth?: 'key' | 'password';
+  jumpServerId?: string;
   defaultCwd?: string;
   /** Missing means `posix` (Linux/macOS). `cmd` / `powershell` are Windows servers. */
   shell?: SshShell;
@@ -57,8 +59,9 @@ export function isSshFingerprint(value: unknown): value is string {
 }
 
 /** `label (user@host:port)` — the wording shown on the approval card. */
-export function describeSshTarget(server: SshServerProfile): string {
-  return `${server.label} (${server.username}@${server.host}:${server.port})`;
+export function describeSshTarget(server: SshServerProfile & { jumpLabel?: string }): string {
+  const via = server.jumpServerId ? ` · 경유: ${server.jumpLabel ?? server.jumpServerId}` : '';
+  return `${server.label} (${server.username}@${server.host}:${server.port})${via}`;
 }
 
 function text(value: unknown, max: number): string {
@@ -76,7 +79,8 @@ function cleanServer(raw: unknown): SshServerProfile | string {
   const username = text(row.username, 64);
   if (!username || /[\s'"`$;|&<>\\]/.test(username)) return `invalid username for ${id}`;
   const keyPath = text(row.keyPath, 1024);
-  if (!keyPath) return `keyPath required for ${id}`;
+  if (row.auth !== undefined && row.auth !== 'key' && row.auth !== 'password') return `unsupported auth for ${id}`;
+  if (row.auth !== 'password' && !keyPath) return `keyPath required for ${id}`;
   const portRaw = row.port === undefined || row.port === null || row.port === '' ? 22 : Number(row.port);
   if (!Number.isInteger(portRaw) || portRaw < 1 || portRaw > 65535) return `invalid port for ${id}`;
   const defaultCwd = text(row.defaultCwd, 1024);
@@ -87,7 +91,9 @@ function cleanServer(raw: unknown): SshServerProfile | string {
     host,
     port: portRaw,
     username,
-    keyPath,
+    keyPath: row.auth === 'password' ? '' : keyPath,
+    ...(row.auth ? { auth: row.auth } : {}),
+    ...(row.jumpServerId ? { jumpServerId: String(row.jumpServerId) } : {}),
   };
   if (row.encoding === 'utf8' || row.encoding === 'cp949') server.encoding = row.encoding;
   if (defaultCwd) server.defaultCwd = defaultCwd;
@@ -127,10 +133,12 @@ function writeDoc(cqrRoot: string, doc: SshServersDoc): void {
   renameSync(tmp, file);
 }
 
-export function findSshServer(cqrRoot: string, id: string): SshServerProfile | null {
+export function findSshServer(cqrRoot: string, id: string): (SshServerProfile & { jumpLabel?: string }) | null {
   const wanted = String(id ?? '').trim();
   if (!wanted) return null;
-  return loadSshServers(cqrRoot).servers.find((server) => server.id === wanted) ?? null;
+  const { servers } = loadSshServers(cqrRoot);
+  const server = servers.find(s => s.id === wanted);
+  return server?.jumpServerId ? { ...server, jumpLabel: servers.find(s => s.id === server.jumpServerId)?.label } : server ?? null;
 }
 
 /**
@@ -157,18 +165,23 @@ export function saveSshServers(
     delete cleaned.hostKeySha256;
     delete cleaned.trustedAt;
     const before = prev.servers.find((s) => s.id === cleaned.id);
-    if (before?.hostKeySha256 && before.host === cleaned.host && before.port === cleaned.port) {
+    if (before?.hostKeySha256 && before.host === cleaned.host && before.port === cleaned.port && before.jumpServerId === cleaned.jumpServerId) {
       cleaned.hostKeySha256 = before.hostKeySha256;
       if (before.trustedAt) cleaned.trustedAt = before.trustedAt;
     }
     servers.push(cleaned);
+  }
+  for (const server of servers) {
+    if (!server.jumpServerId) continue;
+    const jump = servers.find(s => s.id === server.jumpServerId);
+    if (!jump || jump.jumpServerId) throw new SshProfileError('SSH_SERVER_INVALID', '경유 서버는 등록된 다른 직접 연결 서버여야 합니다.');
   }
   const doc: SshServersDoc = { version: 1, servers };
   writeDoc(cqrRoot, doc);
   const keyChangedIds = prev.servers
     .filter((before) => {
       const after = servers.find((s) => s.id === before.id);
-      return !after || after.keyPath !== before.keyPath || after.host !== before.host || after.port !== before.port || after.username !== before.username;
+      return !after || after.keyPath !== before.keyPath || after.host !== before.host || after.port !== before.port || after.username !== before.username || (after.auth ?? 'key') !== (before.auth ?? 'key') || after.jumpServerId !== before.jumpServerId;
     })
     .map((s) => s.id);
   return { doc, keyChangedIds };

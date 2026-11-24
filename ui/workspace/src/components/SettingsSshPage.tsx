@@ -29,6 +29,8 @@ type ServerDraft = {
   defaultCwd: string;
   shell: SshShell;
   encoding?: SshServerItem['encoding'];
+  auth?: SshServerItem['auth'];
+  jumpServerId?: string;
 };
 
 const SHELL_OPTIONS: Array<{ value: SshShell; label: string }> = [
@@ -52,7 +54,7 @@ const KEY_STATE_LABEL: Record<SshKeyState, string> = {
 };
 
 const editableKey = (server: SshServerItem | undefined) => (server
-  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? '', server.shell ?? 'posix', server.encoding])
+  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? '', server.shell ?? 'posix', server.encoding, server.auth, server.jumpServerId])
   : '');
 
 const inputClass = 'mt-1 w-full rounded-lg border border-line bg-panel px-2.5 py-2 font-mono text-xs text-text outline-none focus:border-accent disabled:opacity-60';
@@ -121,8 +123,9 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
     }
   };
 
-  const validate = (server: { host: string; username: string; keyPath: string; port: number }): string | null => {
-    if (!server.host.trim() || !server.username.trim() || !server.keyPath.trim()) return '호스트, 계정, 키 파일 경로를 입력하세요.';
+  const validate = (server: { host: string; username: string; keyPath: string; auth?: SshServerItem['auth']; port: number }): string | null => {
+    if (!server.host.trim() || !server.username.trim()) return '호스트와 계정을 입력하세요.';
+    if (server.auth !== 'password' && !server.keyPath.trim()) return '키 파일 경로를 입력하세요.';
     if (!Number.isInteger(server.port) || server.port < 1 || server.port > 65535) return '포트는 1~65535 사이 숫자여야 합니다.';
     return null;
   };
@@ -216,14 +219,14 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
       applyServerState(next);
       const stored = next.find((item) => item.id === server.id)?.remembered === true;
       setMessage(stored
-        ? `키 잠금 해제됨 · ${name} · 암호를 이 PC에 기억했습니다`
+        ? `잠금 해제됨 · ${name} · 암호를 이 PC에 기억했습니다`
         : remember
-          ? `키 잠금 해제됨 · ${name} · 이 PC에 기억하지는 못했습니다 (앱을 다시 시작하면 다시 입력해야 합니다)`
-          : `키 잠금 해제됨 · ${name} (앱을 다시 시작하면 다시 입력해야 합니다)`);
+          ? `잠금 해제됨 · ${name} · 이 PC에 기억하지는 못했습니다 (앱을 다시 시작하면 다시 입력해야 합니다)`
+          : `잠금 해제됨 · ${name} (앱을 다시 시작하면 다시 입력해야 합니다)`);
       setPassphrase('');
       setRemember(false);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '키 잠금 해제 실패');
+      setMessage(error instanceof Error ? error.message : '잠금 해제 실패');
     } finally {
       setBusy(false);
     }
@@ -253,6 +256,8 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
       defaultCwd: draft.defaultCwd.trim() || undefined,
       shell: draft.shell,
       encoding: draft.encoding,
+      auth: draft.auth,
+      jumpServerId: draft.jumpServerId,
     };
     const problem = validate(next);
     if (problem) {
@@ -271,6 +276,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
   const dirty = Boolean(selectedServer) && editableKey(selectedServer ?? undefined) !== editableKey(savedSelected);
   const probe = selectedServer ? probes[selectedServer.id] : undefined;
   const keyState: SshKeyState = savedSelected?.keyState ?? 'unknown';
+  const credentialLabel = selectedServer?.auth === 'password' ? '비밀번호' : '키 암호';
   const remembered = savedSelected?.remembered === true;
 
   return (
@@ -347,7 +353,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                   {savedSelected?.trusted ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent/15 px-2 py-1 text-[10px] text-accent"><CheckCircle size={12} weight="fill" /> 지문 신뢰됨</span>
                   ) : <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">지문 미신뢰</span>}
-                  <span className={`rounded-md px-2 py-1 text-[10px] ${keyState === 'ready' ? 'bg-accent/15 text-accent' : 'bg-line text-muted'}`}>{keyState === 'ready' && remembered ? '키 사용 가능 · 기억됨' : KEY_STATE_LABEL[keyState]}</span>
+                  <span className={`rounded-md px-2 py-1 text-[10px] ${keyState === 'ready' ? 'bg-accent/15 text-accent' : 'bg-line text-muted'}`}>{savedSelected?.auth === 'password' ? (keyState === 'ready' ? (remembered ? '비밀번호 사용 가능 · 기억됨' : '비밀번호 사용 가능') : '잠김 · 비밀번호 필요') : keyState === 'ready' && remembered ? '키 사용 가능 · 기억됨' : KEY_STATE_LABEL[keyState]}</span>
                   <span className="rounded-md bg-line px-2 py-1 text-[10px] text-muted">{shellLabel(savedSelected?.shell)}</span>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -367,10 +373,16 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     포트
                     <input value={String(selectedServer.port)} onChange={(event) => updateServer(selectedServer.id, { port: Number(event.target.value.replace(/\D/g, '') || '0') })} disabled={readOnly || busy} inputMode="numeric" placeholder="22" className={inputClass} />
                   </label>
-                  <label className="text-[11px] text-muted md:col-span-2">
+                  <label className="text-[11px] text-muted">인증 방식
+                    <select disabled={readOnly || busy} className={inputClass} value={selectedServer.auth ?? 'key'} onChange={e => updateServer(selectedServer.id, { auth: e.target.value as SshServerItem['auth'] })}><option value="key">키 파일</option><option value="password">비밀번호</option></select>
+                  </label>
+                  <label className="text-[11px] text-muted">경유 서버
+                    <select disabled={readOnly || busy} className={inputClass} value={selectedServer.jumpServerId ?? ''} onChange={e => updateServer(selectedServer.id, { jumpServerId: e.target.value || undefined })}><option value="">직접 연결</option>{saved.filter(item => item.id !== selectedServer.id && !item.jumpServerId).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+                  </label>
+                  {selectedServer.auth !== 'password' && <label className="text-[11px] text-muted md:col-span-2">
                     키 파일 경로 (이 PC)
                     <input value={selectedServer.keyPath} onChange={(event) => updateServer(selectedServer.id, { keyPath: event.target.value })} disabled={readOnly || busy} placeholder="C:\Users\사용자\.ssh\id_ed25519" className={inputClass} />
-                  </label>
+                  </label>}
                   <label className="text-[11px] text-muted md:col-span-2">
                     기본 폴더 (서버, 선택)
                     <input value={selectedServer.defaultCwd ?? ''} onChange={(event) => updateServer(selectedServer.id, { defaultCwd: event.target.value || undefined })} disabled={readOnly || busy} placeholder="/srv/app" className={inputClass} />
@@ -407,11 +419,11 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                   <div className="mt-2">
                   <div className="flex flex-wrap items-end gap-2">
                     <label className="min-w-[200px] flex-1 text-[11px] text-muted">
-                      키 암호
-                      <input type="password" autoComplete="off" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} disabled={readOnly || busy} placeholder={keyState === 'ready' ? '이미 사용 가능 · 다시 입력할 때만' : '키 암호'} className={inputClass} />
+                      {credentialLabel}
+                      <input type="password" autoComplete="off" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} disabled={readOnly || busy} placeholder={keyState === 'ready' ? '이미 사용 가능 · 다시 입력할 때만' : credentialLabel} className={inputClass} />
                     </label>
                     <button type="button" disabled={readOnly || busy || !passphrase} onClick={() => void unlockServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-2 text-xs text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:cursor-not-allowed disabled:opacity-45">
-                      <Key size={13} /> 키 잠금 해제
+                      <Key size={13} /> 잠금 해제
                     </button>
                   </div>
                     <label className="mt-2 flex items-start gap-2 text-[11px] text-muted">
@@ -487,10 +499,16 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
             </select>
           </label>
           <label className="text-[11px] text-muted">출력 인코딩<select className={draftInputClass} disabled={readOnly || busy} value={draft.encoding ?? ''} onChange={e => setDraft({ ...draft, encoding: e.target.value as SshServerItem['encoding'] || undefined })}><option value="">자동</option><option value="utf8">UTF-8</option><option value="cp949">한글 Windows</option></select></label>
-          <label className="text-[11px] text-muted md:col-span-2">
+          <label className="text-[11px] text-muted">인증 방식
+                    <select disabled={readOnly || busy} className={draftInputClass} value={draft.auth ?? 'key'} onChange={e => setDraft({ ...draft, auth: e.target.value as SshServerItem['auth'] })}><option value="key">키 파일</option><option value="password">비밀번호</option></select>
+                  </label>
+                  <label className="text-[11px] text-muted">경유 서버
+                    <select disabled={readOnly || busy} className={draftInputClass} value={draft.jumpServerId ?? ''} onChange={e => setDraft({ ...draft, jumpServerId: e.target.value || undefined })}><option value="">직접 연결</option>{saved.filter(item => item.id !== draft.id && !item.jumpServerId).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+                  </label>
+                  {draft.auth !== 'password' && <label className="text-[11px] text-muted md:col-span-2">
             키 파일 경로 (이 PC)
             <input value={draft.keyPath} onChange={(event) => setDraft((current) => ({ ...current, keyPath: event.target.value }))} disabled={readOnly || busy} placeholder="C:\Users\사용자\.ssh\id_ed25519" className={draftInputClass} />
-          </label>
+          </label>}
         </div>
         <button type="button" disabled={readOnly || busy} onClick={() => void addServer()} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-45">
           <Plus size={14} weight="bold" />
