@@ -20,6 +20,8 @@ import { sshKeySecretsPath } from '../core/dist/ssh/ssh-secret-store.js';
 import {
   buildRemoteCommand,
   clearSshPassphraseMemory,
+  closeSshConnections,
+  clampSshTimeout,
   createSshOutputDecoder,
   execSshCommand,
   forgetSshKey,
@@ -40,9 +42,10 @@ const userPublic = utils.parseKey(userKey.public);
 const keyPath = path.join(root, 'id_test');
 writeFileSync(keyPath, userKey.private, 'utf8');
 
-let authAttempts = 0;
+let authAttempts = 0, accepts = 0;
 const commands = [];
 const server = new Server({ hostKeys: [hostKey.private] }, (client) => {
+  accepts++;
   client.on('error', () => {});
   client.on('authentication', (ctx) => {
     authAttempts += 1;
@@ -56,7 +59,9 @@ const server = new Server({ hostKeys: [hostKey.private] }, (client) => {
         commands.push(info.command);
         if (info.command.includes('hang')) return; // never exits: timeout / cancel cases
         if (info.command.includes('flood')) {
+          stream.write('HEAD');
           stream.write(Buffer.alloc(200 * 1024, 0x61));
+          stream.write('TAIL');
         } else if (info.command.includes('korean')) {
           // "한글\n" in euc-kr (CP949), as a Korean Windows console sends it.
           stream.write(Buffer.from([0xc7, 0xd1, 0xb1, 0xdb, 0x0a]));
@@ -101,7 +106,7 @@ try {
 
   // 4. Locked key -> unlock in memory.
   assert.deepEqual((await listSshServerSummaries(root))[0], {
-    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', shell: 'posix', trusted: true, unlocked: false, keyState: 'locked',
+    id: 'dev', label: '개발 서버', target: `deploy@127.0.0.1:${port}`, defaultCwd: '/srv/app', shell: 'posix', encoding: 'utf8', trusted: true, unlocked: false, keyState: 'locked',
   });
   await fail(execSshCommand(root, { serverId: 'dev', command: 'id' }), 'SSH_KEY_LOCKED');
   await fail(unlockSshKey(root, 'dev', 'wrong'), 'SSH_KEY_PASSPHRASE_WRONG');
@@ -118,22 +123,39 @@ try {
   assert.equal(ok.stderr, 'warn\n');
   assert.equal(ok.truncated, false);
   assert.ok(chunks.includes("stdout:ran:cd -- '/srv/app' && df -h\n"));
+  const connected = accepts;
   const custom = await execSshCommand(root, { serverId: 'dev', command: 'ls', cwd: "/tmp/it's" });
   assert.equal(custom.stdout, "ran:cd -- '/tmp/it'\\''s' && ls\n");
 
+  assert.equal(accepts, connected, 'second exec reuses authenticated transport');
+  // Accelerate only the actual 60-second idle timer.
+  const realTimer = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...args) => realTimer(fn, ms === 60000 ? 5 : ms, ...args);
+  try { await execSshCommand(root, {serverId:'dev',command:'idle'}); } finally { globalThis.setTimeout = realTimer; }
+  await new Promise(r => setTimeout(r, 50));
+  await execSshCommand(root, {serverId:'dev',command:'again'});
+  assert.equal(accepts, connected + 1, 'expired idle connection replaced');
+  lockSshKey(root, 'dev');
+  await unlockSshKey(root, 'dev', 'correct horse');
+  assert.equal(clampSshTimeout(999999), 600000);
   // 6. Output cap.
   const flood = await execSshCommand(root, { serverId: 'dev', command: 'flood' });
   assert.equal(flood.truncated, true);
-  assert.equal(flood.stdout.length, 64 * 1024);
+  assert.equal(accepts, connected + 2, 'lock discards the connection');
+  assert.match(flood.stdout, /^HEADa{16380}\n\[… 생략 …\]\na{49148}TAIL$/);
 
   // 7. Timeout and cancel end the call; the server slot is free again afterwards.
   const slow = await execSshCommand(root, { serverId: 'dev', command: 'hang', timeoutMs: 1000 });
   assert.equal(slow.state, 'timeout');
   assert.equal(slow.exitCode, null);
+  const afterTimeout = accepts;
+  assert.equal((await execSshCommand(root, {serverId:'dev',command:'after-timeout'})).state, 'ok');
+  assert.equal(accepts, afterTimeout + 1, 'timeout drops the authenticated transport');
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 300);
   const cancelled = await execSshCommand(root, { serverId: 'dev', command: 'hang', signal: controller.signal });
   assert.equal(cancelled.state, 'cancelled');
+  assert.equal(accepts, afterTimeout + 1);
   const [first, second] = await Promise.allSettled([
     execSshCommand(root, { serverId: 'dev', command: 'hang', timeoutMs: 1000 }),
     execSshCommand(root, { serverId: 'dev', command: 'id' }),
@@ -146,7 +168,7 @@ try {
   assert.equal(summary.shell, 'posix');
   assert.equal(summary.keyState, 'ready');
   assert.equal(summary.unlocked, true);
-  assert.deepEqual(Object.keys(summary).sort(), ['defaultCwd', 'id', 'keyState', 'label', 'shell', 'target', 'trusted', 'unlocked']);
+  assert.deepEqual(Object.keys(summary).sort(), ['defaultCwd', 'encoding', 'id', 'keyState', 'label', 'shell', 'target', 'trusted', 'unlocked']);
   assert.doesNotMatch(JSON.stringify(summary), /id_test|SHA256:|correct horse/, 'no key path, fingerprint or passphrase in the summary');
 
   // 7c. Remembered passphrase (Windows DPAPI). Skipped where DPAPI does not exist.
@@ -242,7 +264,8 @@ try {
     // Split inside a 2-byte character: stream mode must hold the first byte.
     assert.equal(decoder.write(eucKr.subarray(0, 1)) + decoder.write(eucKr.subarray(1)) + decoder.end(), '한글');
   }
-  const utf8 = createSshOutputDecoder('posix');
+  assert.equal(createSshOutputDecoder('posix', 'cp949').write(eucKr), '한글');
+  const utf8 = createSshOutputDecoder('cmd', 'utf8');
   assert.equal(utf8.write(Buffer.from('한글', 'utf8')) + utf8.end(), '한글');
 
   const baseServer = { id: 'dev', label: '개발 서버', host: '127.0.0.1', port, username: 'deploy', keyPath, defaultCwd: '/srv/app' };
@@ -290,6 +313,7 @@ try {
     : 'SKIP: remembered-passphrase checks need Windows DPAPI');
   console.log('PASS: ssh-service refuses untrusted/changed hosts, probes without auth, keeps the passphrase in memory, runs one command with cwd quoting, timeout, cancel and 64KB cap, enters folders on cmd/powershell servers, reads euc-kr output, stores no secret with shell, and names the server in the activity log');
 } finally {
+  closeSshConnections();
   await new Promise((resolve) => server.close(resolve));
   rmSync(root, { recursive: true, force: true });
 }

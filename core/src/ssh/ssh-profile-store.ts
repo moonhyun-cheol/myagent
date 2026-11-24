@@ -3,7 +3,7 @@
  *
  * The file holds connection facts only: no private key body, passphrase or password field
  * exists in the schema, and unknown fields are dropped on every load and save. `keyPath`
- * points at a key file on this PC; the passphrase lives only in ssh-service memory.
+ * points at a key file on this PC; the passphrase stays in memory unless explicitly remembered in the separate DPAPI store.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,7 @@ export interface SshServerProfile {
   defaultCwd?: string;
   /** Missing means `posix` (Linux/macOS). `cmd` / `powershell` are Windows servers. */
   shell?: SshShell;
+  encoding?: 'utf8' | 'cp949';
   /** `SHA256:<base64>` of the trusted host key. Set only through trustSshServer. */
   hostKeySha256?: string;
   trustedAt?: string;
@@ -88,6 +89,7 @@ function cleanServer(raw: unknown): SshServerProfile | string {
     username,
     keyPath,
   };
+  if (row.encoding === 'utf8' || row.encoding === 'cp949') server.encoding = row.encoding;
   if (defaultCwd) server.defaultCwd = defaultCwd;
   if (SSH_SHELLS.includes(row.shell as SshShell)) server.shell = row.shell as SshShell;
   if (isSshFingerprint(row.hostKeySha256)) {
@@ -166,7 +168,7 @@ export function saveSshServers(
   const keyChangedIds = prev.servers
     .filter((before) => {
       const after = servers.find((s) => s.id === before.id);
-      return !after || after.keyPath !== before.keyPath;
+      return !after || after.keyPath !== before.keyPath || after.host !== before.host || after.port !== before.port || after.username !== before.username;
     })
     .map((s) => s.id);
   return { doc, keyChangedIds };

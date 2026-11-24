@@ -39,7 +39,7 @@ export class SshError extends Error {
 }
 
 export const SSH_DEFAULT_TIMEOUT_MS = 30_000;
-export const SSH_MAX_TIMEOUT_MS = 120_000;
+export const SSH_MAX_TIMEOUT_MS = 600_000;
 export const SSH_MAX_OUTPUT_BYTES = 64 * 1024;
 const CONNECT_TIMEOUT_MS = 15_000;
 
@@ -129,8 +129,8 @@ export interface SshOutputDecoder {
  * posix servers send UTF-8. Windows servers (cmd / powershell) are read as euc-kr (CP949,
  * Korean Windows). Falls back to UTF-8 when this Node build has no euc-kr table.
  */
-export function createSshOutputDecoder(shell: SshShell = 'posix'): SshOutputDecoder {
-  if (shell === 'cmd' || shell === 'powershell') {
+export function createSshOutputDecoder(shell: SshShell = 'posix', encoding?: SshServerProfile['encoding']): SshOutputDecoder {
+  if (encoding === 'cp949' || (!encoding && shell !== 'posix')) {
     try {
       const decoder = new TextDecoder('euc-kr');
       return {
@@ -176,7 +176,20 @@ function looksEncrypted(problem: string): boolean {
  */
 const pendingRecall = new Map<string, Promise<string | undefined>>();
 const mutations = new Map<string, symbol>();
+interface Connection { client: Client; target: string; idle?: NodeJS.Timeout }
+const connections = new Map<string, Connection>();
+function closeConnection(id: string) {
+  const entry = connections.get(id);
+  if (!entry) return;
+  connections.delete(id);
+  clearTimeout(entry.idle);
+  entry.client.destroy();
+}
+export function closeSshConnections() {
+  for (const id of connections.keys()) closeConnection(id);
+}
 function invalidate(id: string) {
+  closeConnection(id);
   pendingRecall.delete(id);
   mutations.set(id, Symbol());
 }
@@ -255,6 +268,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
   target: string;
   defaultCwd?: string;
   shell: SshShell;
+  encoding: 'utf8' | 'cp949';
   trusted: boolean;
   unlocked: boolean;
   keyState: SshKeyState;
@@ -266,6 +280,7 @@ export async function listSshServerSummaries(cqrRoot: string): Promise<Array<{
     target: `${server.username}@${server.host}:${server.port}`,
     ...(server.defaultCwd ? { defaultCwd: server.defaultCwd } : {}),
     shell: server.shell ?? 'posix',
+    encoding: server.encoding ?? (!server.shell || server.shell === 'posix' ? 'utf8' : 'cp949'),
     trusted: server.trusted,
     unlocked: server.keyState === 'ready',
     keyState: server.keyState,
@@ -296,6 +311,7 @@ export async function retrySshRecall(cqrRoot: string, serverId: string) {
 
 /** Drops in-process passphrases only, as an app restart does. Used by verify scripts. */
 export function clearSshPassphraseMemory(): void {
+  closeSshConnections();
   passphrases.clear();
   recallFailed.clear();
 }
@@ -489,14 +505,35 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
         ? new SshError('SSH_KEY_LOCKED', `The key for ${server.label} is locked. The user must use 「키 잠금 해제」 in Settings > SSH 서버.`)
         : new SshError('SSH_KEY_INVALID', `The key file for ${server.label} cannot be used.`);
     }
-    const client = await connectTrusted(lib, server, privateKey, passphrase, req.signal);
-    if (client === 'cancelled') return empty('cancelled');
-
+    const target = JSON.stringify([cqrRoot, server.host, server.port, server.username, server.keyPath, server.hostKeySha256]);
+    let entry = connections.get(server.id);
+    if (entry?.target !== target) { closeConnection(server.id); entry = undefined; }
+    if (!entry) {
+      const generation = mutations.get(server.id);
+      const client = await connectTrusted(lib, server, privateKey, passphrase, req.signal);
+      if (client === 'cancelled') return empty('cancelled');
+      if (generation !== mutations.get(server.id)) { client.destroy(); return empty('disconnected'); }
+      entry = { client, target };
+      connections.set(server.id, entry);
+      const discard = () => { if (connections.get(server.id)?.client === client) closeConnection(server.id); };
+      client.once('close', discard).once('error', discard).once('end', discard);
+    }
+    clearTimeout(entry.idle);
+    const connection = entry;
+    const { client } = entry;
     return await new Promise<SshExecResult>((resolve) => {
-      const decoders = { stdout: createSshOutputDecoder(shell), stderr: createSshOutputDecoder(shell) };
-      const text = { stdout: '', stderr: '' };
-      let captured = 0;
-      let truncated = false;
+      type Piece = { stream: 'stdout' | 'stderr'; data: Buffer };
+      const head: Piece[] = [], tail: Piece[] = [];
+      let headBytes = 0, tailBytes = 0, truncated = false;
+      const render = (stream: Piece['stream']) => {
+        const decoder = () => createSshOutputDecoder(shell, server.encoding);
+        const decode = (parts: Piece[]) => { const d = decoder(); return parts.filter(p => p.stream === stream).map(p => d.write(p.data)).join('') + d.end(); };
+        if (!truncated) return redactSshOutput(decode([...head, ...tail]));
+        const first = decode(head), last = decode(tail);
+        return first || last ? redactSshOutput(first + '\n[… 생략 …]\n' + last) : '';
+      };
+      const live = { stdout: createSshOutputDecoder(shell, server.encoding), stderr: createSshOutputDecoder(shell, server.encoding) };
+      let displayed = 0;
       let exitCode: number | null = null;
       let channel: ClientChannel | null = null;
       let settled = false;
@@ -506,12 +543,16 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
         settled = true;
         clearTimeout(timer);
         req.signal?.removeEventListener('abort', onAbort);
-        try { client.end(); } catch { /* already closed */ }
+        client.off('error', disconnected).off('close', disconnected).off('end', disconnected);
+        if (connections.get(server.id) === connection) {
+          if (state === 'ok') connection.idle = setTimeout(() => closeConnection(server.id), 60_000).unref();
+          else closeConnection(server.id);
+        }
         resolve({
           state,
           exitCode: state === 'ok' ? exitCode : null,
-          stdout: redactSshOutput(text.stdout + decoders.stdout.end()),
-          stderr: redactSshOutput(text.stderr + decoders.stderr.end()),
+          stdout: render('stdout'),
+          stderr: render('stderr'),
           truncated,
           durationMs: Date.now() - started,
         });
@@ -529,23 +570,26 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
 
       const take = (stream: 'stdout' | 'stderr', data: Buffer) => {
         if (settled) return;
-        const room = SSH_MAX_OUTPUT_BYTES - captured;
-        if (room <= 0) {
-          truncated = true;
-          return;
+        const n = Math.min(data.length, 16384 - headBytes);
+        if (n) { head.push({ stream, data: Buffer.from(data.subarray(0,n)) }); headBytes += n; }
+        if (n < data.length) {
+          tail.push({ stream, data: Buffer.from(data.subarray(n)) }); tailBytes += data.length - n;
+          while (tailBytes > 49152) {
+            truncated = true;
+            const first = tail[0]!, drop = Math.min(first.data.length, tailBytes - 49152);
+            if (drop === first.data.length) tail.shift(); else first.data = Buffer.from(first.data.subarray(drop));
+            tailBytes -= drop;
+          }
         }
-        const slice = data.length > room ? data.subarray(0, room) : data;
-        if (slice.length < data.length) truncated = true;
-        captured += slice.length;
-        const chunk = decoders[stream].write(slice);
-        text[stream] += chunk;
-        if (chunk) {
-          try { req.onOutput?.(stream, redactSshOutput(chunk)); } catch { /* display observer only */ }
+        const count = Math.min(data.length, SSH_MAX_OUTPUT_BYTES - displayed);
+        if (count && req.onOutput) {
+          displayed += count;
+          const chunk = live[stream].write(data.subarray(0, count));
+          try { if (chunk) req.onOutput(stream, redactSshOutput(chunk)); } catch { /* display only */ }
         }
       };
-
-      client.on('error', () => settle('disconnected'));
-      client.on('close', () => settle('disconnected'));
+      const disconnected = () => settle('disconnected');
+      client.once('error', disconnected).once('close', disconnected).once('end', disconnected);
       if (req.signal?.aborted) return kill('cancelled');
       client.exec(remoteCommand, (error, stream) => {
         if (error) return settle('disconnected');
@@ -559,7 +603,8 @@ export async function execSshCommand(cqrRoot: string, req: SshExecRequest): Prom
         stream.on('exit', (code: number | null) => {
           exitCode = typeof code === 'number' ? code : null;
         });
-        stream.on('close', () => settle('ok'));
+        stream.on('error', disconnected);
+        stream.on('close', () => settle(exitCode === null ? 'disconnected' : 'ok'));
       });
     });
   } finally {

@@ -28,6 +28,7 @@ type ServerDraft = {
   keyPath: string;
   defaultCwd: string;
   shell: SshShell;
+  encoding?: SshServerItem['encoding'];
 };
 
 const SHELL_OPTIONS: Array<{ value: SshShell; label: string }> = [
@@ -51,7 +52,7 @@ const KEY_STATE_LABEL: Record<SshKeyState, string> = {
 };
 
 const editableKey = (server: SshServerItem | undefined) => (server
-  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? '', server.shell ?? 'posix'])
+  ? JSON.stringify([server.label, server.host, server.port, server.username, server.keyPath, server.defaultCwd ?? '', server.shell ?? 'posix', server.encoding])
   : '');
 
 const inputClass = 'mt-1 w-full rounded-lg border border-line bg-panel px-2.5 py-2 font-mono text-xs text-text outline-none focus:border-accent disabled:opacity-60';
@@ -251,6 +252,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
       keyPath: draft.keyPath.trim(),
       defaultCwd: draft.defaultCwd.trim() || undefined,
       shell: draft.shell,
+      encoding: draft.encoding,
     };
     const problem = validate(next);
     if (problem) {
@@ -379,6 +381,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                       {SHELL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </label>
+                  <label className="text-[11px] text-muted">출력 인코딩<select className={inputClass} disabled={readOnly || busy} value={selectedServer.encoding ?? ''} onChange={e => updateServer(selectedServer.id, { encoding: e.target.value as SshServerItem['encoding'] || undefined })}><option value="">자동</option><option value="utf8">UTF-8</option><option value="cp949">한글 Windows</option></select></label>
                 </div>
 
                 {dirty ? <p className="mt-2 text-xs text-muted">저장하지 않은 변경이 있습니다. 저장한 뒤 연결 테스트·지문 신뢰·키 잠금 해제를 할 수 있습니다.</p> : null}
@@ -483,6 +486,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
               {SHELL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
+          <label className="text-[11px] text-muted">출력 인코딩<select className={draftInputClass} disabled={readOnly || busy} value={draft.encoding ?? ''} onChange={e => setDraft({ ...draft, encoding: e.target.value as SshServerItem['encoding'] || undefined })}><option value="">자동</option><option value="utf8">UTF-8</option><option value="cp949">한글 Windows</option></select></label>
           <label className="text-[11px] text-muted md:col-span-2">
             키 파일 경로 (이 PC)
             <input value={draft.keyPath} onChange={(event) => setDraft((current) => ({ ...current, keyPath: event.target.value }))} disabled={readOnly || busy} placeholder="C:\Users\사용자\.ssh\id_ed25519" className={draftInputClass} />

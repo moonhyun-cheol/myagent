@@ -86,7 +86,7 @@ try {
   assert.equal(buildRemoteCommand('ls', '/srv/app'), "cd -- '/srv/app' && ls");
   assert.equal(buildRemoteCommand('ls', "/tmp/a'; rm -rf /; '"), "cd -- '/tmp/a'\\''; rm -rf /; '\\''' && ls");
   assert.equal(clampSshTimeout(undefined), 30_000);
-  assert.equal(clampSshTimeout(999_999), 120_000);
+  assert.equal(clampSshTimeout(999_999), 600_000);
   assert.equal(redactSshOutput('plain output'), 'plain output');
 
   console.log('PASS: ssh_exec approval is human-only (delegable=false, access=remote_exec), card targets name server/folder/command, ssh-servers.json keeps no secret field');
