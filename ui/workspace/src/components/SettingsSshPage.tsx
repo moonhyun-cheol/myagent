@@ -1,4 +1,4 @@
-import { ArrowCounterClockwise, Buildings, CaretDown, CaretRight, CheckCircle, FolderOpen, Key, LockSimple, Plus, ShieldCheck, TerminalWindow, Trash, Warning, Wrench } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, Buildings, CaretDown, CaretRight, CheckCircle, FolderOpen, Key, Plugs, Plus, ShieldCheck, TerminalWindow, Trash, Warning, Wrench } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   forgetSshServer,
@@ -450,14 +450,14 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
       applyServerState(next);
       const stored = next.find((item) => item.id === server.id)?.remembered === true;
       setMessage(stored
-        ? `${label}를 바꾸고 이 PC에 기억했습니다.`
+        ? `${label}를 새로 등록하고 이 PC에 기억했습니다.`
         : remember
-          ? `${label}를 바꿨지만 이 PC에 기억하지는 못했습니다. 앱을 다시 시작하면 다시 입력해야 합니다.`
-          : `${label}를 바꿨습니다. 앱을 다시 시작하면 다시 입력해야 합니다.`);
+          ? `${label}를 새로 등록했지만 이 PC에 기억하지는 못했습니다. 앱을 다시 시작하면 다시 입력해야 합니다.`
+          : `${label}를 새로 등록했습니다. 앱을 다시 시작하면 다시 입력해야 합니다.`);
       setSecret('');
       setChangingSecret(false);
     } catch (error) {
-      setMessage(friendlyError(error, '암호 변경에 실패했습니다.'));
+      setMessage(friendlyError(error, `${label} 다시 입력에 실패했습니다.`));
     } finally {
       setBusy(false);
     }
@@ -734,7 +734,7 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                     {checkNotes[selectedSaved.id] ? <p className="mt-2 break-all font-mono text-[11px] text-red-300">{checkNotes[selectedSaved.id]}</p> : null}
                     <button type="button" disabled={readOnly || busy} onClick={() => void prepare(selectedSaved)} className={`${primaryButton} mt-3`} data-testid="ssh-prepare">
                       <ShieldCheck size={14} weight="bold" />
-                      {prepStep === 'check' ? '서버 확인 중...' : prepStep === 'unlock' ? '잠금 해제 중...' : '연결 준비'}
+                      {prepStep === 'check' ? '서버 확인 중...' : prepStep === 'unlock' ? '인증 확인 중...' : '연결 준비'}
                     </button>
                   </div>
                 ) : null}
@@ -742,37 +742,81 @@ export function SettingsSshPage({ readOnly }: SettingsSshPageProps) {
                 {ready && !dirty ? (
                   <div className="mt-3 rounded-xl border border-line bg-ink/30 p-3" data-testid="ssh-ready-panel">
                     <p className="flex items-center gap-1.5 text-sm text-text"><CheckCircle size={15} weight="fill" className="text-accent" /> 연결 준비 완료</p>
-                    <p className="mt-1 text-xs text-muted">{readyText}</p>
-                    {selectedSaved.needsSecret ? (changingSecret ? (
-                      <div className="mt-3 flex flex-wrap items-end gap-3">
-                        <label className="min-w-[220px] flex-1 text-[11px] text-muted">
-                          새 {credentialLabel}
-                          <input
-                            type="password"
-                            autoComplete="off"
-                            autoFocus
-                            value={secret}
-                            onChange={(event) => setSecret(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' && secret && !readOnly && !busy) void changeSecret(selectedSaved);
-                              if (event.key === 'Escape' && !busy) { setChangingSecret(false); setSecret(''); }
-                            }}
+                    <p className="mt-1 text-xs text-muted">
+                      {readyText}
+                      {remembered && selectedSaved.needsSecret && !changingSecret ? (
+                        <>
+                          {' '}
+                          <button
+                            type="button"
                             disabled={readOnly || busy}
-                            placeholder={credentialLabel}
-                            className={inputClass}
-                          />
-                        </label>
-                        <label className="flex items-center gap-1.5 pb-2 text-[11px] text-muted">
-                          <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} disabled={readOnly || busy} />
-                          이 PC에 기억
-                        </label>
-                        <button type="button" disabled={readOnly || busy || !secret} onClick={() => void changeSecret(selectedSaved)} className={secondaryButton}><Key size={13} /> 저장</button>
-                        <button type="button" disabled={busy} onClick={() => { setChangingSecret(false); setSecret(''); }} className={secondaryButton}>취소</button>
+                            onClick={() => void run(
+                              () => forgetSshServer(selectedSaved.id),
+                              `자동 기억 해제 · ${selectedSaved.label} · 이 PC에 저장된 ${credentialLabel}만 지웠습니다. 이번 실행 동안은 연결이 유지됩니다.`,
+                              '자동 기억 해제에 실패했습니다.',
+                            )}
+                            className="underline underline-offset-2 enabled:hover:text-text disabled:opacity-45"
+                          >
+                            자동 기억만 끄기
+                          </button>
+                        </>
+                      ) : null}
+                    </p>
+                    {selectedSaved.needsSecret ? (changingSecret ? (
+                      <div className="mt-3 space-y-2 rounded-lg border border-line/70 bg-panel/50 p-2.5">
+                        <p className="text-[11px] text-muted">
+                          서버 자체의 암호를 바꾸는 기능이 아닙니다. 서버 암호가 바뀌었을 때 이 앱이 접속에 쓸 {credentialLabel}만 새로 입력합니다.
+                        </p>
+                        <div className="flex flex-wrap items-end gap-3">
+                          <label className="min-w-[220px] flex-1 text-[11px] text-muted">
+                            접속용 {credentialLabel}
+                            <input
+                              type="password"
+                              autoComplete="off"
+                              autoFocus
+                              value={secret}
+                              onChange={(event) => setSecret(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && secret && !readOnly && !busy) void changeSecret(selectedSaved);
+                                if (event.key === 'Escape' && !busy) { setChangingSecret(false); setSecret(''); }
+                              }}
+                              disabled={readOnly || busy}
+                              placeholder={credentialLabel}
+                              className={inputClass}
+                            />
+                          </label>
+                          <label className="flex items-center gap-1.5 pb-2 text-[11px] text-muted">
+                            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} disabled={readOnly || busy} />
+                            이 PC에 기억
+                          </label>
+                          <button type="button" disabled={readOnly || busy || !secret} onClick={() => void changeSecret(selectedSaved)} className={secondaryButton}><Key size={13} /> 적용</button>
+                          <button type="button" disabled={busy} onClick={() => { setChangingSecret(false); setSecret(''); }} className={secondaryButton}>취소</button>
+                        </div>
                       </div>
                     ) : (
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <button type="button" disabled={readOnly || busy} onClick={() => { setChangingSecret(true); setSecret(''); setRemember(remembered); }} className={secondaryButton}><Key size={13} /> 암호 변경</button>
-                        <button type="button" disabled={readOnly || busy} onClick={() => void run(() => lockSshServer(selectedSaved.id), `잠갔습니다 · ${selectedSaved.label} · 메모리와 이 PC에 기억한 암호를 지웠습니다.`, '잠그기에 실패했습니다.')} className={secondaryButton}><LockSimple size={13} /> 지금 잠그기</button>
+                        <button
+                          type="button"
+                          disabled={readOnly || busy}
+                          title={`서버의 ${credentialLabel}가 바뀌었을 때 이 앱에 저장된 값만 새로 입력합니다 (취소해도 현재 연결 유지)`}
+                          onClick={() => { setChangingSecret(true); setSecret(''); setRemember(remembered); }}
+                          className={secondaryButton}
+                        >
+                          <Key size={13} /> {credentialLabel} 다시 입력
+                        </button>
+                        <button
+                          type="button"
+                          disabled={readOnly || busy}
+                          title="현재 연결을 끊고 앱 메모리와 이 PC에 저장된 암호를 모두 지웁니다"
+                          onClick={() => void run(
+                            () => lockSshServer(selectedSaved.id),
+                            `로그아웃 완료 · ${selectedSaved.label} · 저장된 ${credentialLabel}를 지우고 연결을 해제했습니다.`,
+                            '연결 해제에 실패했습니다.',
+                          )}
+                          className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <Plugs size={13} /> {remembered ? `로그아웃 · 저장된 ${credentialLabel} 삭제` : '로그아웃 · 연결 해제'}
+                        </button>
                       </div>
                     )) : null}
                   </div>
