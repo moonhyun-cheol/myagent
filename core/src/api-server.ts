@@ -42,6 +42,7 @@ import { configureDebugIngestPort } from './agent/agent-debug-ingest.js';
 import { prepareLlmUsageStore } from './providers/llm-usage-store.js';
 import { resolveLlmUsageLogDir } from './providers/llm-usage-summary.js';
 import { startDatasetExportTimer, stopDatasetExportTimer } from './datasets/dataset-export.js';
+import { startSshHostOnBoot, stopSshHost } from './ssh/ssh-host-server.js';
 
 /**
  * Boot phase stopwatch -> one `boot-phases` line in api-start.log. `process_ms` is the time
@@ -411,6 +412,7 @@ export async function createApiServer(port: number) {
     personalSchedulerRuntime.start();
     // Operator PCs with a registered dataset export refresh it twice a day; others do nothing.
     startDatasetExportTimer(cqrRoot);
+    startSshHostOnBoot(cqrRoot, startLog);
     // Premium-tier badges need provider prices. Fetch once in the background only when no
     // price table exists yet; delayed so it never competes with the first window paint.
     setTimeout(() => {
@@ -424,6 +426,7 @@ export async function createApiServer(port: number) {
   server.once('close', () => {
     getVisibleBrowserBridge()?.stop();
     stopDatasetExportTimer();
+    void stopSshHost();
     unregisterPersonalSchedulerRuntime(cqrRoot, personalSchedulerRuntime);
     void personalSchedulerRuntime.shutdown().finally(() => personalScheduler.close());
   });

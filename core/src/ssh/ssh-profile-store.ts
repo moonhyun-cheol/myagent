@@ -25,12 +25,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { readEnabledFeatureEntrypointDocuments } from '../features/organization-feature-manager.js';
 import { assertWritablePath } from '../security/path-guard.js';
+import { codeEndpoints, codeId, codeText, codeTime, type Endpoint } from './ssh-codes.js';
 
 /** Remote login shell. Decides how the folder is entered and how output bytes are read. */
 export type SshShell = 'posix' | 'cmd' | 'powershell';
 const SSH_SHELLS: readonly SshShell[] = ['posix', 'cmd', 'powershell'];
 
+export interface SshPairing {
+  kind: 'host-pair' | 'ssh-invite'; hostLabel: string; endpoints: Endpoint[]; pairedAt: string;
+  hostId?: string; deviceId?: string; inviteId?: string;
+}
 export interface SshServerProfile {
+  pairing?: SshPairing;
   id: string;
   label: string;
   host: string;
@@ -114,6 +120,17 @@ function text(value: unknown, max: number): string {
 
 const UNSAFE_LOGIN_RE = /[\s'"`$;|&<>\\]/;
 
+export function isSshLoginPart(s: unknown, max: number): s is string {
+  return typeof s === 'string' && s.length > 0 && s.length <= max && !UNSAFE_LOGIN_RE.test(s) && !/[\x00-\x1f\x7f]/.test(s);
+}
+
+function cleanPairing(raw: unknown): SshPairing {
+  const p = raw as SshPairing;
+  if (!p || (p.kind !== 'host-pair' && p.kind !== 'ssh-invite')) throw new SshProfileError('SSH_SERVER_INVALID','공유 연결 종류가 올바르지 않습니다.');
+  return { kind: p.kind, hostLabel: codeText(p.hostLabel,80), endpoints: codeEndpoints(p.endpoints, p.kind === 'ssh-invite' ? 1 : 4), pairedAt: codeTime(p.pairedAt),
+    ...(p.kind === 'host-pair' ? { hostId: codeId(p.hostId), deviceId: codeId(p.deviceId) } : { inviteId: codeId(p.inviteId) }) };
+}
+
 function cleanPort(value: unknown): number | null {
   const port = value === undefined || value === null || value === '' ? 22 : Number(value);
   return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
@@ -153,6 +170,10 @@ function cleanServer(raw: unknown): SshServerProfile | string {
     server.hostKeySha256 = row.hostKeySha256;
     const trustedAt = text(row.trustedAt, 40);
     if (trustedAt) server.trustedAt = trustedAt;
+  }
+  if (row.pairing !== undefined) {
+    try { server.pairing = cleanPairing(row.pairing); } catch { return 'invalid sharing metadata'; }
+    if (!server.hostKeySha256 || server.jumpServerId || server.auth !== 'key') return 'invalid shared server';
   }
   return server;
 }
@@ -297,7 +318,9 @@ export function saveSshServers(
   const managedIds = new Set(listManagedSshConnections(cqrRoot).map((connection) => connection.id));
   const servers: SshServerProfile[] = [];
   for (const raw of rawServers) {
-    const cleaned = cleanServer(raw);
+    const row = (raw ?? {}) as Partial<SshServerProfile>;
+    const original = prev.servers.find(s => s.id === text(row.id,40));
+    const cleaned = cleanServer(original?.pairing ? { ...original, label: row.label ?? original.label, defaultCwd: row.defaultCwd } : { ...row, pairing: undefined });
     if (typeof cleaned === 'string') throw new SshProfileError('SSH_SERVER_INVALID', cleaned);
     if (servers.some((s) => s.id === cleaned.id)) {
       throw new SshProfileError('SSH_SERVER_DUPLICATE', `duplicate id: ${cleaned.id}`);
@@ -305,6 +328,7 @@ export function saveSshServers(
     if (managedIds.has(cleaned.id)) {
       throw new SshProfileError('SSH_SERVER_DUPLICATE', `관리형 연결과 같은 ID는 쓸 수 없습니다: ${cleaned.id}`);
     }
+    if (!cleaned.pairing) assertNotAppKey(cqrRoot, cleaned.keyPath);
     delete cleaned.hostKeySha256;
     delete cleaned.trustedAt;
     const before = prev.servers.find((s) => s.id === cleaned.id);
@@ -317,6 +341,7 @@ export function saveSshServers(
   for (const server of servers) {
     if (!server.jumpServerId) continue;
     const jump = servers.find(s => s.id === server.jumpServerId);
+    if (jump?.pairing) throw new SshProfileError('SSH_APP_KEY_NO_JUMP', '공유 연결은 경유 서버로 쓸 수 없습니다.');
     if (!jump || jump.jumpServerId) throw new SshProfileError('SSH_SERVER_INVALID', '경유 서버는 등록된 다른 직접 연결 서버여야 합니다.');
   }
   // Rows shadowed by a managed connection are not shown in Settings; keep them unchanged.
@@ -338,8 +363,50 @@ export function saveSshServers(
   return { doc, keyChangedIds };
 }
 
+export function deviceKeyPath(root: string) { return path.resolve(root, 'data','config','ssh-device-key'); }
+function assertNotAppKey(root: string, file: string) {
+  if (!file) return;
+  const norm = (s: string) => path.resolve(s).replace(/^\\\\\?\\/, '').replace(/[. ]+$/, '').toLowerCase();
+  for (const reserved of [deviceKeyPath(root), path.join(root,'data','config','ssh-host-key')]) {
+    let same = norm(file) === norm(reserved);
+    if (!same && existsSync(reserved) && existsSync(file)) {
+      const a = statSync(reserved, { bigint: true }), b = statSync(file, { bigint: true });
+      same = a.ino !== 0n && a.ino === b.ino && a.dev === b.dev;
+    }
+    if (same) throw new SshProfileError('SSH_APP_KEY_RESERVED', '앱이 만든 열쇠는 공유 연결에서만 씁니다.');
+  }
+}
+export function assertSshRowAction(root: string, id: string, action: string) {
+  if (!['lock','forget','unlock','trust','account'].includes(action.replace(/^\//,''))) return;
+  if (!ID_RE.test(id) || findSshServer(root,id)?.pairing) throw new SshProfileError('SSH_APP_KEY_READONLY','공유 연결의 열쇠와 지문은 직접 바꿀 수 없습니다.');
+}
+/** Only the pinned code path may create a shared row. Existing IDs never change ownership. */
+export function savePairedSshServer(root: string, row: SshServerProfile): SshServerProfile {
+  const doc = loadSshServers(root);
+  const p = cleanPairing(row.pairing);
+  const previous = doc.servers.find(s => s.id === row.id);
+  if (listManagedSshConnections(root).some(s => s.id === row.id) || (previous && (!previous.pairing || previous.hostKeySha256 !== row.hostKeySha256 || previous.username !== row.username || previous.pairing.kind !== p.kind || (p.kind === 'host-pair' && previous.pairing.hostId !== p.hostId)))) {
+    throw new SshProfileError('SSH_PAIR_HOST_MISMATCH','저장된 서버와 지문 또는 계정이 다릅니다.');
+  }
+  if (!previous && doc.servers.length >= MAX_SERVERS) throw new SshProfileError('SSH_TOO_MANY_SERVERS','서버 목록이 가득 찼습니다.');
+  const value = previous?.pairing ? { ...previous, host: row.host, port: row.port, pairing: { ...previous.pairing, endpoints: p.endpoints } } : { ...row, auth: 'key', keyPath: deviceKeyPath(root), pairing: p, trustedAt: new Date().toISOString() };
+  const cleaned = cleanServer(value);
+  if (typeof cleaned === 'string' || !cleaned.pairing) throw new SshProfileError('SSH_SERVER_INVALID','공유 연결 정보가 올바르지 않습니다.');
+  doc.servers = previous ? doc.servers.map(s => s.id === row.id ? cleaned : s) : [...doc.servers, cleaned];
+  writeDoc(root,doc);
+  return cleaned;
+}
+/** Roll back just our revision; never replace an unrelated row edited while login was pending. */
+export function undoPairedSave(root: string, saved: SshServerProfile, before?: SshServerProfile) {
+  const doc = loadSshServers(root);
+  if (!doc.servers.some(s => s.id === saved.id && JSON.stringify(s) === JSON.stringify(saved))) return false;
+  doc.servers = doc.servers.flatMap(s => s.id !== saved.id ? [s] : before ? [before] : []);
+  writeDoc(root,doc); return true;
+}
+
 /** Record the host key the user confirmed. */
 export function trustSshServer(cqrRoot: string, id: string, fingerprint: string): SshServerProfile {
+  assertSshRowAction(cqrRoot,id,'trust');
   if (!isSshFingerprint(fingerprint)) {
     throw new SshProfileError('SSH_FINGERPRINT_INVALID', 'fingerprint must look like SHA256:<base64>');
   }
@@ -374,6 +441,7 @@ export function saveManagedSshAccount(
     throw new SshProfileError('SSH_SERVER_INVALID', '계정에는 공백이나 따옴표·특수 기호를 쓸 수 없습니다.');
   }
   const keyPath = connection.auth === 'key' ? text(raw.keyPath, 1024) : '';
+  assertNotAppKey(cqrRoot,keyPath);
   if (connection.auth === 'key' && !keyPath) throw new SshProfileError('SSH_SERVER_INVALID', '키 파일을 고르세요.');
   const doc = loadSshServers(cqrRoot);
   const before = doc.managed?.[id];

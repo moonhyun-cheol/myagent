@@ -2603,7 +2603,9 @@ export type SshKeyState = 'ready' | 'locked' | 'missing' | 'invalid' | 'unknown'
 /** Server kind: Linux/macOS (posix, default) or Windows (cmd / powershell). */
 export type SshShell = 'posix' | 'cmd' | 'powershell';
 
+export type SshEndpoint = { host:string; port:number; type:'lan'|'name'|'tailscale'|'public' };
 export interface SshServerItem {
+  pairing?: { kind:'host-pair'|'ssh-invite'; hostLabel:string; endpoints:SshEndpoint[]; pairedAt:string; hostId?:string; deviceId?:string; inviteId?:string };
   id: string;
   label: string;
   host: string;
@@ -2631,7 +2633,14 @@ export interface SshServerItem {
   managedBy?: string;
 }
 
+export class SshPendingInvite extends Error {
+  readonly id: string;
+  readonly servers: SshServerItem[];
+  constructor(message:string,id:string,servers:SshServerItem[]) { super(message); this.id=id; this.servers=servers; }
+}
+
 type SshApiBody = {
+  id?: string;
   ok?: boolean;
   servers?: SshServerItem[];
   fingerprint?: string;
@@ -2641,7 +2650,7 @@ type SshApiBody = {
   error?: string;
 };
 
-async function sshRequest(path: string, method: 'GET' | 'PUT' | 'POST', body?: unknown): Promise<SshApiBody> {
+async function sshRequest<T = SshApiBody>(path: string, method: 'GET' | 'PUT' | 'POST', body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     cache: 'no-store',
@@ -2650,10 +2659,33 @@ async function sshRequest(path: string, method: 'GET' | 'PUT' | 'POST', body?: u
   const data = (await res.json().catch(() => ({}))) as SshApiBody;
   if (!res.ok) {
     const code = data.error || `HTTP_${res.status}`;
+    if (code === 'SSH_INVITE_KEY_NOT_ADDED' && data.id && Array.isArray(data.servers)) throw new SshPendingInvite(data.message || '서버 관리자가 아직 열쇠를 넣지 않았습니다.',data.id,data.servers);
     throw new Error(data.message ? `${code} · ${data.message}` : code);
   }
-  return data;
+  return data as T;
 }
+
+export interface SshDeviceInfo { device_label:string; key_fp:string; public_key:string; created_at:string }
+export interface SshHostState {
+  configured:boolean; open:boolean; label:string; defaultCwd:string; port:number; shell:'cmd'|'powershell'; autoStart:boolean;
+  endpoints:SshEndpoint[]; hostKeySha256:string; expiresAt:string|null; blockedExternal:number;
+  devices:{id:string;label:string;fingerprint:string;lastSeenAt:string}[];
+  audit:{time:string;device:string;ip:string;command:string;cwd:string;exitCode:number|null;durationMs:number;result:string}[];
+}
+export interface SshInviteRecord { invite_id:string; device_label:string; key_fp:string; account:string; issued_at:string; removeCommand:string }
+export const getSshSharingStatus = () => sshRequest<{hostConfigured:boolean;hostOpen:boolean;deviceKey:boolean}>('/ssh/status','GET');
+export const getSshHost = () => sshRequest<{ status:SshHostState }>('/ssh/host','GET');
+export const changeSshHost = (op:'open'|'close'|'settings'|'code'|'devices',body:object={}) => sshRequest<{status:SshHostState;code?:string}>('/ssh/host/'+op,'POST',body);
+export const getSshDeviceKey = () => sshRequest<{deviceKey:SshDeviceInfo|null}>('/ssh/device-key','GET');
+export const makeSshDeviceCode = (label?:string) => sshRequest<{deviceKey:SshDeviceInfo;code:string}>('/ssh/device-key','POST',{label});
+export const useSshCode = (code:string,expectedId?:string) => sshRequest<{kind:'key-request';device_label:string;key_fp:string}|{kind:'host-pair'|'ssh-invite';id:string;servers:SshServerItem[]}>('/ssh/code','POST',{code,expectedId});
+export const checkSshCodeLogin = async (id:string) => (await sshRequest<{servers:SshServerItem[]}>('/ssh/code/check','POST',{id})).servers;
+export const inspectInviteKey = (keyCode:string) => sshRequest<{device_label:string;key_fp:string}>('/ssh/invites','POST',{step:'inspect',keyCode});
+export type SshInviteInput = {serverId:string;keyCode:string;account:string};
+export const prepareSshInvite = (input:SshInviteInput) => sshRequest<{invite_id:string;keyLine:string;addCommand:string}>('/ssh/invites','POST',{...input,step:'prepare'});
+export const issueSshInvite = (input:SshInviteInput,invite_id:string,installed:boolean) => sshRequest<{code:string}>('/ssh/invites','POST',{...input,step:'issue',invite_id,installed});
+export const getSshInvites = (serverId:string) => sshRequest<{invites:SshInviteRecord[]}>('/ssh/invites?serverId='+encodeURIComponent(serverId),'GET');
+export const removeSshInvite = (id:string,serverId:string) => sshRequest<{invites:SshInviteRecord[]}>('/ssh/invites/remove','POST',{id,serverId});
 
 const sshServerList = (data: SshApiBody): SshServerItem[] => (Array.isArray(data.servers) ? data.servers : []);
 

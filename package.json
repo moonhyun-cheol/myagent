@@ -38,6 +38,8 @@
     "verify:problem-history": "node node_modules/typescript/bin/tsc -p tsconfig.json && node node_modules/typescript/bin/tsc -b ui/workspace/tsconfig.json && node tools/verify-problem-history.mjs",
     "verify:ssh-approval": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-approval.mjs",
     "verify:ssh-service": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-service.mjs",
+    "verify:ssh-host": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-host.mjs",
+    "verify:ssh-invite": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-ssh-invite.mjs",
     "verify:untrusted-content": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-untrusted-content.mjs",
     "verify:browser-url-guard": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-browser-url-guard.mjs",
     "verify:web-action-audit": "node node_modules/typescript/bin/tsc -p tsconfig.json && node tools/verify-web-action-audit.mjs",

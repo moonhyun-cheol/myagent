@@ -278,7 +278,7 @@ export function SettingsDataConnectionPage({ readOnly, overview, onOverviewChang
             />
             <span>
               <span className="text-text">운영자 설정 보이기</span>
-              <span className="block">SSH 서버와 데이터 내보내기 화면을 설정에 표시합니다. 데이터를 내보내는 운영 담당자만 켜세요.</span>
+              <span className="block">SSH 서버와 데이터 내보내기 화면을 설정에 표시합니다. 데이터를 내보내는 운영 담당자만 켜세요. 다른 PC·서버에 접속하거나 이 PC를 서버로 열 때도 켭니다.</span>
               {!overview.operatorMode && overview.sshServerCount > 0 ? (
                 <span className="mt-1 block">이 PC에 등록된 SSH 서버가 있어 운영자 설정이 이미 표시되고 있습니다.</span>
               ) : null}

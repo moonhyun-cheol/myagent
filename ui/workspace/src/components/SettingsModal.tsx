@@ -14,7 +14,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
-import { getDataConnections, type DataConnectionOverview } from '../api/myAgentClient';
+import { getDataConnections, getSshSharingStatus, type DataConnectionOverview } from '../api/myAgentClient';
 import { ModelManagementModal } from './ModelManagementModal';
 import { SettingsAgentPage } from './SettingsAgentPage';
 import { SettingsConversationPage } from './SettingsConversationPage';
@@ -143,8 +143,8 @@ const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     group: '확장',
     label: 'SSH 서버',
     icon: TerminalWindow,
-    keywords: ['ssh', '서버', '원격', '원격 명령', '지문', 'fingerprint', '키', 'remote'],
-    render: ({ readOnly }) => <SettingsSshPage readOnly={readOnly} />,
+    keywords: ['ssh', '서버', '원격', '원격 명령', '지문', 'fingerprint', '키', 'remote', '서버 열기', '이 PC 서버', '연결 코드', '초대 코드', '열쇠 코드', '팀원 초대', '클라우드', 'nas', '원격 접속'],
+    render: ({ readOnly, onSectionChange }) => <SettingsSshPage readOnly={readOnly} onSectionChange={onSectionChange} />,
   },
 ];
 
@@ -162,7 +162,15 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   const [activeSectionId, setActiveSectionId] = useState<string>('general');
   const [query, setQuery] = useState('');
   const [dataOverview, setDataOverview] = useState<DataConnectionOverview | null>(null);
+  const [sharing, setSharing] = useState(false);
   const readOnly = false;
+
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void getSshSharingStatus().then(s => { if (current) setSharing(s.hostConfigured || s.deviceKey); }).catch(() => {});
+    return () => { current = false; };
+  }, [open, activeSectionId]);
 
   useEffect(() => {
     if (!open) return;
@@ -175,10 +183,10 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
 
   // Employees see the data connection card only. The SSH screen appears when the hidden
   // operator setting is on, or when this PC already has its own SSH server registered.
-  const sshVisible = Boolean(dataOverview && (dataOverview.operatorMode || dataOverview.sshServerCount > 0));
+  const sshVisible = sharing || activeSectionId === 'ssh' || Boolean(dataOverview && (dataOverview.operatorMode || dataOverview.sshServerCount > 0));
   const visibleSections = useMemo(
-    () => SETTINGS_SECTIONS.filter((section) => section.id !== 'ssh' || sshVisible),
-    [sshVisible],
+    () => SETTINGS_SECTIONS.filter((section) => section.id !== 'ssh' || sshVisible || (query.trim() && matchesSection(section, query))),
+    [sshVisible, query],
   );
 
   const filteredSections = useMemo(
@@ -225,7 +233,7 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
   const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? visibleSections[0];
   const sectionProps: SettingsSectionProps = {
     readOnly,
-    onSectionChange: setActiveSectionId,
+    onSectionChange: id => { setQuery(''); setActiveSectionId(id); },
     dataOverview,
     onDataOverviewChange: setDataOverview,
   };

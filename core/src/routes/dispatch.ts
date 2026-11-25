@@ -30,7 +30,12 @@ import {
   type UserMcpServerConfig,
 } from '../agent/user-mcp.js';
 import { loadUserOverrides, saveUserOverrides, isProviderAllowedLocalOnly } from '../config/user-overrides.js';
+import { deviceKeyCode, deviceKeyInfo, ensureDeviceKey, renameDeviceKey } from '../ssh/ssh-app-keys.js';
+import { decodeCode } from '../ssh/ssh-codes.js';
+import { InviteKeyNotAdded, checkAppKeyLogin, createInvite, listInvites, previewInvite, removeInviteRecord, useConnectionCode } from '../ssh/ssh-pairing.js';
+import { closeSshHost, createSshHostCode, getSshHostStatus, openSshHost, renameSshHostDevice, revokeSshHostDevice, updateSshHostSettings } from '../ssh/ssh-host-server.js';
 import {
+  assertSshRowAction,
   listSshKeyCandidates,
   saveManagedSshAccount,
   saveSshServers,
@@ -1456,6 +1461,61 @@ export async function dispatchApiRequest(
         });
       }
 
+      const sharingRead = ['/ssh/status','/ssh/host','/ssh/device-key','/ssh/invites'];
+      const sharingPost = ['/ssh/host/open','/ssh/host/close','/ssh/host/settings','/ssh/host/code','/ssh/host/devices','/ssh/device-key','/ssh/code','/ssh/code/check','/ssh/invites','/ssh/invites/remove'];
+      if ((method === 'GET' && sharingRead.includes(url.pathname)) || (method === 'POST' && sharingPost.includes(url.pathname))) {
+        if (method === 'POST') license.assertWritable();
+        license.assertFeature('chat');
+        res.setHeader('Cache-Control','no-store');
+        const reply = (data:object) => sendJson(res,200,{ok:true,...data});
+        try {
+          if (method === 'GET') {
+            if (url.pathname === '/ssh/invites') return reply({ invites:listInvites(cqrRoot,url.searchParams.get('serverId') ?? '') });
+            if (url.pathname === '/ssh/device-key') return reply({ deviceKey:deviceKeyInfo(cqrRoot) });
+            const status = getSshHostStatus(cqrRoot);
+            return reply(url.pathname === '/ssh/host' ? { status } : { hostConfigured:status.configured,hostOpen:status.open,deviceKey:Boolean(deviceKeyInfo(cqrRoot)) });
+          }
+          let b:Record<string,unknown>;
+          try { b = JSON.parse(await readBody(req)); if (!b || typeof b !== 'object' || Array.isArray(b)) throw Error(); }
+          catch { return sendJson(res,400,{error:'INVALID_JSON',message:'JSON body required'}); }
+          const id = String(b.id ?? '');
+          switch (url.pathname) {
+            case '/ssh/host/open': return reply({ status:await openSshHost(cqrRoot) });
+            case '/ssh/host/close': return reply({ status:await closeSshHost(cqrRoot) });
+            case '/ssh/host/settings': return reply({ status:await updateSshHostSettings(cqrRoot,b) });
+            case '/ssh/host/code': return reply(createSshHostCode(cqrRoot));
+            case '/ssh/host/devices': {
+              if (!id || (b.action !== 'rename' && b.action !== 'revoke')) throw new SshError('SSH_HOST_DEVICE_UNKNOWN','목록에서 기기와 동작을 고르세요.');
+              return reply({ status:b.action === 'rename' ? renameSshHostDevice(cqrRoot,id,b.label) : revokeSshHostDevice(cqrRoot,id) });
+            }
+            case '/ssh/device-key': {
+              const deviceKey = b.label === undefined ? await ensureDeviceKey(cqrRoot) : await renameDeviceKey(cqrRoot,b.label);
+              return reply({ deviceKey,code:deviceKeyCode(deviceKey) });
+            }
+            case '/ssh/code': {
+              const result = await useConnectionCode(cqrRoot,b.code,typeof b.expectedId === 'string' ? b.expectedId : undefined);
+              return reply(result.kind === 'key-request' ? result : {...result,servers:await listSshServerViews(cqrRoot)});
+            }
+            case '/ssh/code/check': return reply({...await checkAppKeyLogin(cqrRoot,id),servers:await listSshServerViews(cqrRoot)});
+            case '/ssh/invites': {
+              if (b.step === 'inspect') {
+                const key = decodeCode(b.keyCode); if (key.kind !== 'key-request') throw new SshError('SSH_CODE_INVALID','팀원이 보낸 열쇠 코드를 넣으세요.');
+                return reply({ device_label:key.device_label,key_fp:key.key_fp });
+              }
+              const input = { serverId:String(b.serverId ?? ''),keyCode:b.keyCode,account:b.account,defaultCwd:b.defaultCwd };
+              if (b.step === 'prepare') return reply(previewInvite(cqrRoot,input));
+              if (b.step !== 'issue' || b.installed !== true || typeof b.invite_id !== 'string' || !b.invite_id) throw new SshError('SSH_INVITE_NOT_ALLOWED','서버에 열쇠를 넣은 뒤 확인하세요.');
+              return reply(createInvite(cqrRoot,input,b.invite_id));
+            }
+            case '/ssh/invites/remove': removeInviteRecord(cqrRoot,id); return reply({ invites:listInvites(cqrRoot,String(b.serverId ?? '')) });
+          }
+        } catch (e) {
+          if (e instanceof InviteKeyNotAdded) return sendJson(res,400,{ok:false,error:e.code,message:e.message,id:e.serverId,servers:await listSshServerViews(cqrRoot)});
+          if (e instanceof SshError || e instanceof SshProfileError) return sendJson(res,400,{ok:false,error:e.code,message:e.message});
+          throw e;
+        }
+      }
+
       // File names and paths of private keys in ~/.ssh; the key body is never read out.
       if (method === 'GET' && url.pathname === '/ssh/key-candidates') {
         license.assertFeature('chat');
@@ -1489,6 +1549,7 @@ export async function dispatchApiRequest(
         }
         const id = String(body.id ?? '').trim();
         try {
+          assertSshRowAction(cqrRoot,id,action);
           if (action === '') {
             if (!Array.isArray(body.servers)) {
               return sendJson(res, 400, { error: 'SERVERS_REQUIRED', message: 'servers array required' });
