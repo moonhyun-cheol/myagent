@@ -27,13 +27,14 @@ function SessionDocuments({session}:{session:string}) {
   const [doc,setDoc]=useState<DocumentRecord|null>(null);
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);
+  const [listLoaded,setListLoaded]=useState(false);
   const sequence=useRef(0);
   const known=useRef<Set<string>|null>(null);
   const busy=useWorkspaceStore(s=>s.busy);
   const wasBusy=useRef(busy);
   const open=useCallback(async(id:string)=>{const request=++sequence.current;setLoading(true);try{const d=await documentApi<DocumentRecord>(session,`/${id}`);if(request===sequence.current){setDoc(d);setError('');}}catch(e){if(request===sequence.current)setError(errorText(e));}finally{if(request===sequence.current)setLoading(false);}},[session]);
   const refresh=useCallback(async(autoOpen=false)=>{const result=await documentApi<DocumentListResponse>(session);const previous=known.current;setList(result.documents);setRoot(result.root);setProjectRoot(Boolean(result.projectRoot));known.current=new Set(result.documents.map(item=>item.id));if(autoOpen&&previous){const added=result.documents.find(item=>!previous.has(item.id));if(added)await open(added.id);}},[session,open]);
-  useEffect(()=>{let live=true;const requestSequence=sequence;documentApi<DocumentListResponse>(session).then(r=>{if(live){setList(r.documents);setRoot(r.root);setProjectRoot(Boolean(r.projectRoot));known.current=new Set(r.documents.map(item=>item.id));}}).catch(e=>{if(live)setError(errorText(e));});const timer=window.setInterval(()=>{void refresh(false).catch(e=>{if(live)setError(errorText(e));});},4000);return()=>{live=false;window.clearInterval(timer);requestSequence.current++;};},[session,refresh]);
+  useEffect(()=>{let live=true;const requestSequence=sequence;documentApi<DocumentListResponse>(session).then(r=>{if(live){setList(r.documents);setRoot(r.root);setProjectRoot(Boolean(r.projectRoot));known.current=new Set(r.documents.map(item=>item.id));setListLoaded(true);}}).catch(e=>{if(live){setError(errorText(e));setListLoaded(true);}});const timer=window.setInterval(()=>{void refresh(false).catch(e=>{if(live)setError(errorText(e));});},4000);return()=>{live=false;window.clearInterval(timer);requestSequence.current++;};},[session,refresh]);
   useEffect(()=>{if(wasBusy.current&&!busy)void refresh(true).catch(e=>setError(errorText(e)));wasBusy.current=busy;},[busy,refresh]);
   const create=async(markdown='# 새 문서\n\n',title='새 문서.md')=>{setLoading(true);try{const d=await documentApi<DocumentRecord>(session,'','POST',{title,markdown,revision:0,notes:[]});setDoc(d);await refresh();}catch(e){setError(errorText(e));}finally{setLoading(false);}};
   const requestNew=()=>window.dispatchEvent(new CustomEvent(DOCUMENT_REQUEST_EVENT,{detail:{session,text:`프로젝트 루트(${root})에 새 Markdown 협업문서를 작성해 주세요. 적절한 프로젝트 상대 경로의 .md 파일로 저장하고, 완료 후 생성한 경로를 알려주세요.`}}));
@@ -41,7 +42,7 @@ function SessionDocuments({session}:{session:string}) {
     <div className="document-toolbar"><select aria-label="문서 선택" value={doc?.id??''} disabled={loading} onChange={e=>{if(e.target.value)void open(e.target.value);}}><option value="">협업문서 선택</option>{list.map(d=><option key={d.id} value={d.id}>{d.path??d.title}</option>)}</select><button disabled={loading} onClick={()=>void create()}>새 문서</button><button disabled={!projectRoot} onClick={requestNew}>에이전트에게 새 문서 요청</button><label className="document-import">가져오기<input type="file" accept=".md,.markdown,.txt" disabled={loading} onChange={e=>{const f=e.target.files?.[0];if(f){if(f.size>2_000_000)setError('문서는 최대 2MB입니다.');else void f.text().then(t=>create(t,/\.(?:md|markdown)$/i.test(f.name)?f.name:`${f.name}.md`)).catch(x=>setError(errorText(x)));}e.target.value='';}}/></label></div>
     {root&&<p role="status">{projectRoot?'프로젝트 루트':'협업 저장소'}: {root}</p>}
     {error&&<p role="alert">{error}</p>}
-    {doc?<DocumentEditor key={`${session}:${doc.id}`} session={session} initial={doc} onOpenId={open} onSaved={()=>{void refresh().catch(e=>setError(errorText(e)));}}/>:<p className="p-4 text-sm">{projectRoot?'프로젝트의 Markdown 문서를 선택하거나 만드세요. 모델이 생성한 문서는 작업 완료 후 자동으로 목록에 나타납니다.':'이 챗의 문서를 만들거나 Markdown 파일을 가져오세요. 작업 폴더가 연결되면 프로젝트 Markdown을 직접 협업합니다.'}</p>}
+    {doc?<DocumentEditor key={`${session}:${doc.id}`} session={session} initial={doc} onOpenId={open} onSaved={()=>{void refresh().catch(e=>setError(errorText(e)));}}/>:(!listLoaded||loading)?<p role="status" className="p-4 text-sm">{listLoaded?'문서를 불러오는 중…':'문서 목록을 불러오는 중…'}</p>:<p className="p-4 text-sm">{projectRoot?'프로젝트의 Markdown 문서를 선택하거나 만드세요. 모델이 생성한 문서는 작업 완료 후 자동으로 목록에 나타납니다.':'이 챗의 문서를 만들거나 Markdown 파일을 가져오세요. 작업 폴더가 연결되면 프로젝트 Markdown을 직접 협업합니다.'}</p>}
   </section>;
 }
 function DocumentEditor({session,initial,onSaved,onOpenId}:{session:string;initial:DocumentRecord;onSaved:()=>void;onOpenId:(id:string)=>Promise<void>}) {

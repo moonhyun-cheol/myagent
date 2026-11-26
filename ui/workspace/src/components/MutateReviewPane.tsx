@@ -231,7 +231,7 @@ export function MutateReviewPane() {
             </div>
             <div className="min-h-0 flex-1 overflow-auto font-mono text-[12px] leading-relaxed">
               {diffLoading ? (
-                <p className="px-3 py-4 text-[12px] text-muted">로딩…</p>
+                <p className="px-3 py-4 text-[12px] text-muted">변경 내용을 불러오는 중…</p>
               ) : diffMode === 'split' ? (
                 <div className="grid h-full min-h-0 grid-cols-2 gap-px bg-line">
                   <pre className="min-h-0 overflow-auto bg-ink p-3 text-text/80">

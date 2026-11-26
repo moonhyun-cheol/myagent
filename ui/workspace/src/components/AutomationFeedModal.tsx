@@ -188,7 +188,7 @@ export function AutomationFeedModal({ open, onClose, targetItemId = null }: { op
           {loadError ? (
             <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{loadError}</div>
           ) : loading && items.length === 0 ? (
-            <p className="py-16 text-center text-sm text-muted">자동화 뉴스피드를 불러오는 중입니다.</p>
+            <p className="py-16 text-center text-sm text-muted">자동화 뉴스피드를 불러오는 중…</p>
           ) : filteredItems.length === 0 ? (
             <div className="flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-panel/50 text-center">
               <Robot size={28} weight="duotone" className="text-accent" />

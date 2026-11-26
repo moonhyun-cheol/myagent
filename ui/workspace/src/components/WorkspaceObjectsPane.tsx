@@ -128,6 +128,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   const browserHistory = useWorkspaceStore((state) => state.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((state) => state.browserLoadedUrl);
   const filesRoot = useWorkspaceStore((state) => state.filesRoot);
+  const filesLoading = useWorkspaceStore((state) => state.filesLoading);
   const openTabCount = useWorkspaceStore((state) => state.openTabs.length);
   const activeEditorTabId = useWorkspaceStore((state) => state.activeTabId);
   const [activeTab, setActiveTab] = useState<WorkspaceObjectTabId>(
@@ -192,7 +193,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
               {filesRoot}
             </span>
           ) : (
-            <span className="shrink-0 text-[10px] text-muted">폴더 미연결</span>
+            <span className="shrink-0 text-[10px] text-muted">{filesLoading ? '확인하는 중…' : '폴더 미연결'}</span>
           )}
         </div>
       </header>
@@ -224,7 +225,7 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
           <section><div className="flex items-center justify-between px-3 py-2"><div className="flex items-center gap-1.5"><ImageIcon size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">변경·생성 파일</h3></div><span className="text-[10px] text-muted">{workAssets.length}</span></div>{workAssets.length === 0 ? <EmptyState>아직 이 세션의 결과물이 없습니다.</EmptyState> : workAssets.map((asset) => <RecentAsset key={asset.id} asset={asset} showDownloadAction={showDownloadActions} />)}</section>
         </> : null}
 
-        {activeTab === 'files' ? (filesRoot ? <AssetExplorer /> : <EmptyState>파일을 보려면 작업 폴더를 연결하세요.</EmptyState>) : null}
+        {activeTab === 'files' ? (filesRoot ? <AssetExplorer /> : filesLoading ? <EmptyState>파일 목록을 불러오는 중…</EmptyState> : <EmptyState>파일을 보려면 작업 폴더를 연결하세요.</EmptyState>) : null}
 
         {activeTab === 'todo' ? <div className="p-3">
           <p className="mb-2 text-[10px] text-muted">모델이 등록한 작업과 상태를 표시합니다.</p>

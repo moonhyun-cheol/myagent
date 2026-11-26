@@ -522,6 +522,7 @@ function latestSession(sessions: SessionSummary[] | undefined): SessionSummary |
 
 export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOpened }: ProjectsTreeProps) {
   const [tree, setTree] = useState<WorkspaceTreePayload | null>(null);
+  const [treeFailed, setTreeFailed] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed());
   const [pinned, setPinned] = useState<string[]>(() => getPinnedSessionIds());
   const [pinnedNodes, setPinnedNodes] = useState<string[]>(loadPinnedNodes);
@@ -539,7 +540,9 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
   const refresh = useCallback(async () => {
     try {
       setTree(await fetchWorkspaceTree());
+      setTreeFailed(false);
     } catch (err) {
+      setTreeFailed(true);
       onMessage?.(err instanceof Error ? err.message : '워크스페이스 로드 실패');
     }
   }, [onMessage]);
@@ -1083,7 +1086,11 @@ export function ProjectsTree({ query = '', onMessage, embedded = false, onChatOp
           );
         })}
 
-        {(tree?.workspace_trees?.length ?? 0) === 0 && (tree?.projects?.length ?? 0) === 0 ? (
+        {tree === null ? (
+          <p role="status" className="px-2 py-4 text-[11px] text-muted">
+            {treeFailed ? '목록을 불러오지 못했습니다. 잠시 뒤 다시 시도하세요.' : '목록을 불러오는 중…'}
+          </p>
+        ) : (tree.workspace_trees?.length ?? 0) === 0 && (tree.projects?.length ?? 0) === 0 ? (
           <p className="px-2 py-4 text-[11px] text-muted">
             작업 폴더나 프로젝트를 추가하면 여기에 표시됩니다.
           </p>

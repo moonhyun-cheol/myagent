@@ -539,7 +539,7 @@ export function BrowserPane() {
 
       {useShellSurface && (shellLoading || (shellStatus && !['탐색 완료', '닫힘'].includes(shellStatus))) ? (
         <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-1.5 text-xs text-muted">
-          <span>{shellLoading ? '페이지를 여는 중…' : `웹 페이지 상태 · ${shellStatus}`}</span>
+          <span>{shellLoading ? '페이지를 불러오는 중…' : `웹 페이지 상태 · ${shellStatus}`}</span>
           {!shellLoading && <>
             <button type="button" onClick={onReload} className="ui-secondary">다시 시도</button>
             <button type="button" onClick={() => surfaceRef.current?.closest('section')?.querySelector<HTMLInputElement>('input')?.focus()} className="ui-secondary">주소 수정</button>
@@ -552,7 +552,7 @@ export function BrowserPane() {
           <div ref={surfaceRef} data-native-browser-slot data-native-visible={shellVisible} className="flex h-full w-full items-center justify-center bg-panel text-center" aria-label="인앱 웹 페이지">
             {!shellVisible ? (
               <div className="px-6 text-xs text-muted">
-                <p className="font-medium text-text">{shellLoading ? '인앱 웹 페이지를 불러오는 중…' : '웹 페이지가 표시되지 않았습니다'}</p>
+                <p className="font-medium text-text">{shellLoading ? '페이지를 불러오는 중…' : '웹 페이지가 표시되지 않았습니다'}</p>
                 <p className="mt-1 break-all text-[11px] text-muted">{shellPageUrl}</p>
                 {!shellLoading ? (
                   <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">

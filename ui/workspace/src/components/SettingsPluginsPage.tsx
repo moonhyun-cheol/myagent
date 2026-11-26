@@ -156,7 +156,7 @@ export function SettingsPluginsPage({ readOnly }: SettingsPluginsPageProps) {
           ) : null}
         </div>
 
-        {busy && productPlugins.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && productPlugins.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && productPlugins.length === 0 ? (
           <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
             설치된 플러그인이 없습니다.

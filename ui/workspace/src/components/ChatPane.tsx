@@ -291,6 +291,7 @@ const copyMarkdownText = async (text: string) => { await navigator.clipboard.wri
 export function ChatPane() {
   const chat = useWorkspaceStore((s) => s.chat);
   const busy = useWorkspaceStore((s) => s.busy);
+  const sessionLoading = useWorkspaceStore((s) => s.sessionLoadingId !== null && s.sessionLoadingId === s.activeSessionId);
   const statusText = useWorkspaceStore((s) => s.statusText);
   const progressSteps = useMemo(() => {
     const activeAssistant = [...chat].reverse().find((turn) => turn.role === 'assistant');
@@ -1773,7 +1774,11 @@ export function ChatPane() {
         <div className="chat-content-width mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-5">
           {visibleChat.length === 0 && !busy ? (
             <div className="py-16 text-center">
-              <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
+              {sessionLoading ? (
+                <p role="status" className="text-sm text-muted">대화 내용을 불러오는 중…</p>
+              ) : (
+                <p className="text-lg font-medium text-text/90">무엇을 할까요?</p>
+              )}
             </div>
           ) : null}
           {hiddenTurnCount ? (

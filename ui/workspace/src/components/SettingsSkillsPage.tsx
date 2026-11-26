@@ -188,7 +188,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           <h3 className="font-semibold">사용자가 설치한 스킬</h3>
           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-xs text-accent">{installed.length}</span>
         </div>
-        {busy && installed.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && installed.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && installed.length === 0 ? (
           <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">설치된 사용자 스킬이 없습니다.</p>
         ) : (
@@ -241,7 +241,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
           작업 키트로 적용된 조직 스킬입니다. 여기서는 설치·제거하지 않습니다. 받기·적용·삭제는 작업 키트(WorkKitManager),
           대화에서 켜고 끄기는 입력창의 + 메뉴에서 합니다.
         </p>
-        {busy && organization.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && organization.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && organization.length === 0 ? (
           <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-muted">적용된 조직 스킬이 없습니다. 작업 키트를 적용하면 여기에 표시됩니다.</p>
         ) : (
@@ -316,7 +316,7 @@ export function SettingsSkillsPage({ readOnly }: SettingsSkillsPageProps) {
             설치
           </button>
         </div>
-        {installing ? <p data-testid="skill-installing" className="mt-3 text-sm text-muted">설치 중...</p> : null}
+        {installing ? <p data-testid="skill-installing" className="mt-3 text-sm text-muted">설치 중… 창을 닫지 마세요.</p> : null}
         {installMessage && !installing ? (
           <p data-testid="skill-install-message" className="mt-3 rounded-lg border border-line bg-ink/40 px-3 py-2 text-sm text-text">{installMessage}</p>
         ) : null}

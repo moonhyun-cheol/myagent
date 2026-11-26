@@ -130,7 +130,7 @@ export function SettingsWorkspacePage({ readOnly, onWorkspaceChanged }: Settings
           </button>
         </div>
 
-        {busy && !tree ? <p className="py-5 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && !tree ? <p className="py-5 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && roots.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center">
             <p className="text-sm text-muted">등록된 워크스페이스가 없습니다.</p>

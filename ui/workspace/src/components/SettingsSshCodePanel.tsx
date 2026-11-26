@@ -120,7 +120,7 @@ export function SettingsSshCodePanel({ readOnly, expectedId, onConnected, onPend
             {show ? <EyeSlash size={15} /> : <Eye size={15} />}
           </button>
         </div>
-        <button className={primaryBtn} disabled={busy || readOnly || !code.trim()}>{busy ? '연결 중...' : expectedId ? '갱신' : '연결'}</button>
+        <button className={primaryBtn} disabled={busy || readOnly || !code.trim()}>{busy ? '연결 중…' : expectedId ? '갱신' : '연결'}</button>
         {onCancel ? <button type="button" className={secondaryBtn} disabled={busy} onClick={onCancel}>취소</button> : null}
       </div>
       <Notice tone={msg?.tone}>{msg?.text}</Notice>
@@ -151,7 +151,7 @@ export function SettingsSshMyKeyPanel({ readOnly }: { readOnly: boolean }) {
           {renamed ? <button type="button" className={secondaryBtn} disabled={readOnly || busy} onClick={() => void load(label.trim())}>이름 적용</button> : null}
         </span>
       </div>
-      {busy && !keyCode ? <p className="text-muted">열쇠 코드를 준비하는 중...</p> : null}
+      {busy && !keyCode ? <p className="text-muted">열쇠 코드를 준비하는 중…</p> : null}
       {keyCode ? <>
         <p className="flex flex-wrap items-center gap-2 text-[11px] text-muted"><span>비밀이 아닙니다 · 서버 관리자에게 보내세요.</span><span>지문 끝 6자리 <b className={fpBadge}>{fp.slice(-6)}</b></span></p>
         <CodeBox label="내 열쇠 코드" value={keyCode} />

@@ -289,6 +289,7 @@ function TreeItem({ node, depth = 0, expandIds }: { node: FileNode; depth?: numb
 export function AssetExplorer() {
   const files = useWorkspaceStore((s) => s.files);
   const filesMessage = useWorkspaceStore((s) => s.filesMessage);
+  const filesLoading = useWorkspaceStore((s) => s.filesLoading);
   const refreshExplorer = useWorkspaceStore((s) => s.refreshExplorer);
   const [filterQuery, setFilterQuery] = useState('');
 
@@ -335,6 +336,9 @@ export function AssetExplorer() {
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
+        {filesLoading && !filesMessage && files.length === 0 ? (
+          <p role="status" className="px-3 py-4 text-center text-[11px] text-muted">파일 목록을 불러오는 중…</p>
+        ) : null}
         {filesMessage ? (
           <p className="px-3 py-4 text-center text-[11px] text-muted">{filesMessage}</p>
         ) : null}

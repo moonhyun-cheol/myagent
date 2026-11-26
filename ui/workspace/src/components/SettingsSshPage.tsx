@@ -166,7 +166,7 @@ function KeyPicker({ value, onChange, disabled }: { value: string; onChange: (pa
   return (
     <div className="text-[11px] text-muted md:col-span-2">
       키 파일 <span className="text-muted/80">(이 PC의 {dir || '.ssh 폴더'})</span>
-      {candidates === null ? <p className="mt-1">키 파일을 찾는 중...</p> : null}
+      {candidates === null ? <p className="mt-1">키 파일을 찾는 중…</p> : null}
       {candidates?.length === 0 ? <p className="mt-1">.ssh 폴더에서 개인 키를 찾지 못했습니다. 아래 「다른 위치의 파일」로 직접 지정하세요.</p> : null}
       {candidates?.length ? (
         <div className="mt-1 flex flex-wrap gap-1.5">
@@ -787,7 +787,7 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
         </form>
         ) : null}
 
-        {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && servers.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center">
             <p className="text-sm text-muted">아직 연결한 서버가 없습니다.</p>
@@ -898,7 +898,7 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
                     {checkNotes[selectedSaved.id] ? <p className="mt-2 break-all font-mono text-[11px] text-red-300">{checkNotes[selectedSaved.id]}</p> : null}
                     <button type="button" disabled={readOnly || busy} onClick={() => void prepare(selectedSaved)} className={`${primaryButton} mt-3`} data-testid="ssh-prepare">
                       <ShieldCheck size={14} weight="bold" />
-                      {prepStep === 'check' ? '서버 확인 중...' : prepStep === 'unlock' ? '인증 확인 중...' : '연결 준비'}
+                      {prepStep === 'check' ? '서버 확인 중…' : prepStep === 'unlock' ? '인증 확인 중…' : '연결 준비'}
                     </button>
                   </div>
                 ) : null}

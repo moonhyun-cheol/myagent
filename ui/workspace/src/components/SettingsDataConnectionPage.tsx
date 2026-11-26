@@ -239,7 +239,7 @@ export function SettingsDataConnectionPage({ readOnly, overview, onOverviewChang
       {message ? <p className="mb-5 max-w-3xl rounded-xl border border-line bg-panel px-4 py-3 text-sm text-muted" role="status">{message}</p> : null}
 
       <section className="max-w-3xl space-y-3" aria-label="데이터 연결 상태">
-        {overview === null ? <p className="text-sm text-muted">불러오는 중...</p> : null}
+        {overview === null ? <p className="text-sm text-muted">불러오는 중…</p> : null}
         {overview && overview.datasets.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-line px-5 py-8 text-center">
             <Database size={22} className="mx-auto text-muted" />

@@ -540,6 +540,10 @@ interface WorkspaceState {
   sessionPhases: Record<string, SessionRunPhase>;
   /** Sessions completed in the background and not yet viewed (green dot + bold title). */
   unseenCompletions: Record<string, boolean>;
+  /** Session whose first server fetch is pending with no cached view (chat shows a loading note, not the empty prompt). */
+  sessionLoadingId: string | null;
+  /** True while the latest refreshExplorer request is in flight. */
+  filesLoading: boolean;
   /** User messages waiting for the current turn to finish, in session FIFO order. */
   messageQueue: QueuedMessage[];
   /** Sessions paused after a turn so queued messages can be reviewed before continuing. */
@@ -1761,6 +1765,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     streamAbort: null,
     sessionPhases: {},
     unseenCompletions: {},
+    sessionLoadingId: null,
+    filesLoading: false,
     messageQueue: loadMessageQueue(),
     queueReviewSessions: {},
     updateQueuedMessage: (id, text) => {
@@ -2386,6 +2392,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         const snapshot = cached;
         set({
           activeSessionId: sessionId,
+          sessionLoadingId: null,
           composerSessionPromotionId: null,
           pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: snapshot?.activeProjectId ?? null,
@@ -2408,6 +2415,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // Do not leave the previous conversation visible while the first fetch is pending.
         set({
           activeSessionId: sessionId,
+          sessionLoadingId: sessionId,
           composerSessionPromotionId: null,
           pendingAttachments: attachmentDrafts.get(sessionId) ?? [],
           activeProjectId: null,
@@ -2495,6 +2503,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         syncViewBusy();
       }).catch(() => {
         // A cached/live view remains usable when a background refresh fails.
+      }).finally(() => {
+        if (get().sessionLoadingId === sessionId && navigationRevision === loadRevision) set({ sessionLoadingId: null });
       });
     },
 
@@ -2601,6 +2611,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const bindingRevision = workspaceRevisions.get(sessionId ?? '') ?? 0;
       const isCurrent = () => revision === explorerRevision && get().activeSessionId === sessionId
         && bindingRevision === (workspaceRevisions.get(sessionId ?? '') ?? 0);
+      set({ filesLoading: true });
       try {
         const data = await fetchWorkspaceFsTree(3);
         if (!isCurrent()) return;
@@ -2621,6 +2632,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if (!isCurrent()) return;
         const message = err instanceof Error ? err.message : String(err);
         set({ files: [], filesRoot: null, filesMessage: message });
+      } finally {
+        if (revision === explorerRevision) set({ filesLoading: false });
       }
     },
 

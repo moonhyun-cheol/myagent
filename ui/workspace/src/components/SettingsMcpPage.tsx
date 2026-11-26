@@ -107,7 +107,7 @@ export function SettingsMcpPage({ readOnly }: SettingsMcpPageProps) {
 
   const testServer = async (server: UserMcpServerItem) => {
     setTestingId(server.id);
-    setTestResults((current) => ({ ...current, [server.id]: '테스트 중...' }));
+    setTestResults((current) => ({ ...current, [server.id]: '연결 확인 중…' }));
     try {
       const result = await testUserMcpServer(server.id);
       setTestResults((current) => ({
@@ -200,7 +200,7 @@ export function SettingsMcpPage({ readOnly }: SettingsMcpPageProps) {
             <p className="mt-0.5 text-xs text-muted">MCP 주소와 인증만 관리합니다. API 사용자 인증정보는 이 앱에 저장하지 않습니다.</p>
           </div>
         </div>
-        {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
+        {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중…</p> : null}
         {!busy && servers.length === 0 ? (
           <div className="rounded-xl border border-dashed border-line px-4 py-8 text-center">
             <p className="text-sm text-muted">등록된 원격 MCP 서버가 없습니다.</p>
@@ -253,7 +253,7 @@ export function SettingsMcpPage({ readOnly }: SettingsMcpPageProps) {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" disabled={testingId === selectedServer.id || busy} onClick={() => void testServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-accent/50 enabled:hover:text-text disabled:cursor-not-allowed disabled:opacity-45">
                     <Wrench size={13} />
-                    {testingId === selectedServer.id ? '테스트 중...' : '연결 테스트'}
+                    {testingId === selectedServer.id ? '연결 확인 중…' : '연결 테스트'}
                   </button>
                   <button type="button" disabled={readOnly || busy} onClick={() => void saveServer(selectedServer)} className="rounded-lg bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-45">저장</button>
                   <button type="button" disabled={readOnly || busy} onClick={() => void removeServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45">

@@ -308,7 +308,7 @@ function ScheduleDashboard({
 
         <div className="divide-y divide-line/80">
           {loading ? (
-            <p className="px-5 py-8 text-center text-xs text-muted">자동화 작업을 불러오는 중입니다.</p>
+            <p className="px-5 py-8 text-center text-xs text-muted">자동화 작업을 불러오는 중…</p>
           ) : loadError ? (
             <p role="alert" className="px-5 py-8 text-center text-xs text-red-700">{loadError}</p>
           ) : rows.length === 0 ? (
@@ -895,7 +895,7 @@ function RunsDashboard({ refreshKey }: { refreshKey: number }) {
   }, [refreshKey]);
 
   if (loading) {
-    return <p className="py-16 text-center text-sm text-muted">실행 기록을 불러오는 중입니다.</p>;
+    return <p className="py-16 text-center text-sm text-muted">실행 기록을 불러오는 중…</p>;
   }
 
   if (loadError) {
