@@ -125,7 +125,7 @@ assert.ok(
 assert.match(install, /'INSTALL-DONE\.txt'/, 'a completion marker from the payload must never be copied into the target');
 assert.match(install, /data\\config\\optional-runtimes\.json/, 'transactional payload copy must preserve the prior optional selection document');
 assert.match(installUi, /Show-FeatureChecklist \$sourceFull \$TargetDir/);
-assert.match(installUi, /Installation complete with optional issues/);
+assert.match(installUi, /Installation complete \(some features skipped\)/);
 assert.match(installUi, /OPTIONAL_RUNTIME_STATE_WRITE_FAILED/);
 assert.doesNotMatch(installUi, /treating as success/, 'a stale completion marker must never override a failed exit code');
 assert.match(optionalHelpers, /"version": 2/);
@@ -432,6 +432,7 @@ try {
   writeFileSync(path.join(sdk, 'client', 'index.js'), 'export const ok = true;\n');
   seedModule(temp, 'mammoth', 'mammoth');
   seedModule(temp, 'pdf-parse', 'pdf-parse');
+  seedModule(temp, 'ssh2', 'ssh2');
   mkdirSync(path.join(temp, 'node_modules'), { recursive: true });
   writeFileSync(path.join(temp, 'node_modules', 'old-runtime.txt'), 'old');
 
@@ -440,10 +441,11 @@ try {
   ], { cwd: root, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr || run.stdout);
   assert.ok(existsSync(path.join(temp, 'node_modules', 'mammoth', 'package.json')));
+  assert.ok(existsSync(path.join(temp, 'node_modules', 'ssh2', 'package.json')));
   assert.ok(!existsSync(path.join(temp, 'node_modules', 'old-runtime.txt')), 'old runtime must be atomically replaced');
   assert.ok(!existsSync(path.join(temp, 'node_modules.previous')), 'backup must be removed after verification');
 
-  rmSync(path.join(temp, 'nm', 'pdf-parse'), { recursive: true, force: true });
+  rmSync(path.join(temp, 'nm', 'ssh2'), { recursive: true, force: true });
   writeFileSync(path.join(temp, 'node_modules', 'keep-on-failure.txt'), 'keep');
   const failed = spawnSync('powershell.exe', [
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(tools, 'restore-core-npm-deps.ps1'), '-Root', temp,

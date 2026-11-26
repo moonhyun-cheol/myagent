@@ -109,7 +109,7 @@ if (launcherHits.length) {
   console.log('  OK   no launcher residue anywhere under stage app');
 }
 
-for (const rel of ['tools/lab', '.playwright', '.my-agent', 'docs']) {
+for (const rel of ['tools/lab', '.playwright', '.my-agent', 'docs', 'Log History', 'deploy-publish.log']) {
   if (existsSync(path.join(appDir, rel))) {
     console.error(`  FAIL developer-only directory must not ship: ${rel}`);
     failed++;
@@ -151,6 +151,7 @@ const requiredVendorPackages = [
   'nm/@modelcontextprotocol/sdk/package.json',
   'nm/mammoth/package.json',
   'nm/pdf-parse/package.json',
+  'nm/ssh2/package.json',
 ];
 for (const rel of requiredVendorPackages) {
   if (existsSync(path.join(appDir, ...rel.split('/')))) {
@@ -198,7 +199,7 @@ if (zipPath) {
         }
       }
       for (const rel of entries) {
-        if (/^app\/(tools\/lab|\.playwright|\.my-agent|docs|rulebook)(\/|$)/i.test(rel)) {
+        if (/^app\/(tools\/lab|\.playwright|\.my-agent|docs|rulebook|Log History)(\/|$)|\.(?:log|jsonl)$/i.test(rel)) {
           console.error(`  FAIL final ZIP contains developer-only files: ${rel}`);
           failed++;
           break;

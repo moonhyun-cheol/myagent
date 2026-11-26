@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { publishShell } from './shell-publish.mjs';
 import { publishUpdater } from './updater-publish.mjs';
+import { bundleRuntimePackage } from './bundle-runtime-package.mjs';
 import {
   buildPayloadManifest,
   createSignedEnvelope,
@@ -77,6 +78,10 @@ copyRel('tools/bootstrap-oss-sidecars.ps1');
 copyRel('tools/bootstrap-oss-sidecars-if-needed.ps1');
 copyRel('tools/requirements-oss-sidecars.txt');
 copyRel('tools/oss-sidecars-package.json');
+
+// Older installs predate SSH. Supply its mandatory dependency closure offline,
+// nested under ssh2 so unrelated installed packages are never overwritten.
+bundleRuntimePackage(root, stageDir, 'ssh2');
 
 console.log('publish-delta: organization modules are excluded from the neutral core update');
 

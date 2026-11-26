@@ -98,6 +98,7 @@ const skipDirs = new Set([
   '.git',
   'node_modules',
   'logs',
+  'Log History',
   'deploy',
   'stage',
   '.cursor',
@@ -173,6 +174,7 @@ function shouldCopyData(norm) {
 
 function shouldCopy(rel) {
   const norm = rel.replace(/\\/g, '/');
+  if (/\.(?:log|jsonl)$/i.test(norm)) return false;
   if (norm === 'install.bat') return false;
   if (norm === 'WorkKitLauncher.exe' || norm === 'launcher-manifest.json' || norm === 'channels/launcher-stable.json') return false;
   if (norm.includes('tools/test-')) return false;

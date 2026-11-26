@@ -17,7 +17,8 @@ assert.ok(install.includes("'tools\\lab'"));
 const publish = read('tools/publish.mjs');
 const filterSource = publish.slice(publish.indexOf('const skipDirs ='), publish.indexOf('function copyTree('));
 const shouldCopy = vm.runInNewContext(`${filterSource}\nshouldCopy`);
-for (const rel of ['tools/lab', 'tools/lab/a/bin/Debug/file.dll', 'tools\\lab\\file.txt']) {
+for (const rel of ['tools/lab', 'tools/lab/a/bin/Debug/file.dll', 'tools\\lab\\file.txt',
+  'Log History/diagnostics/data/logs/report.json', 'deploy-publish.log', 'private.jsonl']) {
   assert.equal(shouldCopy(rel), false, `developer experiment leaked: ${rel}`);
 }
 for (const rel of ['tools/install/install-preflight.ps1', 'tools/playwright-runtime.ps1', 'core/dist/main.js']) {
@@ -147,7 +148,7 @@ foreach ($case in @(@{error='WEBVIEW2_RUNTIME_MISSING: fixture';expected='*WebVi
   };
   for (const rel of ['MYAgent.exe', 'MYAgent.Updater.exe', 'core/dist/main.js', 'ui/workspace/dist/index.html',
     'runtime/node/node.exe', 'tools/install/install.ps1', 'tools/install/install-ui.ps1',
-    'tools/install/install-preflight.ps1', ...['@modelcontextprotocol/sdk', 'mammoth', 'pdf-parse'].map((p) => `nm/${p}/package.json`)]) put(rel);
+    'tools/install/install-preflight.ps1', ...['@modelcontextprotocol/sdk', 'mammoth', 'pdf-parse', 'ssh2'].map((p) => `nm/${p}/package.json`)]) put(rel);
   for (const rel of ['core/config/defaults/deploy-defaults.json', 'core/config/defaults/skills/manifest.json',
     'core/config/defaults/license-public.pem']) put(rel, read(rel));
   put('core/dist/config/defaults/license-public.pem', read('core/config/defaults/license-public.pem'));
@@ -169,7 +170,17 @@ foreach ($case in @(@{error='WEBVIEW2_RUNTIME_MISSING: fixture';expected='*WebVi
   assert.equal(bad.status, 1, bad.stderr || bad.stdout);
   assert.match(bad.stderr, /developer-only directory must not ship: tools\/lab/);
   assert.match(bad.stderr, /final ZIP contains developer-only files/);
-  console.log('installer-package-guards: PASS (clean accepted, lab rejected in stage and ZIP)');
+  rmSync(path.join(app, 'tools/lab'), { recursive: true });
+  for (const rel of ['Log History/report/system-info.txt', 'deploy-publish.log']) {
+    put(rel);
+    pack();
+    const leaked = verify();
+    assert.equal(leaked.status, 1, leaked.stderr || leaked.stdout);
+    assert.match(leaked.stderr, /developer-only directory must not ship/);
+    assert.match(leaked.stderr, /final ZIP contains developer-only files/);
+    rmSync(path.join(app, rel.split('/')[0]), { recursive: true, force: true });
+  }
+  console.log('installer-package-guards: PASS (clean accepted; lab, diagnostic history and logs rejected in stage and ZIP)');
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

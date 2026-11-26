@@ -1,5 +1,5 @@
 #requires -Version 5.1
-# Shared validation for the three production dependencies required by core/dist.
+# Shared validation for the production dependencies required by core/dist.
 
 function Test-CoreNpmDependencies {
   param(
@@ -11,7 +11,8 @@ function Test-CoreNpmDependencies {
   $required = @(
     'node_modules\@modelcontextprotocol\sdk\package.json',
     'node_modules\mammoth\package.json',
-    'node_modules\pdf-parse\package.json'
+    'node_modules\pdf-parse\package.json',
+    'node_modules\ssh2\package.json'
   )
   foreach ($rel in $required) {
     $candidate = Join-Path $Root $rel
@@ -26,7 +27,7 @@ function Test-CoreNpmDependencies {
   }
 
   $verifyScript = Join-Path $Root '.core-deps-verify.mjs'
-  $verifyJs = "await Promise.all([import('@modelcontextprotocol/sdk/client/index.js'), import('mammoth'), import('pdf-parse')]);"
+  $verifyJs = "await Promise.all([import('@modelcontextprotocol/sdk/client/index.js'), import('mammoth'), import('pdf-parse'), import('ssh2')]);"
   try {
     [IO.File]::WriteAllText($verifyScript, $verifyJs + "`n", [Text.UTF8Encoding]::new($false))
     & $NodeExe $verifyScript
