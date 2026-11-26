@@ -43,6 +43,7 @@ import {
   deleteAttachment,
   fetchModelPicker,
   fetchSession,
+  fetchSessionMessagesPage,
   fetchSessionTail,
   toVideoJobRef,
   fetchWorkspaceFsTree,
@@ -272,7 +273,26 @@ function assetToCanvasNode(asset: WorkspaceAsset, position: { x: number; y: numb
 /** Prefix for document sticky-note asks — restored sessions stay out of ChatPane. */
 export { DOCUMENT_MEMO_MARKER, isDocumentMemoMessage } from '../lib/documentMemo';
 
+/**
+ * Position-free restored turn ids: prepending an older history page must not renumber the
+ * turns already on screen. The `-${at}` suffix is kept (withDetachedDraft matches on it).
+ */
+function restoredTurnIds(messages: SessionMessage[]): string[] {
+  const seen = new Map<string, number>();
+  return messages.map((m) => {
+    const base = `${m.role}-${m.at}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n ? `restored-${m.role}-${n}-${m.at}` : `restored-${base}`;
+  });
+}
+
+function historyMessageKey(m: SessionMessage): string {
+  return `${m.role}-${m.at}`;
+}
+
 function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
+  const ids = restoredTurnIds(messages);
   return messages.map((m, i) => {
     const urls = Array.isArray(m.image_urls)
       ? m.image_urls.filter((u): u is string => typeof u === 'string' && !!u)
@@ -288,7 +308,7 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
         typeof prevUser?.content === 'string' &&
         isDocumentMemoMessage(prevUser.content));
     return {
-      id: `restored-${i}-${m.at}`,
+      id: ids[i],
       role: m.role,
       mode: (m.mode === 'image_gen' ? 'image' : m.mode === 'web_dev' ? 'code' : 'text') as AiWorkMode,
       text: m.status === 'stopped' && text !== '(중지됨)' ? `${text}\n\n(중지됨)` : isPlaceholder ? '' : text,
@@ -330,7 +350,27 @@ function sessionMessagesToChat(messages: SessionMessage[]): ChatTurn[] {
   });
 }
 
+/**
+ * Chat turns for a partially loaded history. A leading reply whose question is still on an
+ * older (unloaded) page waits for that page: its doc-memo hiding / start time need the question.
+ */
+function historyChat(messages: SessionMessage[], hasMore: boolean): ChatTurn[] {
+  const chat = sessionMessagesToChat(messages);
+  return hasMore && messages[0]?.role === 'assistant' ? chat.slice(1) : chat;
+}
+
+/** Prepend the turns of `derived` that come before the first turn `current` already shows. */
+function prependOlderTurns(current: ChatTurn[], derived: ChatTurn[]): ChatTurn[] {
+  const shown = new Set(current.map((turn) => turn.id));
+  const firstShared = derived.findIndex((turn) => shown.has(turn.id));
+  const older = firstShared < 0
+    ? derived.filter((turn) => !shown.has(turn.id))
+    : derived.slice(0, firstShared);
+  return older.length ? [...older, ...current] : current;
+}
+
 function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
+  const ids = restoredTurnIds(messages);
   const out: WorkspaceAsset[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < messages.length; i += 1) {
@@ -353,7 +393,7 @@ function assetsFromMessages(messages: SessionMessage[]): WorkspaceAsset[] {
         imageUrl: url,
         origin: inferMediaOrigin({ url, role: 'assistant', prompt: promptSource }),
         mediaKind: 'image',
-        turnId: `restored-${i}-${m.at}`,
+        turnId: ids[i],
       });
     }
   }
@@ -542,6 +582,8 @@ interface WorkspaceState {
   unseenCompletions: Record<string, boolean>;
   /** Session whose first server fetch is pending with no cached view (chat shows a loading note, not the empty prompt). */
   sessionLoadingId: string | null;
+  /** Server paging of the active conversation's older messages (compare sessionId with activeSessionId). */
+  chatHistory: { sessionId: string | null; hasMore: boolean; loading: boolean };
   /** True while the latest refreshExplorer request is in flight. */
   filesLoading: boolean;
   /** User messages waiting for the current turn to finish, in session FIFO order. */
@@ -665,6 +707,8 @@ interface WorkspaceState {
   /** Clear current chat without creating a replacement session (allows zero chats). */
   clearActiveChat: () => void;
   loadChatSession: (sessionId: string) => Promise<void>;
+  /** Fetch the next older message page and prepend it. Resolves true when turns were added. */
+  loadOlderChat: (sessionId?: string) => Promise<boolean>;
   sendAiMessage: (
     text: string,
     modelOverride?: string,
@@ -713,9 +757,10 @@ function describeDetachedRun(run: SessionActiveRun): string {
 }
 
 /** Committed transcript plus the server's uncommitted draft as an in-progress turn. */
-function chatWithRunDraft(messages: SessionMessage[], run: SessionActiveRun): ChatTurn[] {
-  if (!run.draft) return sessionMessagesToChat(messages);
-  const chat = sessionMessagesToChat([...messages, run.draft]);
+function chatWithRunDraft(messages: SessionMessage[], run: SessionActiveRun, hasMore = false): ChatTurn[] {
+  if (!run.draft) return historyChat(messages, hasMore);
+  const chat = historyChat([...messages, run.draft], hasMore);
+  if (!chat.length) return chat;
   const last = chat[chat.length - 1];
   chat[chat.length - 1] = {
     ...last,
@@ -791,6 +836,23 @@ function saveMessageQueue(queue: QueuedMessage[]): void {
 
 /** In-memory view snapshots make revisiting a loaded conversation synchronous. */
 const sessionViewCache = new Map<string, SessionViewSnapshot>();
+
+/**
+ * Server-paged transcript per conversation: committed messages loaded so far (oldest→newest).
+ * Opening a chat fetches only the newest page; older pages are prepended on demand.
+ */
+interface ChatHistoryState {
+  messages: SessionMessage[];
+  hasMore: boolean;
+  nextBefore: number | null;
+  loading: Promise<boolean> | null;
+  /** After a failed page fetch, scroll/prefetch triggers wait until this time (ms). */
+  retryAfter: number;
+}
+const chatHistories = new Map<string, ChatHistoryState>();
+/** Messages per history page (matches ChatPane's render window of 40 turns). */
+const CHAT_HISTORY_PAGE = 40;
+const CHAT_HISTORY_RETRY_MS = 5_000;
 
 function isAbortError(err: unknown) {
   if (!err || typeof err !== 'object') return false;
@@ -1080,11 +1142,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     if (get().activeSessionId === sid) set({ chat });
   };
 
+  /** Mirror the active conversation's paging state into the store (ChatPane reads it). */
+  const publishChatHistory = (sid: string) => {
+    if (get().activeSessionId !== sid) return;
+    const history = chatHistories.get(sid);
+    const next = { sessionId: sid, hasMore: Boolean(history?.hasMore), loading: Boolean(history?.loading) };
+    const current = get().chatHistory;
+    if (current.sessionId === next.sessionId && current.hasMore === next.hasMore && current.loading === next.loading) return;
+    set({ chatHistory: next });
+  };
+
+  /** A full transcript was fetched: nothing older is left to page in. */
+  const rememberFullHistory = (sid: string, messages: SessionMessage[]) => {
+    chatHistories.set(sid, { messages, hasMore: false, nextBefore: null, loading: null, retryAfter: 0 });
+    publishChatHistory(sid);
+  };
+
   /** Detached run ended on the server: drop its phase, show the committed result, drain queue. */
   const endDetachedRun = (sid: string, messages?: SessionMessage[]) => {
     if (!detachedRuns.delete(sid)) return;
     if (!liveJobs.has(sid)) clearSessionPhase(sid);
-    if (messages && !liveJobs.has(sid)) showSessionChat(sid, sessionMessagesToChat(messages));
+    if (messages && !liveJobs.has(sid)) {
+      rememberFullHistory(sid, messages);
+      showSessionChat(sid, sessionMessagesToChat(messages));
+    }
     if (get().activeSessionId === sid) syncViewBusy();
     queueMicrotask(() => dispatchNextQueuedMessage(sid));
   };
@@ -1125,6 +1206,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           continue;
         }
         if (detachedRuns.get(sid)?.runId !== runId || liveJobs.has(sid)) return;
+        rememberFullHistory(sid, rec.messages ?? []);
         const run = rec.active_run;
         if (run?.run_id === runId) {
           applyDetachedRun(sid, run);
@@ -1766,6 +1848,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     sessionPhases: {},
     unseenCompletions: {},
     sessionLoadingId: null,
+    chatHistory: { sessionId: null, hasMore: false, loading: false },
     filesLoading: false,
     messageQueue: loadMessageQueue(),
     queueReviewSessions: {},
@@ -2435,21 +2518,45 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         });
       }
       syncViewBusy();
+      publishChatHistory(sessionId);
       queueMicrotask(() => dispatchNextQueuedMessage(sessionId));
       // Each conversation resolves its own workspace root on the server (session header).
       // Without this the explorer / Document picker kept the previously opened chat's tree.
       if (sessionChanged) set({ files: [], filesRoot: null, filesMessage: null });
       void get().refreshExplorer();
 
-      // Refresh from the server without blocking the visible session switch.
-      void fetchSession(sessionId).then(async (rec) => {
-        const messages = rec.messages ?? [];
+      // Refresh from the server without blocking the visible session switch. Only the newest
+      // page is fetched: long transcripts are no longer downloaded and converted up front.
+      void fetchSession(sessionId, { recent: CHAT_HISTORY_PAGE }).then(async (rec) => {
+        const pageMessages = rec.messages ?? [];
         const membershipProjectId = rec.project_id ?? null;
         const workspaceRootProjectId = rec.workspace_binding_explicit
           ? rec.workspace_project_id ?? null
           // Same rule as the server: without an explicit binding only the sidebar location counts.
           : await resolveWorkspaceRootProjectId(membershipProjectId);
         if ((workspaceRevisions.get(sessionId) ?? 0) !== bindingRevision || navigationRevision !== loadRevision) return;
+        // Merge the fresh newest page into the history already loaded for this conversation:
+        // older pages stay when the page still overlaps them, otherwise the history restarts here.
+        const cursor = rec.messages_page;
+        const prevHistory = chatHistories.get(sessionId);
+        const firstKey = pageMessages[0] ? historyMessageKey(pageMessages[0]) : null;
+        const overlapAt = cursor && prevHistory && firstKey
+          ? prevHistory.messages.findIndex((m) => historyMessageKey(m) === firstKey)
+          : -1;
+        let history: ChatHistoryState;
+        if (!cursor) {
+          // Older core without ?recent= support answered with the full transcript.
+          history = { messages: pageMessages, hasMore: false, nextBefore: null, loading: null, retryAfter: 0 };
+          chatHistories.set(sessionId, history);
+        } else if (prevHistory && overlapAt >= 0) {
+          history = prevHistory;
+          history.messages = [...prevHistory.messages.slice(0, overlapAt), ...pageMessages];
+        } else {
+          history = { messages: pageMessages, hasMore: cursor.has_more, nextBefore: cursor.next_before, loading: null, retryAfter: 0 };
+          chatHistories.set(sessionId, history);
+        }
+        const freshHistory = history !== prevHistory;
+        const messages = history.messages;
         const currentLive = liveJobs.get(sessionId);
         const previous = sessionViewCache.get(sessionId);
         // A run this view does not stream (reloaded mid-turn / stop still finishing on the server).
@@ -2461,7 +2568,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           selectedModel,
           activeWorkspaceProjectId: workspaceRootProjectId,
           chat: currentLive?.chat
-            ?? (detachedRun ? chatWithRunDraft(messages, detachedRun) : sessionMessagesToChat(messages)),
+            ?? (detachedRun
+              ? chatWithRunDraft(messages, detachedRun, history.hasMore)
+              : historyChat(messages, history.hasMore)),
           activeExecutionPolicy: {
             ...rawPolicy,
             reasoning: normalizeReasoningLevelForModel(
@@ -2501,11 +2610,66 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activeDocumentTabId: refreshed.activeDocumentTabId,
         });
         syncViewBusy();
+        publishChatHistory(sessionId);
+        // Prefetch one older page in the background so the first scroll up is instant.
+        if (freshHistory && history.hasMore) void get().loadOlderChat(sessionId);
       }).catch(() => {
         // A cached/live view remains usable when a background refresh fails.
       }).finally(() => {
         if (get().sessionLoadingId === sessionId && navigationRevision === loadRevision) set({ sessionLoadingId: null });
       });
+    },
+
+    loadOlderChat: async (targetSessionId) => {
+      const sid = targetSessionId ?? get().activeSessionId;
+      if (!sid) return false;
+      const history = chatHistories.get(sid);
+      if (!history?.hasMore || history.nextBefore === null) return false;
+      if (history.loading) return history.loading;
+      if (Date.now() < history.retryAfter) return false;
+      const before = history.nextBefore;
+      const job = (async () => {
+        try {
+          const page = await fetchSessionMessagesPage(sid, before, CHAT_HISTORY_PAGE);
+          // The history was restarted (newest page no longer overlapped) while this was in flight.
+          if (chatHistories.get(sid) !== history || history.nextBefore !== before) return false;
+          history.messages = [...page.messages, ...history.messages];
+          history.hasMore = page.has_more;
+          history.nextBefore = page.next_before;
+          const derived = historyChat(history.messages, history.hasMore);
+          const active = get().activeSessionId === sid;
+          const live = liveJobs.get(sid);
+          // Own streams keep their newest turns: only turns older than what is shown are added.
+          const base = live?.chat ?? (active ? get().chat : sessionViewCache.get(sid)?.chat) ?? [];
+          const merged = prependOlderTurns(base, derived);
+          if (merged !== base) {
+            if (live) live.chat = merged;
+            showSessionChat(sid, merged);
+          }
+          // Restored media from the newly loaded page (newest-first list: older ones go last).
+          const cached = sessionViewCache.get(sid);
+          const assets = active ? get().assets : cached?.assets;
+          if (assets) {
+            const known = new Set(assets.map((asset) => asset.id));
+            const added = assetsFromMessages(history.messages).filter((asset) => !known.has(asset.id));
+            if (added.length) {
+              const nextAssets = [...assets, ...added];
+              if (cached) sessionViewCache.set(sid, { ...cached, assets: nextAssets });
+              if (active) set({ assets: nextAssets });
+            }
+          }
+          return merged !== base;
+        } catch {
+          history.retryAfter = Date.now() + CHAT_HISTORY_RETRY_MS;
+          return false;
+        } finally {
+          history.loading = null;
+          publishChatHistory(sid);
+        }
+      })();
+      history.loading = job;
+      publishChatHistory(sid);
+      return job;
     },
 
     openFile: async (id) => {

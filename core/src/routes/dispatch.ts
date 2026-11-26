@@ -3463,7 +3463,19 @@ export async function dispatchApiRequest(
         const sid = sessionMatch[1];
         if (method === 'GET') {
           license.assertFeature('chat');
-          const rec = sessionStore.load(sid);
+          // ?recent=N: metadata + newest N messages + messages_page cursor (older pages via
+          // GET /sessions/:id/messages?before=). Without it the full record is returned as before.
+          const rawRecent = url.searchParams.get('recent');
+          let rec: ReturnType<typeof sessionStore.load>;
+          if (rawRecent !== null) {
+            const recent = Number(rawRecent);
+            if (!Number.isSafeInteger(recent) || recent < 1 || recent > 200) {
+              return sendJson(res, 400, { error: 'INVALID_MESSAGE_PAGE' });
+            }
+            rec = sessionStore.loadRecent(sid, recent);
+          } else {
+            rec = sessionStore.load(sid);
+          }
           if (!rec) return sendJson(res, 404, { error: 'NOT_FOUND' });
           const activeRun = liveRunView(sid);
           const publicRec = sessionStore.publicRecord(rec);

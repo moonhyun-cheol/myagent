@@ -168,6 +168,14 @@ export interface SessionRecord {
   execution_policy?: ExecutionPolicy;
   /** 작업 → 할 일 → 고정 지침, stored on the conversation record. */
   pinned_instructions?: string[];
+  /** Present only for `fetchSession(id, { recent })`: cursor for older messages. */
+  messages_page?: SessionMessagesCursor;
+}
+
+export interface SessionMessagesCursor {
+  has_more: boolean;
+  /** Exclusive sequence cursor for `GET /sessions/:id/messages?before=`. */
+  next_before: number | null;
 }
 
 export interface SessionActiveRun {
@@ -988,10 +996,31 @@ export async function fetchSessionTodos(id: string, signal?: AbortSignal): Promi
   return data.todos;
 }
 
-export async function fetchSession(id: string): Promise<SessionRecord> {
-  const res = await fetch(`/sessions/${encodeURIComponent(id)}`);
+/** Full record, or with `recent` only the newest N messages plus `messages_page`. */
+export async function fetchSession(id: string, opts?: { recent?: number }): Promise<SessionRecord> {
+  const q = opts?.recent ? `?recent=${opts.recent}` : '';
+  const res = await fetch(`/sessions/${encodeURIComponent(id)}${q}`);
   if (!res.ok) throw new Error(`세션 로드 실패 (${res.status})`);
   return (await res.json()) as SessionRecord;
+}
+
+/** Messages older than the `before` cursor (oldest→newest within the page). */
+export async function fetchSessionMessagesPage(
+  id: string,
+  before: number,
+  limit = 40,
+): Promise<{ messages: SessionMessage[] } & SessionMessagesCursor> {
+  const res = await fetch(
+    `/sessions/${encodeURIComponent(id)}/messages?limit=${limit}&before=${before}`,
+    { cache: 'no-store' },
+  );
+  if (!res.ok) throw new Error(`이전 대화 로드 실패 (${res.status})`);
+  const data = await res.json();
+  return {
+    messages: Array.isArray(data.messages) ? data.messages : [],
+    has_more: data.has_more === true,
+    next_before: typeof data.next_before === 'number' ? data.next_before : null,
+  };
 }
 
 /** Newest committed messages plus the live run (if any) — a cheap poll for long conversations. */

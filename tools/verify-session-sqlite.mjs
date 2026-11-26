@@ -65,6 +65,29 @@ try {
   assert.throws(() => store.messagePage('legacy', 50, NaN), /INVALID_MESSAGE_PAGE/);
   console.log('PASS: complete cursor traversal, append between pages, invalid/empty queries');
 
+  // Recent-first open: metadata + newest page; older pages continue from its cursor.
+  const recent = store.loadRecent('legacy', 40);
+  const full = store.load('legacy').messages;
+  assert.equal(recent.messages.length, 40);
+  assert.deepEqual(recent.messages, full.slice(-40));
+  assert.equal(recent.messages_page.has_more, true);
+  assert.equal(recent.title, '업무 기록');
+  assert.equal(recent.workspace_project_id, 'workspace-a');
+  assert.ok(recent.execution_policy);
+  let restoredFromRecent = recent.messages; let cursor = recent.messages_page.next_before;
+  while (cursor !== null) {
+    const older = store.messagePage('legacy', 40, cursor);
+    restoredFromRecent = [...older.messages, ...restoredFromRecent];
+    cursor = older.has_more ? older.next_before : null;
+  }
+  assert.deepEqual(restoredFromRecent, full);
+  const whole = store.loadRecent('legacy', 200);
+  assert.equal(store.loadRecent('missing', 40), null);
+  assert.throws(() => store.loadRecent('legacy', 0), /INVALID_MESSAGE_PAGE/);
+  assert.throws(() => store.loadRecent('legacy', 201), /INVALID_MESSAGE_PAGE/);
+  assert.equal(whole.messages_page.has_more, true);
+  console.log('PASS: loadRecent newest page + cursor rebuilds the full transcript');
+
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
     import { SessionStore } from ${JSON.stringify(new URL('../core/dist/sessions/session-store.js', import.meta.url).href)};
@@ -173,5 +196,27 @@ try {
   for (const suffix of ['?limit=0', '?limit=201', '?limit=no', '?before=-1', '?before=1.5']) assert.equal(query(suffix).status, 400);
   assert.equal(run(new URL('http://test/sessions/missing/messages'), 'GET', store, {}, (_, status) => status), 404);
   console.log('PASS: actual page route branch success/validation/404 (isolated, not HTTP E2E)');
+
+  // GET /sessions/:id branch: ?recent=N vs the unchanged full response.
+  const sessionStart = source.indexOf('      const sessionMatch =');
+  const sessionBranch = `${source.slice(sessionStart, source.indexOf("        if (method === 'PUT') {", sessionStart))}}`;
+  assert.ok(sessionBranch.includes('loadRecent('));
+  const sessionJs = ts.transpileModule(sessionBranch, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const sessionFn = new Function('url', 'method', 'sessionStore', 'res', 'sendJson', 'liveRunView', 'license', sessionJs);
+  const routeRec = store.importPortable({ conversation: { title: '경로', messages: Array.from({ length: 100 }, (_, i) => msg(i)) } });
+  const getSession = (suffix, id = routeRec.id) => sessionFn(new URL(`http://test/sessions/${id}${suffix}`), 'GET', store, {},
+    (_, status, body) => ({ status, body }), () => null, { assertFeature() {} });
+  const recentRes = getSession('?recent=40');
+  assert.equal(recentRes.status, 200);
+  assert.equal(recentRes.body.messages.length, 40);
+  assert.equal(recentRes.body.messages_page.has_more, true);
+  assert.equal(recentRes.body.responses_state, undefined);
+  const fullRes = getSession('');
+  assert.equal(fullRes.status, 200);
+  assert.equal(fullRes.body.messages.length, 100);
+  assert.equal('messages_page' in fullRes.body, false);
+  for (const suffix of ['?recent=0', '?recent=201', '?recent=no', '?recent=1.5']) assert.equal(getSession(suffix).status, 400);
+  assert.equal(getSession('?recent=40', 'missing').status, 404);
+  console.log('PASS: session route ?recent= page / full response unchanged / validation / 404');
 } finally { rmSync(root, { recursive: true, force: true }); }
 console.log('verify-session-sqlite: PASS');

@@ -357,6 +357,9 @@ export function ChatPane() {
   const skillLabel = useWorkspaceStore((s) => s.skillLabel);
   const setSkillMode = useWorkspaceStore((s) => s.setSkillMode);
   const loadChatSession = useWorkspaceStore((s) => s.loadChatSession);
+  const loadOlderChat = useWorkspaceStore((s) => s.loadOlderChat);
+  const canLoadOlder = useWorkspaceStore((s) => s.chatHistory.sessionId === s.activeSessionId && s.chatHistory.hasMore);
+  const olderLoading = useWorkspaceStore((s) => s.chatHistory.sessionId === s.activeSessionId && s.chatHistory.loading);
   const clearActiveChat = useWorkspaceStore((s) => s.clearActiveChat);
   const openImagePreview = useWorkspaceStore((s) => s.openImagePreview);
   const [draft, setDraft] = useState('');
@@ -759,16 +762,40 @@ export function ChatPane() {
     expandAnchorRef.current = null;
     scroller.scrollTop = anchor.top + (scroller.scrollHeight - anchor.height);
   }, [renderLimit]);
+  // Older messages not fetched yet come from the server page by page (newest first).
+  // After a fetch the new turns are still unmounted; mount them while the user is at the top.
+  const pendingOlderExpandRef = useRef(false);
+  useEffect(() => { pendingOlderExpandRef.current = false; }, [activeSessionId]);
+  const requestOlderHistory = useCallback(() => {
+    if (!canLoadOlder) return;
+    // Also when a prefetch is already in flight: its result is mounted as soon as it lands.
+    pendingOlderExpandRef.current = true;
+    if (!olderLoading) void loadOlderChat();
+  }, [canLoadOlder, olderLoading, loadOlderChat]);
+  useEffect(() => {
+    if (!pendingOlderExpandRef.current || !hiddenTurnCount) return;
+    pendingOlderExpandRef.current = false;
+    const scroller = scrollRef.current;
+    if (scroller && scroller.scrollTop < 240) showOlderTurns();
+  }, [hiddenTurnCount, showOlderTurns]);
+  // Keep one page ahead: once the user has mounted every fetched turn, prefetch the next page.
+  useEffect(() => {
+    if (canLoadOlder && !olderLoading && !hiddenTurnCount && renderLimit > CHAT_RENDER_WINDOW) void loadOlderChat();
+  }, [canLoadOlder, olderLoading, hiddenTurnCount, renderLimit, loadOlderChat]);
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller || !hiddenTurnCount) return;
+    if (!scroller || (!hiddenTurnCount && !canLoadOlder)) return;
     const onScroll = () => {
-      if (scroller.scrollTop < 240 && !expandAnchorRef.current) showOlderTurns();
+      if (scroller.scrollTop >= 240 || expandAnchorRef.current) return;
+      if (hiddenTurnCount) showOlderTurns();
+      else requestOlderHistory();
     };
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
-  }, [hiddenTurnCount, showOlderTurns]);
-  // Jump-to-turn: mount an older target first, then scroll once it exists.
+  }, [hiddenTurnCount, showOlderTurns, canLoadOlder, requestOlderHistory]);
+  // Jump-to-turn: mount an older target first, then scroll once it exists. A target on a page
+  // not fetched yet pulls older pages (bounded) until it appears.
+  const jumpFetchRef = useRef({ nonce: 0, pages: 0 });
   useEffect(() => {
     if (!chatScrollNonce || !chatScrollTurnId || handledScrollNonceRef.current === chatScrollNonce) return;
     const target = turnAnchorRefs.current.get(chatScrollTurnId);
@@ -776,6 +803,12 @@ export function ChatPane() {
       const position = visibleChat.findIndex((turn) => turn.id === chatScrollTurnId);
       if (position >= 0 && position < hiddenTurnCount) {
         setRenderWindow({ sessionId: activeSessionId, limit: visibleChat.length - position + 2 });
+      } else if (position < 0 && canLoadOlder && !olderLoading) {
+        if (jumpFetchRef.current.nonce !== chatScrollNonce) jumpFetchRef.current = { nonce: chatScrollNonce, pages: 0 };
+        if (jumpFetchRef.current.pages < 10) {
+          jumpFetchRef.current.pages += 1;
+          void loadOlderChat();
+        }
       }
       return;
     }
@@ -785,7 +818,7 @@ export function ChatPane() {
     window.setTimeout(() => {
       target.classList.remove('ring-2', 'ring-accent/60', 'rounded-xl');
     }, 1800);
-  }, [chatScrollNonce, chatScrollTurnId, visibleChat, hiddenTurnCount, activeSessionId]);
+  }, [chatScrollNonce, chatScrollTurnId, visibleChat, hiddenTurnCount, activeSessionId, canLoadOlder, olderLoading, loadOlderChat]);
   const videoModelIds = useMemo(() => videoIdsFromPicker(modelOptions), [modelOptions]);
   const modelLabels = useMemo(() => new Map(modelOptions.map((option) => [option.id, option.label])), [modelOptions]);
   const hasChatTurns = visibleChat.length > 0;
@@ -1788,8 +1821,22 @@ export function ChatPane() {
                 className="rounded-lg border border-line/80 px-3 py-1.5 text-xs text-muted hover:text-text"
                 onClick={showOlderTurns}
               >
-                이전 메시지 {Math.min(hiddenTurnCount, CHAT_RENDER_WINDOW)}개 더 보기 · 남은 {hiddenTurnCount}개
+                이전 메시지 {Math.min(hiddenTurnCount, CHAT_RENDER_WINDOW)}개 더 보기 · 남은 {hiddenTurnCount}{canLoadOlder ? '+' : ''}개
               </button>
+            </div>
+          ) : canLoadOlder && visibleChat.length > 0 ? (
+            <div className="flex justify-center">
+              {olderLoading ? (
+                <p role="status" className="text-xs text-muted">이전 대화 불러오는 중…</p>
+              ) : (
+                <button
+                  type="button"
+                  className="rounded-lg border border-line/80 px-3 py-1.5 text-xs text-muted hover:text-text"
+                  onClick={requestOlderHistory}
+                >
+                  이전 대화 불러오기
+                </button>
+              )}
             </div>
           ) : null}
           {renderedChat.map((turn, renderedIndex) => {

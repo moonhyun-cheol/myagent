@@ -292,6 +292,18 @@ export class SessionStore {
     return rec;
   }
 
+  /** Same as `load`, but only the newest `limit` messages plus a `messages_page` cursor. */
+  loadRecent(id: string, limit: number): (SessionRecord & { messages_page: Omit<MessagePage, 'messages'> }) | null {
+    const safe = sanitizeId(id);
+    if (!safe) return null;
+    const rec = this.database.loadRecent(safe, limit);
+    if (!rec) return null;
+    if (rec.project_id === undefined) rec.project_id = null;
+    if (rec.workspace_project_id === undefined) rec.workspace_project_id = null;
+    rec.execution_policy = normalizeExecutionPolicy(rec.execution_policy);
+    return rec;
+  }
+
   ensure(id: string, opts?: { project_id?: string | null; execution_policy?: ExecutionPolicy }): SessionRecord {
     const existing = this.load(id);
     if (existing) {

@@ -472,6 +472,30 @@ export class SessionSqliteStore {
     });
   }
 
+  /**
+   * Session metadata plus only the newest `limit` messages (same cursor rules as `page`).
+   * Opening a long conversation no longer reads and ships the whole transcript first.
+   */
+  loadRecent(id: string, limit: number): (SessionRecord & { messages_page: Omit<MessagePage, 'messages'> }) | null {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error('INVALID_MESSAGE_PAGE');
+    return this.withDbReadOnly((db) => {
+      db.exec('BEGIN');
+      try {
+        const row = db.prepare('SELECT body FROM sessions WHERE id = ?').get(id) as { body: string } | undefined;
+        if (!row) return null;
+        const rows = db.prepare('SELECT seq, body FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
+          .all(id, limit + 1) as unknown as Row[];
+        const hasMore = rows.length > limit;
+        const page = rows.slice(0, limit).reverse();
+        return {
+          ...JSON.parse(row.body),
+          messages: page.map((m) => JSON.parse(m.body) as SessionMessage),
+          messages_page: { has_more: hasMore, next_before: hasMore ? page[0].seq : null },
+        } as SessionRecord & { messages_page: Omit<MessagePage, 'messages'> };
+      } finally { db.exec('COMMIT'); }
+    });
+  }
+
   list(): SessionSummary[] {
     return this.withDbReadOnly((db) => {
       // Extract only the summary fields in SQLite: bodies can carry large Responses replay
