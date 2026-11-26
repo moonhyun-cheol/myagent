@@ -10,7 +10,10 @@
   "openclaw_fallback_local": false,
   "web_search_auto": false,
   "premium_input_usd_per_million": 4,
-  "premium_input_note": "Models whose provider-reported input price is >= this (USD per 1M input tokens) show the $ high-cost marker. Price-based only; unknown pricing is never marked.",
+  "premium_output_usd_per_million": 20,
+  "ultra_premium_input_usd_per_million": 8,
+  "ultra_premium_output_usd_per_million": 40,
+  "premium_input_note": "USD per 1M tokens: ultra-premium input >= 8 OR output >= 40; otherwise premium input >= 4 OR output >= 20. Both prices must be known and below thresholds for standard. No model-name rules.",
   "organization_module_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/beta.json",
   "work_kit_catalog_feed_url": "https://git.minyoungcorp.com/ins78516/myagent-org/raw/branch/main/channels/work-kits.json",
   "organization_release_mirrors": [

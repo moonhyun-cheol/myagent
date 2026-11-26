@@ -507,8 +507,9 @@ interface WorkspaceState {
   activeExecutionPolicy: ExecutionPolicy;
   effectiveExecutionPolicy: EffectiveExecutionPolicy | null;
   modelOptions: PickerModel[];
-  /** Model ids whose provider output price meets the high-cost threshold. */
+  /** Model ids whose provider input or output price meets a cost threshold. */
   premiumModelIds: string[];
+  ultraPremiumModelIds: string[];
   apiOnline: boolean | null;
   apiError: string | null;
   previewPaneOpen: boolean;
@@ -1740,6 +1741,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     effectiveExecutionPolicy: null,
     modelOptions: [{ id: 'auto', label: '기본 (자동)' }],
     premiumModelIds: [],
+    ultraPremiumModelIds: [],
     apiOnline: null,
     apiError: null,
     previewPaneOpen: (() => { try { return localStorage.getItem('my-agent.work-panel-open.v1') !== '0'; } catch { return true; } })(),
@@ -1960,7 +1962,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refreshModelPicker: async (refreshRemote = false) => {
       const picker = await fetchModelPicker(refreshRemote);
       const models = picker.models.length ? picker.models : FALLBACK_MODEL_OPTIONS;
-      set({ modelOptions: models, premiumModelIds: picker.premium_model_ids });
+      set({ modelOptions: models, premiumModelIds: picker.premium_model_ids, ultraPremiumModelIds: picker.ultra_premium_model_ids });
       // First boot without a price table: core fetches prices in the background.
       // Re-poll a few times (cache-only, no remote refresh) so `$` badges appear on their own.
       if (picker.pricing_warming && pricingRepollCount < 6) {

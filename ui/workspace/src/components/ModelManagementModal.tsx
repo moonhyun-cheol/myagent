@@ -95,9 +95,11 @@ export function ModelManagementModal({
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [defaultModel, setDefaultModel] = useState('auto');
-  const [pickerModels, setPickerModels] = useState<{ id: string; label?: string; premium?: boolean }[]>([]);
+  const [pickerModels, setPickerModels] = useState<{ id: string; label?: string; cost_tier?: 'ultra_premium' | 'premium' | 'standard' | 'unknown' }[]>([]);
   const refreshModelPicker = useWorkspaceStore((s) => s.refreshModelPicker);
   const premiumCompanyModels = useMemo(() => new Set(companyModels?.premium ?? []), [companyModels]);
+  const ultraPremiumCompanyModels = useMemo(() => new Set(companyModels?.ultra_premium ?? []), [companyModels]);
+  const companyTier = (id: string) => ultraPremiumCompanyModels.has(id) ? 'ultra_premium' : premiumCompanyModels.has(id) ? 'premium' : 'unknown';
 
   const refresh = async () => {
     const next = await listProviders();
@@ -109,7 +111,7 @@ export function ModelManagementModal({
     if (!open) return;
     void fetchDefaultModelOverride().then(setDefaultModel).catch(() => setDefaultModel('auto'));
     void fetchModelPicker()
-      .then((data) => setPickerModels(data.models.map((m) => ({ id: m.id, label: m.label, premium: m.cost_tier === 'premium' }))))
+      .then((data) => setPickerModels(data.models))
       .catch(() => setPickerModels([]));
     void refresh().catch((err) => setMessage(err instanceof Error ? err.message : '모델 목록 실패'));
     const onKey = (event: KeyboardEvent) => {
@@ -436,7 +438,7 @@ export function ModelManagementModal({
                       <div key={id} className="flex flex-col gap-2 rounded-xl border border-line bg-panel-2/50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <span className="min-w-0 break-all text-sm font-medium leading-5 sm:truncate" title={label}>
                           {label}
-                          {premiumCompanyModels.has(id) ? <PremiumCostBadge /> : null}
+                          <PremiumCostBadge tier={companyTier(id)} />
                         </span>
                         <button
                           type="button"
@@ -478,7 +480,7 @@ export function ModelManagementModal({
                         className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted hover:bg-emerald-50 hover:text-emerald-800"
                       >
                         {labelFor(id)}
-                        {premiumCompanyModels.has(id) ? <PremiumCostBadge /> : null}
+                        <PremiumCostBadge tier={companyTier(id)} />
                       </button>
                     )) : companyModelSearch.includes('/') || companyModelSearch.startsWith('open_webui_openrouter_integration.') ? (
                       <button
@@ -628,7 +630,7 @@ export function ModelManagementModal({
                   <option value={defaultModel}>{defaultModel}</option>
                 ) : null}
                 {pickerModels.filter((model) => model.id !== 'auto').map((model) => (
-                  <option key={model.id} value={model.id}>{model.label || model.id}{model.premium ? ' $' : ''}</option>
+                  <option key={model.id} value={model.id}>{model.label || model.id}{model.cost_tier === 'ultra_premium' ? ' $$$' : model.cost_tier === 'premium' ? ' $' : ''}</option>
                 ))}
               </select>
             </div>

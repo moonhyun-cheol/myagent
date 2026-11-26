@@ -49,8 +49,11 @@ export interface DeployDefaults {
   openclaw_actor_id?: string;
   openclaw_fallback_local?: boolean;
   web_search_auto?: boolean;
-  /** High-cost marker threshold: provider input price (USD per 1M input tokens) >= this. Default 4. */
+  /** Cost thresholds in USD per 1M tokens; either input or output can trigger a tier. */
   premium_input_usd_per_million?: number;
+  premium_output_usd_per_million?: number;
+  ultra_premium_input_usd_per_million?: number;
+  ultra_premium_output_usd_per_million?: number;
   /** Organization brand manual URL fallback when no org module is installed. */
   brand_manual_url?: string;
   note?: string;

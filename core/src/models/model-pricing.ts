@@ -1,11 +1,9 @@
 /**
  * Provider-reported model pricing → cost tier.
  *
- * The premium rule is price-based, never a model-name list: a model is
- * `premium` when the provider's input price is >= the configured threshold
- * (USD per 1M input tokens, `deploy-defaults.json`
- * `premium_input_usd_per_million`, default 4). Models whose provider does not
- * publish an input price stay `unknown` — we do not guess.
+ * Price-based, never a model-name list (USD per 1M tokens):
+ * ultra_premium: input >= 8 OR output >= 40; premium: input >= 4 OR output >= 20.
+ * Check the higher tier first. Both prices must be known to classify as standard.
  *
  * Prices from the last remote `/models` listing are persisted under
  * `data/model-pricing.json` so a cold app start can show tiers before the
@@ -25,9 +23,18 @@ export interface ModelPricing {
   outputs?: string[];
 }
 
-export type ModelCostTier = 'premium' | 'standard' | 'unknown';
+export type ModelCostTier = 'ultra_premium' | 'premium' | 'standard' | 'unknown';
 
 export const DEFAULT_PREMIUM_INPUT_USD_PER_MILLION = 4;
+export interface ModelCostThresholds {
+  input: number;
+  output: number;
+  ultraInput: number;
+  ultraOutput: number;
+}
+export const DEFAULT_COST_THRESHOLDS: Readonly<ModelCostThresholds> = {
+  input: DEFAULT_PREMIUM_INPUT_USD_PER_MILLION, output: 20, ultraInput: 8, ultraOutput: 40,
+};
 
 /** OpenRouter reports USD per token as strings ("0.00005"); negative = variable/unknown. */
 export function perTokenToPerMillion(value: unknown): number | undefined {
@@ -66,10 +73,32 @@ export function parseModelPricing(row: Record<string, unknown>): ModelPricing | 
 
 export function costTierFor(
   pricing: ModelPricing | undefined,
-  thresholdUsdPerMillion = DEFAULT_PREMIUM_INPUT_USD_PER_MILLION,
+  thresholds: number | Readonly<ModelCostThresholds> = DEFAULT_COST_THRESHOLDS,
 ): ModelCostTier {
-  if (!pricing || pricing.input === undefined) return 'unknown';
-  return pricing.input >= thresholdUsdPerMillion ? 'premium' : 'standard';
+  const t = typeof thresholds === 'number' ? { ...DEFAULT_COST_THRESHOLDS, input: thresholds } : thresholds;
+  const valid = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  const input = valid(pricing?.input) ? pricing.input : undefined;
+  const output = valid(pricing?.output) ? pricing.output : undefined;
+  if ((input !== undefined && input >= t.ultraInput) || (output !== undefined && output >= t.ultraOutput)) return 'ultra_premium';
+  if ((input !== undefined && input >= t.input) || (output !== undefined && output >= t.output)) return 'premium';
+  return input !== undefined && output !== undefined ? 'standard' : 'unknown';
+}
+
+export function resolveCostThresholds(cqrRoot?: string): ModelCostThresholds {
+  const root = cqrRoot ?? process.env.MY_AGENT_ROOT ?? '';
+  let config: ReturnType<typeof loadDeployDefaults> = {};
+  try { config = loadDeployDefaults(root); } catch { /* use defaults */ }
+  const positive = (value: unknown, fallback: number) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const input = positive(config.premium_input_usd_per_million, 4);
+  const output = positive(config.premium_output_usd_per_million, 20);
+  return {
+    input, output,
+    ultraInput: Math.max(input, positive(config.ultra_premium_input_usd_per_million, 8)),
+    ultraOutput: Math.max(output, positive(config.ultra_premium_output_usd_per_million, 40)),
+  };
 }
 
 export function resolvePremiumInputThreshold(cqrRoot?: string): number {
@@ -184,17 +213,21 @@ export function lookupModelPricingAny(modelId: string, providerId?: string): Mod
 export function modelCostTier(
   providerId: string,
   modelId: string,
-  thresholdUsdPerMillion: number,
+  thresholds: number | Readonly<ModelCostThresholds> = DEFAULT_COST_THRESHOLDS,
 ): ModelCostTier {
-  return costTierFor(lookupModelPricing(providerId, modelId), thresholdUsdPerMillion);
+  return costTierFor(lookupModelPricing(providerId, modelId), thresholds);
 }
 
-/** All model ids (any provider) whose known input price meets the threshold. */
-export function listPremiumModelIds(thresholdUsdPerMillion: number): string[] {
+/** Includes ultra-premium for backward-compatible high-cost discovery. */
+export function listPremiumModelIds(
+  thresholds: number | Readonly<ModelCostThresholds> = DEFAULT_COST_THRESHOLDS,
+  ultraOnly = false,
+): string[] {
   const out = new Set<string>();
   for (const models of loadTable().values()) {
     for (const [id, pricing] of models) {
-      if (costTierFor(pricing, thresholdUsdPerMillion) === 'premium') out.add(id);
+      const tier = costTierFor(pricing, thresholds);
+      if (tier === 'ultra_premium' || (!ultraOnly && tier === 'premium')) out.add(id);
     }
   }
   return [...out].sort();

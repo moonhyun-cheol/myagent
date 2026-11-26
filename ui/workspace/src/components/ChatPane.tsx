@@ -30,7 +30,7 @@ import {
 import { isChatTurnUiHidden } from '../lib/documentMemo';
 import { isVideoMediaUrl } from '../lib/mediaUrl';
 import { exportPortableSession } from '../lib/sessionExport';
-import { isPremiumModelRef } from '../lib/modelCost';
+import { modelCostTierForRef } from '../lib/modelCost';
 import { modelSwitchBefore, videoIdsFromPicker } from '../lib/modelSwitch';
 import { PremiumCostBadge } from './PremiumCostBadge';
 import { useConversationDisplayPreferences } from '../lib/conversationDisplayPreferences';
@@ -325,6 +325,9 @@ export function ChatPane() {
   const modelOptions = useWorkspaceStore((s) => s.modelOptions);
   const premiumModelIdList = useWorkspaceStore((s) => s.premiumModelIds);
   const premiumModelIds = useMemo(() => new Set(premiumModelIdList), [premiumModelIdList]);
+  const ultraPremiumModelIdList = useWorkspaceStore((s) => s.ultraPremiumModelIds);
+  const ultraPremiumModelIds = useMemo(() => new Set(ultraPremiumModelIdList), [ultraPremiumModelIdList]);
+  const modelTier = (ref: string | undefined | null) => modelCostTierForRef(ref, premiumModelIds, modelOptions, ultraPremiumModelIds);
   const selectedReasoningCapability = useMemo(
     () => modelOptions.find((option) => option.id === selectedModel)?.reasoning_capability,
     [modelOptions, selectedModel],
@@ -423,7 +426,8 @@ export function ChatPane() {
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const selectedModelLabel = modelOptions.find((model) => model.id === selectedModel)?.label
     ?? (selectedModel || '모델 없음');
-  const selectedModelPremium = isPremiumModelRef(selectedModel, premiumModelIds, modelOptions);
+  const selectedModelTier = modelTier(selectedModel);
+  const selectedModelPremium = selectedModelTier === 'premium' || selectedModelTier === 'ultra_premium';
   const closeModelPicker = (restoreFocus = true) => {
     setModelPickerOpen(false);
     if (restoreFocus) modelPickerTriggerRef.current?.focus();
@@ -1484,7 +1488,7 @@ export function ChatPane() {
             title={`${selectedModelLabel}${busy ? ' · 응답 생성 중에는 모델을 변경할 수 없습니다.' : ''}`}
           >
             <span>{selectedModelLabel}</span>
-            {selectedModelPremium ? <PremiumCostBadge /> : null}
+            <PremiumCostBadge tier={selectedModelTier} />
             <CaretDown size={14} aria-hidden="true" className="chat-model-caret" />
           </button>
           {modelPickerOpen ? createPortal(
@@ -1531,7 +1535,7 @@ export function ChatPane() {
                       data-value={model.id} className="chat-model-option" title={model.label}
                       onClick={() => chooseModel(model.id)}>
                       {model.label}
-                      {model.cost_tier === 'premium' ? <PremiumCostBadge /> : null}
+                      <PremiumCostBadge tier={model.cost_tier ?? 'unknown'} />
                     </button>
                   ))}
                 </div>
@@ -1544,7 +1548,7 @@ export function ChatPane() {
                       data-value={model.id} className="chat-model-option" title={model.label}
                       onClick={() => chooseModel(model.id)}>
                       {model.label}
-                      {model.cost_tier === 'premium' ? <PremiumCostBadge /> : null}
+                      <PremiumCostBadge tier={model.cost_tier ?? 'unknown'} />
                     </button>
                   ))}
                 </div>
@@ -1804,9 +1808,7 @@ export function ChatPane() {
                   aria-label={`모델 변경: ${modelName(switched.previous)}에서 ${modelName(switched.current)}`}
                 >
                   <span>모델 변경 · {modelName(switched.previous)} → {modelName(switched.current)}</span>
-                  {isPremiumModelRef(switched.current, premiumModelIds, modelOptions)
-                    ? <PremiumCostBadge small />
-                    : null}
+                  <PremiumCostBadge small tier={modelTier(switched.current)} />
                 </div>
               ) : null}
               <span className="inline-flex items-center text-[10px] uppercase tracking-[0.14em] text-muted">
@@ -1814,8 +1816,8 @@ export function ChatPane() {
                   ? 'You'
                   : String(modelLabels.get(turn.model ?? '') ?? turn.model ?? 'Assistant')
                       .replace(/\uD68C\uC0AC OpenRouter/g, 'MY OpenRouter')}
-                {turn.role !== 'user' && isPremiumModelRef(turn.model, premiumModelIds, modelOptions)
-                  ? <PremiumCostBadge small />
+                {turn.role !== 'user'
+                  ? <PremiumCostBadge small tier={modelTier(turn.model)} />
                   : null}
               </span>
               <div
@@ -1824,7 +1826,8 @@ export function ChatPane() {
                   turn.role === 'user'
                     ? 'bg-panel-2 text-text'
                     : `border bg-panel text-text/90 ${
-                      isPremiumModelRef(turn.model, premiumModelIds, modelOptions) ? 'chat-bubble--premium' : 'border-line'
+                      modelTier(turn.model) === 'ultra_premium' ? 'chat-bubble--ultra-premium'
+                        : modelTier(turn.model) === 'premium' ? 'chat-bubble--premium' : 'border-line'
                     }`
                 }`}
                 onContextMenu={(e) => openMessageMenu(e, turn)}
@@ -2189,9 +2192,9 @@ export function ChatPane() {
             <p className="mb-2 text-[11px] text-warning">{pasteHint}</p>
           ) : null}
           {selectedModelPremium ? (
-            <div className="premium-model-banner" role="status" data-testid="premium-model-banner">
-              <PremiumCostBadge />
-              <span>고비용 모델 사용 중</span>
+            <div className={`premium-model-banner${selectedModelTier === 'ultra_premium' ? ' premium-model-banner--ultra' : ''}`} role="status" data-testid="premium-model-banner">
+              <PremiumCostBadge tier={selectedModelTier} />
+              <span>{selectedModelTier === 'ultra_premium' ? '초고비용 모델 사용 중' : '고비용 모델 사용 중'}</span>
             </div>
           ) : null}
           <div

@@ -493,8 +493,8 @@ export interface PickerModel {
     auto_behavior: 'app_resolved' | 'omit';
     source: 'family' | 'fallback';
   };
-  /** Provider-price tier (output >= threshold USD/1M = premium). For `auto`: the resolved model. */
-  cost_tier?: 'premium' | 'standard' | 'unknown';
+  /** Provider input/output price tier. For `auto`: the resolved model. */
+  cost_tier?: 'ultra_premium' | 'premium' | 'standard' | 'unknown';
   /** `video` = catalog video model (not a language model). */
   category?: string;
 }
@@ -504,6 +504,7 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
   default_id?: string;
   remote_errors?: Record<string, string>;
   premium_model_ids: string[];
+  ultra_premium_model_ids: string[];
   pricing_warming: boolean;
 }> {
   const res = await fetch(`/models/picker${refreshRemote ? '?refresh=1' : ''}`, { cache: 'no-store' });
@@ -548,6 +549,7 @@ export async function fetchModelPicker(refreshRemote = false): Promise<{
     default_id: data.default_id ?? data.default ?? hintDefault,
     remote_errors: data.remote_model_errors,
     premium_model_ids: Array.isArray(data.premium_model_ids) ? data.premium_model_ids.map(String) : [],
+    ultra_premium_model_ids: Array.isArray(data.ultra_premium_model_ids) ? data.ultra_premium_model_ids.map(String) : [],
     pricing_warming: data.pricing_warming === true,
   };
 }
@@ -1456,8 +1458,9 @@ export interface CompanyModelSettings {
   available: string[];
   featured: string[];
   recent: string[];
-  /** Model ids at/above the high-cost output-price threshold. */
+  /** High-cost ids, including ultra-premium. */
   premium?: string[];
+  ultra_premium?: string[];
   /** Video-generation model ids (search-only; shown with a 동영상 suffix). */
   video?: string[];
 }

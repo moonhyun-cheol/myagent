@@ -25,7 +25,7 @@ import {
   listPremiumModelIds,
   modelCostTier,
   recordProviderPricing,
-  resolvePremiumInputThreshold,
+  resolveCostThresholds,
   type ModelCostTier,
 } from './model-pricing.js';
 import {
@@ -57,10 +57,14 @@ export interface ModelPickerPayload {
   mode_hints?: Partial<Record<ChatMode, ModeHint>>;
   remote_models_total?: Record<string, number>;
   remote_models_shown?: Record<string, number>;
-  /** Input-price threshold (USD / 1M input tokens) used for `cost_tier: premium`. */
+  /** Cost thresholds in USD per 1M tokens. */
   premium_input_usd_per_million?: number;
+  premium_output_usd_per_million?: number;
+  ultra_premium_input_usd_per_million?: number;
+  ultra_premium_output_usd_per_million?: number;
   /** Every model id with known pricing at/above the threshold (any provider, incl. search-only models). */
   premium_model_ids?: string[];
+  ultra_premium_model_ids?: string[];
   /** No price table yet and a one-time background `/models` fetch is running — UI may re-poll. */
   pricing_warming?: boolean;
   company_models?: {
@@ -74,6 +78,7 @@ export interface ModelPickerPayload {
     recent: string[];
     /** Model ids at/above the high-cost threshold (same rule as `premium_model_ids`). */
     premium?: string[];
+    ultra_premium?: string[];
     /** Core video-catalog ids (organization gate passed). Search-only: never auto-listed in the picker. */
     video?: string[];
   };
@@ -180,7 +185,7 @@ export async function buildModelPicker(
   },
 ): Promise<ModelPickerPayload> {
   const doc = registry.load();
-  const premiumThreshold = resolvePremiumInputThreshold(opts?.cqrRoot);
+  const premiumThreshold = resolveCostThresholds(opts?.cqrRoot);
   const localOnly = overrides.local_only === true;
   const catalog = providerStore.listDefinitions();
   const configured = new Set(providerStore.getConfiguredIds());
@@ -357,15 +362,23 @@ export async function buildModelPicker(
     /* auto stays untiered */
   }
   const premiumModelIds = listPremiumModelIds(premiumThreshold);
-  if (companyModels) companyModels.premium = premiumModelIds;
+  const ultraPremiumModelIds = listPremiumModelIds(premiumThreshold, true);
+  if (companyModels) {
+    companyModels.premium = premiumModelIds;
+    companyModels.ultra_premium = ultraPremiumModelIds;
+  }
   const pricingWarming = !localOnly && !opts?.refreshRemote && warmModelPricingIfMissing(providerStore);
   if (!localOnly && !opts?.refreshRemote) warmModelContextIfMissing(providerStore);
 
   return {
     local_only: localOnly,
     default_provider_id: defaultProvider,
-    premium_input_usd_per_million: premiumThreshold,
+    premium_input_usd_per_million: premiumThreshold.input,
+    premium_output_usd_per_million: premiumThreshold.output,
+    ultra_premium_input_usd_per_million: premiumThreshold.ultraInput,
+    ultra_premium_output_usd_per_million: premiumThreshold.ultraOutput,
     premium_model_ids: premiumModelIds,
+    ultra_premium_model_ids: ultraPremiumModelIds,
     ...(pricingWarming ? { pricing_warming: true } : {}),
     default_llm_id: doc.default_llm_id,
     options,
