@@ -13,11 +13,12 @@ import {
   trustSshServer,
   unlockSshServer,
   type SshKeyCandidate,
+  type SshPendingInvite,
   type SshServerItem,
   type SshShell,
 } from '../api/myAgentClient';
 import { confirmDialog } from '../lib/confirmDialog';
-import { SettingsSshCodePanel, CopyText } from './SettingsSshCodePanel';
+import { CodeBox, Collapse, dangerBtn, Notice, SettingsSshCodePanel, SettingsSshMyKeyPanel } from './SettingsSshCodePanel';
 import { SettingsSshHostPanel } from './SettingsSshHostPanel';
 import { SettingsSshInvitePanel } from './SettingsSshInvitePanel';
 
@@ -215,7 +216,12 @@ function Disclosure({ open, onToggle, label, children }: { open: boolean; onTogg
 
 function FingerprintHelp({shell}:{shell?:SshShell}) {
   const command = !shell || shell === 'posix' ? 'for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf "$f"; done' : 'Get-ChildItem C:\\ProgramData\\ssh\\ssh_host_*_key.pub | ForEach-Object { ssh-keygen -lf $_.FullName }';
-  return <details className="my-2 text-xs"><summary className="cursor-pointer">지문 확인 방법</summary><p>해당 서버에서 실행하세요. 클라우드 서버는 서비스 웹 콘솔의 브라우저 터미널에서 실행하세요.</p><pre className="my-1 whitespace-pre-wrap break-all">{command}</pre><CopyText value={command}/></details>;
+  return (
+    <Collapse className="my-3" label="지문 확인 방법">
+      <p className="text-[11px] text-muted">해당 서버에서 실행하세요. 클라우드 서버는 서비스 웹 콘솔의 브라우저 터미널에서 실행하세요. 나온 줄 중 하나가 화면의 지문과 글자까지 같아야 합니다.</p>
+      <CodeBox label="지문 확인 명령" value={command} />
+    </Collapse>
+  );
 }
 
 export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPageProps) {
@@ -237,7 +243,10 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
   const [prepStep, setPrepStep] = useState<'check' | 'unlock' | null>(null);
   const [checkNotes, setCheckNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
-  const [activeSection, setActiveSection] = useState<'installed' | 'add' | 'host'>('installed');
+  const [activeSection, setActiveSection] = useState<'servers' | 'host'>('servers');
+  /** Below the code bar at most one helper is open: my key code or the direct form. */
+  const [addPanel, setAddPanel] = useState<'key' | 'direct' | null>(null);
+  const codeBarRef = useRef<HTMLDivElement>(null);
   const [serverKind, setServerKind] = useState<'lan'|'cloud'|'win'>('lan');
   const [renewId, setRenewId] = useState<string>();
   const [loginErrors, setLoginErrors] = useState<Record<string,string>>({});
@@ -287,6 +296,7 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
     }
     setChangingSecret(false);
     setShowEditAdvanced(false);
+    setRenewId(undefined);
     setAccountDraft(selectedSaved?.managed ? selectedSaved.username : '');
     setManagedKeyDraft(selectedSaved?.managed ? selectedSaved.keyPath : '');
     setEditPort(String(selectedSaved?.port ?? 22));
@@ -560,7 +570,7 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
     setServerKind('lan');
     setShowAddAdvanced(false);
     setSelectedId(id);
-    setActiveSection('installed');
+    setAddPanel(null);
     const created = list.find((server) => server.id === id);
     if (created) await prepare(created, { ...typed, list });
   };
@@ -591,6 +601,30 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
     catch(e) { const msg=friendlyError(e,'연결에 실패했습니다.');setLoginErrors(s=>({...s,[id]:msg}));setMessage(msg); }
     finally {setBusy(false);}
   }
+  const onCodeConnected = (next: SshServerItem[], id: string) => {
+    applyServerState(next);
+    setLoginErrors((s) => ({ ...s, [id]: '' }));
+    setSelectedId(id);
+    setRenewId(undefined);
+    setAddPanel(null);
+    setMessage('준비됨 · 이 PC 열쇠로 연결했습니다.');
+  };
+  const onCodePending = (e: SshPendingInvite) => {
+    applyServerState(e.servers);
+    setSelectedId(e.id);
+    setLoginErrors((s) => ({ ...s, [e.id]: e.message }));
+    setRenewId(undefined);
+    setAddPanel(null);
+    setMessage(e.message);
+  };
+  const openDirect = () => {
+    setAddPanel('direct');
+    codeBarRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+  const pickKind = (kind: 'lan' | 'cloud' | 'win') => {
+    setServerKind(kind);
+    setDraft((v) => ({ ...v, auth: kind === 'cloud' ? 'key' : 'password', shell: kind === 'win' ? 'powershell' : 'posix', secret: '', remember: false, keyPath: '' }));
+  };
 
   const prepSteps = selectedSaved ? [
     ...(managed ? [{ label: '내 계정 입력', done: Boolean(accountDraft.trim()) }] : []),
@@ -620,41 +654,144 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
       {message ? <p className="mb-5 rounded-xl border border-line bg-panel px-4 py-3 text-sm text-muted" role="status">{message}</p> : null}
 
       <div className="mb-5 flex max-w-3xl gap-1 rounded-xl border border-line bg-panel p-1" role="tablist" aria-label="SSH 서버 관리 범주">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeSection === 'installed'}
-          onClick={() => setActiveSection('installed')}
-          className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${activeSection === 'installed' ? 'bg-ink text-text shadow-sm' : 'text-muted hover:text-text'}`}
-        >
-          연결 목록 <span className="ml-1 text-xs text-muted">{servers.length}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeSection === 'add'}
-          onClick={() => { setRenewId(undefined); setActiveSection('add'); }}
-          className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${activeSection === 'add' ? 'bg-ink text-text shadow-sm' : 'text-muted hover:text-text'}`}
-        >
-          서버 추가
-        </button>
-        <button type="button" role="tab" aria-selected={activeSection==='host'} className={`flex-1 rounded-lg px-3 py-2 text-sm ${activeSection==='host'?'bg-ink text-text':'text-muted'}`} onClick={()=>setActiveSection('host')}>이 PC 서버</button>
+        {([['servers', '연결한 서버'], ['host', '이 PC 서버']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={activeSection === id}
+            onClick={() => setActiveSection(id)}
+            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${activeSection === id ? 'bg-ink text-text shadow-sm' : 'text-muted hover:text-text'}`}
+          >
+            {label}{id === 'servers' ? <span className="ml-1 text-xs text-muted">{servers.length}</span> : null}
+          </button>
+        ))}
       </div>
       {activeSection==='host' && <SettingsSshHostPanel readOnly={readOnly} onGeneral={()=>onSectionChange('general')}/>}
 
-      {activeSection === 'installed' ? <section className="max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
+      {activeSection === 'servers' ? <section className="max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2">
           <TerminalWindow size={21} className="text-accent" />
           <div>
-            <h3 className="font-semibold">연결 목록</h3>
-            <p className="mt-0.5 text-xs text-muted">서버 주소와 키 파일 위치만 저장합니다. 비밀번호는 「이 PC에 기억」을 켠 경우에만 이 Windows 계정으로 암호화해 저장합니다.</p>
+            <h3 className="font-semibold">연결한 서버</h3>
+            <p className="mt-0.5 text-xs text-muted">받은 코드를 붙여 넣으면 주소·계정·비밀번호 없이 연결됩니다. 직접 등록한 서버는 주소와 키 파일 위치만 저장하고, 비밀번호는 「이 PC에 기억」을 켠 경우에만 이 Windows 계정으로 암호화해 저장합니다.</p>
           </div>
         </div>
+
+        <div ref={codeBarRef} className="mb-4 scroll-mt-4 space-y-2 rounded-xl border border-accent/30 bg-ink/25 p-3.5" data-testid="ssh-code-bar">
+          <SettingsSshCodePanel readOnly={readOnly || busy} onConnected={onCodeConnected} onPending={onCodePending} />
+          <div className="flex flex-wrap gap-2 border-t border-line/60 pt-2.5">
+            <button type="button" aria-expanded={addPanel === 'key'} onClick={() => setAddPanel((p) => (p === 'key' ? null : 'key'))} className={`${secondaryButton} ${addPanel === 'key' ? 'border-accent/50 text-text' : ''}`}>
+              <Key size={13} /> {addPanel === 'key' ? '내 열쇠 코드 닫기' : '팀원 초대 받기 · 내 열쇠 코드'}
+            </button>
+            <button type="button" aria-expanded={addPanel === 'direct'} onClick={() => setAddPanel((p) => (p === 'direct' ? null : 'direct'))} className={`${secondaryButton} ${addPanel === 'direct' ? 'border-accent/50 text-text' : ''}`}>
+              <Plus size={13} /> {addPanel === 'direct' ? '직접 입력 닫기' : '직접 서버 입력'}
+            </button>
+          </div>
+        </div>
+
+        {addPanel === 'key' ? <div className="mb-4"><SettingsSshMyKeyPanel readOnly={readOnly} /></div> : null}
+
+        {addPanel === 'direct' ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!readOnly && !busy) void addServer();
+          }}
+          className="mb-4 rounded-xl border border-line bg-ink/25 p-3.5"
+          data-testid="ssh-direct-form"
+        >
+          <p className="text-sm font-medium text-text">직접 서버 입력</p>
+          <p className="mt-0.5 text-[11px] text-muted">내가 계정을 가진 서버를 등록합니다. 코드를 받았다면 위 칸을 쓰세요.</p>
+          <div className="mt-3 text-[11px] text-muted">
+            <span id="ssh-kind-label">어떤 서버인가요?</span>
+            <div className="mt-1 grid gap-1 rounded-lg border border-line p-0.5 sm:grid-cols-3" role="radiogroup" aria-labelledby="ssh-kind-label">
+              {([['lan', '사내 리눅스·NAS'], ['cloud', '클라우드·호스팅 리눅스'], ['win', 'Windows PC']] as const).map(([kind, label]) => (
+                <button key={kind} type="button" role="radio" aria-checked={serverKind === kind} disabled={readOnly || busy} onClick={() => pickKind(kind)} className={`rounded-md px-2 py-1.5 text-xs ${serverKind === kind ? 'bg-accent/15 font-medium text-accent' : 'text-muted hover:text-text'}`}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <Notice className="my-3">{serverKind==='cloud'?'서버를 만들 때 받은 키 파일은 본인만 쓰고, 팀원에게는 「팀원 초대」를 쓰세요. 키 파일을 사용자 폴더의 .ssh로 옮기면 목록에 바로 뜹니다.':serverKind==='win'?'MY Agent를 깔 수 있으면 그 PC에서 「이 PC 서버」를 여는 편이 쉽습니다.':'서버나 NAS에서 SSH가 켜져 있는지 확인하세요.'}</Notice>
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="text-[11px] text-muted">
+              이름
+              <input value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} disabled={readOnly || busy} placeholder="개발 서버" className={inputClass} />
+            </label>
+            <label className="text-[11px] text-muted">
+              서버 주소
+              <input value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} disabled={readOnly || busy} placeholder="192.168.0.10" className={monoInputClass} />
+            </label>
+            <label className="text-[11px] text-muted">
+              계정
+              <input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} disabled={readOnly || busy} placeholder={serverKind==='cloud'?'ubuntu · ec2-user · root':'deploy'} className={monoInputClass} />
+            </label>
+            <div className="text-[11px] text-muted">
+              인증 방식
+              <AuthChoice value={draft.auth} onChange={(auth) => setDraft((current) => ({ ...current, auth }))} disabled={readOnly || busy} />
+            </div>
+            {draft.auth === 'key' ? <KeyPicker value={draft.keyPath} onChange={(keyPath) => setDraft((current) => ({ ...current, keyPath }))} disabled={readOnly || busy} /> : null}
+            <div className="flex flex-wrap items-end gap-3 md:col-span-2">
+              <label className="min-w-[220px] flex-1 text-[11px] text-muted">
+                {draft.auth === 'password' ? '비밀번호' : '키 암호 (키에 암호가 있을 때만)'}
+                <input type="password" autoComplete="off" value={draft.secret} onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))} disabled={readOnly || busy} placeholder={draft.auth === 'password' ? '비밀번호' : '없으면 비워 두세요'} className={inputClass} />
+              </label>
+              <label className="flex items-center gap-1.5 pb-2 text-[11px] text-muted" title="이 Windows 계정으로 로그인했을 때만 풀리게 암호화해 저장합니다. 켜지 않으면 앱을 다시 시작할 때 다시 입력합니다.">
+                <input type="checkbox" checked={draft.remember} onChange={(event) => setDraft((current) => ({ ...current, remember: event.target.checked }))} disabled={readOnly || busy} />
+                이 PC에 기억
+              </label>
+            </div>
+          </div>
+          <Disclosure open={showAddAdvanced} onToggle={() => setShowAddAdvanced((open) => !open)} label="고급 설정 (포트·서버 종류·인코딩·기본 폴더·경유 서버)">
+            <label className="text-[11px] text-muted">
+              포트
+              <input value={draft.port} onChange={(event) => setDraft((current) => ({ ...current, port: event.target.value.replace(/\D/g, '') }))} disabled={readOnly || busy} inputMode="numeric" placeholder="22" className={monoInputClass} />
+            </label>
+            <label className="text-[11px] text-muted">
+              서버 종류
+              <select value={draft.shell} onChange={(event) => setDraft((current) => ({ ...current, shell: event.target.value as SshShell }))} disabled={readOnly || busy} className={inputClass}>
+                {SHELL_OPTIONS.filter(o=>serverKind==='win'?o.value!=='posix':o.value==='posix').map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label className="text-[11px] text-muted">
+              출력 인코딩
+              <select className={inputClass} disabled={readOnly || busy} value={draft.encoding ?? ''} onChange={(event) => setDraft((current) => ({ ...current, encoding: (event.target.value || undefined) as SshServerItem['encoding'] }))}>
+                <option value="">자동</option>
+                <option value="utf8">UTF-8</option>
+                <option value="cp949">한글 Windows</option>
+              </select>
+            </label>
+            <label className="text-[11px] text-muted">
+              기본 폴더 (서버, 선택)
+              <input value={draft.defaultCwd} onChange={(event) => setDraft((current) => ({ ...current, defaultCwd: event.target.value }))} disabled={readOnly || busy} placeholder={FOLDER_PLACEHOLDER[draft.shell]} className={monoInputClass} />
+            </label>
+            <label className="text-[11px] text-muted md:col-span-2">
+              경유 서버
+              <select disabled={readOnly || busy} className={inputClass} value={draft.jumpServerId ?? ''} onChange={(event) => setDraft((current) => ({ ...current, jumpServerId: event.target.value || undefined }))}>
+                <option value="">직접 연결</option>
+                {localServers.filter((item) => !item.jumpServerId).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+          </Disclosure>
+          <FingerprintHelp shell={draft.shell}/>
+          <p className="text-[11px] text-muted">등록하면 서버 지문 확인 창이 뜹니다. 위 명령으로 본 지문과 같을 때만 확인하세요.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button type="submit" disabled={readOnly || busy} className={primaryButton} data-testid="ssh-add-and-prepare">
+              <Plus size={14} weight="bold" />
+              등록하고 연결 준비
+            </button>
+            <button type="button" disabled={busy} onClick={() => setAddPanel(null)} className={secondaryButton}>닫기</button>
+          </div>
+          {servers.some((server) => server.managed) ? (
+            <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted"><Warning size={12} /> 조직이 배포한 연결은 아래 목록에서 계정과 비밀번호만 넣으면 됩니다.</p>
+          ) : null}
+        </form>
+        ) : null}
+
         {busy && servers.length === 0 ? <p className="py-4 text-sm text-muted">불러오는 중...</p> : null}
         {!busy && servers.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-line px-4 py-8 text-center">
-            <p className="text-sm text-muted">연결된 서버가 없습니다.</p>
-            <button type="button" onClick={() => { setRenewId(undefined); setActiveSection('add'); }} className="mt-3 rounded-lg bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/25">서버 추가</button>
+          <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center">
+            <p className="text-sm text-muted">아직 연결한 서버가 없습니다.</p>
+            <p className="mt-1 text-xs text-muted">받은 코드를 위 칸에 붙여 넣거나 「직접 서버 입력」으로 등록하세요.</p>
           </div>
         ) : null}
         {servers.length > 0 ? (
@@ -682,11 +819,11 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
                 <button
                   type="button"
                   disabled={readOnly || busy}
-                  onClick={() => { setRenewId(undefined); setActiveSection('add'); }}
+                  onClick={openDirect}
                   className="flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-left text-xs text-muted enabled:hover:bg-panel/70 enabled:hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   <Plus size={13} />
-                  서버 추가
+                  직접 서버 입력
                 </button>
               </div>
             </div>
@@ -849,12 +986,33 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
                   </div>
                 ) : null}
 
-                {shared ? <div className="mt-3 space-y-2 text-xs">
-                  <label className="block">이름<input className={inputClass} disabled={readOnly||busy} value={selectedServer.label} onChange={e=>updateServer(selectedServer.id,{label:e.target.value})}/></label>
-                  <label className="block">시작 폴더<input className={inputClass} disabled={readOnly||busy} value={selectedServer.defaultCwd??''} onChange={e=>updateServer(selectedServer.id,{defaultCwd:e.target.value})}/></label>
-                  <details><summary>고급 · 연결 정보 (읽기 전용)</summary><p className="break-all">{selectedSaved.username}@{selectedSaved.host}:{selectedSaved.port}<br/>{selectedSaved.keyPath}<br/>{selectedSaved.hostKeySha256}</p></details>
-                  <p aria-live="polite">{loginErrors[selectedServer.id]}</p>
-                  <button className={secondaryButton} type="button" disabled={readOnly||busy} onClick={()=>{setRenewId(selectedServer.id);setActiveSection('add');}}>새 코드로 주소 갱신</button> <button className={secondaryButton} type="button" disabled={readOnly||busy} onClick={()=>void verifyShared(selectedServer.id)}>연결 다시 확인</button>
+                {shared ? <div className="mt-3 space-y-3" data-testid="ssh-shared-detail">
+                  <p className="text-[11px] text-muted">이 PC 전용 열쇠로 연결합니다. 비밀번호나 키 파일은 주고받지 않습니다. 주소·계정·지문은 코드로만 바뀝니다.</p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <label className="text-[11px] text-muted">
+                      이름
+                      <input className={inputClass} disabled={readOnly||busy} value={selectedServer.label} onChange={e=>updateServer(selectedServer.id,{label:e.target.value})}/>
+                    </label>
+                    <label className="text-[11px] text-muted">
+                      기본 폴더 (서버, 선택)
+                      <input className={monoInputClass} disabled={readOnly||busy} value={selectedServer.defaultCwd??''} placeholder={FOLDER_PLACEHOLDER[selectedServer.shell ?? 'posix']} onChange={e=>updateServer(selectedServer.id,{defaultCwd:e.target.value || undefined})}/>
+                    </label>
+                  </div>
+                  <Collapse label="고급 · 연결 정보 (읽기 전용)">
+                    <dl className="grid gap-x-3 gap-y-1.5 text-[11px] sm:grid-cols-[100px_minmax(0,1fr)]">
+                      <dt className="text-muted">접속 대상</dt><dd className="break-all font-mono text-text">{selectedSaved.username}@{selectedSaved.host}:{selectedSaved.port}</dd>
+                      <dt className="text-muted">서버 종류</dt><dd className="text-text">{shellLabel(selectedSaved.shell)}</dd>
+                      <dt className="text-muted">열쇠 위치</dt><dd className="break-all font-mono text-text">{selectedSaved.keyPath}</dd>
+                      <dt className="text-muted">고정 지문</dt><dd className="break-all font-mono text-text">{selectedSaved.hostKeySha256}</dd>
+                    </dl>
+                  </Collapse>
+                  <Notice tone="error">{loginErrors[selectedServer.id]}</Notice>
+                  {renewId === selectedServer.id ? (
+                    <div className="rounded-xl border border-accent/30 bg-ink/25 p-3" data-testid="ssh-renew">
+                      <SettingsSshCodePanel readOnly={readOnly||busy} expectedId={selectedServer.id} onConnected={onCodeConnected} onPending={onCodePending} onCancel={()=>setRenewId(undefined)}/>
+                      <p className="mt-1 text-[11px] text-muted">같은 서버의 새 코드만 받습니다. 이름과 기본 폴더는 그대로 둡니다.</p>
+                    </div>
+                  ) : null}
                 </div> : managed ? (
                   <div className="mt-3 grid gap-2 rounded-xl border border-line/70 p-3 text-[11px] text-muted md:grid-cols-2">
                     <p>서버 주소<span className="mt-0.5 block font-mono text-xs text-text">{selectedSaved.host}:{selectedSaved.port}</span></p>
@@ -943,15 +1101,11 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
                   </>
                 )}
 
-                {!shared && !managed && selectedSaved.trusted && !selectedSaved.jumpServerId && (selectedSaved.shell??'posix')==='posix' && <SettingsSshInvitePanel key={editableKey(selectedSaved)+selectedSaved.hostKeySha256} server={selectedSaved} readOnly={readOnly||busy||dirty}/>}
+                {!shared && !managed && selectedSaved.trusted && !selectedSaved.jumpServerId && (selectedSaved.shell??'posix')==='posix' && <SettingsSshInvitePanel key={editableKey(selectedSaved)+selectedSaved.hostKeySha256} server={selectedSaved} readOnly={readOnly||busy} blockedReason={dirty ? '변경 사항을 먼저 저장하면 팀원 초대를 쓸 수 있습니다.' : undefined}/>}
                 {checkNotes[selectedSaved.id] && ready ? <p className="mt-2 break-all text-[11px] text-muted">{checkNotes[selectedSaved.id]}</p> : null}
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {!shared && ready && !dirty ? (
-                    <button type="button" disabled={busy} onClick={() => void checkAgain(selectedSaved)} className={secondaryButton}>
-                      <Wrench size={13} /> 서버 다시 확인
-                    </button>
-                  ) : null}
+                {!managed || (ready && !dirty) ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line/60 pt-3" data-testid="ssh-detail-actions">
                   {!managed ? (
                     <>
                       <button type="button" disabled={readOnly || busy || !dirty} onClick={() => void saveServer(selectedServer)} className="rounded-lg bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-45">저장</button>
@@ -960,105 +1114,29 @@ export function SettingsSshPage({ readOnly, onSectionChange }: SettingsSshPagePr
                           <ArrowCounterClockwise size={13} /> 변경 취소
                         </button>
                       ) : null}
-                      <button type="button" disabled={readOnly || busy} onClick={() => void removeServer(selectedServer)} className="inline-flex items-center gap-1 rounded-lg border border-line px-2.5 py-1.5 text-xs text-muted enabled:hover:border-red-400/50 enabled:hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45">
-                        <Trash size={13} /> {shared?'이 PC에서 삭제':'삭제'}
-                      </button>
                     </>
                   ) : null}
+                  {!shared && ready && !dirty ? (
+                    <button type="button" disabled={busy} onClick={() => void checkAgain(selectedSaved)} className={secondaryButton}>
+                      <Wrench size={13} /> 서버 다시 확인
+                    </button>
+                  ) : null}
+                  {shared ? (
+                    <>
+                      <button className={secondaryButton} type="button" disabled={readOnly||busy} onClick={()=>void verifyShared(selectedServer.id)}><ShieldCheck size={13} /> 연결 다시 확인</button>
+                      <button className={secondaryButton} type="button" aria-expanded={renewId === selectedServer.id} disabled={readOnly||busy} onClick={()=>setRenewId((v) => (v === selectedServer.id ? undefined : selectedServer.id))}><ArrowCounterClockwise size={13} /> 새 코드로 주소 갱신</button>
+                    </>
+                  ) : null}
+                  {!managed ? (
+                    <button type="button" disabled={readOnly || busy} onClick={() => void removeServer(selectedServer)} className={`${dangerBtn} ml-auto`}>
+                      <Trash size={13} /> {shared?'이 PC에서 삭제':'삭제'}
+                    </button>
+                  ) : null}
                 </div>
+                ) : null}
               </div>
             ) : null}
           </div>
-        ) : null}
-      </section> : null}
-
-      {activeSection === 'add' ? <section className="max-w-3xl rounded-2xl border border-line bg-panel p-5 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <Plus size={19} className="text-accent" />
-          <div>
-            <h3 className="font-semibold">서버 추가</h3>
-            <p className="mt-0.5 text-xs text-muted">코드가 있으면 아래에 붙여 넣으세요. 내 서버는 직접 입력으로 등록할 수도 있습니다.</p>
-          </div>
-        </div>
-        <SettingsSshCodePanel readOnly={readOnly||busy} expectedId={renewId} onConnected={(next,id)=>{applyServerState(next);setLoginErrors(s=>({...s,[id]:''}));setSelectedId(id);setActiveSection('installed');setMessage('준비됨 · 이 PC 열쇠로 연결했습니다.');}} onPending={e=>{applyServerState(e.servers);setSelectedId(e.id);setLoginErrors(s=>({...s,[e.id]:e.message}));setMessage(e.message);setActiveSection('installed');}}/>
-        <details><summary className="mb-2 cursor-pointer font-semibold">직접 입력</summary>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!readOnly && !busy) void addServer();
-          }}
-          className="rounded-xl border border-line bg-ink/25 p-3.5"
-        >
-          <label className="mb-2 block text-xs">어떤 서버인가요?<select className={inputClass} disabled={readOnly||busy} value={serverKind} onChange={e=>{const kind=e.target.value as typeof serverKind;setServerKind(kind);setDraft(v=>({...v,auth:kind==='cloud'?'key':'password',shell:kind==='win'?'powershell':'posix',secret:'',remember:false,keyPath:''}));}}><option value="lan">사내 리눅스·NAS</option><option value="cloud">클라우드·호스팅 리눅스</option><option value="win">Windows PC</option></select></label>
-          <p className="text-xs text-muted">{serverKind==='cloud'?'서버를 만들 때 받은 키 파일은 본인만 쓰고, 팀원에게는 「팀원 초대」를 쓰세요. 키 파일을 사용자 폴더의 .ssh로 옮기면 목록에 바로 뜹니다.':serverKind==='win'?'MY Agent를 깔 수 있으면 그 PC에서 「이 PC 서버」를 여는 편이 쉽습니다.':'서버나 NAS에서 SSH가 켜져 있는지 확인하세요.'}</p>
-          <FingerprintHelp shell={draft.shell}/>
-          <div className="grid gap-2 md:grid-cols-2">
-            <label className="text-[11px] text-muted">
-              이름
-              <input value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} disabled={readOnly || busy} placeholder="개발 서버" className={inputClass} />
-            </label>
-            <label className="text-[11px] text-muted">
-              서버 주소
-              <input value={draft.host} onChange={(event) => setDraft((current) => ({ ...current, host: event.target.value }))} disabled={readOnly || busy} placeholder="192.168.0.10" className={monoInputClass} />
-            </label>
-            <label className="text-[11px] text-muted">
-              계정
-              <input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} disabled={readOnly || busy} placeholder={serverKind==='cloud'?'ubuntu · ec2-user · root':'deploy'} className={monoInputClass} />
-            </label>
-            <div className="text-[11px] text-muted">
-              인증 방식
-              <AuthChoice value={draft.auth} onChange={(auth) => setDraft((current) => ({ ...current, auth }))} disabled={readOnly || busy} />
-            </div>
-            {draft.auth === 'key' ? <KeyPicker value={draft.keyPath} onChange={(keyPath) => setDraft((current) => ({ ...current, keyPath }))} disabled={readOnly || busy} /> : null}
-            <div className="flex flex-wrap items-end gap-3 md:col-span-2">
-              <label className="min-w-[220px] flex-1 text-[11px] text-muted">
-                {draft.auth === 'password' ? '비밀번호' : '키 암호 (키에 암호가 있을 때만)'}
-                <input type="password" autoComplete="off" value={draft.secret} onChange={(event) => setDraft((current) => ({ ...current, secret: event.target.value }))} disabled={readOnly || busy} placeholder={draft.auth === 'password' ? '비밀번호' : '없으면 비워 두세요'} className={inputClass} />
-              </label>
-              <label className="flex items-center gap-1.5 pb-2 text-[11px] text-muted" title="이 Windows 계정으로 로그인했을 때만 풀리게 암호화해 저장합니다. 켜지 않으면 앱을 다시 시작할 때 다시 입력합니다.">
-                <input type="checkbox" checked={draft.remember} onChange={(event) => setDraft((current) => ({ ...current, remember: event.target.checked }))} disabled={readOnly || busy} />
-                이 PC에 기억
-              </label>
-            </div>
-          </div>
-          <Disclosure open={showAddAdvanced} onToggle={() => setShowAddAdvanced((open) => !open)} label="고급 설정 (포트·서버 종류·인코딩·기본 폴더·경유 서버)">
-            <label className="text-[11px] text-muted">
-              포트
-              <input value={draft.port} onChange={(event) => setDraft((current) => ({ ...current, port: event.target.value.replace(/\D/g, '') }))} disabled={readOnly || busy} inputMode="numeric" placeholder="22" className={monoInputClass} />
-            </label>
-            <label className="text-[11px] text-muted">
-              서버 종류
-              <select value={draft.shell} onChange={(event) => setDraft((current) => ({ ...current, shell: event.target.value as SshShell }))} disabled={readOnly || busy} className={inputClass}>
-                {SHELL_OPTIONS.filter(o=>serverKind==='win'?o.value!=='posix':o.value==='posix').map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className="text-[11px] text-muted">
-              출력 인코딩
-              <select className={inputClass} disabled={readOnly || busy} value={draft.encoding ?? ''} onChange={(event) => setDraft((current) => ({ ...current, encoding: (event.target.value || undefined) as SshServerItem['encoding'] }))}>
-                <option value="">자동</option>
-                <option value="utf8">UTF-8</option>
-                <option value="cp949">한글 Windows</option>
-              </select>
-            </label>
-            <label className="text-[11px] text-muted">
-              기본 폴더 (서버, 선택)
-              <input value={draft.defaultCwd} onChange={(event) => setDraft((current) => ({ ...current, defaultCwd: event.target.value }))} disabled={readOnly || busy} placeholder={FOLDER_PLACEHOLDER[draft.shell]} className={monoInputClass} />
-            </label>
-            <label className="text-[11px] text-muted md:col-span-2">
-              경유 서버
-              <select disabled={readOnly || busy} className={inputClass} value={draft.jumpServerId ?? ''} onChange={(event) => setDraft((current) => ({ ...current, jumpServerId: event.target.value || undefined }))}>
-                <option value="">직접 연결</option>
-                {localServers.filter((item) => !item.jumpServerId).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            </label>
-          </Disclosure>
-          <button type="submit" disabled={readOnly || busy} className={`${primaryButton} mt-4`} data-testid="ssh-add-and-prepare">
-            <Plus size={14} weight="bold" />
-            등록하고 연결 준비
-          </button>
-        </form></details>
-        {servers.some((server) => server.managed) ? (
-          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted"><Warning size={12} /> 조직이 배포한 연결은 「연결 목록」에서 계정과 비밀번호만 넣으면 됩니다.</p>
         ) : null}
       </section> : null}
     </div>
