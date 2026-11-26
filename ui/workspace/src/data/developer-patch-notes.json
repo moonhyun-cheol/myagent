@@ -1,7 +1,11 @@
 {
   "schema": "my-agent-developer-patch-notes/v1",
   "notes": [
-    {"id":"pinned-instructions-in-session-db","status":"development","title":"고정 지침을 대화 기록과 함께 저장","detail":"작업 패널의 고정 지침을 화면 설정 파일(ui-state.json)이 아니라 대화 기록 DB(sessions.sqlite)에 대화별로 저장합니다. 질문할 때 코어가 해당 대화의 지침을 직접 읽어 넣고, 대화를 삭제하면 함께 지워지며, 대화 내보내기·가져오기에도 따라갑니다. 지침을 고쳐도 대화 목록 순서는 바뀌지 않습니다. 기존에 저장된 지침은 앱을 처음 시작할 때 한 번 옮겨지고, 이미 DB에 지침이 있는 대화는 DB 내용을 유지합니다. 개수·길이 제한(12개·500자)은 그대로입니다. 문서 AI 메모에는 지금처럼 고정 지침을 넣지 않습니다.","area":"agent","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["core/src/sessions/pinned-instructions.ts","core/src/sessions/session-store.ts","core/src/chat/session-context.ts","core/src/routes/dispatch.ts","core/src/api-server.ts","ui/workspace/src/components/WorkspaceObjectsPane.tsx","ui/workspace/src/store/workspaceStore.ts"]},
+    {"id":"chat-recent-first-loading","status":"development","title":"긴 대화는 최근 메시지부터 빠르게 표시","detail":"최근 메시지 40개를 먼저 표시하고, 위로 스크롤하면 이전 메시지를 순차적으로 불러옵니다. 다른 대화를 보다가 돌아왔을 때도 최근 메시지부터 표시합니다.","area":"chat","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["ui/workspace/src/components/ChatPane.tsx","ui/workspace/src/store/workspaceStore.ts","core/src/sessions/session-sqlite-store.ts"]},
+    {"id":"loading-status-consistency","status":"development","title":"불러오는 중 빈 화면처럼 보이던 표시 개선","detail":"대화·폴더 트리·파일 탐색기·작업 내역·문서 패널에서 데이터를 불러오는 동안 진행 안내를 표시합니다. 내용이 없는 상태와 불러오는 상태를 구분하고, 로딩과 진행 문구를 일관되게 정리했습니다.","area":"chat","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["ui/workspace/src/components/ChatPane.tsx","ui/workspace/src/components/ProjectsTree.tsx","ui/workspace/src/components/AssetExplorer.tsx","ui/workspace/src/components/DocumentPane.tsx"]},
+    {"id":"multi-agent-orchestration-in-progress","status":"development","title":"[진행 중] 멀티 에이전트 오케스트레이션(Orchestration)","detail":"여러 AI 에이전트가 역할을 나누어 작업하고 결과를 검토·통합하는 협업 실행 구조를 설계하고 있습니다. 현재는 설계 단계이며, 이번 배포에 포함되는 기능이 아닙니다. 적용 일정은 확정되지 않았습니다.","area":"agent","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["docs/multi-agent-team-run-design.md"]},
+    {"id":"nvidia-long-context-review-in-progress","status":"development","title":"[진행 중] NVIDIA 「You Don’t Need Long Context」 검토","detail":"NVIDIA 「You Don’t Need Long Context」 관련 연구를 참고해, 긴 대화와 자료를 매번 모두 전달하는 대신 필요한 맥락을 선별·활용하는 방향을 검토하고 있습니다. 이번 배포에 포함되는 기능이 아니며, 적용 범위와 일정은 확정되지 않았습니다.","area":"agent","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["ui/workspace/src/data/developer-patch-notes.json"]},
+    {"id":"pinned-instructions-in-session-db","status":"development","title":"고정 지침을 대화 기록과 함께 저장","detail":"작업 패널의 고정 지침을 대화 기록과 함께 대화별로 저장하고, 질문할 때 해당 지침을 직접 불러옵니다. 대화 삭제·내보내기·가져오기에도 함께 반영되며, 기존 지침은 자동으로 이전합니다. 지침 수정만으로 대화 목록 순서가 바뀌지 않습니다. 개수·길이 제한은 12개·500자로 유지하고, 문서 AI 메모에는 넣지 않습니다.","area":"agent","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["core/src/sessions/pinned-instructions.ts","core/src/sessions/session-store.ts","core/src/chat/session-context.ts","core/src/routes/dispatch.ts","core/src/api-server.ts","ui/workspace/src/components/WorkspaceObjectsPane.tsx","ui/workspace/src/store/workspaceStore.ts"]},
     {"id":"model-cost-three-tiers","status":"development","title":"모델 비용을 일반·고비용·초고비용으로 구분","detail":"100만 토큰당 입력 4달러 또는 출력 20달러부터 고비용($), 입력 8달러 또는 출력 40달러부터 초고비용($$$)으로 표시합니다. 모델 선택 목록과 설정, 자동 선택, 답변 배지에 같은 기준을 적용하며 초고비용은 빨간 안내로 구분합니다. 가격이 확인되지 않으면 일반 모델로 단정하지 않습니다.","area":"models","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["core/src/models/model-pricing.ts","ui/workspace/src/components/ChatPane.tsx","ui/workspace/src/components/ModelManagementModal.tsx"]},
     {"id":"ssh-settings-two-tabs","status":"development","title":"SSH 설정 화면을 두 탭으로 정리","detail":"SSH 서버 화면을 「연결한 서버」와 「이 PC 서버」 두 탭으로 줄였습니다. 받은 코드는 맨 위 칸에 붙여 넣고, 내 열쇠 코드와 직접 입력은 필요할 때만 펼칩니다. 코드는 복사 상자로 보여 주고, 기기를 끊을 때는 한 번 더 묻습니다.","area":"settings","created_at":"2026-11-26","release":{"version":null,"update_sequence":null},"source_paths":["ui/workspace/src/components/SettingsSshPage.tsx","ui/workspace/src/components/SettingsSshCodePanel.tsx","ui/workspace/src/components/SettingsSshHostPanel.tsx","ui/workspace/src/components/SettingsSshInvitePanel.tsx"]},
     {"id":"ssh-share-by-code","status":"development","title":"연결 코드로 내 컴퓨터 연결하고 팀원 초대하기","detail":"내 컴퓨터는 10분 동안 한 번 쓸 수 있는 코드로 연결합니다. 리눅스와 나스는 관리자가 팀원용 계정에 공개 열쇠를 넣고 초대합니다. 비밀번호나 개인 열쇠를 보낼 필요가 없으며 명령은 접속한 사람이 승인합니다.","area":"settings","created_at":"2026-11-25","release":{"version":null,"update_sequence":null},"source_paths":["core/src/ssh/ssh-pairing.ts","core/src/ssh/ssh-host-server.ts","ui/workspace/src/components/SettingsSshPage.tsx"]},
@@ -33,7 +37,7 @@
       "id": "ssh-remote-log-and-windows-server",
       "status": "development",
       "title": "작업 로그의 원격 서버 명령 구분 표시와 Windows 서버 지원",
-      "detail": "작업 로그에서 원격 서버 명령은 테두리와 「원격 서버」 배지로 구분되고, 서버 ID·폴더·명령이 한 줄로 보입니다. 접힌 작업 줄에도 배지가 붙습니다. 설정 → 확장 → SSH 서버에서 「서버 종류」를 Windows(cmd) 또는 Windows(PowerShell)로 저장하면 Windows 방식으로 폴더를 이동하고, 한국어 Windows의 한글 출력이 깨지지 않게 읽습니다.",
+      "detail": "작업 로그에서 원격 서버 명령은 테두리와 「원격 서버」 배지로 구분되고, 서버 ID·폴더·명령이 한 줄로 보입니다. 접힌 작업 줄에도 배지가 붙습니다. SSH 서버의 종류를 Windows(cmd) 또는 Windows(PowerShell)로 저장하면 Windows 방식으로 폴더를 이동하고, 한국어 Windows의 한글 출력이 깨지지 않게 읽습니다.",
       "area": "agent",
       "created_at": "2026-11-24",
       "release": { "version": null, "update_sequence": null },
@@ -43,7 +47,7 @@
       "id": "ssh-server-remote-command",
       "status": "development",
       "title": "SSH 서버 등록과 승인 후 원격 명령 실행",
-      "detail": "설정 → 확장 → SSH 서버에서 서버를 등록하고, 연결 테스트로 확인한 지문을 신뢰한 뒤 키 잠금을 해제할 수 있습니다. 폴더가 연결된 에이전트 대화에서 AI가 원격 명령 1개를 제안하면 서버·계정·폴더·명령이 적힌 「원격 서버 명령 실행」 카드가 뜨고, 사용자가 직접 승인한 경우에만 실행됩니다. 자동 승인 설정으로는 실행되지 않으며, 키 암호는 파일에 저장하지 않아 앱을 다시 시작하면 다시 입력해야 합니다.",
+      "detail": "SSH 서버를 등록하고, 연결 테스트로 확인한 지문을 신뢰한 뒤 연결할 수 있습니다. AI가 원격 명령을 제안하면 서버·계정·폴더·명령이 적힌 승인 카드가 뜨고, 사용자가 직접 승인한 경우에만 실행됩니다. 자동 승인 설정으로는 실행되지 않습니다. 로그인 비밀번호와 키 암호는 선택적으로 이 PC에 암호화해 기억할 수 있습니다.",
       "area": "agent",
       "created_at": "2026-11-24",
       "release": { "version": null, "update_sequence": null },
@@ -53,7 +57,7 @@
       "id": "installer-prerequisite-safety",
       "status": "development",
       "title": "재설치 경로 안내와 설치 전 필수 환경 검사 보강",
-      "detail": "기록된 기존 설치 폴더를 우선 제안하고, 화면 엔진이 없거나 디스크 공간이 부족하면 파일 교체 전에 안내합니다. 특수문자가 있는 압축 해제 경로 처리를 보강하고 설치 파일에서 불필요한 실험용 파일을 제외합니다.",
+      "detail": "기록된 기존 설치 폴더를 우선 제안하고, 화면 엔진이 없거나 디스크 공간이 부족하면 파일 교체 전에 안내합니다. 특수문자가 있는 압축 해제 경로 처리를 보강하고 설치 파일에서 불필요한 실험용 파일을 제외합니다. 설치 실패 원인과 재시도 안내도 이해하기 쉽게 정리했습니다.",
       "area": "setup",
       "created_at": "2026-11-23",
       "release": { "version": null, "update_sequence": null },
@@ -281,7 +285,7 @@
       "area": "chat",
       "created_at": "2026-11-13",
       "release": { "version": "1.1.25", "update_sequence": 73 },
-      "source_paths": ["ui/workspace/src/lib/pinnedInstructions.ts", "ui/workspace/src/components/WorkspaceObjectsPane.tsx", "ui/workspace/src/store/workspaceStore.ts", "core/src/config/ui-state-store.ts"]
+      "source_paths": ["core/src/sessions/pinned-instructions.ts", "ui/workspace/src/components/WorkspaceObjectsPane.tsx", "ui/workspace/src/store/workspaceStore.ts", "core/src/config/ui-state-store.ts"]
     },
     {
       "id": "chat-new-workspace-folder",
@@ -795,7 +799,7 @@
       "detail": "고정 지침을 사용자 메시지 앞에 붙이지 않고 별도 항목으로 AI에 전달합니다. 대화 기록에 고정 지침 문구가 섞이지 않습니다.",
       "area": "chat",
       "created_at": "2026-10-29",
-      "source_paths": ["core/src/chat/session-context.ts", "core/src/chat/chat-request.ts", "ui/workspace/src/lib/pinnedInstructions.ts"],
+      "source_paths": ["core/src/chat/session-context.ts", "core/src/chat/chat-request.ts", "core/src/sessions/pinned-instructions.ts"],
       "release": { "version": "1.1.21", "update_sequence": 69 }
     },
     {
