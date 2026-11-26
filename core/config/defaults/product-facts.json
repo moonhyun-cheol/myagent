@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-11-19T04:12:21.326Z",
+  "generated_at": "2026-11-26T03:16:29.496Z",
   "note": "Build-generated. Prefer over memory. Re-run: node tools/sync-product-facts.mjs",
   "layout": {
     "primary_ui": "ui/workspace",
@@ -35,6 +35,8 @@
       "/skills",
       "/agent-plugins",
       "/mcp",
+      "/ssh",
+      "/datasets",
       "/generate",
       "/outputs",
       "/admin",
@@ -55,7 +57,7 @@
       "/debug",
       "/assets/"
     ],
-    "route_count": 127,
+    "route_count": 132,
     "routes": [
       {
         "method": "GET",
@@ -265,6 +267,21 @@
       {
         "method": "GET",
         "path": "/config/workspace-capabilities",
+        "match": "exact"
+      },
+      {
+        "method": "GET",
+        "path": "/datasets",
+        "match": "exact"
+      },
+      {
+        "method": "POST",
+        "path": "/datasets/export/",
+        "match": "prefix"
+      },
+      {
+        "method": "PUT",
+        "path": "/datasets/operator-mode",
         "match": "exact"
       },
       {
@@ -633,28 +650,13 @@
         "match": "exact"
       },
       {
-        "method": "POST",
-        "path": "/system/ui-busy",
+        "method": "GET",
+        "path": "/ssh/key-candidates",
         "match": "exact"
       },
       {
         "method": "GET",
-        "path": "/system/update-gate",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/system/work-environment/pending",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/workspace",
-        "match": "exact"
-      },
-      {
-        "method": "GET",
-        "path": "/workspace/checkpoint/preview",
+        "path": "/ssh/servers",
         "match": "exact"
       }
     ]

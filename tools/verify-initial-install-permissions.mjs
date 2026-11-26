@@ -21,7 +21,8 @@ for (const required of ["'data\\vault'", "'data\\config'", "'data\\sessions'"]) 
   assert.ok(installer.includes(required), `missing post-copy writable probe: ${required}`);
 }
 assert.match(installerUi, /Controlled Folder Access/);
-assert.match(installerUi, /Folder permission blocked installation/);
+assert.match(installerUi, /Folder permissions blocked the install/);
+assert.match(installerUi, /\$failBlob -like '\*does not allow create, rename, and delete\*' -or \$failBlob -like '\*not fully writable\*' -or \$failBlob -like '\*not writable\*'/);
 
 const temp = mkdtempSync(path.join(os.tmpdir(), 'my-agent-install-permissions-'));
 try {
