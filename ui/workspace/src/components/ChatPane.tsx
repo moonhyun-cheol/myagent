@@ -765,7 +765,16 @@ export function ChatPane() {
   // Older messages not fetched yet come from the server page by page (newest first).
   // After a fetch the new turns are still unmounted; mount them while the user is at the top.
   const pendingOlderExpandRef = useRef(false);
-  useEffect(() => { pendingOlderExpandRef.current = false; }, [activeSessionId]);
+  useEffect(() => {
+    pendingOlderExpandRef.current = false;
+    // Re-entering a conversation starts from the newest window again; keeping a fully expanded
+    // window would remount every turn at once (froze long chats after a round trip).
+    setRenderWindow((prev) =>
+      prev.sessionId === activeSessionId && prev.limit === CHAT_RENDER_WINDOW
+        ? prev
+        : { sessionId: activeSessionId, limit: CHAT_RENDER_WINDOW },
+    );
+  }, [activeSessionId]);
   const requestOlderHistory = useCallback(() => {
     if (!canLoadOlder) return;
     // Also when a prefetch is already in flight: its result is mounted as soon as it lands.
