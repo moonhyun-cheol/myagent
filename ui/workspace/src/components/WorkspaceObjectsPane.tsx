@@ -12,7 +12,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { isAllowedDocumentPath } from '../lib/documentFile';
 import { navigateTabs } from '../lib/tabNavigation';
 import { openWorkspaceFileWithConfiguredApp } from '../lib/applicationAssociations';
-import { loadPinnedInstructions, savePinnedInstructions as persistPinnedInstructions } from '../lib/pinnedInstructions';
+import { fetchSessionPinnedInstructions, saveSessionPinnedInstructions } from '../api/myAgentClient';
 import type { WorkspaceAsset } from '../types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { AssetExplorer } from './AssetExplorer';
@@ -122,7 +122,8 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   const tabId = useId();
   const [instructionDraft, setInstructionDraft] = useState('');
   const activeSessionId = useWorkspaceStore((state) => state.activeSessionId);
-  const [pinnedInstructions, setPinnedInstructions] = useState<string[]>(() => loadPinnedInstructions(activeSessionId));
+  const [pinnedInstructions, setPinnedInstructions] = useState<string[]>([]);
+  const pinnedSessionRef = useRef(activeSessionId);
   const assets = useWorkspaceStore((state) => state.assets);
   const browserHistory = useWorkspaceStore((state) => state.browserHistory);
   const browserLoadedUrl = useWorkspaceStore((state) => state.browserLoadedUrl);
@@ -144,9 +145,16 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   const lastEditorTabId = useRef(activeEditorTabId);
 
   useEffect(() => { void refreshExplorer(); }, [refreshExplorer]);
-  // Pinned instructions belong to one conversation; reload them whenever the chat changes.
+  // Pinned instructions live on the conversation record; reload them whenever the chat changes.
   useEffect(() => {
-    setPinnedInstructions(loadPinnedInstructions(activeSessionId));
+    pinnedSessionRef.current = activeSessionId;
+    setPinnedInstructions([]);
+    if (!activeSessionId) return;
+    let cancelled = false;
+    fetchSessionPinnedInstructions(activeSessionId)
+      .then((items) => { if (!cancelled) setPinnedInstructions(items); })
+      .catch(() => { /* keep empty view; core still applies what it has stored */ });
+    return () => { cancelled = true; };
   }, [activeSessionId]);
   // Opening a file (from any pane) shows it in 「열린 파일」 instead of pushing the other sub-tabs down.
   useEffect(() => {
@@ -158,9 +166,13 @@ export function WorkspaceObjectsPane({ showDownloadActions = false, todoItems = 
   }, [openTabCount]);
 
   const savePinnedInstructions = (next: string[]) => {
-    if (!activeSessionId) return;
+    const sessionId = activeSessionId;
+    if (!sessionId) return;
+    const previous = pinnedInstructions;
     setPinnedInstructions(next);
-    persistPinnedInstructions(activeSessionId, next);
+    saveSessionPinnedInstructions(sessionId, next)
+      .then((stored) => { if (pinnedSessionRef.current === sessionId) setPinnedInstructions(stored); })
+      .catch(() => { if (pinnedSessionRef.current === sessionId) setPinnedInstructions(previous); });
   };
   const canPinInstruction = Boolean(activeSessionId);
   const openBrowserReference = (url: string) => { navigateBrowser(url); setMode('browser'); };

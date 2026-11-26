@@ -158,6 +158,8 @@ export interface SessionRecord {
   preferred_model?: string;
   /** Absolute roots writable by this conversation; first entry is the relative-path base and every entry is enforced. */
   allowed_paths?: string[];
+  /** 작업 → 할 일 → 고정 지침 for this conversation (max 12 × 500 chars). Core injects it every turn. */
+  pinned_instructions?: string[];
   /** The active model/provider owns one chain; switching either starts a new chain. */
   responses_state?: ResponsesContinuationState;
   /** Independent chat/agent/MAR lanes; prevents concurrent roles from sharing a chain. */

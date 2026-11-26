@@ -12,6 +12,7 @@ export async function exportPortableSession(sessionId: string): Promise<void> {
       title: session.title,
       created_at: session.created_at,
       updated_at: session.updated_at,
+      ...(session.pinned_instructions?.length ? { pinned_instructions: session.pinned_instructions } : {}),
       // Sidebar ids are local to this PC; import places the chat where the user picks.
       messages: session.messages.map((message) => ({
         role: message.role,

@@ -13,6 +13,8 @@ import { ProviderStore } from './providers/provider-store.js';
 import { findLlamaServerBinary } from './inference/llama-backend.js';
 import { ChatOrchestrator } from './chat/chat-orchestrator.js';
 import { SessionStore } from './sessions/session-store.js';
+import { migratePinnedInstructionsFromUiState } from './sessions/pinned-instructions.js';
+import { uiStatePath } from './config/ui-state-store.js';
 import { ProjectStore } from './projects/project-store.js';
 import { SetupService } from './setup/setup-service.js';
 import { readProductVersion } from './config/product-version.js';
@@ -146,6 +148,13 @@ export async function createApiServer(port: number) {
     // Daily VACUUM INTO snapshot runs in a worker after listen (see below).
     { deferDailyBackup: true },
   );
+  try {
+    // 고정 지침 moved from ui-state.json into the session records (one-time; retried on failure).
+    const pinned = migratePinnedInstructionsFromUiState(sessionStore, uiStatePath(userConfigPath), cqrRoot);
+    if (pinned) startLog(`pinned-instructions-migration moved=${pinned.moved} kept=${pinned.kept} dropped=${pinned.dropped}`);
+  } catch (e: unknown) {
+    startLog(`pinned-instructions-migration failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   boot.lap('sessions');
   const setup = new SetupService(paths.vaultDir, cqrRoot, providerStore);
   providerStore.migrateVaultIfNeeded();

@@ -166,6 +166,8 @@ export interface SessionRecord {
   effective_preferred_model?: string;
   allowed_paths?: string[];
   execution_policy?: ExecutionPolicy;
+  /** 작업 → 할 일 → 고정 지침, stored on the conversation record. */
+  pinned_instructions?: string[];
 }
 
 export interface SessionActiveRun {
@@ -1054,6 +1056,26 @@ export async function setSessionProject(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || data.error || `프로젝트 이동 실패 (${res.status})`);
   return data as SessionRecord;
+}
+
+/** 고정 지침 live on the conversation record in core (sessions.sqlite). */
+export async function fetchSessionPinnedInstructions(sessionId: string): Promise<string[]> {
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/pinned-instructions`, { cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `고정 지침 불러오기 실패 (${res.status})`);
+  return Array.isArray(data.items) ? data.items.filter((item: unknown): item is string => typeof item === 'string') : [];
+}
+
+/** Returns the list core actually stored (trimmed, de-duplicated, max 12 × 500 chars). */
+export async function saveSessionPinnedInstructions(sessionId: string, items: string[]): Promise<string[]> {
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/pinned-instructions`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || data.error || `고정 지침 저장 실패 (${res.status})`);
+  return Array.isArray(data.items) ? data.items.filter((item: unknown): item is string => typeof item === 'string') : [];
 }
 
 export async function setSessionPreferredModel(
@@ -2191,8 +2213,8 @@ export async function streamChat(
     };
     /** Explicit session (queue jobs must not use the viewed session). */
     sessionId?: string;
-    /** User-pinned standing instructions; core adds them as context, not message text. */
-    pinned_instructions?: string[];
+    /** Surfaces such as 문서 AI 메모 must not receive the conversation's 고정 지침. */
+    omit_pinned_instructions?: boolean;
   },
   handlers: StreamHandlers,
 ): Promise<void> {
@@ -2206,7 +2228,7 @@ export async function streamChat(
   if (opts.execution_policy) body.execution_policy = opts.execution_policy;
   if (opts.mode && opts.mode !== 'chat') body.mode = opts.mode;
   if (opts.editor_context) body.editor_context = opts.editor_context;
-  if (opts.pinned_instructions?.length) body.pinned_instructions = opts.pinned_instructions;
+  if (opts.omit_pinned_instructions) body.omit_pinned_instructions = true;
 
   const res = await fetch('/chat/stream', {
     method: 'POST',

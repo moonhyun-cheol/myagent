@@ -3203,6 +3203,22 @@ export async function dispatchApiRequest(
         return sendJson(res, 200, { sessionId: sid, todos: ledger?.todos ?? [], updatedAt: ledger?.updatedAt ?? null });
       }
 
+      const sessionPinnedMatch = url.pathname.match(/^\/sessions\/([^/]+)\/pinned-instructions$/);
+      if (sessionPinnedMatch && method === 'GET') {
+        license.assertFeature('chat');
+        if (!sessionStore.load(sessionPinnedMatch[1])) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        return sendJson(res, 200, { items: sessionStore.getPinnedInstructions(sessionPinnedMatch[1]) });
+      }
+      if (sessionPinnedMatch && method === 'PUT') {
+        license.assertWritable();
+        license.assertFeature('chat');
+        const body = JSON.parse(await readBody(req)) as { items?: unknown };
+        if (!Array.isArray(body.items)) return sendJson(res, 400, { error: 'INVALID_PINNED_INSTRUCTIONS' });
+        const items = sessionStore.setPinnedInstructions(sessionPinnedMatch[1], body.items);
+        if (!items) return sendJson(res, 404, { error: 'SESSION_NOT_FOUND' });
+        return sendJson(res, 200, { items });
+      }
+
       const sessionModelMatch = url.pathname.match(/^\/sessions\/([^/]+)\/preferred-model$/);
       if (sessionModelMatch && method === 'PUT') {
         license.assertWritable();

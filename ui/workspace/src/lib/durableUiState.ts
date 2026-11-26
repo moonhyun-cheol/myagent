@@ -13,7 +13,8 @@ export const DURABLE_UI_KEYS: readonly string[] = [
   'my-agent-workspace-session',
   'my-agent-workspace-pinned-sessions',
   'my-agent-workspace-pinned-nodes',
-  // v1 = former app-wide list, kept only so its migration/removal reaches ui-state.json.
+  // 고정 지침 now live in sessions.sqlite. Core migrates and removes these keys once; they stay
+  // listed so hydrate drops stale per-origin copies instead of resurrecting them.
   'my-agent-pinned-instructions-v1',
   'my-agent-pinned-instructions-v2',
   'myagent.minimize-to-tray-on-close',

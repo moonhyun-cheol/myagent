@@ -1,6 +1,9 @@
 import type { ChatMode, ChatRequest } from '../router/types.js';
 import { isOrgSkillMode } from '../skills/organization-skill-store.js';
 import { isUserSkillMode } from '../skills/user-skill-store.js';
+import { normalizePinnedInstructions } from '../sessions/pinned-instructions.js';
+
+export { normalizePinnedInstructions };
 
 export function parseChatRequest(raw: string): ChatRequest {
   const doc = JSON.parse(raw) as ChatRequest;
@@ -13,22 +16,8 @@ export function parseChatRequest(raw: string): ChatRequest {
   if (legacyMode === 'code_agent' || legacyMode === 'web_landing') doc.mode = 'web_dev';
   else if (legacyMode === 'prompt_master') doc.mode = 'chat';
   doc.pinned_instructions = normalizePinnedInstructions(doc.pinned_instructions);
+  doc.omit_pinned_instructions = doc.omit_pinned_instructions === true ? true : undefined;
   return doc;
-}
-
-const MAX_PINNED_INSTRUCTIONS = 12;
-const MAX_PINNED_INSTRUCTION_CHARS = 500;
-
-/** Untrusted client input: strings only, trimmed, de-duplicated, count/length capped. */
-export function normalizePinnedInstructions(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const items = [...new Set(
-    value
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim().slice(0, MAX_PINNED_INSTRUCTION_CHARS))
-      .filter(Boolean),
-  )].slice(0, MAX_PINNED_INSTRUCTIONS);
-  return items.length ? items : undefined;
 }
 
 const ALL_MODES: ChatMode[] = [

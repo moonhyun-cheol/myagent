@@ -287,9 +287,18 @@ function buildWorkspaceTreeContext(
   return parts.filter((p) => p.trim()).join('\n\n');
 }
 
-/** Request-scoped standing instructions pinned by the user in the 작업 panel. */
-export function buildPinnedInstructionsContext(req: ChatRequest | undefined): string {
-  const items = req?.pinned_instructions ?? [];
+/**
+ * Standing instructions pinned by the user in the 작업 panel. The conversation record is the
+ * source; the request field is a one-update fallback for older UIs.
+ */
+export function buildPinnedInstructionsContext(
+  req: ChatRequest | undefined,
+  sessionStore?: SessionStore,
+  sessionId?: string,
+): string {
+  if (req?.omit_pinned_instructions) return '';
+  const stored = sessionStore && sessionId ? sessionStore.getPinnedInstructions(sessionId) : [];
+  const items = stored.length ? stored : (req?.pinned_instructions ?? []);
   if (!items.length) return '';
   return [
     '## 사용자 고정 지침',
@@ -331,7 +340,7 @@ export function buildWorkspaceContextParts(
 ): { turn: string; stable: string } {
   const editor = buildEditorContextSnippet(req?.editor_context);
   const turnParts: string[] = [];
-  const pinned = buildPinnedInstructionsContext(req);
+  const pinned = buildPinnedInstructionsContext(req, sessionStore, sessionId);
   if (pinned) turnParts.push(pinned);
   if (editor) turnParts.push(editor);
   const turn = turnParts.join('\n\n');

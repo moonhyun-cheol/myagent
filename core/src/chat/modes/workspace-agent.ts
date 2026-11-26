@@ -286,7 +286,7 @@ export async function runWorkspaceCodeAgent(opts: {
   // is sent once before history; only the request-scoped part rides in the turn context.
   const workspaceParts = fileAccess === 'none'
     ? {
-        turn: [buildPinnedInstructionsContext(req), editorSnippet].filter((p) => p.trim()).join('\n\n'),
+        turn: [buildPinnedInstructionsContext(req, sessionStore, sessionId), editorSnippet].filter((p) => p.trim()).join('\n\n'),
         // Scratch dir has no project files: memory + explicit no-folder note only.
         stable: [
           buildUserMemoryContext(configPath, sessionStore, projectStore, sessionId),

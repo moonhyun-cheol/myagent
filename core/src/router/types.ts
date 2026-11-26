@@ -61,10 +61,12 @@ export interface ChatRequest {
   web_search?: boolean;
   editor_context?: EditorContext;
   /**
-   * User-pinned standing instructions (작업 → 할 일 → 고정 지침). Request-scoped context only:
-   * injected into the system/workspace context each turn, never stored as user message text.
+   * @deprecated Transition only (one update): older UIs sent 고정 지침 per request. The session
+   * record's `pinned_instructions` wins; this is used only when the record has none.
    */
   pinned_instructions?: string[];
+  /** True for surfaces that must not receive 고정 지침 (문서 AI 메모). */
+  omit_pinned_instructions?: boolean;
 }
 
 export interface ChatResponse {

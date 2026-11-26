@@ -17,6 +17,7 @@ import type {
   VideoJobRecord,
 } from './types.js';
 import { gcDeletedSessionTemp } from './session-temp-gc.js';
+import { normalizePinnedInstructions } from './pinned-instructions.js';
 import { formatCarriedMediaNote, sanitizeLocalMediaUrls } from './session-media-urls.js';
 import {
   pushResponseDelta,
@@ -226,9 +227,11 @@ export class SessionStore {
         : messages.find((message) => message.role === 'user')?.content ?? '가져온 세션',
     ) || '가져온 세션';
     const now = new Date().toISOString();
+    const pinned = normalizePinnedInstructions(conversation.pinned_instructions);
     const rec: SessionRecord = {
       id: randomUUID(), title, created_at: now, updated_at: now, messages,
       project_id: projectId, workspace_project_id: workspaceProjectId,
+      ...(pinned ? { pinned_instructions: pinned } : {}),
     };
     this.save(rec);
     return rec;
@@ -741,6 +744,21 @@ export class SessionStore {
     // Binding is not conversation activity: preserve ordering within its owner.
     this.save(rec);
     return rec;
+  }
+
+  getPinnedInstructions(id: string): string[] {
+    return normalizePinnedInstructions(this.load(id)?.pinned_instructions) ?? [];
+  }
+
+  /** Standing instructions are not conversation activity: ordering/auto-archive stay unchanged. */
+  setPinnedInstructions(id: string, items: unknown): string[] | null {
+    const rec = this.load(id);
+    if (!rec) return null;
+    const list = normalizePinnedInstructions(items);
+    if (list) rec.pinned_instructions = list;
+    else delete rec.pinned_instructions;
+    this.save(rec);
+    return list ?? [];
   }
 
   setPreferredModel(id: string, model: string): SessionRecord | null {

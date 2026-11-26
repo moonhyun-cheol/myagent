@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { BROWSER_HISTORY_MAX, normalizeBrowserUrl } from '../lib/browserUrl';
 import { choiceDialog, confirmDialog } from '../lib/confirmDialog';
-import { loadPinnedInstructions } from '../lib/pinnedInstructions';
 import { showUserNotification } from '../lib/userNotifications';
 import { normalizeReasoningLevelForModel } from '../lib/reasoning-levels';
 import {
@@ -1300,9 +1299,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
               paths: contextPaths.length ? contextPaths : undefined,
             }
           : undefined;
-      // Sent as a separate field so history, retries and regeneration never contain or duplicate it.
-      // Scoped to the job's own conversation: a queued run must not pick up the chat now on screen.
-      const pinnedInstructions = job.uiSurface === 'document-memo' ? [] : loadPinnedInstructions(sid);
+      // 고정 지침 are read by core from the job's own session record; 문서 AI 메모 opts out.
+      const omitPinnedInstructions = job.uiSurface === 'document-memo';
 
       const primaryMode = job.skillMode || 'chat';
       const finalOnly = primaryMode === 'web_dev';
@@ -1330,7 +1328,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         streamChat(
           {
             message: job.displayText,
-            pinned_instructions: pinnedInstructions,
+            omit_pinned_instructions: omitPinnedInstructions,
             mode: chatMode === 'chat' ? undefined : chatMode,
             model: job.model,
             execution_policy: job.executionPolicy,
